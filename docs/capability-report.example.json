@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-25T00:00:00.000Z",
+  "environment": {
+    "browser": "chrome",
+    "platform": "windows"
+  },
+  "capabilities": [
+    {
+      "id": "separate-user-data-directory",
+      "tier": "reliable",
+      "control": "not_applicable",
+      "operation": "verified",
+      "evidence": {
+        "profileDirectory": "<redacted>",
+        "fixtureIsolation": true
+      }
+    },
+    {
+      "id": "proxy-exit",
+      "tier": "best_effort",
+      "control": "not_applicable",
+      "operation": "not_requested"
+    },
+    {
+      "id": "tls-fingerprint",
+      "tier": "unsupported",
+      "control": "not_controllable",
+      "operation": "not_requested"
+    }
+  ]
+}

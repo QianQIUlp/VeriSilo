@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VeriSilo session fixture</title>
+  </head>
+  <body>
+    <h1>Local session fixture</h1>
+    <label>Identity <input id="identity" /></label>
+    <button id="save">Save local session</button>
+    <button id="clear">Clear local session</button>
+    <output id="status"></output>
+    <script>
+      const input = document.querySelector("#identity");
+      const status = document.querySelector("#status");
+      function show() {
+        const identity = localStorage.getItem("verisilo-fixture");
+        status.textContent = identity
+          ? `Current session: ${identity}`
+          : "No local session";
+      }
+      document.querySelector("#save").addEventListener("click", () => {
+        localStorage.setItem("verisilo-fixture", input.value);
+        document.cookie = `verisilo-fixture=${encodeURIComponent(input.value)}; SameSite=Lax; Path=/`;
+        show();
+      });
+      document.querySelector("#clear").addEventListener("click", () => {
+        localStorage.removeItem("verisilo-fixture");
+        document.cookie = "verisilo-fixture=; Max-Age=0; Path=/";
+        show();
+      });
+      show();
+    </script>
+  </body>
+</html>

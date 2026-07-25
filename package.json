@@ -1,0 +1,27 @@
+{
+  "name": "verisilo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Verified browser environment isolation and privacy auditing.",
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=11.0.0"
+  },
+  "scripts": {
+    "build": "pnpm --recursive run build",
+    "check": "pnpm --recursive run check",
+    "test": "pnpm --recursive run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "assets:generate": "node scripts/generate-tauri-icon.mjs",
+    "extension:build": "pnpm --filter @verisilo/extension build",
+    "extension:verify": "node scripts/verify-extension-bundle.mjs",
+    "extension:dev": "pnpm --filter @verisilo/extension dev",
+    "desktop:dev": "pnpm --filter @verisilo/desktop dev",
+    "desktop:build": "pnpm --filter @verisilo/desktop build"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3"
+  }
+}
