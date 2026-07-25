@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "VeriSilo Companion",
+  "version": "0.1.0",
+  "description": "Local browser-environment verification and privacy signal auditing for VeriSilo.",
+  "action": {
+    "default_title": "Open VeriSilo"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "activeTab",
+    "nativeMessaging",
+    "scripting"
+  ],
+  "optional_permissions": ["privacy", "proxy", "declarativeNetRequest"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"]
+}
