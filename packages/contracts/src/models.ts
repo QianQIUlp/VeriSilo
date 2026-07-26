@@ -78,8 +78,62 @@ const fixedProxyNetworkProfileSchema = z
       .regex(/^[A-Za-z0-9.:-]+$/),
     port: z.number().int().min(1).max(65535),
     bypassList: z.array(z.string().min(1).max(255)).max(100),
+    credentialRef: z.string().uuid().optional(),
+    externalMihomo: z
+      .object({
+        controllerUrl: z.string().url().max(2_048),
+        selectorGroup: z.string().trim().min(1).max(128),
+        nodeName: z.string().trim().min(1).max(256),
+        controllerSecretRef: z.string().uuid().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
+
+function validateFixedProxyProfile(
+  profile: z.infer<typeof fixedProxyNetworkProfileSchema>,
+  context: z.RefinementCtx,
+): void {
+  if (profile.proxyRequired && profile.bypassList.length > 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "A required proxy profile cannot contain direct bypass rules.",
+      path: ["bypassList"],
+    });
+  }
+  if (profile.externalMihomo !== undefined) {
+    let controller: URL | null = null;
+    try {
+      controller = new URL(profile.externalMihomo.controllerUrl);
+    } catch {
+      // The URL schema reports the primary issue.
+    }
+    const loopbackController =
+      controller !== null &&
+      controller.protocol === "http:" &&
+      ["127.0.0.1", "[::1]"].includes(controller.hostname) &&
+      controller.port !== "" &&
+      controller.username === "" &&
+      controller.password === "" &&
+      controller.pathname === "/" &&
+      controller.search === "" &&
+      controller.hash === "";
+    if (
+      !profile.proxyRequired ||
+      profile.scheme !== "socks5" ||
+      !["127.0.0.1", "::1"].includes(profile.host) ||
+      !loopbackController
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "An external Mihomo binding requires a fail-closed loopback SOCKS5 endpoint and a loopback HTTP controller.",
+        path: ["externalMihomo"],
+      });
+    }
+  }
+}
 
 const pacNetworkProfileSchema = z
   .object({
@@ -89,12 +143,66 @@ const pacNetworkProfileSchema = z
   })
   .strict();
 
-export const networkProfileSchema = z.discriminatedUnion("mode", [
-  directNetworkProfileSchema,
-  fixedProxyNetworkProfileSchema,
-  pacNetworkProfileSchema,
-]);
+export const networkProfileSchema = z
+  .discriminatedUnion("mode", [
+    directNetworkProfileSchema,
+    fixedProxyNetworkProfileSchema,
+    pacNetworkProfileSchema,
+  ])
+  .superRefine((profile, context) => {
+    if (profile.mode === "fixed_proxy") {
+      validateFixedProxyProfile(profile, context);
+    }
+  });
 export type NetworkProfile = z.infer<typeof networkProfileSchema>;
+
+export const proxyCredentialsInputSchema = z
+  .object({
+    username: z.string().trim().min(1).max(512),
+    password: z.string().max(1_024),
+  })
+  .strict();
+export type ProxyCredentialsInput = z.infer<typeof proxyCredentialsInputSchema>;
+
+export const mihomoControllerSecretInputSchema = z
+  .object({
+    secret: z.string().max(1_024),
+  })
+  .strict();
+export type MihomoControllerSecretInput = z.infer<
+  typeof mihomoControllerSecretInputSchema
+>;
+
+export const runtimeEvidenceStateSchema = z.enum([
+  "not_applicable",
+  "not_requested",
+  "configured",
+  "reachable",
+  "applied",
+  "verified",
+  "failed",
+  "unavailable",
+]);
+export type RuntimeEvidenceState = z.infer<typeof runtimeEvidenceStateSchema>;
+
+export const runtimeNetworkEvidenceSchema = z
+  .object({
+    provider: z.enum(["direct", "fixed_proxy", "external_mihomo", "pac"]),
+    configuration: runtimeEvidenceStateSchema,
+    controllerBinding: runtimeEvidenceStateSchema,
+    endpoint: runtimeEvidenceStateSchema,
+    authentication: runtimeEvidenceStateSchema,
+    browserRouting: runtimeEvidenceStateSchema,
+    exit: runtimeEvidenceStateSchema,
+    dns: runtimeEvidenceStateSchema,
+    webRtc: runtimeEvidenceStateSchema,
+    endpointLabel: z.string().max(512).optional(),
+    safeguards: z.array(z.string().min(1).max(160)).max(12),
+  })
+  .strict();
+export type RuntimeNetworkEvidence = z.infer<
+  typeof runtimeNetworkEvidenceSchema
+>;
 
 export const siloSchema = z
   .object({
@@ -129,6 +237,7 @@ export const runtimeActivationSchema = z
     ]),
     updatedAt: z.string().datetime(),
     message: z.string().max(512).optional(),
+    networkEvidence: runtimeNetworkEvidenceSchema.nullable(),
   })
   .strict();
 export type RuntimeActivation = z.infer<typeof runtimeActivationSchema>;

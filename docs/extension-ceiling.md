@@ -1,5 +1,7 @@
 # Pure extension and launcher ceiling
 
+This document describes the MV3 extension and stock-browser launcher ceiling, not VeriSilo's permanent product ceiling. Capabilities that need an engine, VM, or remote environment are scheduled in [the environment roadmap](environment-roadmap.md).
+
 | Capability | Observe | Configure | Verify | Tier | Boundary |
 | --- | --- | --- | --- | --- |
 | Separate browser data directory | Yes | Yes | Yes | reliable | Created and launched by the desktop application. |

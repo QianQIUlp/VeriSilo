@@ -16,23 +16,23 @@ use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::domain::{CreateSiloInput, Silo, VaultLockState, VaultStatus, SCHEMA_VERSION};
 
 const AUTO_LOCK_MINUTES: i64 = 15;
 const VAULT_FILE_NAME: &str = "vault.json";
 const VAULT_ENVELOPE_VERSION: u32 = 2;
+const VAULT_DATA_SCHEMA_VERSION: u32 = 3;
 const KDF_MEMORY_KIB: u32 = 19_456;
 const KDF_ITERATIONS: u32 = 2;
 const KDF_PARALLELISM: u32 = 1;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct VaultRuntime {
     unlocked: Option<UnlockedVault>,
 }
 
-#[derive(Debug)]
 struct UnlockedVault {
     /// Random data-encryption key. It encrypts only the vault payload, never
     /// browser-owned profile files.
@@ -44,12 +44,81 @@ struct UnlockedVault {
     auto_lock_at: chrono::DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VaultData {
     schema_version: u32,
     silos: Vec<Silo>,
     seed_material: HashMap<Uuid, String>,
+    #[serde(default)]
+    proxy_credentials: HashMap<Uuid, StoredProxyCredential>,
+    #[serde(default)]
+    mihomo_controller_secrets: HashMap<Uuid, StoredMihomoControllerSecret>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredProxyCredential {
+    username: String,
+    password: String,
+}
+
+impl Drop for StoredProxyCredential {
+    fn drop(&mut self) {
+        self.username.zeroize();
+        self.password.zeroize();
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredMihomoControllerSecret {
+    secret: String,
+}
+
+impl Drop for StoredMihomoControllerSecret {
+    fn drop(&mut self) {
+        self.secret.zeroize();
+    }
+}
+
+#[derive(Clone)]
+pub struct ProxyAuthentication {
+    username: Zeroizing<String>,
+    password: Zeroizing<String>,
+}
+
+pub struct MihomoControllerAuthentication {
+    secret: Zeroizing<String>,
+}
+
+impl MihomoControllerAuthentication {
+    pub(crate) fn new(secret: String) -> Self {
+        Self {
+            secret: Zeroizing::new(secret),
+        }
+    }
+
+    pub fn secret(&self) -> &str {
+        self.secret.as_str()
+    }
+}
+
+impl ProxyAuthentication {
+    pub(crate) fn new(username: String, password: String) -> Self {
+        Self {
+            username: Zeroizing::new(username),
+            password: Zeroizing::new(password),
+        }
+    }
+
+    pub fn username(&self) -> &str {
+        self.username.as_str()
+    }
+
+    pub fn password(&self) -> &str {
+        self.password.as_str()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -121,9 +190,11 @@ impl VaultRuntime {
         let salt = random_bytes::<16>();
         let kek = derive_key(passphrase, &salt)?;
         let data = VaultData {
-            schema_version: SCHEMA_VERSION,
+            schema_version: VAULT_DATA_SCHEMA_VERSION,
             silos: Vec::new(),
             seed_material: HashMap::new(),
+            proxy_credentials: HashMap::new(),
+            mihomo_controller_secrets: HashMap::new(),
         };
         let unlocked = UnlockedVault {
             dek: Zeroizing::new(random_bytes()),
@@ -193,14 +264,21 @@ impl VaultRuntime {
         };
         let cipher =
             Aes256Gcm::new_from_slice(data_key).map_err(|_| VaultError::CryptographicSetup)?;
-        let plaintext = cipher
-            .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
-            .map_err(|_| VaultError::InvalidPassphrase)?;
-        let data: VaultData =
-            serde_json::from_slice(&plaintext).map_err(|_| VaultError::InvalidData)?;
-        if data.schema_version != SCHEMA_VERSION {
-            return Err(VaultError::InvalidData);
-        }
+        let plaintext = Zeroizing::new(
+            cipher
+                .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+                .map_err(|_| VaultError::InvalidPassphrase)?,
+        );
+        let mut data: VaultData =
+            serde_json::from_slice(plaintext.as_ref()).map_err(|_| VaultError::InvalidData)?;
+        let migrated_data_schema = match data.schema_version {
+            1 | 2 => {
+                data.schema_version = VAULT_DATA_SCHEMA_VERSION;
+                true
+            }
+            VAULT_DATA_SCHEMA_VERSION => false,
+            _ => return Err(VaultError::InvalidData),
+        };
 
         self.unlocked = Some(UnlockedVault {
             dek,
@@ -209,7 +287,7 @@ impl VaultRuntime {
             data,
             auto_lock_at: auto_lock_time(),
         });
-        if migrated_from_legacy {
+        if migrated_from_legacy || migrated_data_schema {
             if let Err(error) = self.persist(root) {
                 self.lock();
                 return Err(error);
@@ -248,6 +326,59 @@ impl VaultRuntime {
             .collect())
     }
 
+    pub fn proxy_authentication_for_silo(
+        &mut self,
+        silo_id: Uuid,
+    ) -> Result<Option<ProxyAuthentication>, VaultError> {
+        let unlocked = self.unlocked_mut()?;
+        let credential_reference = unlocked
+            .data
+            .silos
+            .iter()
+            .find(|silo| silo.id == silo_id && silo.archived_at.is_none())
+            .ok_or(VaultError::SiloNotFound)?
+            .network_profile
+            .credential_reference();
+        let Some(reference) = credential_reference else {
+            return Ok(None);
+        };
+        let credential = unlocked
+            .data
+            .proxy_credentials
+            .get(&reference)
+            .ok_or(VaultError::InvalidData)?;
+        Ok(Some(ProxyAuthentication::new(
+            credential.username.clone(),
+            credential.password.clone(),
+        )))
+    }
+
+    pub fn mihomo_controller_authentication_for_silo(
+        &mut self,
+        silo_id: Uuid,
+    ) -> Result<Option<MihomoControllerAuthentication>, VaultError> {
+        let unlocked = self.unlocked_mut()?;
+        let secret_reference = unlocked
+            .data
+            .silos
+            .iter()
+            .find(|silo| silo.id == silo_id && silo.archived_at.is_none())
+            .ok_or(VaultError::SiloNotFound)?
+            .network_profile
+            .mihomo_controller_secret_reference();
+        let Some(reference) = secret_reference else {
+            return Ok(None);
+        };
+        let stored = unlocked
+            .data
+            .mihomo_controller_secrets
+            .get(&reference)
+            .ok_or(VaultError::InvalidData)?;
+        Ok(Some(MihomoControllerAuthentication::new(
+            stored.secret.clone(),
+        )))
+    }
+
     pub fn silo_profile_directory(&mut self, silo_id: Uuid) -> Result<PathBuf, VaultError> {
         let unlocked = self.unlocked_mut()?;
         unlocked
@@ -265,6 +396,15 @@ impl VaultRuntime {
             .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
         // Refuse sensitive state changes before creating even an empty profile directory.
         self.unlocked_mut()?;
+        let CreateSiloInput {
+            name,
+            color,
+            browser_kind,
+            executable_path,
+            mut network_profile,
+            proxy_credentials,
+            mihomo_controller_secret,
+        } = input;
         let silo_id = Uuid::new_v4();
         let seed_reference = Uuid::new_v4();
         let profile_directory = root
@@ -273,18 +413,44 @@ impl VaultRuntime {
             .join("browser-data");
         fs::create_dir_all(&profile_directory)?;
 
+        let stored_proxy_credential = proxy_credentials.map(|credentials| {
+            let reference = Uuid::new_v4();
+            network_profile
+                .set_credential_reference(reference)
+                .expect("validated fixed proxy accepts a credential reference");
+            (
+                reference,
+                StoredProxyCredential {
+                    username: credentials.username,
+                    password: credentials.password,
+                },
+            )
+        });
+        let stored_mihomo_controller_secret = mihomo_controller_secret.map(|controller_secret| {
+            let reference = Uuid::new_v4();
+            network_profile
+                .set_mihomo_controller_secret_reference(reference)
+                .expect("validated external Mihomo binding accepts a secret reference");
+            (
+                reference,
+                StoredMihomoControllerSecret {
+                    secret: controller_secret.secret,
+                },
+            )
+        });
+
         let silo = Silo {
             id: silo_id,
             schema_version: SCHEMA_VERSION,
-            name: input.name.trim().to_owned(),
-            color: input.color,
+            name: name.trim().to_owned(),
+            color,
             browser: crate::domain::BrowserDescriptor {
-                kind: input.browser_kind,
-                executable_path: input.executable_path,
+                kind: browser_kind,
+                executable_path,
                 version: None,
             },
             profile_directory: profile_directory.to_string_lossy().to_string(),
-            network_profile: input.network_profile,
+            network_profile,
             seed_reference,
             created_at: Utc::now(),
             archived_at: None,
@@ -295,6 +461,12 @@ impl VaultRuntime {
             let unlocked = self.unlocked_mut()?;
             let mut data = unlocked.data.clone();
             data.seed_material.insert(seed_reference, seed);
+            if let Some((reference, credentials)) = stored_proxy_credential {
+                data.proxy_credentials.insert(reference, credentials);
+            }
+            if let Some((reference, secret)) = stored_mihomo_controller_secret {
+                data.mihomo_controller_secrets.insert(reference, secret);
+            }
             data.silos.push(silo.clone());
             data
         };
@@ -353,7 +525,7 @@ impl VaultRuntime {
     fn persist_data(&self, root: &Path, data: &VaultData) -> Result<(), VaultError> {
         recover_interrupted_write(root)?;
         let unlocked = self.unlocked.as_ref().ok_or(VaultError::Locked)?;
-        let plaintext = serde_json::to_vec(data)?;
+        let plaintext = Zeroizing::new(serde_json::to_vec(data)?);
         let nonce = random_bytes::<12>();
         let cipher = Aes256Gcm::new_from_slice(unlocked.dek.as_ref())
             .map_err(|_| VaultError::CryptographicSetup)?;
@@ -532,6 +704,8 @@ mod tests {
             schema_version: SCHEMA_VERSION,
             silos: Vec::new(),
             seed_material: Default::default(),
+            proxy_credentials: Default::default(),
+            mihomo_controller_secrets: Default::default(),
         })
         .expect("serialize legacy vault data");
         let cipher =
@@ -584,11 +758,128 @@ mod tests {
             network_profile: NetworkProfile::Direct {
                 proxy_required: false,
             },
+            proxy_credentials: None,
+            mihomo_controller_secret: None,
         };
 
         assert!(vault.create_silo(&root, input).is_err());
         assert!(!root.join("silos").exists());
 
+        fs::remove_dir_all(root).expect("remove test vault directory");
+    }
+
+    #[test]
+    fn proxy_credentials_are_encrypted_and_resolved_only_while_unlocked() {
+        use crate::domain::{ProxyCredentialsInput, ProxyScheme};
+
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create test vault directory");
+        let browser = root.join("chrome.exe");
+        fs::write(&browser, []).expect("create test browser file");
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, "a passphrase that is long enough")
+            .expect("initialize vault");
+
+        let silo = vault
+            .create_silo(
+                &root,
+                CreateSiloInput {
+                    name: "authenticated proxy".to_owned(),
+                    color: "#4f46e5".to_owned(),
+                    browser_kind: BrowserKind::Chrome,
+                    executable_path: browser.to_string_lossy().to_string(),
+                    network_profile: NetworkProfile::FixedProxy {
+                        proxy_required: true,
+                        scheme: ProxyScheme::Socks5,
+                        host: "proxy.example.test".to_owned(),
+                        port: 1080,
+                        bypass_list: Vec::new(),
+                        credential_reference: None,
+                        external_mihomo: None,
+                    },
+                    proxy_credentials: Some(ProxyCredentialsInput {
+                        username: "alice".to_owned(),
+                        password: "vault-only-secret".to_owned(),
+                    }),
+                    mihomo_controller_secret: None,
+                },
+            )
+            .expect("create authenticated Silo");
+
+        let raw_vault = fs::read(root.join("vault.json")).expect("read encrypted vault");
+        assert!(!String::from_utf8_lossy(&raw_vault).contains("vault-only-secret"));
+        assert!(silo.network_profile.credential_reference().is_some());
+        let authentication = vault
+            .proxy_authentication_for_silo(silo.id)
+            .expect("read credential reference")
+            .expect("credential exists");
+        assert_eq!(authentication.username(), "alice");
+        assert_eq!(authentication.password(), "vault-only-secret");
+
+        vault.lock();
+        assert!(vault.proxy_authentication_for_silo(silo.id).is_err());
+        fs::remove_dir_all(root).expect("remove test vault directory");
+    }
+
+    #[test]
+    fn mihomo_controller_secrets_are_encrypted_and_reference_only() {
+        use crate::domain::{ExternalMihomoBinding, MihomoControllerSecretInput, ProxyScheme};
+
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create test vault directory");
+        let browser = root.join("chrome.exe");
+        fs::write(&browser, []).expect("create test browser file");
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, "a passphrase that is long enough")
+            .expect("initialize vault");
+        let silo = vault
+            .create_silo(
+                &root,
+                CreateSiloInput {
+                    name: "mihomo node".to_owned(),
+                    color: "#4f46e5".to_owned(),
+                    browser_kind: BrowserKind::Chrome,
+                    executable_path: browser.to_string_lossy().to_string(),
+                    network_profile: NetworkProfile::FixedProxy {
+                        proxy_required: true,
+                        scheme: ProxyScheme::Socks5,
+                        host: "127.0.0.1".to_owned(),
+                        port: 7890,
+                        bypass_list: Vec::new(),
+                        credential_reference: None,
+                        external_mihomo: Some(ExternalMihomoBinding {
+                            controller_url: "http://127.0.0.1:9090/".to_owned(),
+                            selector_group: "GLOBAL".to_owned(),
+                            node_name: "Tokyo 01".to_owned(),
+                            controller_secret_reference: None,
+                        }),
+                    },
+                    proxy_credentials: None,
+                    mihomo_controller_secret: Some(MihomoControllerSecretInput {
+                        secret: "controller-vault-secret".to_owned(),
+                    }),
+                },
+            )
+            .expect("create Mihomo-bound Silo");
+
+        let raw_vault = fs::read(root.join("vault.json")).expect("read encrypted vault");
+        assert!(!String::from_utf8_lossy(&raw_vault).contains("controller-vault-secret"));
+        assert!(silo
+            .network_profile
+            .mihomo_controller_secret_reference()
+            .is_some());
+        let authentication = vault
+            .mihomo_controller_authentication_for_silo(silo.id)
+            .expect("read controller secret reference")
+            .expect("controller secret exists");
+        assert_eq!(authentication.secret(), "controller-vault-secret");
+
+        vault.lock();
+        assert!(vault
+            .mihomo_controller_authentication_for_silo(silo.id)
+            .is_err());
         fs::remove_dir_all(root).expect("remove test vault directory");
     }
 }
