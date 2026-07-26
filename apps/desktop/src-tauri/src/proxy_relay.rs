@@ -221,7 +221,7 @@ fn handle_local_socks_connection(mut client: TcpStream, config: &RelayConfig) ->
     relay_bidirectionally(client, upstream)
 }
 
-fn read_socks_target(client: &mut TcpStream) -> io::Result<SocksTarget> {
+fn read_socks_target(client: &mut impl Read) -> io::Result<SocksTarget> {
     let mut request = [0_u8; 4];
     client.read_exact(&mut request)?;
     if request[0] != 5 || request[1] != 1 || request[2] != 0 {
@@ -497,16 +497,35 @@ fn relay_bidirectionally(mut client: TcpStream, mut upstream: TcpStream) -> io::
 #[cfg(test)]
 mod tests {
     use std::{
-        io::{Read, Write},
+        io::{Cursor, Read, Write},
         net::{TcpListener, TcpStream},
         thread,
     };
 
-    use super::ProxyRelay;
+    use super::{handle_local_socks_connection, read_socks_target, ProxyRelay, RelayConfig};
     use crate::{
         domain::{NetworkProfile, ProxyScheme},
         vault::ProxyAuthentication,
     };
+
+    fn domain_connect_request(hostname: &str, port: u16) -> Vec<u8> {
+        assert!(hostname.is_ascii());
+        let length = u8::try_from(hostname.len()).expect("test hostname fits SOCKS5");
+        let mut request = vec![5, 1, 0, 3, length];
+        request.extend_from_slice(hostname.as_bytes());
+        request.extend_from_slice(&port.to_be_bytes());
+        request
+    }
+
+    #[test]
+    fn domain_targets_are_parsed_without_socket_chunk_assumptions() {
+        let request = domain_connect_request("example.test", 443);
+        let mut cursor = Cursor::new(request);
+        let target = read_socks_target(&mut cursor).expect("parse SOCKS5 domain target");
+        assert_eq!(target.authority, "example.test:443");
+        assert_eq!(target.encoded[0], 3);
+        assert_eq!(target.encoded[1], 12);
+    }
 
     #[test]
     fn authenticated_socks5_is_relayed_through_a_loopback_no_auth_endpoint() {
@@ -553,12 +572,62 @@ mod tests {
             stream.write_all(&payload).expect("echo payload");
         });
 
+        let local = TcpListener::bind("127.0.0.1:0").expect("bind local relay");
+        let local_address = local.local_addr().expect("local relay address");
+        let relay_worker = thread::spawn(move || {
+            let (stream, _) = local.accept().expect("accept local SOCKS client");
+            handle_local_socks_connection(
+                stream,
+                &RelayConfig {
+                    scheme: ProxyScheme::Socks5,
+                    host: "127.0.0.1".to_owned(),
+                    port: upstream_address.port(),
+                    authentication: Some(ProxyAuthentication::new(
+                        "alice".to_owned(),
+                        "secret".to_owned(),
+                    )),
+                },
+            )
+        });
+        let mut client = TcpStream::connect(local_address).expect("connect local relay");
+        client.write_all(&[5, 1, 0]).expect("offer no auth");
+        let mut method = [0_u8; 2];
+        client.read_exact(&mut method).expect("read method");
+        assert_eq!(method, [5, 0]);
+        client
+            .write_all(&domain_connect_request("example.test", 80))
+            .expect("request target");
+        let mut reply = [0_u8; 10];
+        client.read_exact(&mut reply).expect("read reply");
+        if reply[1] != 0 {
+            drop(client);
+            let error = relay_worker
+                .join()
+                .expect("relay worker exits")
+                .expect_err("failed reply must include a worker error");
+            panic!("local SOCKS relay rejected a valid target: {error}");
+        }
+        client.write_all(b"ping").expect("send payload");
+        let mut echoed = [0_u8; 4];
+        client.read_exact(&mut echoed).expect("read echo");
+        assert_eq!(&echoed, b"ping");
+        drop(client);
+        relay_worker
+            .join()
+            .expect("relay worker exits")
+            .expect("relay completes");
+        fake_server.join().expect("fake server exits");
+    }
+
+    #[test]
+    fn local_relay_binds_a_random_loopback_port() {
+        let upstream = TcpListener::bind("127.0.0.1:0").expect("bind unused upstream");
         let relay = ProxyRelay::start(
             &NetworkProfile::FixedProxy {
                 proxy_required: true,
                 scheme: ProxyScheme::Socks5,
                 host: "127.0.0.1".to_owned(),
-                port: upstream_address.port(),
+                port: upstream.local_addr().expect("upstream address").port(),
                 bypass_list: Vec::new(),
                 credential_reference: Some(uuid::Uuid::new_v4()),
                 external_mihomo: None,
@@ -569,28 +638,9 @@ mod tests {
             )),
         )
         .expect("start relay");
-        let mut client =
-            TcpStream::connect(("127.0.0.1", relay.endpoint().port)).expect("connect local relay");
-        client.write_all(&[5, 1, 0]).expect("offer no auth");
-        let mut method = [0_u8; 2];
-        client.read_exact(&mut method).expect("read method");
-        assert_eq!(method, [5, 0]);
-        client
-            .write_all(&[
-                5, 1, 0, 3, 11, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b't', b'e', b's',
-                0, 80,
-            ])
-            .expect("request target");
-        let mut reply = [0_u8; 10];
-        client.read_exact(&mut reply).expect("read reply");
-        assert_eq!(reply[1], 0);
-        client.write_all(b"ping").expect("send payload");
-        let mut echoed = [0_u8; 4];
-        client.read_exact(&mut echoed).expect("read echo");
-        assert_eq!(&echoed, b"ping");
-        drop(client);
+        assert_eq!(relay.endpoint().host, "127.0.0.1");
+        assert_ne!(relay.endpoint().port, 0);
         drop(relay);
-        fake_server.join().expect("fake server exits");
     }
 
     #[test]

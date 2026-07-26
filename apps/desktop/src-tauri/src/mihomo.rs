@@ -324,14 +324,63 @@ fn controller_request(
     stream.write_all(request.as_bytes())?;
     stream.write_all(body)?;
 
+    let response = read_http_response(&mut stream)?;
+    parse_http_response(&response)
+}
+
+fn read_http_response(stream: &mut TcpStream) -> Result<Vec<u8>, MihomoError> {
     let mut response = Vec::new();
-    stream
-        .take((MAX_RESPONSE_BYTES + 1) as u64)
-        .read_to_end(&mut response)?;
-    if response.len() > MAX_RESPONSE_BYTES {
+    let mut buffer = [0_u8; 8 * 1_024];
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => {
+                response.extend_from_slice(&buffer[..read]);
+                if response.len() > MAX_RESPONSE_BYTES {
+                    return Err(MihomoError::InvalidResponse);
+                }
+                if http_response_is_complete(&response) {
+                    break;
+                }
+            }
+            Err(error)
+                if error.kind() == io::ErrorKind::ConnectionReset
+                    && http_response_is_complete(&response) =>
+            {
+                break;
+            }
+            Err(error) => return Err(MihomoError::Io(error)),
+        }
+    }
+    if response.is_empty() {
         return Err(MihomoError::InvalidResponse);
     }
-    parse_http_response(&response)
+    Ok(response)
+}
+
+fn http_response_is_complete(response: &[u8]) -> bool {
+    let Some(header_end) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return false;
+    };
+    let Ok(header) = std::str::from_utf8(&response[..header_end]) else {
+        return false;
+    };
+    let headers = header
+        .split("\r\n")
+        .skip(1)
+        .filter_map(|line| line.split_once(':'))
+        .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_owned()))
+        .collect::<HashMap<_, _>>();
+    let body = &response[header_end + 4..];
+    if let Some(length) = headers
+        .get("content-length")
+        .and_then(|value| value.parse::<usize>().ok())
+    {
+        return body.len() >= length;
+    }
+    headers
+        .get("transfer-encoding")
+        .is_some_and(|value| value.eq_ignore_ascii_case("chunked") && decode_chunked(body).is_ok())
 }
 
 fn controller_endpoint(controller_url: &str) -> Result<SocketAddr, MihomoError> {
@@ -463,6 +512,40 @@ mod tests {
         .expect("write fake controller response");
     }
 
+    fn read_request(stream: &mut std::net::TcpStream) -> String {
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        let expected_length = loop {
+            let read = stream.read(&mut buffer).expect("read controller request");
+            assert!(read > 0, "controller request closed before headers");
+            request.extend_from_slice(&buffer[..read]);
+            let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n")
+            else {
+                continue;
+            };
+            let header = std::str::from_utf8(&request[..header_end])
+                .expect("controller request headers are UTF-8");
+            let content_length = header
+                .split("\r\n")
+                .filter_map(|line| line.split_once(':'))
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                .map(|(_, value)| {
+                    value
+                        .trim()
+                        .parse::<usize>()
+                        .expect("valid request content length")
+                })
+                .unwrap_or(0);
+            break header_end + 4 + content_length;
+        };
+        while request.len() < expected_length {
+            let read = stream.read(&mut buffer).expect("read controller body");
+            assert!(read > 0, "controller request closed before body");
+            request.extend_from_slice(&buffer[..read]);
+        }
+        String::from_utf8(request).expect("controller request is UTF-8")
+    }
+
     #[test]
     fn controller_snapshot_and_binding_are_checked_on_loopback() {
         let listener =
@@ -471,16 +554,7 @@ mod tests {
         let server = thread::spawn(move || {
             for index in 0..5 {
                 let (mut stream, _) = listener.accept().expect("accept controller request");
-                let mut request = Vec::new();
-                let mut buffer = [0_u8; 1024];
-                loop {
-                    let read = stream.read(&mut buffer).expect("read controller request");
-                    request.extend_from_slice(&buffer[..read]);
-                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                        break;
-                    }
-                }
-                let request_text = String::from_utf8_lossy(&request);
+                let request_text = read_request(&mut stream);
                 assert!(request_text.contains("Authorization: Bearer controller-secret"));
                 if request_text.starts_with("GET /providers/proxies HTTP/1.1") {
                     write_json(&mut stream, PROVIDER_RESPONSE);
