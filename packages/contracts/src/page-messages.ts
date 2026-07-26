@@ -4,10 +4,20 @@ import { observationReportSchema } from "./models.js";
 
 export const extensionPageMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("scan_current_tab") }).strict(),
+  z.object({ type: z.literal("request_current_site_access") }).strict(),
   z.object({ type: z.literal("get_current_report") }).strict(),
+  z.object({ type: z.literal("get_network_check") }).strict(),
+  z.object({ type: z.literal("run_network_check") }).strict(),
+  z.object({ type: z.literal("clear_network_check") }).strict(),
+  z.object({ type: z.literal("get_lightweight_isolation_status") }).strict(),
+  z.object({ type: z.literal("open_private_workspace") }).strict(),
   z.object({ type: z.literal("request_optional_privacy_permission") }).strict(),
   z.object({ type: z.literal("apply_webrtc_leak_reduction") }).strict(),
   z.object({ type: z.literal("restore_webrtc_leak_reduction") }).strict(),
+  z.object({ type: z.literal("apply_network_prediction_reduction") }).strict(),
+  z
+    .object({ type: z.literal("restore_network_prediction_reduction") })
+    .strict(),
   z.object({ type: z.literal("open_desktop") }).strict(),
 ]);
 export type ExtensionPageMessage = z.infer<typeof extensionPageMessageSchema>;

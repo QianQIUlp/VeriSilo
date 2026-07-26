@@ -11,7 +11,7 @@ It creates a new, managed browser data directory for every **Silo**. Browser-own
 - Safe browser discovery and argument-array launching with a separate `--user-data-dir` per Silo.
 - A single-active-Silo runtime model that refuses to force-kill browser processes.
 - A Native Messaging Host with fail-closed origin and schema validation.
-- A Manifest V3 companion extension with local signal observation, safe page-message validation, a beginner-facing side panel, local-only redacted report exports, and explicit optional privacy controls.
+- A Manifest V3 companion extension with human-readable identity summaries, browser-backed temporary InPrivate separation, local signal observation, user-triggered IP/public-DNS checks, safe page-message validation, local-only redacted report exports, and reversible optional privacy controls.
 - Product boundaries, capability states, threat model, release checks, and automated TypeScript tests.
 
 ## Important boundary

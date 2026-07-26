@@ -32,6 +32,9 @@ describe("report export", () => {
   });
 
   it("escapes report values in the HTML export", () => {
-    expect(reportAsHtml(report)).not.toContain("<sensitive>");
+    const html = reportAsHtml(report);
+    expect(html).not.toContain("<sensitive>");
+    expect(html).toContain("关键身份");
+    expect(html).toContain("技术数据（默认已脱敏）");
   });
 });

@@ -22,8 +22,31 @@ for (const permission of requiredPermissions) {
   }
 }
 
+for (const permission of ["proxy", "declarativeNetRequest"]) {
+  if (manifest.optional_permissions?.includes(permission)) {
+    throw new Error(
+      `Edge does not allow ${permission} to be declared as an optional permission.`,
+    );
+  }
+}
+
 if ((manifest.host_permissions ?? []).length > 0) {
   throw new Error("VeriSilo must not ship permanent host permissions.");
+}
+
+for (const pattern of [
+  "https://ipwho.is/*",
+  "https://cloudflare-dns.com/*",
+  "https://dns.google/*",
+]) {
+  if (
+    !manifest.optional_host_permissions?.includes(pattern) &&
+    !manifest.optional_host_permissions?.includes("https://*/*")
+  ) {
+    throw new Error(
+      `Extension manifest cannot request the audited network host: ${pattern}`,
+    );
+  }
 }
 
 const background = await readFile(resolve(dist, "background.js"), "utf8");
@@ -33,10 +56,36 @@ if (!background.includes("storage.local.setAccessLevel")) {
   );
 }
 if (
-  /https?:\/\//u.test(background) &&
-  /(?:import\(|fetch\()/u.test(background)
+  background.includes("import(") ||
+  /\beval\(|new Function\(/u.test(background)
 ) {
-  throw new Error("Extension bundle appears to fetch or execute remote code.");
+  throw new Error("Extension bundle appears to execute dynamic remote code.");
+}
+
+const allowedNetworkUrls = new Set([
+  "https://ipwho.is/",
+  "https://ipwho.is/*",
+  "https://cloudflare-dns.com/dns-query?name=example.com&type=A&do=true",
+  "https://cloudflare-dns.com/*",
+  "https://dns.google/resolve?name=example.com&type=A&do=true&edns_client_subnet=0.0.0.0%2F0",
+  "https://dns.google/*",
+]);
+const bundledNetworkUrls = new Set(
+  background.match(/https?:\/\/[^\s"'`]+/gu) ?? [],
+);
+for (const url of bundledNetworkUrls) {
+  if (!allowedNetworkUrls.has(url)) {
+    throw new Error(
+      `Extension bundle contains an unapproved network URL: ${url}`,
+    );
+  }
+}
+for (const url of allowedNetworkUrls) {
+  if (!bundledNetworkUrls.has(url)) {
+    throw new Error(
+      `Extension bundle is missing an audited network URL: ${url}`,
+    );
+  }
 }
 
 console.log(

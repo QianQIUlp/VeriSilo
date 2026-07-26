@@ -6,119 +6,1232 @@
     <title>VeriSilo Companion</title>
     <style>
       :root {
-        color: #1f2a44;
-        font-family: system-ui, sans-serif;
-        background: #f7f8fc;
+        color-scheme: light;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          "Microsoft YaHei",
+          sans-serif;
+        color: #172036;
+        background: #f4f6fb;
+        font-synthesis: none;
+        --ink: #172036;
+        --muted: #667085;
+        --subtle: #8a94a8;
+        --line: #e3e8f2;
+        --surface: #ffffff;
+        --soft: #f8f9fc;
+        --primary: #5b5ce2;
+        --primary-dark: #4344c5;
+        --primary-soft: #eeeeff;
+        --good: #067647;
+        --good-soft: #eafbf2;
+        --warn: #a15c00;
+        --warn-soft: #fff6e5;
+        --danger: #b42318;
+        --danger-soft: #fff0ef;
+        --shadow: 0 10px 30px rgba(24, 35, 67, 0.08);
       }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
+        min-width: 300px;
         margin: 0;
+        background:
+          radial-gradient(circle at 90% -5%, #e4e3ff 0, transparent 32%),
+          #f4f6fb;
       }
-      main {
-        padding: 16px;
-      }
-      h1 {
-        font-size: 20px;
-        margin: 0 0 6px;
-      }
-      p {
-        color: #5a6480;
-        line-height: 1.45;
-      }
+
       button {
-        width: 100%;
-        border: 0;
-        border-radius: 8px;
-        background: #4f46e5;
-        color: #fff;
-        cursor: pointer;
         font: inherit;
+      }
+
+      button:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid rgba(91, 92, 226, 0.24);
+        outline-offset: 2px;
+      }
+
+      .shell {
+        max-width: 720px;
+        min-height: 100vh;
+        margin: 0 auto;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 18px 18px 12px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 36px;
+        height: 36px;
+        place-items: center;
+        border-radius: 12px;
+        color: #fff;
+        background: linear-gradient(145deg, #797af3, #4849cc);
+        box-shadow: 0 8px 20px rgba(76, 77, 205, 0.28);
+        font-size: 14px;
+        font-weight: 850;
+        letter-spacing: -0.04em;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.05;
+        letter-spacing: -0.02em;
+      }
+
+      .brand p {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .local-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex: none;
+        border: 1px solid #d9dfeb;
+        border-radius: 999px;
+        padding: 6px 9px;
+        color: #475467;
+        background: rgba(255, 255, 255, 0.8);
+        font-size: 11px;
         font-weight: 700;
-        margin-top: 8px;
-        padding: 10px;
       }
-      button.secondary {
-        background: #e5e7f5;
-        color: #303a58;
+
+      .local-pill::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #12b76a;
+        box-shadow: 0 0 0 3px #dff7eb;
+        content: "";
       }
-      button:disabled {
-        cursor: wait;
-        opacity: 0.55;
+
+      .notice {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: 0 16px 12px;
+        border: 1px solid transparent;
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 12px;
+        line-height: 1.5;
       }
-      #notice {
-        border-radius: 8px;
-        margin: 12px 0;
-        padding: 10px;
-      }
-      #notice:empty {
+
+      .notice:empty {
         display: none;
       }
-      #notice.error {
-        background: #fee2e2;
-        color: #991b1b;
+
+      .notice.error {
+        border-color: #ffd4d0;
+        color: var(--danger);
+        background: var(--danger-soft);
       }
-      #notice.success {
-        background: #dcfce7;
-        color: #166534;
+
+      .notice.success {
+        border-color: #bdebd2;
+        color: var(--good);
+        background: var(--good-soft);
       }
+
+      .tabbar {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+        margin: 0 16px;
+        border: 1px solid #e0e5ef;
+        border-radius: 13px;
+        padding: 4px;
+        background: rgba(255, 255, 255, 0.8);
+        box-shadow: 0 4px 14px rgba(24, 35, 67, 0.04);
+      }
+
+      .tab {
+        border: 0;
+        border-radius: 9px;
+        padding: 9px 6px;
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .tab[aria-selected="true"] {
+        color: #3536aa;
+        background: var(--primary-soft);
+        box-shadow: 0 2px 5px rgba(67, 68, 197, 0.09);
+      }
+
+      main {
+        padding: 14px 16px 30px;
+      }
+
+      [data-panel][hidden] {
+        display: none;
+      }
+
       .card {
-        border: 1px solid #dde2f0;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--surface);
+        box-shadow: 0 5px 20px rgba(24, 35, 67, 0.05);
+      }
+
+      .scan-card {
+        overflow: hidden;
+        padding: 16px;
+        background:
+          linear-gradient(130deg, rgba(255, 255, 255, 0.98), #f8f7ff), #fff;
+      }
+
+      .eyebrow {
+        margin: 0 0 5px;
+        color: #5657c8;
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      .scan-card h2,
+      .isolation-hero h2 {
+        margin-bottom: 6px;
+        color: var(--ink);
+        font-size: 18px;
+        line-height: 1.28;
+        letter-spacing: -0.02em;
+      }
+
+      .scan-card > p:not(.eyebrow),
+      .isolation-hero > p:not(.eyebrow) {
+        margin-bottom: 14px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.58;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .button {
+        display: inline-flex;
+        min-height: 38px;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border: 1px solid transparent;
         border-radius: 10px;
+        padding: 9px 13px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 800;
+        transition:
+          transform 120ms ease,
+          box-shadow 120ms ease,
+          background 120ms ease;
+      }
+
+      .button:hover:not(:disabled) {
+        transform: translateY(-1px);
+      }
+
+      .button.primary {
+        color: #fff;
+        background: linear-gradient(135deg, #6869e8, #4d4ed1);
+        box-shadow: 0 7px 16px rgba(77, 78, 209, 0.22);
+      }
+
+      .button.primary:hover:not(:disabled) {
+        box-shadow: 0 9px 20px rgba(77, 78, 209, 0.3);
+      }
+
+      .button.secondary {
+        border-color: #d9dfea;
+        color: #3d4961;
         background: #fff;
-        margin-top: 14px;
-        padding: 12px;
       }
-      .signal {
-        border-top: 1px solid #edf0f7;
-        padding: 8px 0;
+
+      .button.subtle {
+        min-height: 32px;
+        border-color: transparent;
+        padding: 6px 9px;
+        color: #5556bf;
+        background: #f1f1ff;
       }
-      .signal:first-child {
-        border-top: 0;
+
+      .button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+        transform: none;
+        box-shadow: none;
       }
-      .signal small {
-        color: #66708b;
+
+      .permission-help {
+        margin: 11px 0 0;
+      }
+
+      .permission-help summary {
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .permission-help p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      .empty-state {
+        margin-top: 12px;
+        padding: 24px 20px;
+        text-align: center;
+      }
+
+      .empty-icon {
+        display: grid;
+        width: 46px;
+        height: 46px;
+        margin: 0 auto 11px;
+        place-items: center;
+        border-radius: 15px;
+        color: #5657c8;
+        background: #f0f0ff;
+        font-size: 21px;
+      }
+
+      .empty-state h3 {
+        margin-bottom: 5px;
+        font-size: 14px;
+      }
+
+      .empty-state p {
+        max-width: 390px;
+        margin: 0 auto;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .result-stack {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .verdict {
+        position: relative;
+        overflow: hidden;
+        padding: 17px;
+      }
+
+      .verdict::after {
+        position: absolute;
+        top: -34px;
+        right: -28px;
+        width: 110px;
+        height: 110px;
+        border-radius: 50%;
+        background: rgba(18, 183, 106, 0.08);
+        content: "";
+      }
+
+      .verdict.attention::after {
+        background: rgba(247, 144, 9, 0.1);
+      }
+
+      .verdict-head {
+        display: flex;
+        position: relative;
+        z-index: 1;
+        align-items: flex-start;
+        gap: 11px;
+      }
+
+      .verdict-icon {
+        display: grid;
+        width: 36px;
+        height: 36px;
+        flex: none;
+        place-items: center;
+        border-radius: 12px;
+        color: var(--good);
+        background: var(--good-soft);
+        font-size: 17px;
+        font-weight: 850;
+      }
+
+      .attention .verdict-icon {
+        color: var(--warn);
+        background: var(--warn-soft);
+      }
+
+      .verdict h2 {
+        margin: 0 0 5px;
+        font-size: 16px;
+        line-height: 1.3;
+      }
+
+      .verdict p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.55;
+      }
+
+      .report-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 10px;
+        margin-top: 13px;
+        color: var(--subtle);
+        font-size: 10px;
+      }
+
+      .section-card {
+        padding: 15px;
+      }
+
+      .section-title {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 11px;
+      }
+
+      .section-title h2 {
+        margin: 0;
+        font-size: 14px;
+        letter-spacing: -0.01em;
+      }
+
+      .section-title p {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.45;
+      }
+
+      .count-pill {
+        flex: none;
+        border-radius: 999px;
+        padding: 4px 7px;
+        color: #5556bf;
+        background: #eeeeff;
+        font-size: 10px;
+        font-weight: 800;
+      }
+
+      .fact-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .fact {
+        min-width: 0;
+        border: 1px solid #ebedf4;
+        border-radius: 12px;
+        padding: 11px;
+        background: #fafbfe;
+      }
+
+      .fact-label {
         display: block;
+        margin-bottom: 5px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 750;
+      }
+
+      .fact-value {
+        display: block;
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1.35;
         overflow-wrap: anywhere;
       }
-      .warning {
-        color: #854d0e;
-        font-weight: 600;
+
+      .fact-detail {
+        display: block;
+        margin-top: 6px;
+        color: var(--subtle);
+        font-size: 9.5px;
+        line-height: 1.45;
+      }
+
+      .fact.network-fact {
+        grid-column: 1 / -1;
+        background: linear-gradient(135deg, #fafbff, #f6f6ff);
+      }
+
+      .network-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 9px;
+      }
+
+      .network-chip {
+        border: 1px solid #e2e6ef;
+        border-radius: 999px;
+        padding: 4px 7px;
+        color: #667085;
+        background: #fff;
+        font-size: 9px;
+        font-weight: 750;
+      }
+
+      .network-chip.good {
+        border-color: #bdebd2;
+        color: var(--good);
+        background: var(--good-soft);
+      }
+
+      .network-chip.attention {
+        border-color: #f2d39e;
+        color: var(--warn);
+        background: var(--warn-soft);
+      }
+
+      .fact-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .network-disclosure {
+        display: block;
+        margin-top: 8px;
+        color: #858da0;
+        font-size: 9px;
+        line-height: 1.45;
+      }
+
+      .finding-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .finding {
+        display: grid;
+        grid-template-columns: 9px 1fr;
+        gap: 9px;
+        border: 1px solid #e8ebf3;
+        border-radius: 12px;
+        padding: 11px;
+        background: #fff;
+      }
+
+      .finding-dot {
+        width: 8px;
+        height: 8px;
+        margin-top: 4px;
+        border-radius: 50%;
+        background: #7b83a3;
+        box-shadow: 0 0 0 3px #eef0f6;
+      }
+
+      .finding.attention .finding-dot {
+        background: #f79009;
+        box-shadow: 0 0 0 3px #fff1d6;
+      }
+
+      .finding.normal .finding-dot {
+        background: #12b76a;
+        box-shadow: 0 0 0 3px #dcf8ea;
+      }
+
+      .finding h3 {
+        margin: 0 0 3px;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .finding p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+
+      .finding-action {
+        display: block;
+        margin-top: 6px;
+        color: #5556bf;
+        font-size: 10px;
+        font-weight: 750;
+      }
+
+      .scope-note {
+        border: 1px solid #f0dfbd;
+        border-radius: 12px;
+        padding: 11px 12px;
+        color: #77510f;
+        background: #fffaf0;
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+
+      .isolation-hero {
+        position: relative;
+        overflow: hidden;
+        padding: 18px;
+        background:
+          radial-gradient(circle at 100% 0, #dad9ff 0, transparent 35%),
+          linear-gradient(145deg, #ffffff, #f6f5ff);
+      }
+
+      .isolation-hero .reliable-line {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: 0 0 13px;
+        color: var(--good);
+        font-size: 11px;
+        font-weight: 750;
+      }
+
+      .reliable-line::before {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #12b76a;
+        content: "";
+      }
+
+      .helper-text {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+
+      .capability-stack {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .capability-card {
+        padding: 14px;
+      }
+
+      .capability-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .capability-head h3 {
+        margin: 0 0 4px;
+        font-size: 13px;
+      }
+
+      .capability-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.45;
+      }
+
+      .badge {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        border-radius: 999px;
+        padding: 5px 8px;
+        font-size: 9.5px;
+        font-weight: 850;
+        white-space: nowrap;
+      }
+
+      .badge.reliable {
+        color: var(--good);
+        background: var(--good-soft);
+      }
+
+      .badge.best-effort {
+        color: var(--warn);
+        background: var(--warn-soft);
+      }
+
+      .badge.desktop {
+        color: #5556bf;
+        background: var(--primary-soft);
+      }
+
+      .badge.unsupported {
+        color: #667085;
+        background: #f0f2f6;
+      }
+
+      .control-status {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin: 11px 0;
+      }
+
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border: 1px solid #e4e8f0;
+        border-radius: 8px;
+        padding: 5px 7px;
+        color: var(--muted);
+        background: #fafbfc;
+        font-size: 9.5px;
+        font-weight: 700;
+      }
+
+      .status-chip.on {
+        border-color: #bdebd2;
+        color: var(--good);
+        background: var(--good-soft);
+      }
+
+      .status-chip::before {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #98a2b3;
+        content: "";
+      }
+
+      .status-chip.on::before {
+        background: #12b76a;
+      }
+
+      .capability-table {
+        margin-top: 12px;
+        overflow: hidden;
+      }
+
+      .capability-row {
+        display: grid;
+        grid-template-columns: minmax(105px, 0.8fr) minmax(0, 1.35fr) auto;
+        align-items: center;
+        gap: 9px;
+        border-top: 1px solid #edf0f5;
+        padding: 11px 0;
+      }
+
+      .capability-row:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .capability-row:last-child {
+        padding-bottom: 0;
+      }
+
+      .capability-name {
+        color: var(--ink);
+        font-size: 10.5px;
+        font-weight: 800;
+      }
+
+      .capability-explanation {
+        color: var(--muted);
+        font-size: 9.5px;
+        line-height: 1.4;
+      }
+
+      .desktop-callout {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 12px;
+        border: 1px solid #dcdcff;
+        border-radius: 14px;
+        padding: 13px;
+        background: #f5f4ff;
+      }
+
+      .desktop-callout h3 {
+        margin: 0 0 4px;
+        color: #3536aa;
+        font-size: 12px;
+      }
+
+      .desktop-callout p {
+        margin: 0;
+        color: #6667a8;
+        font-size: 10px;
+        line-height: 1.4;
+      }
+
+      .raw-intro {
+        padding: 15px;
+      }
+
+      .raw-intro h2 {
+        margin-bottom: 5px;
+        font-size: 15px;
+      }
+
+      .raw-intro p {
+        margin-bottom: 12px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .raw-meta {
+        display: grid;
+        gap: 5px;
+        margin: 12px 0 0;
+        color: var(--muted);
+        font-size: 10px;
+        overflow-wrap: anywhere;
+      }
+
+      .signal-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .signal {
+        border: 1px solid #e5e9f1;
+        border-radius: 11px;
+        padding: 10px;
+        background: #fff;
+      }
+
+      .signal summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        color: #35405a;
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 800;
+        list-style: none;
+      }
+
+      .signal summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .signal-status {
+        border-radius: 999px;
+        padding: 3px 6px;
+        color: var(--good);
+        background: var(--good-soft);
+        font-size: 9px;
+      }
+
+      .signal-status.error {
+        color: var(--danger);
+        background: var(--danger-soft);
+      }
+
+      .signal pre {
+        margin: 9px 0 0;
+        border-radius: 8px;
+        padding: 9px;
+        color: #4a556f;
+        background: #f6f7fa;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 9.5px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .raw-empty {
+        margin-top: 12px;
+        color: var(--muted);
+        text-align: center;
+        font-size: 11px;
+      }
+
+      .footnote {
+        margin: 14px 2px 0;
+        color: #8892a5;
+        font-size: 9.5px;
+        line-height: 1.5;
+        text-align: center;
+      }
+
+      @media (max-width: 380px) {
+        .fact-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .capability-row {
+          grid-template-columns: 1fr auto;
+        }
+
+        .capability-explanation {
+          grid-column: 1 / -1;
+          grid-row: 2;
+        }
+
+        .desktop-callout {
+          align-items: flex-start;
+          flex-direction: column;
+        }
       }
     </style>
   </head>
   <body>
-    <main>
-      <h1>VeriSilo</h1>
-      <p>
-        查看当前页面可见的浏览器信号。扫描结果仅保存在本机、可信扩展存储中。
-      </p>
-      <button id="scan" type="button">扫描当前页面</button>
-      <button class="secondary" id="privacy" type="button">
-        请求隐私控制权限
-      </button>
-      <button class="secondary" id="webrtc-apply" type="button">
-        实验性：减少非代理 WebRTC UDP
-      </button>
-      <button class="secondary" id="webrtc-restore" type="button">
-        恢复 WebRTC 设置
-      </button>
-      <button class="secondary" id="desktop" type="button">连接桌面端</button>
-      <button class="secondary" id="export-json" type="button" disabled>
-        导出脱敏 JSON
-      </button>
-      <button class="secondary" id="export-html" type="button" disabled>
-        导出脱敏 HTML
-      </button>
-      <div id="notice" role="status"></div>
-      <section class="card">
-        <strong>当前结果</strong>
-        <p id="summary">尚未扫描。</p>
-        <div id="signals"></div>
-      </section>
-      <p class="warning">
-        “未观察到调用”不等于网站没有收集指纹。MAIN world 注入和 Worker
-        覆盖均存在浏览器边界。
-      </p>
-    </main>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">VS</div>
+          <div>
+            <h1>VeriSilo</h1>
+            <p>看懂并隔离你的浏览器身份</p>
+          </div>
+        </div>
+        <span class="local-pill">仅本机</span>
+      </header>
+
+      <div id="notice" class="notice" role="status" aria-live="polite"></div>
+
+      <nav class="tabbar" role="tablist" aria-label="VeriSilo 功能">
+        <button
+          class="tab"
+          id="tab-overview"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="panel-overview"
+          data-tab="overview"
+        >
+          身份概览
+        </button>
+        <button
+          class="tab"
+          id="tab-isolation"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="panel-isolation"
+          data-tab="isolation"
+        >
+          轻量隔离
+        </button>
+        <button
+          class="tab"
+          id="tab-raw"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="panel-raw"
+          data-tab="raw"
+        >
+          技术数据
+        </button>
+      </nav>
+
+      <main>
+        <section
+          id="panel-overview"
+          role="tabpanel"
+          aria-labelledby="tab-overview"
+          data-panel="overview"
+        >
+          <article class="card scan-card">
+            <p class="eyebrow">当前网页</p>
+            <h2>网站眼中的你</h2>
+            <p>
+              提取最影响账号关联、地区一致性和设备识别的内容。页面扫描与报告默认留在本机；网络检查只有点击后才会联网。
+            </p>
+            <div class="button-row">
+              <button class="button primary" id="scan" type="button">
+                扫描当前页面
+              </button>
+            </div>
+            <details class="permission-help">
+              <summary>扫描提示“无法访问”？</summary>
+              <p>
+                先在目标网页点击工具栏中的 VeriSilo
+                图标。仍失败时，再请求该站点访问权限。
+              </p>
+              <button
+                class="button subtle"
+                id="request-site-access"
+                type="button"
+              >
+                检查当前站点权限
+              </button>
+            </details>
+          </article>
+
+          <article class="card empty-state" id="report-empty">
+            <div class="empty-icon" aria-hidden="true">◎</div>
+            <h3>还没有扫描结果</h3>
+            <p>
+              打开你想检查的网站，再点击上面的扫描按钮。结果会自动整理成可读结论。
+            </p>
+          </article>
+
+          <div class="result-stack" id="report-content" hidden>
+            <article class="card verdict" id="verdict">
+              <div class="verdict-head">
+                <div class="verdict-icon" id="verdict-icon" aria-hidden="true">
+                  ✓
+                </div>
+                <div>
+                  <h2 id="summary-headline">当前身份组合</h2>
+                  <p id="summary-description"></p>
+                </div>
+              </div>
+              <div class="report-meta">
+                <span id="report-origin"></span>
+                <span id="report-time"></span>
+                <span id="report-coverage"></span>
+              </div>
+            </article>
+
+            <article class="card section-card">
+              <div class="section-title">
+                <div>
+                  <h2>你的关键身份</h2>
+                  <p>大多数用户首先需要确认的六组信息</p>
+                </div>
+                <span class="count-pill">重点</span>
+              </div>
+              <div class="fact-grid" id="fact-grid"></div>
+            </article>
+
+            <article class="card section-card">
+              <div class="section-title">
+                <div>
+                  <h2>值得关注</h2>
+                  <p>从全部信号中提炼的解读，不是扫描进度</p>
+                </div>
+                <span class="count-pill" id="finding-count">0 条解读</span>
+              </div>
+              <div class="finding-list" id="finding-list"></div>
+            </article>
+
+            <div class="scope-note">
+              本次扫描没有发现矛盾，不等于网站无法识别你。网站还可能结合网络出口、TLS/QUIC、行为和账号关系；这些不在扩展的完整控制范围内。
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="panel-isolation"
+          role="tabpanel"
+          aria-labelledby="tab-isolation"
+          data-panel="isolation"
+          hidden
+        >
+          <article class="card isolation-hero">
+            <p class="eyebrow">浏览器原生边界</p>
+            <h2>先开一个临时隔离登录空间</h2>
+            <p>
+              InPrivate 与普通窗口的 Cookie、LocalStorage、IndexedDB、缓存和
+              Service Worker 分开，适合临时登录另一个账号。
+            </p>
+            <div class="reliable-line">可靠：由 Edge 自己隔离网站数据</div>
+            <button class="button primary" id="open-private" type="button">
+              用当前网站打开 InPrivate
+            </button>
+            <p class="helper-text" id="private-status">
+              正在检查 InPrivate 权限…
+            </p>
+          </article>
+
+          <div class="capability-stack">
+            <article class="card capability-card">
+              <div class="capability-head">
+                <div>
+                  <h3>减少网络旁路信号</h3>
+                  <p>
+                    限制 WebRTC 非代理
+                    UDP，并关闭网络预测。设置作用于当前浏览器环境，不是单个账号。
+                  </p>
+                </div>
+                <span class="badge best-effort">尽力</span>
+              </div>
+              <div class="control-status">
+                <span class="status-chip" id="webrtc-status"
+                  >WebRTC：未检查</span
+                >
+                <span class="status-chip" id="prediction-status"
+                  >网络预测：未检查</span
+                >
+              </div>
+              <div class="button-row">
+                <button
+                  class="button primary"
+                  id="privacy-enable"
+                  type="button"
+                >
+                  启用推荐保护
+                </button>
+                <button
+                  class="button secondary"
+                  id="privacy-restore"
+                  type="button"
+                >
+                  恢复原设置
+                </button>
+              </div>
+            </article>
+
+            <article class="card capability-card">
+              <div class="capability-head">
+                <div>
+                  <h3>隔离能力边界</h3>
+                  <p>能控制多少就写多少；灰色能力不会伪装成可用。</p>
+                </div>
+              </div>
+              <div class="capability-table">
+                <div class="capability-row">
+                  <span class="capability-name">临时登录状态</span>
+                  <span class="capability-explanation"
+                    >普通窗口与一个 InPrivate 空间分开</span
+                  >
+                  <span class="badge reliable">可用</span>
+                </div>
+                <div class="capability-row">
+                  <span class="capability-name">多账户 Cookie 容器</span>
+                  <span class="capability-explanation"
+                    >Edge 扩展不能创建任意独立 Cookie 仓库</span
+                  >
+                  <span class="badge desktop">桌面端</span>
+                </div>
+                <div class="capability-row">
+                  <span class="capability-name">站点完整数据</span>
+                  <span class="capability-explanation"
+                    >LocalStorage、IndexedDB、缓存和 Service Worker 需独立
+                    Profile</span
+                  >
+                  <span class="badge desktop">桌面端</span>
+                </div>
+                <div class="capability-row">
+                  <span class="capability-name">UA / 语言 / 时区</span>
+                  <span class="capability-explanation"
+                    >扩展只能做可检测且覆盖不完整的页面修改</span
+                  >
+                  <span class="badge best-effort">实验</span>
+                </div>
+                <div class="capability-row">
+                  <span class="capability-name">Canvas / 显卡 / 字体</span>
+                  <span class="capability-explanation"
+                    >浏览器没有原生的逐账号虚拟化接口</span
+                  >
+                  <span class="badge unsupported">不可原生控制</span>
+                </div>
+                <div class="capability-row">
+                  <span class="capability-name">TLS / QUIC / 硬件</span>
+                  <span class="capability-explanation"
+                    >扩展无法改写底层网络栈或真实设备</span
+                  >
+                  <span class="badge unsupported">不支持</span>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div class="desktop-callout">
+            <div>
+              <h3>需要多个长期账号身份？</h3>
+              <p>
+                VeriSilo 桌面端用独立 user-data-dir
+                分开全部网站数据，而不是只替换 Cookie。
+              </p>
+            </div>
+            <button class="button secondary" id="desktop" type="button">
+              连接桌面端
+            </button>
+          </div>
+        </section>
+
+        <section
+          id="panel-raw"
+          role="tabpanel"
+          aria-labelledby="tab-raw"
+          data-panel="raw"
+          hidden
+        >
+          <article class="card raw-intro">
+            <p class="eyebrow">高级信息</p>
+            <h2>原始信号与报告导出</h2>
+            <p>
+              这里保留给开发者核对证据。日常使用只需查看“身份概览”；导出时会默认隐藏高敏感值。
+            </p>
+            <div class="button-row">
+              <button
+                class="button secondary"
+                id="export-json"
+                type="button"
+                disabled
+              >
+                导出脱敏 JSON
+              </button>
+              <button
+                class="button secondary"
+                id="export-html"
+                type="button"
+                disabled
+              >
+                导出可读 HTML
+              </button>
+            </div>
+            <div class="raw-meta" id="raw-meta"></div>
+          </article>
+          <p class="raw-empty" id="raw-empty">扫描后将在这里显示技术数据。</p>
+          <div class="signal-list" id="signals"></div>
+          <p class="footnote">
+            “未观察到调用”不等于网站没有采集。MAIN world
+            注入不是抢在所有页面脚本之前的保证，且不覆盖通用 Worker / Service
+            Worker。
+          </p>
+        </section>
+      </main>
+    </div>
     <script type="module" src="sidepanel.js"></script>
   </body>
 </html>

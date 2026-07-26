@@ -20,7 +20,7 @@ export function analyzeConsistency(
   );
   const mainWorldSignal = signalValue<Record<string, unknown>>(
     report,
-    "main_world_navigator",
+    "main_world_navigator_untrusted",
   );
 
   if (navigatorSignal !== undefined && mainWorldSignal !== undefined) {
