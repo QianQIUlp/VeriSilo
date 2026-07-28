@@ -1,0 +1,48 @@
+---
+import "../styles/global.css";
+
+import type { Locale } from "../content";
+
+interface Props {
+  locale: Locale;
+  title: string;
+  description: string;
+}
+
+const { locale, title, description } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const englishUrl = new URL("/", Astro.site);
+const chineseUrl = new URL("/zh/", Astro.site);
+---
+
+<!doctype html>
+<html lang={locale === "zh" ? "zh-CN" : "en"}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#f4f6f2" />
+    <meta name="color-scheme" content="light" />
+    <meta name="description" content={description} />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href={canonical} />
+    <link rel="alternate" hreflang="en" href={englishUrl} />
+    <link rel="alternate" hreflang="zh-CN" href={chineseUrl} />
+    <link rel="alternate" hreflang="x-default" href={englishUrl} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="VeriSilo" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content={locale === "zh" ? "zh_CN" : "en_US"} />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
