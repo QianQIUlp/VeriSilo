@@ -1,0 +1,76 @@
+name: Windows E2E harness static safety
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-e2e-harness-static.yml"
+      - ".github/workflows/windows-e2e-real.yml"
+      - ".github/workflows/windows-release.yml"
+      - ".github/workflows/windows-signed-release.yml"
+      - "apps/desktop/src-tauri/tauri.release*.json"
+      - "apps/desktop/src-tauri/Cargo.toml"
+      - "apps/desktop/src-tauri/acceptance/windows_acceptance_driver.rs"
+      - "apps/desktop/src-tauri/resources/hyperv-image-manifest.schema.json"
+      - "scripts/download-windows-candidate.ps1"
+      - "scripts/generate-release-metadata.mjs"
+      - "scripts/package-extension-zip.mjs"
+      - "scripts/stage-hyperv-image.ps1"
+      - "scripts/stage-windows-bundle.mjs"
+      - "scripts/verify-hyperv-image.mjs"
+      - "scripts/verify-release-policy.mjs"
+      - "scripts/verify-windows-promotion-candidate.mjs"
+      - "scripts/write-windows-promotion-attestation.mjs"
+      - "tests/windows/**"
+      - "docs/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/windows-e2e-harness-static.yml"
+      - ".github/workflows/windows-e2e-real.yml"
+      - ".github/workflows/windows-release.yml"
+      - ".github/workflows/windows-signed-release.yml"
+      - "apps/desktop/src-tauri/tauri.release*.json"
+      - "apps/desktop/src-tauri/Cargo.toml"
+      - "apps/desktop/src-tauri/acceptance/windows_acceptance_driver.rs"
+      - "apps/desktop/src-tauri/resources/hyperv-image-manifest.schema.json"
+      - "scripts/download-windows-candidate.ps1"
+      - "scripts/generate-release-metadata.mjs"
+      - "scripts/package-extension-zip.mjs"
+      - "scripts/stage-hyperv-image.ps1"
+      - "scripts/stage-windows-bundle.mjs"
+      - "scripts/verify-hyperv-image.mjs"
+      - "scripts/verify-release-policy.mjs"
+      - "scripts/verify-windows-promotion-candidate.mjs"
+      - "scripts/write-windows-promotion-attestation.mjs"
+      - "tests/windows/**"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-static-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: node tests/windows/self-test.mjs
+      - run: node tests/windows/promotion-gate-static.mjs
+      - run: node scripts/package-extension-zip.mjs --self-test
+      - run: node scripts/verify-hyperv-image.mjs --self-test
+      - run: node scripts/verify-windows-promotion-candidate.mjs --self-test
+      - run: node scripts/write-windows-promotion-attestation.mjs --self-test
+
+  runner-input-safety:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - shell: pwsh
+        run: |
+          pwsh -NoProfile -File .\tests\windows\Invoke-VeriSiloWindowsE2E.ps1 -SelfTest
+          pwsh -NoProfile -File .\scripts\stage-hyperv-image.ps1 -SelfTest
+          pwsh -NoProfile -File .\scripts\download-windows-candidate.ps1 -SelfTest

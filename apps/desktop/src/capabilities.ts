@@ -17,7 +17,7 @@ export interface EnvironmentLayer {
   id: CapabilityRoute;
   version: string;
   name: string;
-  status: "available" | "scheduled";
+  status: "available" | "implemented" | "external_gate";
   summary: string;
   delivers: string[];
 }
@@ -39,26 +39,41 @@ export const ENVIRONMENT_LAYERS: readonly EnvironmentLayer[] = [
     id: "engine",
     version: "V0.7",
     name: "受控浏览器引擎",
-    status: "scheduled",
-    summary: "增加可更新、可回滚、可验证的引擎适配层，协调浏览器可见信号。",
-    delivers: ["一致性身份模板", "Canvas/WebGL/字体控制", "TLS/QUIC 能力探测"],
+    status: "implemented",
+    summary:
+      "EngineAdapter 已进入 stock Chrome/Edge 启动路径；受控引擎制品在签名校验器就绪前默认拒绝。",
+    delivers: [
+      "Stock Chrome/Edge 启动适配已接入",
+      "身份模板与 observe/apply/verify/restore 契约已冻结",
+      "受控制品与 TLS/QUIC 证据仍不可用",
+    ],
   },
   {
     id: "local_vm",
     version: "V0.8",
     name: "本地虚拟环境",
-    status: "scheduled",
+    status: "implemented",
     summary:
-      "以 WSL Chromium 做轻量 Linux Provider，以 Windows Sandbox / Hyper-V 提供更强边界。",
-    delivers: ["Linux / VM 后端", "独立字体与设备视图", "从环境内部验证出口"],
+      "九项生命周期后端与固定脚本已接入；UI 分开显示已配置、来宾观测、已验证与不可用，真实能力由本机 WSL、Sandbox、Hyper-V 和签名制品逐项决定。",
+    delivers: [
+      "WSL 自托管 SOCKS5H 出口/代理 DNS 证据；来宾 OS resolver 不可用",
+      "Sandbox 精确宿主进程生命周期；来宾网络与浏览器就绪不可用",
+      "Hyper-V 精确 VM/镜像回执；合法 VHDX 与固定来宾 Agent 仍是外部门槛",
+      "默认拒绝宿主写映射和设备透传",
+    ],
   },
   {
     id: "remote",
     version: "V0.9",
     name: "自托管远程环境",
-    status: "scheduled",
-    summary: "连接用户自己的远程节点，持久保存环境并从远端验证实际出口。",
-    delivers: ["远端浏览器会话", "独立网络栈", "生命周期与审计记录"],
+    status: "implemented",
+    summary:
+      "桌面 pinned HTTPS 控制面与 Linux/Unix 自托管 Agent 已实现；默认 Provider 诚实地不可用，真实 VM、浏览器和媒体流仍需外部制品与环境。",
+    delivers: [
+      "普通 PKI + Certificate/SPKI pin 与一次性配对",
+      "Vault 凭据/绑定、Agent TTL/重放账本与 typed Provider 删除回执",
+      "真实 Provider、来宾证据和屏幕媒体流仍是外部门槛",
+    ],
   },
 ] as const;
 
@@ -67,11 +82,12 @@ export const PRODUCT_CAPABILITIES: readonly ProductCapability[] = [
     id: "site_state",
     name: "账号与完整站点数据",
     currentReality:
-      "当前已由独立 user-data-dir 隔离 Cookie、LocalStorage、IndexedDB、缓存和 Service Worker。",
+      "已实现为每个 Silo 选择独立 user-data-dir 的启动机制；Cookie、LocalStorage、IndexedDB、缓存和 Service Worker 的实际隔离仍待当前 Windows/浏览器组合本机验收。",
     route: "current",
-    routeLabel: "当前可用",
+    routeLabel: "机制可用，待本机验收",
     tone: "available",
-    evidenceRule: "以不同 Silo 登录状态互不可见、重启后状态仍保留为验收证据。",
+    evidenceRule:
+      "必须在当前主机以不同 Silo 登录状态互不可见、重启后各自状态仍保留作为验收证据；未执行前不得标为本机已验证。",
   },
   {
     id: "proxy",
@@ -82,7 +98,7 @@ export const PRODUCT_CAPABILITIES: readonly ProductCapability[] = [
     routeLabel: "启动保护已实现",
     tone: "available",
     evidenceRule:
-      "端点、认证、节点回读和浏览器路由分别记录；只有 Silo 内 Companion 主动检查后才能把公网出口标为已验证。",
+      "端点、认证、节点回读和浏览器路由分别记录；Silo 内 Companion 的主动检查只能标为 extension_asserted / observed，只有具备认证来源的 Guest 或 Engine 证据才可标为 verified。",
   },
   {
     id: "network_observation",
@@ -101,8 +117,8 @@ export const PRODUCT_CAPABILITIES: readonly ProductCapability[] = [
     currentReality:
       "独立 Profile 不会自动生成另一台设备；扩展页面修改覆盖不完整且可被网站观察。",
     route: "engine",
-    routeLabel: "V0.7 受控引擎",
-    tone: "planned",
+    routeLabel: "适配层已实现 / 引擎待签名",
+    tone: "best_effort",
     evidenceRule: "跨 Window、iframe、Worker 与请求头一致后，才可标为已验证。",
   },
   {
@@ -111,8 +127,8 @@ export const PRODUCT_CAPABILITIES: readonly ProductCapability[] = [
     currentReality:
       "当前 Chrome/Edge 启动器不会改变真实渲染栈；专用引擎可协调可见值，VM 提供更强系统边界。",
     route: "engine",
-    routeLabel: "V0.7 引擎 / V0.8 VM",
-    tone: "planned",
+    routeLabel: "引擎 / VM 外部门槛",
+    tone: "best_effort",
     evidenceRule:
       "必须验证稳定性、跨上下文一致性和站点兼容性，不承诺不可检测。",
   },

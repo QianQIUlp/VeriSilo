@@ -4,14 +4,39 @@
 
 VeriSilo 不把浏览器扩展当作全部产品，也不把独立 `user-data-dir` 当作环境隔离的终点。产品正式采用四层实现：
 
-| 层级           | 版本      | 状态       | 主要边界                                                 |
-| -------------- | --------- | ---------- | -------------------------------------------------------- |
-| 独立 Silo      | V0.1–V0.6 | 当前实现   | 独立浏览器 Profile、网站数据、权限、历史和启动级网络配置 |
-| 受控浏览器引擎 | V0.7      | 已列入路线 | 协调浏览器可见信号、引擎网络能力和跨上下文一致性         |
-| 本地虚拟环境   | V0.8      | 已列入路线 | 独立操作系统、字体、设备视图和每环境网络出口             |
-| 自托管远程环境 | V0.9      | 已列入路线 | 远程浏览器会话、独立网络栈、持久环境和生命周期审计       |
+| 层级           | 版本      | 状态         | 主要边界                                                 |
+| -------------- | --------- | ------------ | -------------------------------------------------------- |
+| 独立 Silo      | V0.1–V0.6 | 基线部分实现 | 独立浏览器 Profile、网站数据、权限、历史和启动级网络配置 |
+| 受控浏览器引擎 | V0.7      | 已列入路线   | 协调浏览器可见信号、引擎网络能力和跨上下文一致性         |
+| 本地虚拟环境   | V0.8      | 已列入路线   | 独立操作系统、字体、设备视图和每环境网络出口             |
+| 自托管远程环境 | V0.9      | 已列入路线   | 远程浏览器会话、独立网络栈、持久环境和生命周期审计       |
 
 这些层级是可选能力。轻量用户可以只用扩展或独立 Silo；需要更强边界的用户可以逐级升级。界面必须始终区分“当前可用”“已列入路线”“已配置”“已应用”和“已验证”。
+
+“基线部分实现”只描述当前已有代码，不表示 V0.1–V0.6 已整体验收。逐项证据和缺口以[桌面端完成度审计](desktop-completion-audit.md)为准。
+
+## V0.1–V0.6 冻结定义
+
+为避免把六个版本笼统写成“独立 Silo 已实现”，首发阶段按以下边界验收：
+
+| 版本 | 冻结交付范围                                                                        | 升级为完成所需的直接证据                                                                           |
+| ---- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| V0.1 | Vault 基础、Chrome/Edge 发现、独立 `user-data-dir`、Silo 生命周期、目录锁与单活启动 | Vault/状态机单测，以及 Win10/11 × Chrome/Edge 的 A/B 站点数据隔离、默认 Profile 不变和异常恢复 E2E |
+| V0.2 | 可选 Companion、生产 Native Host、固定代理/PAC/外部 Mihomo 与 fail-closed 网络路径  | 正负协议测试、HKCU 安装测试、扩展缺失降级，以及从实际 Silo 内完成的断线和出口证据                  |
+| V0.3 | 模块化观察、人话解释、桌面证据历史、脱敏 JSON/HTML 报告                             | 采集器失败隔离、覆盖声明、桌面回传/存储/迁移和导出确认测试                                         |
+| V0.4 | 每 Silo 稳定实验控制、`observe → apply → verify → restore`、按站点回退              | 短期派生配置、跨上下文一致性、失败回滚、重启恢复和兼容性矩阵                                       |
+| V0.5 | `VeriSilo Labs` 中的 Cookie/Worker 等高风险实验及泄漏停止条件                       | 独立 feature gate、默认关闭、逐项泄漏/兼容测试；未满足停止条件不得进入默认模式                     |
+| V0.6 | 封顶能力报告、Windows 安装升级卸载、SBOM/许可证/校验和/签名和商店发布门槛           | 可追溯 Windows 产物、E2E 日志、供应链报告、哈希和签名验证；路线文档或示例报告不算完成              |
+
+### V0.5 当前可直接核对的窄实现
+
+V0.5 不再只有路线文字：contracts、Companion 与桌面 UI 共享版本化 `LabsExperiment`/receipt 模型，实验默认关闭，要求当前 Silo＋站点明确授权，并实现 `observe → apply → verify → restore`、到期和泄漏即停状态机。无可用桌面 Silo 时只能建立有界 `local_temporary` 运行，不能伪装成 Silo 证据。
+
+当前唯一可选实现是 MAIN-world 的新建 Dedicated Worker constructor 包装。它只处理开启后新建的同源/blob classic Worker，用短期随机 canary 做 Worker handshake 与同源 iframe 一致性自检；任一可观察的跨标签页/iframe/Service Worker URL/页面可见 Cookie canary 泄漏、页面或 Worker 异常、超时、权限变化、导航、scope 违规或验证失败，都会恢复原 constructor、停用该站点并写入不含 canary/Cookie/token 的本机脱敏收据。
+
+该入口由用户点击后注入，不能证明早于页面脚本，因此成功状态只能是 `best_effort`，不能是 `verified`。既有 Worker、module/cross-origin Worker、SharedWorker、Service Worker 内存均明确不覆盖。Cookie 仓库虚拟化与全面 Set-Cookie 截获在 stock MV3 中保持不可选 `unsupported`；当前可靠替代仍是桌面 Silo 的独立 `user-data-dir`。这解决 feature gate、停止条件和窄真实实现缺口，但不代表 V0.5 全部 Windows/浏览器兼容性验收已经完成。
+
+后续层级不能替代这些基础验收。例如 V0.8 VM 后端存在，也不能自动证明 stock Chrome/Edge 的 V0.1 默认 Profile 安全。
 
 ## 从现有产品和项目吸收什么
 
@@ -57,9 +82,9 @@ VeriSilo 不把浏览器扩展当作全部产品，也不把独立 `user-data-di
 
 ### 后端选择
 
-- [WSL 2](https://learn.microsoft.com/en-us/windows/wsl/about) 作为较轻的 Linux Chromium Provider：它可以提供独立 Linux 用户态、文件系统、字体集合和浏览器 Profile，但默认仍共享或经过 Windows 的网络/GPU/WSLg 集成，不能宣传成完整独立设备。当前桌面端只实现固定参数的只读可用性/发行版检查；启动 Chromium、代理注入和生命周期管理仍需独立发布门槛。网络模式依据[微软 WSL networking](https://learn.microsoft.com/en-us/windows/wsl/networking)验证。
-- [Windows Sandbox](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/) 用作一次性兼容实验室。它适合可重复的干净测试，但环境默认是临时的，当前也不能同时运行多个实例，因此不能作为多 Silo 持久后端；`.wsb` 的可控项以[微软配置文档](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file)为准。
-- [Hyper-V](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/overview) 用作持久 VM 后端，提供独立来宾操作系统、磁盘和网络边界。
+- [WSL 2](https://learn.microsoft.com/en-us/windows/wsl/about) 作为较轻的 Linux Chromium Provider：它可以提供独立 Linux 用户态、文件系统、字体集合和浏览器 Profile，但默认仍共享或经过 Windows 的网络/GPU/WSLg 集成，不能宣传成完整独立设备。当前仓库已有固定 guest-agent、精确 Profile/PID 生命周期与用户自托管的 loopback SOCKS5H 出口/代理 DNS 证据；来宾 OS resolver 与 OS 级强制仍不可用，且真实 Windows/WSLg 验收仍是发布门槛。网络模式依据[微软 WSL networking](https://learn.microsoft.com/en-us/windows/wsl/networking)验证。
+- [Windows Sandbox](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/) 用作一次性兼容实验室。它适合可重复的干净测试，但环境默认是临时的，当前也不能同时运行多个实例，因此不能作为多 Silo 持久后端；固定控制器只证明精确宿主进程生命周期，因无可靠来宾回传通道，来宾健康、网络、DNS 和浏览器就绪保持不可用。`.wsb` 的可控项以[微软配置文档](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file)为准。
+- [Hyper-V](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/overview) 用作持久 VM 后端，提供独立来宾操作系统、磁盘和网络边界。仓库内控制器会固定 VM GUID/名称、代际、镜像哈希与失败回执；合法 VHDX、固定来宾 Agent 及真实签名生命周期验收仍是外部阻塞条件，不能由控制面回执替代。
 
 界面必须在启用前检测 Windows 版本、虚拟化能力、管理员要求和重启要求。Windows Sandbox 与 Hyper-V 的系统要求、并发和可用版本差异不得隐藏；根据[微软 Hyper-V 安装要求](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/get-started/Install-Hyper-V)，Hyper-V 不应在 Windows Home 上显示成可直接启用。
 

@@ -3,8 +3,5 @@
   "description": "VeriSilo Native Messaging Host",
   "path": "__VERISILO_NATIVE_HOST_PATH__",
   "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://__CHROME_WEB_STORE_EXTENSION_ID__/",
-    "chrome-extension://__EDGE_ADDONS_EXTENSION_ID__/"
-  ]
+  "allowed_origins": ["chrome-extension://__VERISILO_EXTENSION_ID__/"]
 }

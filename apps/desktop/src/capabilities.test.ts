@@ -26,4 +26,32 @@ describe("desktop capability catalogue", () => {
         ?.route,
     ).toBe("local_vm");
   });
+
+  it("keeps site-state isolation as an implemented mechanism pending host validation", () => {
+    const siteState = PRODUCT_CAPABILITIES.find(
+      (capability) => capability.id === "site_state",
+    );
+    expect(siteState?.tone).toBe("available");
+    expect(siteState?.currentReality).toContain("独立 user-data-dir");
+    expect(siteState?.currentReality).toContain("仍待");
+    expect(siteState?.evidenceRule).toContain("未执行前不得标为本机已验证");
+  });
+
+  it("describes the implemented remote control plane without claiming a provider", () => {
+    const remote = ENVIRONMENT_LAYERS.find((layer) => layer.id === "remote");
+    expect(remote?.status).toBe("implemented");
+    expect(remote?.summary).toContain("自托管 Agent 已实现");
+    expect(remote?.summary).toContain("真实 VM、浏览器和媒体流仍需外部");
+    expect(remote?.delivers.join(" ")).not.toContain(
+      "网络客户端、Agent、持久存储均未实现",
+    );
+  });
+
+  it("keeps local environment control receipts separate from guest evidence", () => {
+    const local = ENVIRONMENT_LAYERS.find((layer) => layer.id === "local_vm");
+    expect(local?.summary).toContain("已配置、来宾观测、已验证与不可用");
+    expect(local?.delivers.join(" ")).toContain("来宾 OS resolver 不可用");
+    expect(local?.delivers.join(" ")).toContain("来宾网络与浏览器就绪不可用");
+    expect(local?.delivers.join(" ")).toContain("合法 VHDX");
+  });
 });

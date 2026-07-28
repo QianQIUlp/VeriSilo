@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": ["target/verisilo-release-sidecars/verisilo-native-host"],
+    "resources": {
+      "target/verisilo-release-resources/native-host/install-native-host-release.ps1": "native-host/install-native-host-release.ps1",
+      "target/verisilo-release-resources/native-host/install-native-host.ps1": "native-host/install-native-host.ps1",
+      "target/verisilo-release-resources/native-host/verify-native-host-install.ps1": "native-host/verify-native-host-install.ps1",
+      "target/verisilo-release-resources/native-host/uninstall-native-host.ps1": "native-host/uninstall-native-host.ps1",
+      "target/verisilo-release-resources/native-host/native-host-release-config.json": "native-host/native-host-release-config.json",
+      "target/verisilo-release-resources/environment/verisilo-environment-probe.ps1": "environment/verisilo-environment-probe.ps1",
+      "target/verisilo-release-resources/environment/verisilo-hyperv.ps1": "environment/verisilo-hyperv.ps1",
+      "target/verisilo-release-resources/environment/verisilo-sandbox.ps1": "environment/verisilo-sandbox.ps1",
+      "target/verisilo-release-resources/environment/verisilo-sandbox-bootstrap.ps1": "environment/verisilo-sandbox-bootstrap.ps1",
+      "target/verisilo-release-resources/environment/verisilo-wsl-guest-agent.sh": "environment/verisilo-wsl-guest-agent.sh",
+      "target/verisilo-release-resources/environment/hyperv-image-manifest.json": "environment/hyperv-image-manifest.json",
+      "target/verisilo-release-resources/environment/images/": "environment/images/"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/release-hooks.nsh"
+      }
+    }
+  }
+}

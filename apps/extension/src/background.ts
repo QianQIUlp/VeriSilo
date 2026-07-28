@@ -1,6 +1,7 @@
 import {
   contentMessageSchema,
   extensionPageMessageSchema,
+  NETWORK_EVIDENCE_COVERAGE,
   nativeResponseSchema,
   observationReportSchema,
   type RuntimeCapability,
@@ -14,11 +15,35 @@ import {
   NETWORK_CHECK_ENDPOINTS,
   NETWORK_CHECK_ORIGINS,
 } from "./network-check.js";
+import {
+  eligibleSiloForNetworkEvidence,
+  isNetworkEvidenceHandoffStatus,
+  type NetworkEvidenceHandoffReason,
+  type NetworkEvidenceHandoffStatus,
+  type RuntimeEvidenceBinding,
+} from "./network-evidence-handoff.js";
+import {
+  MAX_SAVED_REPORTS,
+  planSavedReportPrune,
+  SAVED_REPORT_KEY_PREFIX,
+  SAVED_REPORT_TTL_MS,
+} from "./saved-report-history.js";
+import {
+  clearLabsReceipts,
+  enableDedicatedWorkerExperiment,
+  getLabsReceipts,
+  getLabsStatus,
+  handleLabsContentStop,
+  initializeLabsBackground,
+  labsTabNavigated,
+  labsTabRemoved,
+  stopDedicatedWorkerExperiment,
+} from "./labs-background.js";
 
 const NATIVE_HOST_NAME = "io.verisilo.host";
 const REPORT_KEY_PREFIX = "report:";
-const LOCAL_REPORT_KEY_PREFIX = "saved-report:";
 const NETWORK_CHECK_KEY = "network-check:last";
+const NETWORK_CHECK_HANDOFF_KEY = "network-check:handoff";
 const WEBRTC_RESTORE_POINT_KEY = "webrtc-restore-point";
 const NETWORK_PREDICTION_RESTORE_POINT_KEY = "network-prediction-restore-point";
 type WebRtcPolicy =
@@ -29,6 +54,8 @@ type WebRtcPolicy =
 
 void chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
 void chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+void pruneSavedReports(Date.now()).catch(() => undefined);
+initializeLabsBackground();
 
 chrome.action.onClicked.addListener((tab) => {
   if (tab.id !== undefined) {
@@ -41,16 +68,19 @@ chrome.runtime.onInstalled.addListener(() => {
   void chrome.storage.session.setAccessLevel({
     accessLevel: "TRUSTED_CONTEXTS",
   });
+  void pruneSavedReports(Date.now()).catch(() => undefined);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading" || changeInfo.url !== undefined) {
     void chrome.storage.session.remove(reportKey(tabId));
+    labsTabNavigated(tabId);
   }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   void chrome.storage.session.remove(reportKey(tabId));
+  labsTabRemoved(tabId);
 });
 
 chrome.runtime.onMessage.addListener(
@@ -70,6 +100,9 @@ async function handleMessage(
 ): Promise<Record<string, unknown>> {
   const contentMessage = contentMessageSchema.safeParse(rawMessage);
   if (contentMessage.success) {
+    if (contentMessage.data.type === "verisilo_labs_stop") {
+      return handleLabsContentStop(contentMessage.data, sender);
+    }
     const tabId = sender.tab?.id;
     const reportOrigin = contentMessage.data.report.origin;
     const senderOrigin = originFromSender(sender);
@@ -88,12 +121,7 @@ async function handleMessage(
     await chrome.storage.session.set({
       [reportKey(tabId)]: contentMessage.data.report,
     });
-    await chrome.storage.local.set({
-      [localReportKey(contentMessage.data.report.reportId)]: {
-        report: redactObservationReport(contentMessage.data.report),
-        savedAt: new Date().toISOString(),
-      },
-    });
+    await saveRedactedReport(contentMessage.data.report);
     return { report: contentMessage.data.report };
   }
 
@@ -109,6 +137,10 @@ async function handleMessage(
       return requestCurrentSiteAccess();
     case "get_current_report":
       return getCurrentReport();
+    case "get_saved_report_history":
+      return getSavedReportHistory();
+    case "clear_saved_report_history":
+      return clearSavedReportHistory();
     case "get_network_check":
       return getNetworkCheck();
     case "run_network_check":
@@ -131,6 +163,16 @@ async function handleMessage(
       return restoreNetworkPredictionReduction();
     case "open_desktop":
       return connectNativeHost();
+    case "get_labs_status":
+      return getLabsStatus();
+    case "enable_dedicated_worker_experiment":
+      return enableDedicatedWorkerExperiment();
+    case "stop_dedicated_worker_experiment":
+      return stopDedicatedWorkerExperiment();
+    case "get_labs_receipts":
+      return getLabsReceipts();
+    case "clear_labs_receipts":
+      return clearLabsReceipts();
   }
 }
 
@@ -241,6 +283,92 @@ async function getCurrentReport(): Promise<Record<string, unknown>> {
   };
 }
 
+async function saveRedactedReport(report: unknown): Promise<void> {
+  const parsed = observationReportSchema.parse(report);
+  const now = Date.now();
+  await pruneSavedReports(now, 1);
+  const record = {
+    report: redactObservationReport(parsed),
+    savedAt: new Date(now).toISOString(),
+  };
+  try {
+    await chrome.storage.local.set({
+      [localReportKey(parsed.reportId)]: record,
+    });
+  } catch {
+    // One additional eviction gives quota pressure a bounded recovery path.
+    // If the retry fails, propagate it instead of pretending history was saved.
+    await pruneSavedReports(now, 2);
+    await chrome.storage.local.set({
+      [localReportKey(parsed.reportId)]: record,
+    });
+  }
+}
+
+async function pruneSavedReports(
+  nowUnixMs: number,
+  reserveSlots = 0,
+): Promise<string[]> {
+  const stored = await chrome.storage.local.get(null);
+  const plan = planSavedReportPrune(stored, nowUnixMs, reserveSlots);
+  if (plan.removeKeys.length > 0) {
+    await chrome.storage.local.remove(plan.removeKeys);
+  }
+  return plan.keptKeys;
+}
+
+async function getSavedReportHistory(): Promise<Record<string, unknown>> {
+  const keptKeys = await pruneSavedReports(Date.now());
+  const stored =
+    keptKeys.length === 0 ? {} : await chrome.storage.local.get(keptKeys);
+  const invalidKeys: string[] = [];
+  const history = keptKeys.flatMap((key) => {
+    const value = stored[key];
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value) ||
+      typeof (value as Record<string, unknown>).savedAt !== "string"
+    ) {
+      invalidKeys.push(key);
+      return [];
+    }
+    const report = observationReportSchema.safeParse(
+      (value as Record<string, unknown>).report,
+    );
+    if (!report.success) {
+      invalidKeys.push(key);
+      return [];
+    }
+    return [
+      {
+        savedAt: (value as Record<string, unknown>).savedAt,
+        report: report.data,
+      },
+    ];
+  });
+  if (invalidKeys.length > 0) {
+    await chrome.storage.local.remove(invalidKeys);
+  }
+  return {
+    count: history.length,
+    maximum: MAX_SAVED_REPORTS,
+    retentionDays: SAVED_REPORT_TTL_MS / (24 * 60 * 60 * 1_000),
+    history,
+  };
+}
+
+async function clearSavedReportHistory(): Promise<Record<string, unknown>> {
+  const stored = await chrome.storage.local.get(null);
+  const keys = Object.keys(stored).filter((key) =>
+    key.startsWith(SAVED_REPORT_KEY_PREFIX),
+  );
+  if (keys.length > 0) {
+    await chrome.storage.local.remove(keys);
+  }
+  return { cleared: keys.length };
+}
+
 async function requestPrivacyPermission(): Promise<Record<string, unknown>> {
   const granted = await chrome.permissions.request({
     permissions: ["privacy"],
@@ -257,6 +385,11 @@ async function runNetworkCheck(): Promise<Record<string, unknown>> {
       "尚未授权网络检查服务。VeriSilo 没有发送任何出口或 DNS 检查请求。",
     );
   }
+
+  // Bind before issuing any probe. The Native Host checks the same opaque
+  // runtime UUID again on submission, so a stop/relaunch during the check is
+  // rejected instead of attaching old browser traffic to a new runtime.
+  const runtimeBinding = await resolveRuntimeEvidenceBinding();
 
   const [ipProbe, cloudflareProbe, googleProbe] = await Promise.all([
     probeJson("IP 出口", NETWORK_CHECK_ENDPOINTS.ip),
@@ -276,23 +409,127 @@ async function runNetworkCheck(): Promise<Record<string, unknown>> {
     googleDnsPayload: googleProbe.value,
     errors,
   });
-  await chrome.storage.session.set({ [NETWORK_CHECK_KEY]: result });
-  return { result };
+  let handoff: NetworkEvidenceHandoffStatus = {
+    state: "local_only",
+    checkedAt: result.checkedAt,
+    reason: "desktop_unavailable",
+  };
+  await chrome.storage.session.set({
+    [NETWORK_CHECK_KEY]: result,
+    [NETWORK_CHECK_HANDOFF_KEY]: handoff,
+  });
+
+  handoff = await handoffNetworkEvidence(result, runtimeBinding);
+  await chrome.storage.session.set({ [NETWORK_CHECK_HANDOFF_KEY]: handoff });
+  return { result, handoff };
 }
 
 async function getNetworkCheck(): Promise<Record<string, unknown>> {
-  const stored = await chrome.storage.session.get(NETWORK_CHECK_KEY);
+  const stored = await chrome.storage.session.get([
+    NETWORK_CHECK_KEY,
+    NETWORK_CHECK_HANDOFF_KEY,
+  ]);
   const result = stored[NETWORK_CHECK_KEY];
   if (!isNetworkCheckResult(result)) {
-    await chrome.storage.session.remove(NETWORK_CHECK_KEY);
-    return { result: null };
+    await chrome.storage.session.remove([
+      NETWORK_CHECK_KEY,
+      NETWORK_CHECK_HANDOFF_KEY,
+    ]);
+    return { result: null, handoff: null };
   }
-  return { result };
+  const handoff = stored[NETWORK_CHECK_HANDOFF_KEY];
+  if (!isNetworkEvidenceHandoffStatus(handoff, result.checkedAt)) {
+    await chrome.storage.session.remove(NETWORK_CHECK_HANDOFF_KEY);
+    return { result, handoff: null };
+  }
+  return { result, handoff };
 }
 
 async function clearNetworkCheck(): Promise<Record<string, unknown>> {
-  await chrome.storage.session.remove(NETWORK_CHECK_KEY);
+  await chrome.storage.session.remove([
+    NETWORK_CHECK_KEY,
+    NETWORK_CHECK_HANDOFF_KEY,
+  ]);
   return { cleared: true };
+}
+
+async function handoffNetworkEvidence(
+  result: ReturnType<typeof buildNetworkCheckResult>,
+  runtimeBinding: RuntimeBindingResolution,
+): Promise<NetworkEvidenceHandoffStatus> {
+  const localOnly = (
+    reason: NetworkEvidenceHandoffReason,
+  ): NetworkEvidenceHandoffStatus => ({
+    state: "local_only",
+    checkedAt: result.checkedAt,
+    reason,
+  });
+
+  if (runtimeBinding.binding === null) {
+    return localOnly(runtimeBinding.reason);
+  }
+  const { siloId, runtimeId } = runtimeBinding.binding;
+
+  const submitRequestId = crypto.randomUUID();
+  try {
+    const submitRaw = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
+      type: "submit_network_evidence",
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: submitRequestId,
+      siloId,
+      runtimeId,
+      networkCheck: result,
+      coverage: NETWORK_EVIDENCE_COVERAGE,
+    });
+    const submitResponse = nativeResponseSchema.safeParse(submitRaw);
+    if (
+      !submitResponse.success ||
+      submitResponse.data.type !== "evidence_accepted" ||
+      submitResponse.data.requestId !== submitRequestId
+    ) {
+      return localOnly("submission_rejected");
+    }
+    return {
+      state: "submitted",
+      checkedAt: result.checkedAt,
+      siloId,
+      runtimeId,
+      evidenceId: submitResponse.data.evidenceId,
+      acceptedAt: submitResponse.data.acceptedAt,
+      expiresAt: submitResponse.data.expiresAt,
+    };
+  } catch {
+    return localOnly("submission_rejected");
+  }
+}
+
+type RuntimeBindingResolution =
+  | { binding: RuntimeEvidenceBinding; reason: null }
+  | { binding: null; reason: NetworkEvidenceHandoffReason };
+
+async function resolveRuntimeEvidenceBinding(): Promise<RuntimeBindingResolution> {
+  const requestId = crypto.randomUUID();
+  let statusRaw: unknown;
+  try {
+    statusRaw = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
+      type: "get_runtime_status",
+      protocolVersion: PROTOCOL_VERSION,
+      requestId,
+    });
+  } catch {
+    return { binding: null, reason: "desktop_unavailable" };
+  }
+  const statusResponse = nativeResponseSchema.safeParse(statusRaw);
+  if (!statusResponse.success) {
+    return { binding: null, reason: "desktop_unavailable" };
+  }
+  const binding = eligibleSiloForNetworkEvidence(
+    statusResponse.data,
+    requestId,
+  );
+  return binding === null
+    ? { binding: null, reason: "runtime_not_ready" }
+    : { binding, reason: null };
 }
 
 async function probeJson(
@@ -802,8 +1039,8 @@ function isIncognitoAllowed(): Promise<boolean> {
 }
 
 async function connectNativeHost(): Promise<Record<string, unknown>> {
-  const requestId = crypto.randomUUID();
   try {
+    const requestId = crypto.randomUUID();
     const raw = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
       type: "handshake",
       protocolVersion: PROTOCOL_VERSION,
@@ -815,7 +1052,25 @@ async function connectNativeHost(): Promise<Record<string, unknown>> {
         "The VeriSilo Native Host returned an unexpected response.",
       );
     }
-    return { connected: true };
+
+    const openRequestId = crypto.randomUUID();
+    const openRaw = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
+      type: "open_desktop",
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: openRequestId,
+    });
+    const openResponse = nativeResponseSchema.parse(openRaw);
+    if (
+      openResponse.type !== "desktop_opened" ||
+      openResponse.requestId !== openRequestId
+    ) {
+      const reason =
+        openResponse.type === "error"
+          ? openResponse.message
+          : "The VeriSilo Native Host returned an unexpected open response.";
+      throw new Error(reason);
+    }
+    return { connected: true, desktopOpened: true };
   } catch (error) {
     return { connected: false, reason: errorMessage(error) };
   }
@@ -837,7 +1092,7 @@ function reportKey(tabId: number): string {
 }
 
 function localReportKey(reportId: string): string {
-  return `${LOCAL_REPORT_KEY_PREFIX}${reportId}`;
+  return `${SAVED_REPORT_KEY_PREFIX}${reportId}`;
 }
 
 function originFromSender(sender: chrome.runtime.MessageSender): string | null {

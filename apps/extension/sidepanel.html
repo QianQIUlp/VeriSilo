@@ -159,7 +159,7 @@
 
       .tabbar {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(4, 1fr);
         gap: 4px;
         margin: 0 16px;
         border: 1px solid #e0e5ef;
@@ -754,6 +754,100 @@
         background: #12b76a;
       }
 
+      .status-chip.good {
+        border-color: #bdebd2;
+        color: var(--good);
+        background: var(--good-soft);
+      }
+
+      .status-chip.good::before {
+        background: #12b76a;
+      }
+
+      .status-chip.warning {
+        border-color: #fedf89;
+        color: var(--warn);
+        background: var(--warn-soft);
+      }
+
+      .status-chip.warning::before {
+        background: #f79009;
+      }
+
+      .status-chip.danger {
+        border-color: #ffd4d0;
+        color: var(--danger);
+        background: var(--danger-soft);
+      }
+
+      .status-chip.danger::before {
+        background: #d92d20;
+      }
+
+      .labs-warning {
+        border-color: #fedf89;
+        background: linear-gradient(145deg, #fffcf5, #fff8e8);
+      }
+
+      .labs-warning-line {
+        margin-top: 10px;
+        border-radius: 9px;
+        padding: 9px 10px;
+        color: #93370d;
+        background: #ffead5;
+        font-size: 10px;
+        font-weight: 850;
+        line-height: 1.5;
+      }
+
+      .labs-scope,
+      .labs-evidence {
+        margin: 9px 0 0;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+      }
+
+      .labs-evidence {
+        border-left: 2px solid #d9d9ff;
+        padding-left: 9px;
+      }
+
+      .labs-stop-list {
+        margin: 9px 0 0;
+        padding-left: 18px;
+        color: #667085;
+        font-size: 10px;
+        line-height: 1.6;
+      }
+
+      .labs-receipt-list {
+        display: grid;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .labs-receipt {
+        display: grid;
+        gap: 3px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 8px 10px;
+        background: var(--soft);
+      }
+
+      .labs-receipt strong {
+        color: #35405a;
+        font-size: 10px;
+      }
+
+      .labs-receipt span {
+        color: var(--muted);
+        font-size: 9px;
+        overflow-wrap: anywhere;
+      }
+
       .capability-table {
         margin-top: 12px;
         overflow: hidden;
@@ -837,6 +931,30 @@
         color: var(--muted);
         font-size: 10px;
         overflow-wrap: anywhere;
+      }
+
+      .history-list {
+        display: grid;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .history-item {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 8px 10px;
+        color: #475467;
+        background: var(--soft);
+        cursor: pointer;
+        font-size: 10px;
+        text-align: left;
+        overflow-wrap: anywhere;
+      }
+
+      .history-item:hover {
+        border-color: #c8c9ff;
+        background: var(--primary-soft);
       }
 
       .signal-list {
@@ -970,6 +1088,17 @@
         </button>
         <button
           class="tab"
+          id="tab-labs"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="panel-labs"
+          data-tab="labs"
+        >
+          实验室
+        </button>
+        <button
+          class="tab"
           id="tab-raw"
           type="button"
           role="tab"
@@ -1066,6 +1195,148 @@
             <div class="scope-note">
               本次扫描没有发现矛盾，不等于网站无法识别你。网站还可能结合网络出口、TLS/QUIC、行为和账号关系；这些不在扩展的完整控制范围内。
             </div>
+          </div>
+        </section>
+
+        <section
+          id="panel-labs"
+          role="tabpanel"
+          aria-labelledby="tab-labs"
+          data-panel="labs"
+          hidden
+        >
+          <article class="card labs-warning">
+            <p class="eyebrow">VeriSilo Labs · 默认关闭</p>
+            <h2>可能破坏网站；泄漏即停</h2>
+            <p>
+              每次只为当前 Silo 与当前站点明确授权。实验依次执行 Observe → Apply
+              → Verify → Restore；检测到跨标签页、iframe、Worker、Service Worker
+              URL 或页面可见 Cookie canary
+              泄漏，或页面异常、超时、权限被接管时，会自动恢复并停用该站点。
+            </p>
+            <div class="labs-warning-line">
+              没有桌面连接时只运行最多 2 分钟的本机临时实验，不属于任何
+              Silo，也不会持久化 canary、Cookie 或 token。
+            </div>
+          </article>
+
+          <div class="capability-stack">
+            <article class="card capability-card">
+              <div class="capability-head">
+                <div>
+                  <h3>新建 Dedicated Worker 一致性</h3>
+                  <p>
+                    真实包装 MAIN world 的 Worker constructor，并用短期随机
+                    canary 自检之后新建的同源/blob classic Worker 与同源
+                    iframe。
+                  </p>
+                </div>
+                <span class="badge best-effort">窄实验</span>
+              </div>
+              <div class="control-status">
+                <span class="status-chip neutral" id="labs-worker-status"
+                  >默认关闭</span
+                >
+              </div>
+              <p class="labs-scope" id="labs-scope">
+                尚未为当前 Silo/站点授权。
+              </p>
+              <p class="labs-evidence" id="labs-evidence">
+                尚无 Observe → Apply → Verify → Restore 证据。
+              </p>
+              <div class="button-row">
+                <button class="button primary" id="labs-enable" type="button">
+                  为当前站点开启 2 分钟
+                </button>
+                <button
+                  class="button secondary"
+                  id="labs-stop"
+                  type="button"
+                  disabled
+                >
+                  立即恢复并停用
+                </button>
+              </div>
+              <details class="permission-help">
+                <summary>覆盖范围与停止条件</summary>
+                <ul class="labs-stop-list">
+                  <li>
+                    只覆盖开启后新建、同源/blob、classic Dedicated Worker。
+                  </li>
+                  <li>
+                    不覆盖更早脚本、既有 Worker、module/cross-origin
+                    Worker、SharedWorker 或 Service Worker 内存。
+                  </li>
+                  <li>
+                    当前用户触发注入无法证明 document-start
+                    顺序，因此自检通过也只能标 best-effort，不能标 verified。
+                  </li>
+                  <li>
+                    异常、超时、权限变化或任何可观察 canary 泄漏都会恢复原
+                    constructor 并停用站点。
+                  </li>
+                </ul>
+              </details>
+            </article>
+
+            <article class="card capability-card">
+              <div class="capability-head">
+                <div>
+                  <h3>Cookie 仓库虚拟化</h3>
+                  <p>
+                    MV3 不能完整代理 HttpOnly、Cookie Store、Worker/Service
+                    Worker 与浏览器内部 Cookie 路径。Labs 只做页面可见 canary
+                    观察，不读出或改写 Cookie 值。
+                  </p>
+                </div>
+                <span class="badge unsupported">不可选 · unsupported</span>
+              </div>
+              <p class="labs-evidence">
+                可用替代：桌面 Silo 使用独立 user-data-dir，由浏览器原生隔离
+                Cookie、站点数据、权限和 Service Worker。
+              </p>
+            </article>
+
+            <article class="card capability-card">
+              <div class="capability-head">
+                <div>
+                  <h3>Set-Cookie 全面截获</h3>
+                  <p>
+                    当前扩展没有 webRequestBlocking、declarativeNetRequest
+                    或永久 host 权限，也不会伪装成能覆盖导航、子资源和 Worker
+                    响应。
+                  </p>
+                </div>
+                <span class="badge unsupported">不可选 · unsupported</span>
+              </div>
+              <p class="labs-evidence">
+                需要网络层控制时，应使用受控引擎或独立环境；独立 user-data-dir
+                是当前可靠的 Cookie 存储边界。
+              </p>
+            </article>
+
+            <article class="card capability-card">
+              <div class="capability-head">
+                <div>
+                  <h3>本机脱敏收据</h3>
+                  <p id="labs-receipt-status">
+                    正在读取 Observe / Apply / Verify / Restore 收据…
+                  </p>
+                </div>
+                <button
+                  class="button subtle"
+                  id="labs-clear-receipts"
+                  type="button"
+                >
+                  清除收据
+                </button>
+              </div>
+              <div
+                class="labs-receipt-list"
+                id="labs-receipt-list"
+                aria-label="Labs 本机脱敏收据"
+              ></div>
+            </article>
           </div>
         </section>
 
@@ -1244,7 +1515,22 @@
               >
                 导出可读 HTML
               </button>
+              <button
+                class="button subtle"
+                id="clear-report-history"
+                type="button"
+              >
+                清除本地报告历史
+              </button>
             </div>
+            <p id="report-history-status">
+              本机最多保留 20 份脱敏报告，30 天后自动清理。
+            </p>
+            <div
+              class="history-list"
+              id="report-history-list"
+              aria-label="本地脱敏报告历史"
+            ></div>
             <div class="raw-meta" id="raw-meta"></div>
           </article>
           <p class="raw-empty" id="raw-empty">扫描后将在这里显示技术数据。</p>

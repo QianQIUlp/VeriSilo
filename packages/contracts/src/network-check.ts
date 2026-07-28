@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export const NETWORK_CHECK_ORIGINS = [
   "https://ipwho.is/*",
   "https://cloudflare-dns.com/*",
@@ -12,43 +14,86 @@ export const NETWORK_CHECK_ENDPOINTS = {
     "https://dns.google/resolve?name=example.com&type=A&do=true&edns_client_subnet=0.0.0.0%2F0",
 } as const;
 
-export interface IpExitObservation {
-  address: string;
-  version: "IPv4" | "IPv6" | "unknown";
-  country: string | null;
-  countryCode: string | null;
-  region: string | null;
-  city: string | null;
-  asn: string | null;
-  organization: string | null;
-  isp: string | null;
-  timezone: string | null;
-  networkHint: "cloud_or_hosting" | "unknown";
-}
+export const NETWORK_REPUTATION_EXPLANATION =
+  "未查询商业信誉库或黑名单；运营商与机房线索不能代表 IP 一定干净或一定有风险。" as const;
 
-export interface DnsProviderObservation {
-  provider: "Cloudflare" | "Google";
-  status: number;
-  dnssecAuthenticated: boolean;
-  addresses: string[];
-}
+const nullableBoundedString = (maximum: number) =>
+  z.string().trim().min(1).max(maximum).nullable();
 
-export interface NetworkCheckResult {
-  schemaVersion: 1;
-  checkedAt: string;
-  ip: IpExitObservation | null;
-  dns: {
-    state: "consistent" | "different" | "resolver_error" | "partial" | "failed";
-    dnssec: "validated" | "not_validated" | "partial" | "unavailable";
-    queryName: "example.com";
-    providers: DnsProviderObservation[];
-  };
-  reputation: {
-    state: "not_scored";
-    explanation: string;
-  };
-  errors: string[];
-}
+export const ipExitObservationSchema = z
+  .object({
+    address: z.string().trim().min(1).max(64),
+    version: z.enum(["IPv4", "IPv6", "unknown"]),
+    country: nullableBoundedString(100),
+    countryCode: nullableBoundedString(8),
+    region: nullableBoundedString(120),
+    city: nullableBoundedString(120),
+    asn: z
+      .string()
+      .regex(/^AS\d{1,10}$/u)
+      .nullable(),
+    organization: nullableBoundedString(160),
+    isp: nullableBoundedString(160),
+    timezone: nullableBoundedString(80),
+    networkHint: z.enum(["cloud_or_hosting", "unknown"]),
+  })
+  .strict();
+export type IpExitObservation = z.infer<typeof ipExitObservationSchema>;
+
+export const dnsProviderObservationSchema = z
+  .object({
+    provider: z.enum(["Cloudflare", "Google"]),
+    status: z.number().int().min(0).max(65_535),
+    dnssecAuthenticated: z.boolean(),
+    addresses: z.array(z.string().regex(/^(?:\d{1,3}\.){3}\d{1,3}$/u)).max(16),
+  })
+  .strict();
+export type DnsProviderObservation = z.infer<
+  typeof dnsProviderObservationSchema
+>;
+
+export const networkCheckResultSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    checkedAt: z.string().datetime(),
+    ip: ipExitObservationSchema.nullable(),
+    dns: z
+      .object({
+        state: z.enum([
+          "consistent",
+          "different",
+          "resolver_error",
+          "partial",
+          "failed",
+        ]),
+        dnssec: z.enum([
+          "validated",
+          "not_validated",
+          "partial",
+          "unavailable",
+        ]),
+        queryName: z.literal("example.com"),
+        providers: z
+          .array(dnsProviderObservationSchema)
+          .max(2)
+          .refine(
+            (providers) =>
+              new Set(providers.map((provider) => provider.provider)).size ===
+              providers.length,
+            "Public DoH providers must be unique.",
+          ),
+      })
+      .strict(),
+    reputation: z
+      .object({
+        state: z.literal("not_scored"),
+        explanation: z.literal(NETWORK_REPUTATION_EXPLANATION),
+      })
+      .strict(),
+    errors: z.array(z.string().max(300)).max(10),
+  })
+  .strict();
+export type NetworkCheckResult = z.infer<typeof networkCheckResultSchema>;
 
 export interface NetworkCheckInput {
   ipPayload: unknown | null;
@@ -78,8 +123,7 @@ export function buildNetworkCheckResult(
     },
     reputation: {
       state: "not_scored",
-      explanation:
-        "未查询商业信誉库或黑名单；运营商与机房线索不能代表 IP 一定干净或一定有风险。",
+      explanation: NETWORK_REPUTATION_EXPLANATION,
     },
     errors: [...(input.errors ?? [])].slice(0, 10),
   };
@@ -142,25 +186,7 @@ export function parseDnsProvider(
 export function isNetworkCheckResult(
   value: unknown,
 ): value is NetworkCheckResult {
-  const candidate = recordValue(value);
-  const dns = recordValue(candidate?.dns);
-  const reputation = recordValue(candidate?.reputation);
-  const ip = candidate?.ip === null ? null : recordValue(candidate?.ip);
-  return (
-    candidate?.schemaVersion === 1 &&
-    boundedString(candidate.checkedAt, 64) !== null &&
-    (candidate.ip === null || boundedString(ip?.address, 64) !== null) &&
-    dns !== null &&
-    ["consistent", "different", "resolver_error", "partial", "failed"].includes(
-      String(dns.state),
-    ) &&
-    Array.isArray(dns.providers) &&
-    reputation?.state === "not_scored" &&
-    Array.isArray(candidate.errors) &&
-    candidate.errors.every(
-      (error) => typeof error === "string" && error.length <= 300,
-    )
-  );
+  return networkCheckResultSchema.safeParse(value).success;
 }
 
 function dnsState(

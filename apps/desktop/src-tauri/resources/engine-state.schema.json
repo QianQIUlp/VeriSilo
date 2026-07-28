@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verisilo.local/schemas/engine-state.schema.json",
+  "title": "VeriSilo external engine lifecycle state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "adapterId",
+    "activePackage",
+    "previousPackage",
+    "emergencyDisabled",
+    "emergencyReason",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "adapterId": { "enum": ["controlled-chromium", "camoufox"] },
+    "activePackage": { "$ref": "#/$defs/packageReference" },
+    "previousPackage": { "$ref": "#/$defs/packageReference" },
+    "emergencyDisabled": { "type": "boolean" },
+    "emergencyReason": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "packageReference": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["packageRoot", "engineVersion"],
+          "properties": {
+            "packageRoot": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "engineVersion": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 64
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "emergencyDisabled": { "const": false } } },
+      "then": { "properties": { "emergencyReason": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "activePackage": { "type": "null" } } },
+      "then": { "properties": { "previousPackage": { "type": "null" } } }
+    }
+  ]
+}

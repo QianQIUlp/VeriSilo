@@ -1,0 +1,258 @@
+name: Windows candidate promotion gate (real E2E)
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifactId:
+        description: Exact same-repository Windows candidate Actions artifact ID
+        required: true
+        type: string
+      candidateDigest:
+        description: Lowercase artifact SHA-256 emitted by upload-artifact
+        required: true
+        type: string
+      sourceRevision:
+        description: Full lowercase Git revision recorded in candidate provenance
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      artifactId:
+        description: Exact same-repository Windows candidate Actions artifact ID
+        required: true
+        type: string
+      candidateDigest:
+        description: Lowercase artifact SHA-256 emitted by upload-artifact
+        required: true
+        type: string
+      sourceRevision:
+        description: Full lowercase Git revision recorded in candidate provenance
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: verisilo-windows-promotion-${{ inputs.artifactId }}
+  cancel-in-progress: false
+
+jobs:
+  exact-candidate-real-e2e:
+    name: ${{ matrix.expectedWindowsVersion }} x64 / ${{ matrix.browser }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runnerLabel: verisilo-win10
+            expectedWindowsVersion: Windows 10
+            browser: Chrome
+          - runnerLabel: verisilo-win10
+            expectedWindowsVersion: Windows 10
+            browser: Edge
+          - runnerLabel: verisilo-win11
+            expectedWindowsVersion: Windows 11
+            browser: Chrome
+          - runnerLabel: verisilo-win11
+            expectedWindowsVersion: Windows 11
+            browser: Edge
+    runs-on:
+      - self-hosted
+      - windows
+      - x64
+      - ${{ matrix.runnerLabel }}
+    timeout-minutes: 120
+    env:
+      VERISILO_PROMOTION_REPOSITORY: QianQIUlp/VeriSilo
+      VERISILO_PROMOTION_ARTIFACT_ID: ${{ inputs.artifactId }}
+      VERISILO_PROMOTION_CANDIDATE_DIGEST: ${{ inputs.candidateDigest }}
+      VERISILO_PROMOTION_SOURCE_REVISION: ${{ inputs.sourceRevision }}
+      VERISILO_PROMOTION_EXPECTED_WINDOWS: ${{ matrix.expectedWindowsVersion }}
+      VERISILO_PROMOTION_BROWSER: ${{ matrix.browser }}
+    steps:
+      - name: Validate promotion inputs before checkout
+        shell: pwsh
+        run: |
+          if ($env:VERISILO_PROMOTION_ARTIFACT_ID -cnotmatch '^[1-9][0-9]{0,15}$' -or
+              $env:VERISILO_PROMOTION_CANDIDATE_DIGEST -cnotmatch '^[0-9a-f]{64}$' -or
+              $env:VERISILO_PROMOTION_CANDIDATE_DIGEST -cmatch '^0{64}$' -or
+              $env:VERISILO_PROMOTION_SOURCE_REVISION -cnotmatch '^[0-9a-f]{40}$') {
+            throw 'Promotion gate requires a strict artifact ID, non-zero digest, and full source revision.'
+          }
+          if ($env:GITHUB_REPOSITORY -cne $env:VERISILO_PROMOTION_REPOSITORY) {
+            throw 'The promotion gate may consume artifacts only from the canonical VeriSilo repository.'
+          }
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.sourceRevision }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.1
+
+      - name: Require the exact provenance source checkout
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:VERISILO_PROMOTION_SOURCE_REVISION) {
+            throw 'Promotion harness checkout does not match the requested candidate source revision.'
+          }
+          if (-not [string]::IsNullOrWhiteSpace((git status --porcelain=v1 --untracked-files=all | Out-String))) {
+            throw 'Promotion harness checkout must be clean before candidate verification.'
+          }
+
+      - name: Initialize isolated matrix evidence workspace
+        shell: pwsh
+        run: |
+          $cell = "$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$($env:VERISILO_PROMOTION_EXPECTED_WINDOWS.Replace(' ', '-').ToLowerInvariant())-$($env:VERISILO_PROMOTION_BROWSER.ToLowerInvariant())"
+          $root = Join-Path $env:RUNNER_TEMP "verisilo-promotion-$cell"
+          if (Test-Path -LiteralPath $root) { throw 'Refusing to reuse a previous promotion workspace.' }
+          $candidate = Join-Path $root 'candidate'
+          $receipt = Join-Path $root 'artifact-receipt.json'
+          $descriptor = Join-Path $root 'candidate-descriptor.json'
+          $results = Join-Path $root 'e2e-results'
+          $evidence = Join-Path $root 'evidence'
+          $acceptanceTarget = Join-Path $root 'acceptance-target'
+          $nativeHostManifestRoot = Join-Path $root 'native-messaging'
+          $acceptanceReceipt = Join-Path $results "desktop-acceptance-$env:VERISILO_PROMOTION_BROWSER.json"
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          @(
+            "VERISILO_PROMOTION_ROOT=$root",
+            "VERISILO_PROMOTION_CANDIDATE_ROOT=$candidate",
+            "VERISILO_PROMOTION_RECEIPT=$receipt",
+            "VERISILO_PROMOTION_DESCRIPTOR=$descriptor",
+            "VERISILO_PROMOTION_RESULTS=$results",
+            "VERISILO_PROMOTION_EVIDENCE=$evidence",
+            "VERISILO_ACCEPTANCE_TARGET=$acceptanceTarget",
+            "VERISILO_PROMOTION_NATIVE_HOST_MANIFEST_ROOT=$nativeHostManifestRoot",
+            "VERISILO_PROMOTION_ACCEPTANCE_RECEIPT=$acceptanceReceipt"
+          ) | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Self-test artifact and attestation guards
+        shell: pwsh
+        run: |
+          ./scripts/download-windows-candidate.ps1 -SelfTest
+          node scripts/verify-windows-promotion-candidate.mjs --self-test
+          node scripts/write-windows-promotion-attestation.mjs --self-test
+
+      - name: Download and verify the exact same-repository candidate
+        id: candidate
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          ./scripts/download-windows-candidate.ps1 -Repository $env:VERISILO_PROMOTION_REPOSITORY -ArtifactId ([long]$env:VERISILO_PROMOTION_ARTIFACT_ID) -ArtifactSha256 $env:VERISILO_PROMOTION_CANDIDATE_DIGEST -SourceRevision $env:VERISILO_PROMOTION_SOURCE_REVISION -DestinationDirectory $env:VERISILO_PROMOTION_CANDIDATE_ROOT -MetadataPath $env:VERISILO_PROMOTION_RECEIPT
+          node scripts/verify-windows-promotion-candidate.mjs --check --dir $env:VERISILO_PROMOTION_CANDIDATE_ROOT --receipt $env:VERISILO_PROMOTION_RECEIPT --descriptor $env:VERISILO_PROMOTION_DESCRIPTOR --repository $env:VERISILO_PROMOTION_REPOSITORY --artifact-id $env:VERISILO_PROMOTION_ARTIFACT_ID --artifact-sha256 $env:VERISILO_PROMOTION_CANDIDATE_DIGEST --source-revision $env:VERISILO_PROMOTION_SOURCE_REVISION
+
+      - name: Build the acceptance-only desktop core driver from the exact candidate revision
+        id: acceptance-driver
+        if: steps.candidate.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:VERISILO_PROMOTION_SOURCE_REVISION) {
+            throw 'Acceptance driver checkout does not match the verified candidate revision.'
+          }
+          $env:CARGO_TARGET_DIR = $env:VERISILO_ACCEPTANCE_TARGET
+          $env:VERISILO_ACCEPTANCE_SOURCE_REVISION = $env:VERISILO_PROMOTION_SOURCE_REVISION
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc --features acceptance-tests --bin verisilo-acceptance-driver
+          if ($LASTEXITCODE -ne 0) { throw 'The acceptance-only driver build failed.' }
+          $driver = Join-Path $env:VERISILO_ACCEPTANCE_TARGET 'x86_64-pc-windows-msvc\debug\verisilo-acceptance-driver.exe'
+          if (-not (Test-Path -LiteralPath $driver -PathType Leaf)) {
+            throw 'The source-exact acceptance driver executable was not produced.'
+          }
+          "VERISILO_PROMOTION_ACCEPTANCE_DRIVER=$driver" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Register the exact candidate Native Host in an isolated current-user manifest root
+        id: native-host-registration
+        if: steps.candidate.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          foreach ($path in @(
+            'HKCU:\Software\Google\Chrome\NativeMessagingHosts\io.verisilo.host',
+            'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\io.verisilo.host'
+          )) {
+            if (Test-Path -LiteralPath $path) {
+              throw "Dedicated promotion runner has a pre-existing Native Host registration: $path"
+            }
+          }
+          $descriptor = Get-Content -Raw -LiteralPath $env:VERISILO_PROMOTION_DESCRIPTOR | ConvertFrom-Json
+          ./scripts/install-native-host.ps1 -HostPath ([string]$descriptor.files.nativeHost) -ReleaseConfigPath ([string]$descriptor.files.releaseConfig) -ManifestRoot $env:VERISILO_PROMOTION_NATIVE_HOST_MANIFEST_ROOT
+
+      - name: Execute real browser and candidate harness with RequireAll
+        id: real-e2e
+        if: steps.candidate.outcome == 'success' && steps.acceptance-driver.outcome == 'success' && steps.native-host-registration.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $descriptor = Get-Content -Raw -LiteralPath $env:VERISILO_PROMOTION_DESCRIPTOR | ConvertFrom-Json
+          & .\tests\windows\Invoke-VeriSiloWindowsE2E.ps1 `
+            -Browser $env:VERISILO_PROMOTION_BROWSER `
+            -ExpectedWindowsVersion $env:VERISILO_PROMOTION_EXPECTED_WINDOWS `
+            -NativeHostPath ([string]$descriptor.files.nativeHost) `
+            -ReleaseConfigPath ([string]$descriptor.files.releaseConfig) `
+            -DesktopExe ([string]$descriptor.files.desktopExe) `
+            -AcceptanceDriverPath $env:VERISILO_PROMOTION_ACCEPTANCE_DRIVER `
+            -CandidateDescriptorPath $env:VERISILO_PROMOTION_DESCRIPTOR `
+            -NativeHostManifestRoot $env:VERISILO_PROMOTION_NATIVE_HOST_MANIFEST_ROOT `
+            -ArtifactDirectory $env:VERISILO_PROMOTION_RESULTS `
+            -KeepArtifacts `
+            -RequireAll
+
+      - name: Remove isolated current-user Native Host registration
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:VERISILO_PROMOTION_NATIVE_HOST_MANIFEST_ROOT)) {
+            ./scripts/uninstall-native-host.ps1 -ManifestRoot $env:VERISILO_PROMOTION_NATIVE_HOST_MANIFEST_ROOT
+          }
+
+      - name: Write machine-readable matrix attestation
+        if: always()
+        shell: pwsh
+        env:
+          VERISILO_CANDIDATE_STEP_OUTCOME: ${{ steps.candidate.outcome }}
+          VERISILO_HARNESS_STEP_OUTCOME: ${{ steps.real-e2e.outcome }}
+        run: |
+          $attestation = Join-Path $env:VERISILO_PROMOTION_EVIDENCE 'windows-promotion-attestation.json'
+          node scripts/write-windows-promotion-attestation.mjs --repository $env:VERISILO_PROMOTION_REPOSITORY --artifact-id $env:VERISILO_PROMOTION_ARTIFACT_ID --artifact-sha256 $env:VERISILO_PROMOTION_CANDIDATE_DIGEST --source-revision $env:VERISILO_PROMOTION_SOURCE_REVISION --expected-os $env:VERISILO_PROMOTION_EXPECTED_WINDOWS --browser $env:VERISILO_PROMOTION_BROWSER --candidate-outcome $env:VERISILO_CANDIDATE_STEP_OUTCOME --harness-outcome $env:VERISILO_HARNESS_STEP_OUTCOME --descriptor $env:VERISILO_PROMOTION_DESCRIPTOR --summary (Join-Path $env:VERISILO_PROMOTION_RESULTS 'summary.json') --acceptance-receipt $env:VERISILO_PROMOTION_ACCEPTANCE_RECEIPT --out $attestation
+          foreach ($evidencePath in @($env:VERISILO_PROMOTION_RECEIPT, $env:VERISILO_PROMOTION_DESCRIPTOR)) {
+            if (Test-Path -LiteralPath $evidencePath -PathType Leaf) {
+              Copy-Item -LiteralPath $evidencePath -Destination $env:VERISILO_PROMOTION_EVIDENCE
+            }
+          }
+          "VERISILO_PROMOTION_ATTESTATION=$attestation" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload exact-candidate E2E evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-${{ matrix.runnerLabel }}-${{ matrix.browser }}-${{ inputs.artifactId }}-promotion-attestation
+          path: |
+            ${{ env.VERISILO_PROMOTION_EVIDENCE }}/
+            ${{ env.VERISILO_PROMOTION_RESULTS }}/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce complete PASS evidence for this matrix cell
+        if: always()
+        shell: pwsh
+        run: node scripts/write-windows-promotion-attestation.mjs --enforce $env:VERISILO_PROMOTION_ATTESTATION
+
+      - name: Remove candidate bytes from the persistent runner
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:VERISILO_PROMOTION_ROOT) -and
+              (Test-Path -LiteralPath $env:VERISILO_PROMOTION_ROOT)) {
+            Remove-Item -LiteralPath $env:VERISILO_PROMOTION_ROOT -Recurse -Force
+          }

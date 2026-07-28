@@ -2,6 +2,9 @@ use std::{
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 use chrono::{DateTime, Utc};
@@ -9,6 +12,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
+
+use crate::engine::{
+    EngineAdapterId, EngineCapabilityState, EngineControlExecution, EngineControlPhaseReceipt,
+    SiloEngineConfig, SiteFallbackReceipt,
+};
 
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -55,8 +63,115 @@ pub struct BrowserCandidate {
     pub version: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserVerification {
+    pub state: BrowserVerificationState,
+    pub expected_kind: BrowserKind,
+    pub expected_version: Option<String>,
+    pub actual_version: Option<String>,
+    pub executable_path: String,
+    pub checked_at: DateTime<Utc>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserVerificationState {
+    Verified,
+    BaselineMissing,
+    VersionDrift,
+    Missing,
+    PathChanged,
+    KindMismatch,
+    PublisherMismatch,
+    ProbeFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserInspection {
+    pub resolved_path: String,
+    pub version: String,
+}
+
+#[derive(Debug, Error)]
+pub enum BrowserVerificationError {
+    #[error("所选浏览器可执行文件不存在或不是普通文件。")]
+    Missing,
+    #[error("所选浏览器路径解析失败：{0}")]
+    Path(std::io::Error),
+    #[error("所选文件名与浏览器类型不一致。")]
+    FilenameMismatch,
+    #[error("浏览器 --version 检查失败：{0}")]
+    Probe(String),
+    #[error("浏览器 --version 输出与所选 Chrome/Edge 类型不一致。")]
+    KindMismatch,
+    #[error("Windows Authenticode 发布者与所选 Chrome/Edge 类型不一致。")]
+    PublisherMismatch,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+pub enum WindowsSystemTool {
+    PowerShell,
+    Tasklist,
+    Wsl,
+    WindowsSandbox,
+    Certutil,
+}
+
+#[cfg(target_os = "windows")]
+pub fn trusted_windows_system_tool(tool: WindowsSystemTool) -> Result<PathBuf, DomainError> {
+    use std::os::windows::fs::MetadataExt;
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
+    }
+
+    let mut buffer = vec![0_u16; 32_768];
+    let length = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) };
+    if length == 0 || length as usize >= buffer.len() {
+        return Err(DomainError::InvalidSilo(
+            "Windows system directory could not be resolved safely.".to_owned(),
+        ));
+    }
+    let system_directory =
+        PathBuf::from(String::from_utf16(&buffer[..length as usize]).map_err(|_| {
+            DomainError::InvalidSilo("Windows system directory is not valid UTF-16.".to_owned())
+        })?);
+    let candidate = match tool {
+        WindowsSystemTool::PowerShell => system_directory
+            .join("WindowsPowerShell")
+            .join("v1.0")
+            .join("powershell.exe"),
+        WindowsSystemTool::Tasklist => system_directory.join("tasklist.exe"),
+        WindowsSystemTool::Wsl => system_directory.join("wsl.exe"),
+        WindowsSystemTool::WindowsSandbox => system_directory.join("WindowsSandbox.exe"),
+        WindowsSystemTool::Certutil => system_directory.join("certutil.exe"),
+    };
+    let canonical_system = fs::canonicalize(&system_directory)?;
+    let canonical_candidate = fs::canonicalize(&candidate)?;
+    if !canonical_candidate.starts_with(&canonical_system)
+        || !canonical_candidate.is_file()
+        || fs::symlink_metadata(&canonical_candidate)?.file_attributes()
+            & FILE_ATTRIBUTE_REPARSE_POINT
+            != 0
+    {
+        return Err(DomainError::InvalidSilo(
+            "Windows system tool path is outside System32, missing, or a reparse point.".to_owned(),
+        ));
+    }
+    Ok(canonical_candidate)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "mode", rename_all = "camelCase")]
+#[serde(
+    tag = "mode",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum NetworkProfile {
     #[serde(rename = "direct")]
     Direct { proxy_required: bool },
@@ -186,6 +301,13 @@ impl NetworkProfile {
 
                 Ok(())
             }
+            Self::Pac {
+                proxy_required: true,
+                ..
+            } => Err(DomainError::InvalidNetwork(
+                "A PAC profile cannot guarantee fail-closed proxy routing because PAC rules may return DIRECT."
+                    .to_owned(),
+            )),
             Self::Pac { pac_url, .. } => {
                 if pac_url.len() > 2_048 {
                     return Err(DomainError::InvalidNetwork(
@@ -279,6 +401,8 @@ pub struct Silo {
     pub browser: BrowserDescriptor,
     pub profile_directory: String,
     pub network_profile: NetworkProfile,
+    #[serde(default)]
+    pub engine: SiloEngineConfig,
     pub seed_reference: Uuid,
     pub created_at: DateTime<Utc>,
     pub archived_at: Option<DateTime<Utc>>,
@@ -293,9 +417,50 @@ pub struct CreateSiloInput {
     pub executable_path: String,
     pub network_profile: NetworkProfile,
     #[serde(default)]
+    pub engine: SiloEngineConfig,
+    #[serde(default)]
     pub proxy_credentials: Option<ProxyCredentialsInput>,
     #[serde(default)]
     pub mihomo_controller_secret: Option<MihomoControllerSecretInput>,
+}
+
+/// Editable Silo metadata. Identity-bearing fields intentionally do not appear
+/// here: a caller cannot replace the UUID, seed, profile path, creation time or
+/// archived state through an update.
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateSiloInput {
+    pub name: String,
+    pub color: String,
+    pub browser_kind: BrowserKind,
+    pub executable_path: String,
+}
+
+/// A complete replacement for a Silo's network configuration. Optional
+/// secrets are plaintext inputs only at the Tauri boundary and are converted
+/// to opaque Vault references before the Silo is persisted.
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateSiloNetworkInput {
+    pub network_profile: NetworkProfile,
+    #[serde(default)]
+    pub proxy_credentials: Option<ProxyCredentialsInput>,
+    #[serde(default)]
+    pub mihomo_controller_secret: Option<MihomoControllerSecretInput>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateSiloEngineInput {
+    pub engine: SiloEngineConfig,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiloStorageUsage {
+    pub silo_id: Uuid,
+    pub profile_directory: String,
+    pub bytes: u64,
 }
 
 #[derive(Clone, Deserialize)]
@@ -313,93 +478,143 @@ pub struct MihomoControllerSecretInput {
 
 impl CreateSiloInput {
     pub fn validate(&self) -> Result<(), DomainError> {
-        if self.name.trim().is_empty() || self.name.chars().count() > 64 {
-            return Err(DomainError::InvalidSilo(
-                "Silo name must contain 1–64 characters.".to_owned(),
-            ));
-        }
+        validate_silo_metadata(&self.name, &self.color, &self.executable_path)?;
+        validate_network_replacement(
+            &self.network_profile,
+            self.proxy_credentials.as_ref(),
+            self.mihomo_controller_secret.as_ref(),
+        )?;
+        validate_engine_configuration(&self.engine, &self.network_profile)
+    }
+}
 
-        if !is_hex_color(&self.color) {
-            return Err(DomainError::InvalidSilo(
-                "Silo color must be a six-digit hex color.".to_owned(),
-            ));
-        }
+impl UpdateSiloInput {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        validate_silo_metadata(&self.name, &self.color, &self.executable_path)
+    }
+}
 
-        let executable_path = Path::new(&self.executable_path);
-        if !executable_path.is_file() {
-            return Err(DomainError::InvalidSilo(
-                "The selected browser executable does not exist.".to_owned(),
-            ));
-        }
+impl UpdateSiloNetworkInput {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        validate_network_replacement(
+            &self.network_profile,
+            self.proxy_credentials.as_ref(),
+            self.mihomo_controller_secret.as_ref(),
+        )
+    }
+}
 
-        self.network_profile.validate()?;
+impl UpdateSiloEngineInput {
+    pub fn validate(&self, network_profile: &NetworkProfile) -> Result<(), DomainError> {
+        validate_engine_configuration(&self.engine, network_profile)
+    }
+}
 
-        if self.network_profile.credential_reference().is_some() {
+fn validate_engine_configuration(
+    engine: &SiloEngineConfig,
+    network_profile: &NetworkProfile,
+) -> Result<(), DomainError> {
+    engine
+        .validate(network_profile.requires_proxy())
+        .map_err(|error| DomainError::InvalidEngine(error.to_string()))
+}
+
+pub(crate) fn validate_silo_name(name: &str) -> Result<(), DomainError> {
+    if name.trim().is_empty() || name.chars().count() > 64 {
+        return Err(DomainError::InvalidSilo(
+            "Silo name must contain 1–64 characters.".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_silo_metadata(
+    name: &str,
+    color: &str,
+    executable_path: &str,
+) -> Result<(), DomainError> {
+    validate_silo_name(name)?;
+    if !is_hex_color(color) {
+        return Err(DomainError::InvalidSilo(
+            "Silo color must be a six-digit hex color.".to_owned(),
+        ));
+    }
+    if !Path::new(executable_path).is_file() {
+        return Err(DomainError::InvalidSilo(
+            "The selected browser executable does not exist.".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_network_replacement(
+    network_profile: &NetworkProfile,
+    proxy_credentials: Option<&ProxyCredentialsInput>,
+    mihomo_controller_secret: Option<&MihomoControllerSecretInput>,
+) -> Result<(), DomainError> {
+    network_profile.validate()?;
+    if network_profile.credential_reference().is_some() {
+        return Err(DomainError::InvalidNetwork(
+            "Network updates cannot supply an existing credential reference.".to_owned(),
+        ));
+    }
+    if network_profile
+        .mihomo_controller_secret_reference()
+        .is_some()
+    {
+        return Err(DomainError::InvalidNetwork(
+            "Network updates cannot supply an existing Mihomo controller secret reference."
+                .to_owned(),
+        ));
+    }
+
+    if let Some(credentials) = proxy_credentials {
+        if !matches!(network_profile, NetworkProfile::FixedProxy { .. }) {
             return Err(DomainError::InvalidNetwork(
-                "A new Silo cannot supply an existing credential reference.".to_owned(),
+                "Proxy credentials require a fixed proxy profile.".to_owned(),
             ));
         }
-        if self
-            .network_profile
-            .mihomo_controller_secret_reference()
-            .is_some()
+        if credentials.username.trim().is_empty()
+            || credentials.username.len() > 512
+            || credentials.password.len() > 1_024
+            || credentials.username.chars().any(char::is_control)
+            || credentials.password.chars().any(char::is_control)
         {
             return Err(DomainError::InvalidNetwork(
-                "A new Silo cannot supply an existing Mihomo controller secret reference."
+                "Proxy credentials are empty, too long, or contain control characters.".to_owned(),
+            ));
+        }
+        if !matches!(
+            network_profile,
+            NetworkProfile::FixedProxy {
+                scheme: ProxyScheme::Http | ProxyScheme::Socks5,
+                ..
+            }
+        ) {
+            return Err(DomainError::InvalidNetwork(
+                "Automatic proxy authentication currently supports HTTP and SOCKS5. Use an external Mihomo endpoint for other authenticated protocols."
                     .to_owned(),
             ));
         }
-
-        if let Some(credentials) = &self.proxy_credentials {
-            if !matches!(&self.network_profile, NetworkProfile::FixedProxy { .. }) {
-                return Err(DomainError::InvalidNetwork(
-                    "Proxy credentials require a fixed proxy profile.".to_owned(),
-                ));
-            }
-            if credentials.username.trim().is_empty()
-                || credentials.username.len() > 512
-                || credentials.password.len() > 1_024
-                || credentials.username.chars().any(char::is_control)
-                || credentials.password.chars().any(char::is_control)
-            {
-                return Err(DomainError::InvalidNetwork(
-                    "Proxy credentials are empty, too long, or contain control characters."
-                        .to_owned(),
-                ));
-            }
-            let supports_local_auth_relay = matches!(
-                &self.network_profile,
-                NetworkProfile::FixedProxy {
-                    scheme: ProxyScheme::Http | ProxyScheme::Socks5,
-                    ..
-                }
-            );
-            if !supports_local_auth_relay {
-                return Err(DomainError::InvalidNetwork(
-                    "Automatic proxy authentication currently supports HTTP and SOCKS5. Use an external Mihomo endpoint for other authenticated protocols."
-                        .to_owned(),
-                ));
-            }
-        }
-
-        if let Some(controller_secret) = &self.mihomo_controller_secret {
-            if self.network_profile.external_mihomo_binding().is_none() {
-                return Err(DomainError::InvalidNetwork(
-                    "A Mihomo controller secret requires an external Mihomo binding.".to_owned(),
-                ));
-            }
-            if controller_secret.secret.len() > 1_024
-                || controller_secret.secret.chars().any(char::is_control)
-            {
-                return Err(DomainError::InvalidNetwork(
-                    "The Mihomo controller secret is too long or contains control characters."
-                        .to_owned(),
-                ));
-            }
-        }
-
-        Ok(())
     }
+
+    if let Some(controller_secret) = mihomo_controller_secret {
+        if network_profile.external_mihomo_binding().is_none() {
+            return Err(DomainError::InvalidNetwork(
+                "A Mihomo controller secret requires an external Mihomo binding.".to_owned(),
+            ));
+        }
+        if controller_secret.secret.len() > 1_024
+            || controller_secret.secret.chars().any(char::is_control)
+        {
+            return Err(DomainError::InvalidNetwork(
+                "The Mihomo controller secret is too long or contains control characters."
+                    .to_owned(),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 impl NetworkProfile {
@@ -462,6 +677,19 @@ impl NetworkProfile {
 }
 
 impl Silo {
+    pub fn engine_profile_directory(&self) -> PathBuf {
+        self.engine
+            .profile_directory(Path::new(&self.profile_directory))
+    }
+
+    pub fn all_engine_profile_directories(&self) -> [PathBuf; 3] {
+        SiloEngineConfig::all_profile_directories(Path::new(&self.profile_directory))
+    }
+
+    pub fn validate_engine(&self) -> Result<(), DomainError> {
+        validate_engine_configuration(&self.engine, &self.network_profile)
+    }
+
     pub fn launch_arguments(&self) -> Vec<OsString> {
         self.launch_arguments_with_proxy_override(None)
     }
@@ -490,7 +718,68 @@ pub struct RuntimeActivation {
     pub state: RuntimeState,
     pub updated_at: DateTime<Utc>,
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub browser_verification: Option<BrowserVerification>,
+    pub engine_evidence: Option<RuntimeEngineEvidence>,
     pub network_evidence: Option<RuntimeNetworkEvidence>,
+}
+
+/// Separates configuration, process launch, package authenticity, bootstrap
+/// delivery, and runtime identity verification. A verified package never sets
+/// `verified_adapter`; that field requires direct runtime protocol evidence.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeEngineEvidence {
+    pub configured_adapter: EngineAdapterId,
+    pub launched_adapter: Option<EngineAdapterId>,
+    pub verified_adapter: Option<EngineAdapterId>,
+    pub package_verification: RuntimeEvidenceState,
+    pub bootstrap_delivery: RuntimeEvidenceState,
+    pub runtime_receipts: RuntimeEvidenceState,
+    pub restore_receipt: RuntimeEvidenceState,
+    pub capabilities: Vec<EngineCapabilityState>,
+    pub phase_receipts: Vec<EngineControlPhaseReceipt>,
+    pub fallback_receipts: Vec<SiteFallbackReceipt>,
+}
+
+impl RuntimeEngineEvidence {
+    pub fn configured(adapter: EngineAdapterId, externally_packaged: bool) -> Self {
+        Self {
+            configured_adapter: adapter,
+            launched_adapter: None,
+            verified_adapter: None,
+            package_verification: if externally_packaged {
+                RuntimeEvidenceState::NotRequested
+            } else {
+                RuntimeEvidenceState::NotApplicable
+            },
+            bootstrap_delivery: if externally_packaged {
+                RuntimeEvidenceState::NotRequested
+            } else {
+                RuntimeEvidenceState::NotApplicable
+            },
+            runtime_receipts: if externally_packaged {
+                RuntimeEvidenceState::NotRequested
+            } else {
+                RuntimeEvidenceState::NotApplicable
+            },
+            restore_receipt: if externally_packaged {
+                RuntimeEvidenceState::NotRequested
+            } else {
+                RuntimeEvidenceState::NotApplicable
+            },
+            capabilities: Vec::new(),
+            phase_receipts: Vec::new(),
+            fallback_receipts: Vec::new(),
+        }
+    }
+
+    pub fn sync_control_execution(&mut self, execution: &EngineControlExecution) {
+        self.capabilities.clone_from(&execution.capabilities);
+        self.phase_receipts.clone_from(&execution.phase_receipts);
+        self.fallback_receipts
+            .clone_from(&execution.fallback_receipts);
+    }
 }
 
 impl RuntimeActivation {
@@ -500,6 +789,8 @@ impl RuntimeActivation {
             state: RuntimeState::Idle,
             updated_at: Utc::now(),
             message: None,
+            browser_verification: None,
+            engine_evidence: None,
             network_evidence: None,
         }
     }
@@ -508,11 +799,17 @@ impl RuntimeActivation {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeNetworkEvidence {
+    pub runtime_id: Uuid,
+    pub evidence_id: Uuid,
+    pub observed_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub provenance: RuntimeNetworkEvidenceProvenance,
     pub provider: RuntimeNetworkProvider,
     pub configuration: RuntimeEvidenceState,
     pub controller_binding: RuntimeEvidenceState,
     pub endpoint: RuntimeEvidenceState,
     pub authentication: RuntimeEvidenceState,
+    pub authentication_provenance: RuntimeNetworkEvidenceProvenance,
     pub browser_routing: RuntimeEvidenceState,
     pub exit: RuntimeEvidenceState,
     pub dns: RuntimeEvidenceState,
@@ -531,6 +828,14 @@ pub enum RuntimeNetworkProvider {
     Pac,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeNetworkEvidenceProvenance {
+    DesktopControlPlane,
+    ExtensionAsserted,
+    RelayObserved,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeEvidenceState {
@@ -539,6 +844,7 @@ pub enum RuntimeEvidenceState {
     Configured,
     Reachable,
     Applied,
+    Observed,
     Verified,
     Failed,
     Unavailable,
@@ -548,11 +854,17 @@ impl RuntimeNetworkEvidence {
     pub fn configured(profile: &NetworkProfile, has_authentication: bool) -> Self {
         match profile {
             NetworkProfile::Direct { .. } => Self {
+                runtime_id: Uuid::new_v4(),
+                evidence_id: Uuid::new_v4(),
+                observed_at: Utc::now(),
+                expires_at: None,
+                provenance: RuntimeNetworkEvidenceProvenance::DesktopControlPlane,
                 provider: RuntimeNetworkProvider::Direct,
                 configuration: RuntimeEvidenceState::Configured,
                 controller_binding: RuntimeEvidenceState::NotApplicable,
                 endpoint: RuntimeEvidenceState::NotApplicable,
                 authentication: RuntimeEvidenceState::NotApplicable,
+                authentication_provenance: RuntimeNetworkEvidenceProvenance::DesktopControlPlane,
                 browser_routing: RuntimeEvidenceState::NotRequested,
                 exit: RuntimeEvidenceState::NotRequested,
                 dns: RuntimeEvidenceState::NotRequested,
@@ -566,6 +878,11 @@ impl RuntimeNetworkEvidence {
                 external_mihomo,
                 ..
             } => Self {
+                runtime_id: Uuid::new_v4(),
+                evidence_id: Uuid::new_v4(),
+                observed_at: Utc::now(),
+                expires_at: None,
+                provenance: RuntimeNetworkEvidenceProvenance::DesktopControlPlane,
                 provider: if external_mihomo.is_some() {
                     RuntimeNetworkProvider::ExternalMihomo
                 } else {
@@ -583,6 +900,7 @@ impl RuntimeNetworkEvidence {
                 } else {
                     RuntimeEvidenceState::NotApplicable
                 },
+                authentication_provenance: RuntimeNetworkEvidenceProvenance::DesktopControlPlane,
                 browser_routing: RuntimeEvidenceState::NotRequested,
                 exit: RuntimeEvidenceState::NotRequested,
                 dns: RuntimeEvidenceState::NotRequested,
@@ -600,11 +918,17 @@ impl RuntimeNetworkEvidence {
                 },
             },
             NetworkProfile::Pac { .. } => Self {
+                runtime_id: Uuid::new_v4(),
+                evidence_id: Uuid::new_v4(),
+                observed_at: Utc::now(),
+                expires_at: None,
+                provenance: RuntimeNetworkEvidenceProvenance::DesktopControlPlane,
                 provider: RuntimeNetworkProvider::Pac,
                 configuration: RuntimeEvidenceState::Configured,
                 controller_binding: RuntimeEvidenceState::NotApplicable,
                 endpoint: RuntimeEvidenceState::Unavailable,
                 authentication: RuntimeEvidenceState::NotApplicable,
+                authentication_provenance: RuntimeNetworkEvidenceProvenance::DesktopControlPlane,
                 browser_routing: RuntimeEvidenceState::NotRequested,
                 exit: RuntimeEvidenceState::NotRequested,
                 dns: RuntimeEvidenceState::NotRequested,
@@ -616,13 +940,15 @@ impl RuntimeNetworkEvidence {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeState {
     Idle,
     Preflight,
     Launching,
     Running,
+    VerificationFailed,
+    RecoveryRequired,
     Stopped,
     Failed,
 }
@@ -648,6 +974,8 @@ pub enum DomainError {
     InvalidSilo(String),
     #[error("Invalid network profile: {0}")]
     InvalidNetwork(String),
+    #[error("Invalid engine configuration: {0}")]
+    InvalidEngine(String),
     #[error("Filesystem error: {0}")]
     Filesystem(#[from] std::io::Error),
 }
@@ -693,32 +1021,254 @@ pub fn discover_browsers() -> Vec<BrowserCandidate> {
         paths.sort();
         paths.dedup();
         for path in paths.into_iter().filter(|candidate| candidate.is_file()) {
-            candidates.push(BrowserCandidate {
-                display_name: kind.display_name().to_owned(),
-                version: browser_version(&path),
-                executable_path: path.to_string_lossy().to_string(),
-                kind: kind.clone(),
-            });
+            if let Ok(inspection) = inspect_browser_executable(&kind, &path) {
+                candidates.push(BrowserCandidate {
+                    display_name: kind.display_name().to_owned(),
+                    version: Some(inspection.version),
+                    executable_path: inspection.resolved_path,
+                    kind: kind.clone(),
+                });
+            }
         }
     }
     candidates
 }
 
-fn browser_version(executable_path: &Path) -> Option<String> {
-    std::process::Command::new(executable_path)
-        .arg("--version")
-        .output()
-        .ok()
-        .and_then(|output| {
-            if output.status.success() {
-                String::from_utf8(output.stdout)
-                    .ok()
-                    .map(|value| value.trim().to_owned())
-                    .filter(|value| !value.is_empty())
-            } else {
-                None
-            }
+pub fn inspect_browser_executable(
+    kind: &BrowserKind,
+    executable_path: &Path,
+) -> Result<BrowserInspection, BrowserVerificationError> {
+    if !executable_path.is_file() {
+        return Err(BrowserVerificationError::Missing);
+    }
+    let resolved_path =
+        fs::canonicalize(executable_path).map_err(BrowserVerificationError::Path)?;
+    let filename = resolved_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let expected_filename = match kind {
+        BrowserKind::Chrome => "chrome.exe",
+        BrowserKind::Edge => "msedge.exe",
+    };
+    #[cfg(target_os = "windows")]
+    let filename_matches = filename.eq_ignore_ascii_case(expected_filename);
+    #[cfg(not(target_os = "windows"))]
+    let filename_matches = filename.eq_ignore_ascii_case(expected_filename)
+        || filename.eq_ignore_ascii_case(expected_filename.trim_end_matches(".exe"));
+    if !filename_matches {
+        return Err(BrowserVerificationError::FilenameMismatch);
+    }
+
+    verify_windows_browser_publisher(kind, &resolved_path)?;
+    let output = browser_version_output(&resolved_path)?;
+    let prefix = match kind {
+        BrowserKind::Chrome => "Google Chrome ",
+        BrowserKind::Edge => "Microsoft Edge ",
+    };
+    let version = output
+        .strip_prefix(prefix)
+        .map(str::trim)
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 128
+                && value.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_')
+                })
         })
+        .ok_or(BrowserVerificationError::KindMismatch)?;
+    Ok(BrowserInspection {
+        resolved_path: resolved_path.to_string_lossy().to_string(),
+        version: version.to_owned(),
+    })
+}
+
+pub fn verify_browser_descriptor(descriptor: &BrowserDescriptor) -> BrowserVerification {
+    let checked_at = Utc::now();
+    let executable_path = descriptor.executable_path.clone();
+    let inspection = match inspect_browser_executable(
+        &descriptor.kind,
+        Path::new(&descriptor.executable_path),
+    ) {
+        Ok(inspection) => inspection,
+        Err(error) => {
+            let state = match &error {
+                BrowserVerificationError::Missing => BrowserVerificationState::Missing,
+                BrowserVerificationError::KindMismatch
+                | BrowserVerificationError::FilenameMismatch => {
+                    BrowserVerificationState::KindMismatch
+                }
+                BrowserVerificationError::PublisherMismatch => {
+                    BrowserVerificationState::PublisherMismatch
+                }
+                BrowserVerificationError::Path(_) | BrowserVerificationError::Probe(_) => {
+                    BrowserVerificationState::ProbeFailed
+                }
+            };
+            return BrowserVerification {
+                state,
+                expected_kind: descriptor.kind.clone(),
+                expected_version: descriptor.version.clone(),
+                actual_version: None,
+                executable_path,
+                checked_at,
+                message: error.to_string(),
+            };
+        }
+    };
+
+    if !paths_match(&descriptor.executable_path, &inspection.resolved_path) {
+        return BrowserVerification {
+            state: BrowserVerificationState::PathChanged,
+            expected_kind: descriptor.kind.clone(),
+            expected_version: descriptor.version.clone(),
+            actual_version: Some(inspection.version),
+            executable_path: inspection.resolved_path,
+            checked_at,
+            message: "浏览器路径解析结果已变化；为避免启动被替换的程序，本次已拒绝启动。"
+                .to_owned(),
+        };
+    }
+
+    let (state, message) = match descriptor.version.as_deref() {
+        None => (
+            BrowserVerificationState::BaselineMissing,
+            "该 Silo 尚无已确认的浏览器版本基线；请先执行显式浏览器重新检查。".to_owned(),
+        ),
+        Some(expected) if expected != inspection.version => (
+            BrowserVerificationState::VersionDrift,
+            format!(
+                "浏览器版本已从 {expected} 变为 {}；请显式重新检查后再启动。",
+                inspection.version
+            ),
+        ),
+        Some(_) => (
+            BrowserVerificationState::Verified,
+            format!(
+                "已核验 {} {} 的路径、类型、版本和发布者基线。",
+                descriptor.kind.display_name(),
+                inspection.version
+            ),
+        ),
+    };
+    BrowserVerification {
+        state,
+        expected_kind: descriptor.kind.clone(),
+        expected_version: descriptor.version.clone(),
+        actual_version: Some(inspection.version),
+        executable_path: inspection.resolved_path,
+        checked_at,
+        message,
+    }
+}
+
+fn browser_version_output(executable_path: &Path) -> Result<String, BrowserVerificationError> {
+    #[cfg(test)]
+    {
+        let fixture = executable_path.with_extension("version-output");
+        if fixture.is_file() {
+            return fs::read_to_string(fixture)
+                .map(|output| output.trim().to_owned())
+                .map_err(|error| BrowserVerificationError::Probe(error.to_string()));
+        }
+    }
+    let mut child = Command::new(executable_path)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(BrowserVerificationError::Probe(
+                    "检查超时；进程已结束且浏览器未启动。".to_owned(),
+                ));
+            }
+            Err(error) => return Err(BrowserVerificationError::Probe(error.to_string())),
+        }
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
+    if !output.status.success() {
+        return Err(BrowserVerificationError::Probe(format!(
+            "进程返回 {}。",
+            output.status
+        )));
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|_| BrowserVerificationError::Probe("输出不是 UTF-8。".to_owned()))?;
+    let stderr = String::from_utf8(output.stderr)
+        .map_err(|_| BrowserVerificationError::Probe("输出不是 UTF-8。".to_owned()))?;
+    let output = if stdout.trim().is_empty() {
+        stderr.trim()
+    } else {
+        stdout.trim()
+    };
+    if output.is_empty() || output.len() > 512 || output.chars().any(char::is_control) {
+        return Err(BrowserVerificationError::Probe(
+            "输出为空、过长或包含控制字符。".to_owned(),
+        ));
+    }
+    Ok(output.to_owned())
+}
+
+fn paths_match(stored: &str, resolved: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        stored.eq_ignore_ascii_case(resolved)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        stored == resolved
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn verify_windows_browser_publisher(
+    kind: &BrowserKind,
+    executable_path: &Path,
+) -> Result<(), BrowserVerificationError> {
+    #[cfg(test)]
+    if executable_path.with_extension("version-output").is_file() {
+        return Ok(());
+    }
+    const SCRIPT: &str = "$s = Get-AuthenticodeSignature -LiteralPath $args[0]; if ($s.Status -ne 'Valid' -or $null -eq $s.SignerCertificate) { exit 3 }; [Console]::Out.WriteLine($s.SignerCertificate.Subject)";
+    let powershell = trusted_windows_system_tool(WindowsSystemTool::PowerShell)
+        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
+    let output = Command::new(powershell)
+        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+        .arg(executable_path)
+        .output()
+        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
+    if !output.status.success() {
+        return Err(BrowserVerificationError::PublisherMismatch);
+    }
+    let subject = String::from_utf8_lossy(&output.stdout);
+    let expected = match kind {
+        BrowserKind::Chrome => ["O=Google LLC", "CN=Google LLC"],
+        BrowserKind::Edge => ["O=Microsoft Corporation", "CN=Microsoft Corporation"],
+    };
+    if expected.iter().any(|value| subject.contains(value)) {
+        Ok(())
+    } else {
+        Err(BrowserVerificationError::PublisherMismatch)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn verify_windows_browser_publisher(
+    _kind: &BrowserKind,
+    _executable_path: &Path,
+) -> Result<(), BrowserVerificationError> {
+    Ok(())
 }
 
 fn is_hex_color(color: &str) -> bool {
@@ -776,7 +1326,81 @@ fn validate_mihomo_binding(binding: &ExternalMihomoBinding) -> Result<(), Domain
 
 #[cfg(test)]
 mod tests {
-    use super::{NetworkProfile, ProxyScheme};
+    use std::fs;
+
+    use uuid::Uuid;
+
+    use super::{
+        verify_browser_descriptor, BrowserDescriptor, BrowserKind, BrowserVerificationState,
+        NetworkProfile, ProxyScheme, Silo,
+    };
+
+    fn browser_fixture(output: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("verisilo-browser-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create browser fixture root");
+        let executable = root.join("chrome.exe");
+        fs::write(&executable, []).expect("create browser fixture");
+        fs::write(executable.with_extension("version-output"), output)
+            .expect("write version fixture");
+        fs::canonicalize(executable).expect("canonical browser fixture")
+    }
+
+    #[test]
+    fn browser_verification_reports_actual_version_and_drift_explicitly() {
+        let executable = browser_fixture("Google Chrome 126.0.6478.127\n");
+        let mut descriptor = BrowserDescriptor {
+            kind: BrowserKind::Chrome,
+            executable_path: executable.to_string_lossy().to_string(),
+            version: Some("126.0.6478.127".to_owned()),
+        };
+        let verified = verify_browser_descriptor(&descriptor);
+        assert_eq!(verified.state, BrowserVerificationState::Verified);
+        assert_eq!(verified.actual_version.as_deref(), Some("126.0.6478.127"));
+
+        descriptor.version = Some("125.0.0.0".to_owned());
+        let drift = verify_browser_descriptor(&descriptor);
+        assert_eq!(drift.state, BrowserVerificationState::VersionDrift);
+        assert_eq!(drift.expected_version.as_deref(), Some("125.0.0.0"));
+        assert_eq!(drift.actual_version.as_deref(), Some("126.0.6478.127"));
+        fs::remove_dir_all(executable.parent().expect("fixture parent"))
+            .expect("remove browser fixture");
+    }
+
+    #[test]
+    fn legacy_silo_without_engine_deserializes_as_stock() {
+        let silo: Silo = serde_json::from_value(serde_json::json!({
+            "id": Uuid::new_v4(),
+            "schemaVersion": 1,
+            "name": "legacy",
+            "color": "#4f46e5",
+            "browser": {
+                "kind": "chrome",
+                "executablePath": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+                "version": "150.0.0.0"
+            },
+            "profileDirectory": "C:/VeriSilo/silos/legacy/browser-data",
+            "networkProfile": { "mode": "direct", "proxyRequired": false },
+            "seedReference": Uuid::new_v4(),
+            "createdAt": "2026-07-28T00:00:00Z",
+            "archivedAt": null
+        }))
+        .expect("legacy Silo");
+        assert!(silo.engine.is_stock());
+    }
+
+    #[test]
+    fn browser_verification_rejects_a_kind_disguise() {
+        let executable = browser_fixture("Microsoft Edge 126.0.0.0\n");
+        let descriptor = BrowserDescriptor {
+            kind: BrowserKind::Chrome,
+            executable_path: executable.to_string_lossy().to_string(),
+            version: Some("126.0.0.0".to_owned()),
+        };
+        let verification = verify_browser_descriptor(&descriptor);
+        assert_eq!(verification.state, BrowserVerificationState::KindMismatch);
+        fs::remove_dir_all(executable.parent().expect("fixture parent"))
+            .expect("remove browser fixture");
+    }
 
     #[test]
     fn direct_profiles_cannot_require_a_proxy() {
@@ -827,6 +1451,12 @@ mod tests {
         assert!(NetworkProfile::Pac {
             proxy_required: false,
             pac_url: "https://user:pass@example.test/proxy.pac".to_owned(),
+        }
+        .validate()
+        .is_err());
+        assert!(NetworkProfile::Pac {
+            proxy_required: true,
+            pac_url: "https://example.test/proxy.pac".to_owned(),
         }
         .validate()
         .is_err());

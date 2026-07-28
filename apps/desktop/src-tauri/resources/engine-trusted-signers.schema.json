@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verisilo.local/schemas/engine-trusted-signers.schema.json",
+  "title": "VeriSilo engine trusted signer policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "signers"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "signers": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["certificateSha256", "publisher"],
+        "properties": {
+          "certificateSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "publisher": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      }
+    }
+  }
+}

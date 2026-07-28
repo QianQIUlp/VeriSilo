@@ -12,6 +12,7 @@ const options = {
   entryPoints: {
     background: "src/background.ts",
     content: "src/content.ts",
+    "labs-bridge": "src/labs-bridge.ts",
     "main-world": "src/main-world.ts",
     sidepanel: "src/sidepanel.ts",
   },

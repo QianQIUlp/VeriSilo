@@ -65,6 +65,17 @@ pub struct MihomoNode {
     pub alive: Option<bool>,
 }
 
+/// Immutable, in-memory evidence for the exact external Mihomo instance and
+/// listener accepted at launch. It is deliberately not serialized: recovery
+/// after a desktop restart must perform a fresh launch instead of trusting an
+/// old Controller/config snapshot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MihomoRuntimeGuard {
+    controller_endpoint: SocketAddr,
+    proxy_endpoint: SocketAddr,
+    configuration: Value,
+}
+
 #[derive(Debug, Error)]
 pub enum MihomoError {
     #[error("Mihomo Controller 只允许显式本机 HTTP 地址，例如 http://127.0.0.1:9090/。")]
@@ -85,6 +96,14 @@ pub enum MihomoError {
     NodeUnavailable(String),
     #[error("Mihomo 回读结果显示选择组“{group}”没有保持在节点“{node}”。")]
     SelectionNotApplied { group: String, node: String },
+    #[error("必须代理的 Mihomo 路径要求 GLOBAL 选择组和 global 模式，不能允许规则命中 DIRECT。")]
+    DirectFallbackPossible,
+    #[error("Mihomo 选择的节点“{0}”是 DIRECT/REJECT 或无法证明为远端代理节点。")]
+    UnsafeSelectedNode(String),
+    #[error("Mihomo 配置没有把所选 loopback SOCKS5 端口绑定为 socks-port 或 mixed-port。")]
+    ProxyListenerMismatch,
+    #[error("Mihomo Controller 的运行中配置已漂移。")]
+    ConfigurationDrift,
 }
 
 pub fn inspect_controller(input: &MihomoControllerInput) -> Result<MihomoSnapshot, MihomoError> {
@@ -143,6 +162,17 @@ pub fn apply_binding(
         .map_err(|_| MihomoError::InvalidResponse)?;
     controller_request(&binding.controller_url, "PUT", &path, secret, Some(&body))?;
 
+    verify_binding(binding, authentication)
+}
+
+/// Read-only health check for a binding that was explicitly selected earlier.
+/// It never changes the user's long-lived node selection.
+pub fn verify_binding(
+    binding: &ExternalMihomoBinding,
+    authentication: Option<&MihomoControllerAuthentication>,
+) -> Result<(), MihomoError> {
+    let secret = authentication.map_or("", MihomoControllerAuthentication::secret);
+    validate_secret(secret)?;
     let after = controller_request(&binding.controller_url, "GET", "/proxies", secret, None)?;
     let after = parse_snapshot(&after)?;
     let selected = after
@@ -171,6 +201,175 @@ pub fn apply_binding(
         return Err(MihomoError::NodeUnavailable(binding.node_name.clone()));
     }
     Ok(())
+}
+
+/// Captures the exact Controller endpoint, proxy listener and redacted config
+/// accepted for this required-proxy launch. `global` + `GLOBAL` is the narrow
+/// external-Mihomo mode in which VeriSilo can reject an intentional ruleset
+/// fallback to `DIRECT` before browser traffic is admitted.
+pub fn capture_runtime_guard(
+    binding: &ExternalMihomoBinding,
+    proxy_host: &str,
+    proxy_port: u16,
+    authentication: Option<&MihomoControllerAuthentication>,
+) -> Result<MihomoRuntimeGuard, MihomoError> {
+    let secret = authentication.map_or("", MihomoControllerAuthentication::secret);
+    validate_secret(secret)?;
+    let controller_endpoint = controller_endpoint(&binding.controller_url)?;
+    let proxy_endpoint = loopback_proxy_endpoint(proxy_host, proxy_port)?;
+    let snapshot = read_binding_snapshot(binding, secret)?;
+    validate_required_route(binding, &snapshot)?;
+    let configuration = read_runtime_configuration(binding, proxy_endpoint, secret)?;
+    Ok(MihomoRuntimeGuard {
+        controller_endpoint,
+        proxy_endpoint,
+        configuration,
+    })
+}
+
+/// Rechecks an existing guard without applying a node or configuration. Any
+/// endpoint, authentication, selection, node-health or config mismatch is a
+/// terminal result for the caller's exact relay; this function never repairs
+/// or rotates the user's Mihomo process in the background.
+pub fn verify_runtime_guard(
+    guard: &MihomoRuntimeGuard,
+    binding: &ExternalMihomoBinding,
+    proxy_host: &str,
+    proxy_port: u16,
+    authentication: Option<&MihomoControllerAuthentication>,
+) -> Result<(), MihomoError> {
+    let secret = authentication.map_or("", MihomoControllerAuthentication::secret);
+    validate_secret(secret)?;
+    let controller_endpoint = controller_endpoint(&binding.controller_url)?;
+    let proxy_endpoint = loopback_proxy_endpoint(proxy_host, proxy_port)?;
+    if controller_endpoint != guard.controller_endpoint || proxy_endpoint != guard.proxy_endpoint {
+        return Err(MihomoError::ConfigurationDrift);
+    }
+    let snapshot = read_binding_snapshot(binding, secret)?;
+    validate_required_route(binding, &snapshot)?;
+    let configuration = read_runtime_configuration(binding, proxy_endpoint, secret)?;
+    if configuration != guard.configuration {
+        return Err(MihomoError::ConfigurationDrift);
+    }
+    Ok(())
+}
+
+fn read_binding_snapshot(
+    binding: &ExternalMihomoBinding,
+    secret: &str,
+) -> Result<MihomoSnapshot, MihomoError> {
+    let body = controller_request(&binding.controller_url, "GET", "/proxies", secret, None)?;
+    let snapshot = parse_snapshot(&body)?;
+    let selected = snapshot
+        .groups
+        .iter()
+        .find(|group| group.name == binding.selector_group)
+        .and_then(|group| group.selected.as_deref());
+    if selected != Some(binding.node_name.as_str()) {
+        return Err(MihomoError::SelectionNotApplied {
+            group: binding.selector_group.clone(),
+            node: binding.node_name.clone(),
+        });
+    }
+    Ok(snapshot)
+}
+
+fn validate_required_route(
+    binding: &ExternalMihomoBinding,
+    snapshot: &MihomoSnapshot,
+) -> Result<(), MihomoError> {
+    if binding.selector_group != "GLOBAL" {
+        return Err(MihomoError::DirectFallbackPossible);
+    }
+    let node = snapshot
+        .groups
+        .iter()
+        .find(|group| group.name == binding.selector_group)
+        .and_then(|group| {
+            group
+                .nodes
+                .iter()
+                .find(|node| node.name == binding.node_name)
+        })
+        .ok_or_else(|| MihomoError::NodeNotFound {
+            group: binding.selector_group.clone(),
+            node: binding.node_name.clone(),
+        })?;
+    if node.alive == Some(false) {
+        return Err(MihomoError::NodeUnavailable(binding.node_name.clone()));
+    }
+    let proxy_type = node.proxy_type.as_deref().unwrap_or_default();
+    if proxy_type.is_empty()
+        || matches!(
+            proxy_type.to_ascii_lowercase().as_str(),
+            "direct" | "reject" | "reject-drop" | "pass" | "compatible"
+        )
+    {
+        return Err(MihomoError::UnsafeSelectedNode(binding.node_name.clone()));
+    }
+    Ok(())
+}
+
+fn read_runtime_configuration(
+    binding: &ExternalMihomoBinding,
+    proxy_endpoint: SocketAddr,
+    secret: &str,
+) -> Result<Value, MihomoError> {
+    let body = controller_request(&binding.controller_url, "GET", "/configs", secret, None)?;
+    let mut configuration: Value =
+        serde_json::from_slice(&body).map_err(|_| MihomoError::InvalidResponse)?;
+    let object = configuration
+        .as_object()
+        .ok_or(MihomoError::InvalidResponse)?;
+    let mode = object
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !mode.eq_ignore_ascii_case("global") {
+        return Err(MihomoError::DirectFallbackPossible);
+    }
+    let expected_port = u64::from(proxy_endpoint.port());
+    let listener_matches = ["socks-port", "mixed-port"]
+        .iter()
+        .any(|field| object.get(*field).and_then(Value::as_u64) == Some(expected_port));
+    if !listener_matches {
+        return Err(MihomoError::ProxyListenerMismatch);
+    }
+    redact_configuration_secrets(&mut configuration);
+    Ok(configuration)
+}
+
+fn redact_configuration_secrets(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                let key = key.to_ascii_lowercase();
+                if key.contains("secret")
+                    || key.contains("password")
+                    || key.contains("token")
+                    || key.contains("authorization")
+                {
+                    *value = Value::String("<redacted>".to_owned());
+                } else {
+                    redact_configuration_secrets(value);
+                }
+            }
+        }
+        Value::Array(values) => values.iter_mut().for_each(redact_configuration_secrets),
+        _ => {}
+    }
+}
+
+fn loopback_proxy_endpoint(host: &str, port: u16) -> Result<SocketAddr, MihomoError> {
+    let ip = host
+        .trim()
+        .trim_matches(['[', ']'])
+        .parse::<IpAddr>()
+        .map_err(|_| MihomoError::ProxyListenerMismatch)?;
+    if !ip.is_loopback() || port == 0 {
+        return Err(MihomoError::ProxyListenerMismatch);
+    }
+    Ok(SocketAddr::new(ip, port))
 }
 
 fn validate_secret(secret: &str) -> Result<(), MihomoError> {
@@ -495,7 +694,10 @@ mod tests {
         thread,
     };
 
-    use super::{apply_binding, inspect_controller, MihomoControllerInput};
+    use super::{
+        apply_binding, capture_runtime_guard, inspect_controller, verify_runtime_guard,
+        MihomoControllerInput, MihomoError,
+    };
     use crate::domain::ExternalMihomoBinding;
 
     const RESPONSE_BEFORE: &str = r#"{"proxies":{"GLOBAL":{"type":"Selector","now":"old","all":["old","Tokyo 01"]},"old":{"type":"Socks5","alive":true,"history":[{"delay":120}]},"Tokyo 01":{"type":"Socks5","alive":true,"history":[{"delay":42}]}}}"#;
@@ -603,5 +805,77 @@ mod tests {
             secret: String::new(),
         })
         .is_err());
+    }
+
+    #[test]
+    fn required_runtime_guard_rejects_config_drift_without_rebinding() {
+        let listener =
+            TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("bind fake controller");
+        let address = listener.local_addr().expect("fake controller address");
+        let server = thread::spawn(move || {
+            for index in 0..4 {
+                let (mut stream, _) = listener.accept().expect("accept guard request");
+                let request = read_request(&mut stream);
+                if request.starts_with("GET /proxies HTTP/1.1") {
+                    write_json(&mut stream, RESPONSE_AFTER);
+                } else {
+                    assert!(request.starts_with("GET /configs HTTP/1.1"));
+                    let config = if index < 2 {
+                        r#"{"mode":"global","socks-port":7891,"mixed-port":0,"allow-lan":false}"#
+                    } else {
+                        r#"{"mode":"global","socks-port":7891,"mixed-port":0,"allow-lan":true}"#
+                    };
+                    write_json(&mut stream, config);
+                }
+            }
+        });
+        let binding = ExternalMihomoBinding {
+            controller_url: format!("http://127.0.0.1:{}/", address.port()),
+            selector_group: "GLOBAL".to_owned(),
+            node_name: "Tokyo 01".to_owned(),
+            controller_secret_reference: None,
+        };
+
+        let guard = capture_runtime_guard(&binding, "127.0.0.1", 7891, None)
+            .expect("capture safe global runtime");
+        assert!(matches!(
+            verify_runtime_guard(&guard, &binding, "127.0.0.1", 7891, None),
+            Err(MihomoError::ConfigurationDrift)
+        ));
+        server.join().expect("fake controller exits");
+    }
+
+    #[test]
+    fn required_runtime_guard_rejects_rule_mode_direct_fallback() {
+        let listener =
+            TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("bind fake controller");
+        let address = listener.local_addr().expect("fake controller address");
+        let server = thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().expect("accept guard request");
+                let request = read_request(&mut stream);
+                if request.starts_with("GET /proxies HTTP/1.1") {
+                    write_json(&mut stream, RESPONSE_AFTER);
+                } else {
+                    assert!(request.starts_with("GET /configs HTTP/1.1"));
+                    write_json(
+                        &mut stream,
+                        r#"{"mode":"rule","socks-port":7891,"mixed-port":0}"#,
+                    );
+                }
+            }
+        });
+        let binding = ExternalMihomoBinding {
+            controller_url: format!("http://127.0.0.1:{}/", address.port()),
+            selector_group: "GLOBAL".to_owned(),
+            node_name: "Tokyo 01".to_owned(),
+            controller_secret_reference: None,
+        };
+
+        assert!(matches!(
+            capture_runtime_guard(&binding, "127.0.0.1", 7891, None),
+            Err(MihomoError::DirectFallbackPossible)
+        ));
+        server.join().expect("fake controller exits");
     }
 }

@@ -1,0 +1,332 @@
+name: Windows release candidate (signed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      releaseVersion:
+        description: Desktop release version (must match package/Cargo/Tauri)
+        required: true
+        type: string
+      chromeExtensionId:
+        description: Published Chrome Web Store extension ID (public, 32 letters a-p)
+        required: true
+        type: string
+      edgeExtensionId:
+        description: Published Edge Add-ons extension ID (public, 32 letters a-p)
+        required: true
+        type: string
+      controlledEngineSignerSha256:
+        description: Public SHA-256 pin of the approved controlled-engine signing certificate
+        required: true
+        type: string
+      hyperVImageArtifactId:
+        description: Same-repository Actions artifact ID containing exactly one licensed VHDX
+        required: true
+        type: string
+      hyperVImageFile:
+        description: Exact lowercase VHDX leaf filename in that artifact
+        required: true
+        type: string
+      hyperVImageSha256:
+        description: Lowercase SHA-256 of the licensed VHDX bytes
+        required: true
+        type: string
+      hyperVImageRedistributionAcknowledgement:
+        description: Explicit operator acknowledgement; this is not legal approval
+        required: true
+        type: choice
+        options:
+          - I_HAVE_VERIFIED_REDISTRIBUTION_RIGHTS
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  build-signed-windows-candidate:
+    name: Build, sign, and audit Windows candidate
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 75
+    environment: windows-signing
+    env:
+      VERISILO_RELEASE_VERSION: ${{ inputs.releaseVersion }}
+      VERISILO_CHROME_EXTENSION_ID: ${{ inputs.chromeExtensionId }}
+      VERISILO_EDGE_EXTENSION_ID: ${{ inputs.edgeExtensionId }}
+      VERISILO_ENGINE_SIGNER_SHA256: ${{ inputs.controlledEngineSignerSha256 }}
+      VERISILO_HYPERV_ARTIFACT_ID: ${{ inputs.hyperVImageArtifactId }}
+      VERISILO_HYPERV_IMAGE_FILE: ${{ inputs.hyperVImageFile }}
+      VERISILO_HYPERV_IMAGE_SHA256: ${{ inputs.hyperVImageSha256 }}
+      VERISILO_HYPERV_REDISTRIBUTION_ACKNOWLEDGEMENT: ${{ inputs.hyperVImageRedistributionAcknowledgement }}
+      VERISILO_BUILD_TARGET: x86_64-pc-windows-msvc
+      VERISILO_SIGNING_STATE: signed-and-verified
+      VERISILO_SOURCE_DIRTY: "false"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Require protected main checkout before any secret access
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -cne 'refs/heads/main') {
+            throw 'Signing is allowed only from refs/heads/main.'
+          }
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'Could not refresh origin/main.' }
+          $head = (git rev-parse HEAD).Trim()
+          $originMain = (git rev-parse refs/remotes/origin/main).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cne $originMain) {
+            throw 'The checked-out commit does not exactly match origin/main.'
+          }
+          if (-not [string]::IsNullOrWhiteSpace((git status --porcelain=v1 --untracked-files=all | Out-String))) {
+            throw 'The signing checkout must be clean before secrets are materialized.'
+          }
+          "VERISILO_SOURCE_REVISION=$head" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Freeze source timestamp
+        shell: pwsh
+        run: |
+          $epoch = git show -s --format=%ct HEAD
+          "SOURCE_DATE_EPOCH=$epoch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download and stage the exact licensed Hyper-V image artifact
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          ./scripts/stage-hyperv-image.ps1 -Repository $env:GITHUB_REPOSITORY -ArtifactId ([long]$env:VERISILO_HYPERV_ARTIFACT_ID) -ImageFile $env:VERISILO_HYPERV_IMAGE_FILE -ImageSha256 $env:VERISILO_HYPERV_IMAGE_SHA256 -RedistributionAcknowledgement $env:VERISILO_HYPERV_REDISTRIBUTION_ACKNOWLEDGEMENT
+          ./scripts/stage-hyperv-image.ps1 -Check -Repository $env:GITHUB_REPOSITORY -ArtifactId ([long]$env:VERISILO_HYPERV_ARTIFACT_ID) -ImageFile $env:VERISILO_HYPERV_IMAGE_FILE -ImageSha256 $env:VERISILO_HYPERV_IMAGE_SHA256 -RedistributionAcknowledgement $env:VERISILO_HYPERV_REDISTRIBUTION_ACKNOWLEDGEMENT
+          node scripts/verify-hyperv-image.mjs --check --manifest apps/desktop/src-tauri/target/verisilo-release-resources/environment/hyperv-image-manifest.json --images apps/desktop/src-tauri/target/verisilo-release-resources/environment/images --repository $env:GITHUB_REPOSITORY --artifact-id $env:VERISILO_HYPERV_ARTIFACT_ID --image-file $env:VERISILO_HYPERV_IMAGE_FILE --sha256 $env:VERISILO_HYPERV_IMAGE_SHA256 --require-redistribution-ack
+
+      - name: Require and materialize ephemeral signing certificate
+        shell: pwsh
+        env:
+          VERISILO_AUTHENTICODE_PFX_BASE64: ${{ secrets.VERISILO_AUTHENTICODE_PFX_BASE64 }}
+          VERISILO_AUTHENTICODE_PASSWORD: ${{ secrets.VERISILO_AUTHENTICODE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VERISILO_AUTHENTICODE_PFX_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:VERISILO_AUTHENTICODE_PASSWORD)) {
+            throw 'The windows-signing environment must provide the PFX and password secrets.'
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "verisilo-authenticode-$([Guid]::NewGuid().ToString('N')).pfx"
+          try {
+            $certificateBytes = [Convert]::FromBase64String($env:VERISILO_AUTHENTICODE_PFX_BASE64)
+            [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+            $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+            $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+              $certificatePath,
+              $env:VERISILO_AUTHENTICODE_PASSWORD,
+              $flags
+            )
+            try {
+              if (-not $certificate.HasPrivateKey) {
+                throw 'The Authenticode PFX has no accessible private key.'
+              }
+              $signerSha256 = $certificate.GetCertHashString(
+                [Security.Cryptography.HashAlgorithmName]::SHA256
+              ).ToLowerInvariant()
+              if ($signerSha256 -cnotmatch '^[0-9a-f]{64}$' -or $signerSha256 -match '^0{64}$') {
+                throw 'The Authenticode signer certificate SHA-256 is invalid.'
+              }
+              "VERISILO_AUTHENTICODE_SIGNER_SHA256=$signerSha256" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            } finally {
+              $certificate.Dispose()
+            }
+          } catch {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+            throw 'The Authenticode PFX secret is not valid base64.'
+          }
+          "VERISILO_AUTHENTICODE_PFX_PATH=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install locked JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Self-test release tooling
+        shell: pwsh
+        run: |
+          pnpm release:self-test
+          ./scripts/authenticode-gate.ps1 -SelfTest
+          ./scripts/stage-hyperv-image.ps1 -SelfTest
+
+      - name: Prepare and verify published extension IDs
+        shell: pwsh
+        run: |
+          node scripts/prepare-native-host-release.mjs --out artifacts/native-host
+          node scripts/prepare-native-host-release.mjs --out artifacts/native-host --check
+          node scripts/verify-release-policy.mjs --check --config artifacts/native-host/native-host-release-config.json
+
+      - name: Run JavaScript, extension, and source policy checks
+        shell: pwsh
+        run: |
+          pnpm format:check
+          pnpm check
+          pnpm test
+          pnpm build
+          pnpm extension:verify
+          pnpm native-host:verify
+          pnpm engine:verify:release
+          pnpm environment:verify
+
+      - name: Run locked Rust checks and tests
+        shell: pwsh
+        run: |
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+          cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+
+      - name: Build Native Messaging Host and stage immutable bundle resources
+        shell: pwsh
+        run: |
+          cargo build --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc --bin verisilo-native-host
+          node scripts/stage-windows-bundle.mjs --host apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/verisilo-native-host.exe --config artifacts/native-host/native-host-release-config.json
+          node scripts/stage-windows-bundle.mjs --host apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/verisilo-native-host.exe --config artifacts/native-host/native-host-release-config.json --check
+
+      - name: Build desktop executable without bundling
+        shell: pwsh
+        run: pnpm --filter @verisilo/desktop exec tauri build --ci --no-bundle --no-sign --target x86_64-pc-windows-msvc --config src-tauri/tauri.release-reset.conf.json --config src-tauri/tauri.release.conf.json
+
+      - name: Sign and timestamp every inner executable and PowerShell resource
+        shell: pwsh
+        env:
+          VERISILO_AUTHENTICODE_PASSWORD: ${{ secrets.VERISILO_AUTHENTICODE_PASSWORD }}
+        run: |
+          $innerInputs = @(
+            'x86_64-pc-windows-msvc/release/verisilo.exe',
+            'verisilo-release-sidecars/verisilo-native-host-x86_64-pc-windows-msvc.exe',
+            'verisilo-release-resources/native-host/install-native-host-release.ps1',
+            'verisilo-release-resources/native-host/install-native-host.ps1',
+            'verisilo-release-resources/native-host/verify-native-host-install.ps1',
+            'verisilo-release-resources/native-host/uninstall-native-host.ps1',
+            'verisilo-release-resources/environment/verisilo-environment-probe.ps1',
+            'verisilo-release-resources/environment/verisilo-hyperv.ps1',
+            'verisilo-release-resources/environment/verisilo-sandbox.ps1',
+            'verisilo-release-resources/environment/verisilo-sandbox-bootstrap.ps1'
+          )
+          ./scripts/authenticode-gate.ps1 -Check -Mode SignAndVerify -ReleaseDirectory apps/desktop/src-tauri/target -IncludeRelativePath $innerInputs -CertificatePath $env:VERISILO_AUTHENTICODE_PFX_PATH -ExpectedSignerCertificateSha256 $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -ReportPath (Join-Path $env:RUNNER_TEMP 'inner-authenticode-status.json')
+
+      - name: Bundle only after inner signatures verify
+        shell: pwsh
+        run: pnpm --filter @verisilo/desktop exec tauri bundle --ci --no-sign --target x86_64-pc-windows-msvc --config src-tauri/tauri.release-reset.conf.json --config src-tauri/tauri.release.conf.json
+
+      - name: Stage signed candidate and unsigned outer installer
+        shell: pwsh
+        run: |
+          $release = Join-Path $PWD 'artifacts/release'
+          New-Item -ItemType Directory -Force -Path $release | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $release 'extension') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $release 'bundle-resources') | Out-Null
+          Copy-Item -LiteralPath 'apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/verisilo.exe' -Destination $release
+          Copy-Item -LiteralPath 'apps/desktop/src-tauri/target/verisilo-release-sidecars/verisilo-native-host-x86_64-pc-windows-msvc.exe' -Destination (Join-Path $release 'verisilo-native-host.exe')
+          Copy-Item -LiteralPath 'artifacts/native-host/native-host-release-config.json' -Destination $release
+          Copy-Item -Path 'apps/desktop/src-tauri/target/verisilo-release-resources/*' -Destination (Join-Path $release 'bundle-resources') -Recurse
+          Copy-Item -Path 'apps/extension/dist/*' -Destination (Join-Path $release 'extension') -Recurse
+          Copy-Item -LiteralPath 'LICENSE' -Destination $release
+          Copy-Item -LiteralPath 'THIRD_PARTY_NOTICES.md' -Destination $release
+          $installer = Get-ChildItem 'apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*.exe' -File
+          if ($installer.Count -ne 1) { throw "Expected one NSIS installer, found $($installer.Count)." }
+          Copy-Item -LiteralPath $installer.FullName -Destination (Join-Path $release "VeriSilo_$env:VERISILO_RELEASE_VERSION`_x64-setup.exe")
+          $extensionManifest = Get-Content -Raw -LiteralPath 'apps/extension/manifest.json' | ConvertFrom-Json
+          $extensionZip = Join-Path $release "VeriSilo-Companion-$($extensionManifest.version)-chrome-edge.zip"
+          node scripts/package-extension-zip.mjs --input apps/extension/dist --out $extensionZip --manifest (Join-Path $release 'extension-zip-manifest.json')
+          node scripts/package-extension-zip.mjs --input apps/extension/dist --out $extensionZip --manifest (Join-Path $release 'extension-zip-manifest.json') --check
+
+      - name: Sign and timestamp the NSIS installer
+        shell: pwsh
+        env:
+          VERISILO_AUTHENTICODE_PASSWORD: ${{ secrets.VERISILO_AUTHENTICODE_PASSWORD }}
+        run: |
+          $installerName = "VeriSilo_$env:VERISILO_RELEASE_VERSION`_x64-setup.exe"
+          ./scripts/authenticode-gate.ps1 -Check -Mode SignAndVerify -ReleaseDirectory artifacts/release -IncludeRelativePath @($installerName) -CertificatePath $env:VERISILO_AUTHENTICODE_PFX_PATH -ExpectedSignerCertificateSha256 $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -ReportPath (Join-Path $env:RUNNER_TEMP 'installer-authenticode-status.json')
+
+      - name: Verify all staged EXE and PS1 signatures and timestamps
+        shell: pwsh
+        run: ./scripts/authenticode-gate.ps1 -Check -Mode VerifySigned -ReleaseDirectory artifacts/release -ExpectedSignerCertificateSha256 $env:VERISILO_AUTHENTICODE_SIGNER_SHA256
+
+      - name: Generate and verify lockfile SBOMs
+        shell: pwsh
+        run: |
+          pnpm sbom:generate
+          pnpm sbom:check
+
+      - name: Generate dependency license evidence for human review
+        shell: pwsh
+        run: |
+          pnpm licenses:report
+          pnpm licenses:check
+
+      - name: Record explicit non-promotion state
+        shell: pwsh
+        run: |
+          $status = [ordered]@{
+            schema = 'urn:verisilo:windows-promotion-status:1'
+            schemaVersion = 1
+            state = 'NOT_PROMOTABLE'
+            sourceRevision = $env:VERISILO_SOURCE_REVISION
+            requiredWorkflow = '.github/workflows/windows-e2e-real.yml'
+            reason = 'No exact-candidate Windows 10/11 x64 Chrome/Edge RequireAll attestation has been attached.'
+          }
+          [IO.File]::WriteAllText('artifacts/release/promotion-status.json', (($status | ConvertTo-Json -Depth 4) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+
+      - name: Verify staged artifacts and complete Authenticode coverage
+        shell: pwsh
+        run: node scripts/verify-release-policy.mjs --check --config artifacts/release/native-host-release-config.json --release artifacts/release
+
+      - name: Generate and verify SHA-256 manifest and provenance
+        shell: pwsh
+        run: |
+          pnpm release:metadata
+          pnpm release:metadata:check
+
+      - name: Upload audited signed candidate
+        id: upload-candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-${{ inputs.releaseVersion }}-windows-x64-signed
+          path: artifacts/release/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report exact candidate as not promotable
+        shell: pwsh
+        env:
+          VERISILO_UPLOADED_ARTIFACT_ID: ${{ steps.upload-candidate.outputs.artifact-id }}
+          VERISILO_UPLOADED_ARTIFACT_DIGEST: ${{ steps.upload-candidate.outputs.artifact-digest }}
+        run: |
+          if ($env:VERISILO_UPLOADED_ARTIFACT_ID -cnotmatch '^[1-9][0-9]{0,15}$' -or
+              $env:VERISILO_UPLOADED_ARTIFACT_DIGEST -cnotmatch '^[0-9a-f]{64}$') {
+            throw 'upload-artifact did not return a strict artifact ID and SHA-256 digest.'
+          }
+          @(
+            '## NOT PROMOTABLE',
+            '',
+            "Artifact ID: $env:VERISILO_UPLOADED_ARTIFACT_ID",
+            "Candidate digest: $env:VERISILO_UPLOADED_ARTIFACT_DIGEST",
+            "Source revision: $env:VERISILO_SOURCE_REVISION",
+            '',
+            'Run the independent Windows candidate promotion gate with these exact values. Upload alone is not Windows E2E evidence.'
+          ) | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+      - name: Remove ephemeral signing certificate
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:VERISILO_AUTHENTICODE_PFX_PATH)) {
+            Remove-Item -LiteralPath $env:VERISILO_AUTHENTICODE_PFX_PATH -Force -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'verisilo-authenticode-*.pfx' -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue

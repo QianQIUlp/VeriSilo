@@ -28,6 +28,13 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "resources": {
+      "../../../scripts/verisilo-environment-probe.ps1": "environment/verisilo-environment-probe.ps1",
+      "../../../scripts/verisilo-hyperv.ps1": "environment/verisilo-hyperv.ps1",
+      "../../../scripts/verisilo-sandbox.ps1": "environment/verisilo-sandbox.ps1",
+      "../../../scripts/verisilo-sandbox-bootstrap.ps1": "environment/verisilo-sandbox-bootstrap.ps1",
+      "../../../scripts/verisilo-wsl-guest-agent.sh": "environment/verisilo-wsl-guest-agent.sh"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser"

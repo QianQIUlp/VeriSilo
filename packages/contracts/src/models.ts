@@ -1,7 +1,14 @@
 import { z } from "zod";
 
+import {
+  engineAdapterIdSchema,
+  engineCapabilityEvidenceSchema,
+  engineCapabilityStateSchema,
+  siloEngineConfigSchema,
+} from "./engine";
+
 export const SCHEMA_VERSION = 1 as const;
-export const PROTOCOL_VERSION = 1 as const;
+export const PROTOCOL_VERSION = 2 as const;
 
 export const browserKindSchema = z.enum(["chrome", "edge"]);
 export type BrowserKind = z.infer<typeof browserKindSchema>;
@@ -179,6 +186,7 @@ export const runtimeEvidenceStateSchema = z.enum([
   "configured",
   "reachable",
   "applied",
+  "observed",
   "verified",
   "failed",
   "unavailable",
@@ -187,11 +195,25 @@ export type RuntimeEvidenceState = z.infer<typeof runtimeEvidenceStateSchema>;
 
 export const runtimeNetworkEvidenceSchema = z
   .object({
+    runtimeId: z.string().uuid(),
+    evidenceId: z.string().uuid(),
+    observedAt: z.string().datetime(),
+    expiresAt: z.string().datetime().nullable(),
+    provenance: z.enum([
+      "desktop_control_plane",
+      "extension_asserted",
+      "relay_observed",
+    ]),
     provider: z.enum(["direct", "fixed_proxy", "external_mihomo", "pac"]),
     configuration: runtimeEvidenceStateSchema,
     controllerBinding: runtimeEvidenceStateSchema,
     endpoint: runtimeEvidenceStateSchema,
     authentication: runtimeEvidenceStateSchema,
+    authenticationProvenance: z.enum([
+      "desktop_control_plane",
+      "extension_asserted",
+      "relay_observed",
+    ]),
     browserRouting: runtimeEvidenceStateSchema,
     exit: runtimeEvidenceStateSchema,
     dns: runtimeEvidenceStateSchema,
@@ -217,26 +239,173 @@ export const siloSchema = z
     }),
     profileDirectory: z.string().min(1).max(4_096),
     networkProfile: networkProfileSchema,
+    engine: siloEngineConfigSchema.default({ adapter: "stock" }),
     seedReference: z.string().uuid(),
     createdAt: z.string().datetime(),
     archivedAt: z.string().datetime().nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((silo, context) => {
+    if (
+      silo.engine.adapter !== "stock" &&
+      silo.engine.identityTemplate.network.proxyRequired !==
+        silo.networkProfile.proxyRequired
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["engine", "identityTemplate", "network", "proxyRequired"],
+        message:
+          "The engine identity template must match the Silo proxy requirement.",
+      });
+    }
+  });
 export type Silo = z.infer<typeof siloSchema>;
+
+export const browserVerificationSchema = z
+  .object({
+    state: z.enum([
+      "verified",
+      "baseline_missing",
+      "version_drift",
+      "missing",
+      "path_changed",
+      "kind_mismatch",
+      "publisher_mismatch",
+      "probe_failed",
+    ]),
+    expectedKind: browserKindSchema,
+    expectedVersion: z.string().nullable(),
+    actualVersion: z.string().nullable(),
+    executablePath: z.string().min(1).max(32_768),
+    checkedAt: z.string().datetime(),
+    message: z.string(),
+  })
+  .strict();
+export type BrowserVerification = z.infer<typeof browserVerificationSchema>;
+
+export const engineControlPhaseReceiptSchema = z
+  .object({
+    phase: z.enum(["observe", "apply", "verify", "restore"]),
+    recordedAt: z.string().datetime(),
+    capabilities: z.array(engineCapabilityEvidenceSchema).max(17),
+  })
+  .strict();
+export type EngineControlPhaseReceipt = z.infer<
+  typeof engineControlPhaseReceiptSchema
+>;
+
+export const siteFallbackReceiptSchema = z
+  .object({
+    site: z.string().trim().min(1).max(253),
+    matchedPattern: z.string().trim().min(1).max(255),
+    action: z.enum(["restore_experimental_controls", "restore_then_reload"]),
+    restoredAt: z.string().datetime(),
+    capabilities: z.array(engineCapabilityEvidenceSchema).min(1).max(17),
+  })
+  .strict();
+export type SiteFallbackReceipt = z.infer<typeof siteFallbackReceiptSchema>;
+
+export const runtimeEngineEvidenceSchema = z
+  .object({
+    configuredAdapter: engineAdapterIdSchema,
+    launchedAdapter: engineAdapterIdSchema.nullable(),
+    verifiedAdapter: engineAdapterIdSchema.nullable(),
+    packageVerification: runtimeEvidenceStateSchema,
+    bootstrapDelivery: runtimeEvidenceStateSchema,
+    runtimeReceipts: runtimeEvidenceStateSchema,
+    restoreReceipt: runtimeEvidenceStateSchema,
+    capabilities: z.array(engineCapabilityStateSchema).max(17),
+    phaseReceipts: z.array(engineControlPhaseReceiptSchema).max(4),
+    fallbackReceipts: z.array(siteFallbackReceiptSchema).max(128),
+  })
+  .strict()
+  .superRefine((evidence, context) => {
+    if (
+      evidence.launchedAdapter !== null &&
+      evidence.launchedAdapter !== evidence.configuredAdapter
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["launchedAdapter"],
+        message: "The launched adapter must match the configured adapter.",
+      });
+    }
+    if (
+      evidence.verifiedAdapter !== null &&
+      (evidence.verifiedAdapter !== evidence.launchedAdapter ||
+        evidence.bootstrapDelivery !== "verified" ||
+        evidence.runtimeReceipts !== "verified")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["verifiedAdapter"],
+        message:
+          "Runtime adapter verification requires a matching launch and verified protocol evidence.",
+      });
+    }
+    const phases = evidence.phaseReceipts.map((receipt) => receipt.phase);
+    if (
+      evidence.runtimeReceipts === "verified" &&
+      (phases.length < 3 ||
+        phases[0] !== "observe" ||
+        phases[1] !== "apply" ||
+        phases[2] !== "verify")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["runtimeReceipts"],
+        message:
+          "Verified runtime receipts require ordered observe/apply/verify phase receipts.",
+      });
+    }
+    if (
+      evidence.restoreReceipt === "verified" &&
+      (evidence.runtimeReceipts !== "verified" ||
+        phases.at(-1) !== "restore" ||
+        evidence.capabilities.some((capability) =>
+          ["configured", "applied", "verified"].includes(capability.operation),
+        ))
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["restoreReceipt"],
+        message:
+          "Verified restore requires a final Restore receipt and no capability left active.",
+      });
+    }
+    if (
+      new Set(evidence.capabilities.map((capability) => capability.id)).size !==
+      evidence.capabilities.length
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities"],
+        message: "Runtime capability identifiers must be unique.",
+      });
+    }
+  });
+export type RuntimeEngineEvidence = z.infer<typeof runtimeEngineEvidenceSchema>;
+
+export const runtimeStateSchema = z.enum([
+  "idle",
+  "preflight",
+  "launching",
+  "running",
+  "verification_failed",
+  "recovery_required",
+  "stopped",
+  "failed",
+]);
+export type RuntimeState = z.infer<typeof runtimeStateSchema>;
 
 export const runtimeActivationSchema = z
   .object({
     activeSiloId: z.string().uuid().nullable(),
-    state: z.enum([
-      "idle",
-      "preflight",
-      "launching",
-      "running",
-      "stopped",
-      "failed",
-    ]),
+    state: runtimeStateSchema,
     updatedAt: z.string().datetime(),
-    message: z.string().max(512).optional(),
+    message: z.string().nullable(),
+    browserVerification: browserVerificationSchema.optional(),
+    engineEvidence: runtimeEngineEvidenceSchema.nullable(),
     networkEvidence: runtimeNetworkEvidenceSchema.nullable(),
   })
   .strict();
