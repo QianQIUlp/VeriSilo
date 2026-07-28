@@ -1,0 +1,16 @@
+{
+  "name": "VeriSilo",
+  "short_name": "VeriSilo",
+  "description": "Verifiable browser environment isolation and privacy auditing.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f2",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

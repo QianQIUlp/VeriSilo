@@ -19,9 +19,13 @@
     "extension:verify": "node scripts/verify-extension-bundle.mjs",
     "extension:dev": "pnpm --filter @verisilo/extension dev",
     "desktop:dev": "pnpm --filter @verisilo/desktop dev",
-    "desktop:build": "pnpm --filter @verisilo/desktop build"
+    "desktop:build": "pnpm --filter @verisilo/desktop build",
+    "site:dev": "pnpm --filter @verisilo/site dev",
+    "site:check": "pnpm --filter @verisilo/site check",
+    "site:build": "pnpm --filter @verisilo/site build"
   },
   "devDependencies": {
-    "prettier": "^3.5.3"
+    "prettier": "^3.5.3",
+    "prettier-plugin-astro": "^0.14.1"
   }
 }

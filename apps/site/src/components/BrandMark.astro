@@ -1,0 +1,18 @@
+---
+interface Props {
+  size?: "small" | "large";
+}
+
+const { size = "small" } = Astro.props;
+---
+
+<svg
+  class:list={["brand-mark", `brand-mark--${size}`]}
+  viewBox="0 0 48 48"
+  aria-hidden="true"
+>
+  <path d="M5 5h38v38H5z" class="brand-mark__field"></path>
+  <path d="M13 13h22v22H13z" class="brand-mark__silo"></path>
+  <path d="M17 18l7 15 7-15" class="brand-mark__v"></path>
+  <path d="M8 9h5M35 9h5M8 39h5M35 39h5" class="brand-mark__ticks"></path>
+</svg>

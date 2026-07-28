@@ -29,6 +29,20 @@ pnpm extension:build
 
 The desktop app additionally needs a Rust stable toolchain and the Windows Tauri prerequisites. See [the development guide](docs/development.md).
 
+## Product site
+
+The static Astro product site lives in [`apps/site`](apps/site) and includes English and Chinese routes.
+
+```bash
+pnpm site:dev
+pnpm site:check
+pnpm site:build
+```
+
+The site describes the current public-development state and deliberately does not present an installer or store listing before the public release gates are complete.
+
+See the [Cloudflare Pages deployment runbook](docs/site-deployment.md) for the production build, preview, and custom-domain settings.
+
 ## License
 
 Source code is licensed under [MPL-2.0](LICENSE). Documentation is licensed under CC BY 4.0 unless a file says otherwise.
