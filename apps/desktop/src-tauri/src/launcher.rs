@@ -1962,7 +1962,7 @@ fn start_engine_protocol_reader(
     Ok(receiver)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn await_engine_bootstrap_ack_with_timeout(
     child: &mut Child,
     envelope: &EngineBootstrapEnvelope,
@@ -2244,34 +2244,33 @@ fn preflight_proxy(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        ffi::OsString,
-        fs,
-        io::{Read as _, Write as _},
-        net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream},
-        path::PathBuf,
-        process::Stdio,
-        sync::{atomic::AtomicBool, mpsc},
-        thread,
-        time::{Duration, Instant},
-    };
+    use std::{ffi::OsString, fs, net::TcpListener, path::PathBuf, thread};
 
     #[cfg(unix)]
-    use std::sync::{Arc, Mutex};
+    use std::{
+        io::{Read as _, Write as _},
+        net::{Ipv4Addr, SocketAddr, TcpStream},
+        process::Stdio,
+        sync::{atomic::AtomicBool, mpsc, Arc, Mutex},
+        time::{Duration, Instant},
+    };
 
     use chrono::{Duration as ChronoDuration, Utc};
     use uuid::Uuid;
 
+    #[cfg(unix)]
+    use super::spawn_engine_child_with;
     use super::{
         managed_profiles_are_quiescent_for_vault_restore, runtime_allows_vault_restore,
-        spawn_engine_child_with, write_runtime_record, RuntimeHealthContext, RuntimeManager,
-        RuntimeRecord,
+        write_runtime_record, RuntimeHealthContext, RuntimeManager, RuntimeRecord,
     };
     use crate::domain::{
-        BrowserDescriptor, BrowserKind, ExternalMihomoBinding, NetworkProfile, ProxyScheme,
-        RuntimeActivation, RuntimeEngineEvidence, RuntimeEvidenceState, RuntimeNetworkEvidence,
-        RuntimeNetworkEvidenceProvenance, RuntimeState, Silo, SCHEMA_VERSION,
+        BrowserDescriptor, BrowserKind, NetworkProfile, RuntimeActivation, RuntimeEngineEvidence,
+        RuntimeEvidenceState, RuntimeNetworkEvidence, RuntimeNetworkEvidenceProvenance,
+        RuntimeState, Silo, SCHEMA_VERSION,
     };
+    #[cfg(unix)]
+    use crate::domain::{ExternalMihomoBinding, ProxyScheme};
     use crate::engine::{
         BrowserFamily, DerivedIdentityToken, EngineAdapterId, EngineBootstrapEnvelope,
         EngineCapabilityAvailability, EngineCapabilityId, EngineCapabilityOperation,
@@ -2371,8 +2370,11 @@ mod tests {
         (runtime, silo, runtime_id, upstream)
     }
 
+    #[cfg(unix)]
     const MIHOMO_GOOD_PROXIES: &str = r#"{"proxies":{"GLOBAL":{"type":"Selector","now":"Tokyo 01","all":["Tokyo 01"]},"Tokyo 01":{"type":"Socks5","alive":true}}}"#;
+    #[cfg(unix)]
     const MIHOMO_DRIFTED_PROXIES: &str = r#"{"proxies":{"GLOBAL":{"type":"Selector","now":"DIRECT","all":["DIRECT","Tokyo 01"]},"DIRECT":{"type":"Direct","alive":true},"Tokyo 01":{"type":"Socks5","alive":true}}}"#;
+    #[cfg(unix)]
     fn spawn_json_controller(bodies: Vec<String>) -> (String, thread::JoinHandle<()>) {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind fake Controller");
         let address = listener.local_addr().expect("Controller address");
@@ -2399,6 +2401,7 @@ mod tests {
         (format!("http://127.0.0.1:{}/", address.port()), worker)
     }
 
+    #[cfg(unix)]
     fn spawn_socks_health_endpoint() -> (TcpListener, thread::JoinHandle<()>) {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind fake Mihomo SOCKS");
         let worker_listener = listener.try_clone().expect("clone fake SOCKS listener");
@@ -2574,6 +2577,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn external_spawn_plan(executable_path: PathBuf) -> EngineLaunchPlan {
         EngineLaunchPlan {
             adapter: EngineDescriptor {

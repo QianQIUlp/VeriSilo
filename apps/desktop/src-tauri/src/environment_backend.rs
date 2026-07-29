@@ -53,11 +53,11 @@ fn provider_system_tool(tool: ProviderSystemTool) -> Result<PathBuf, Environment
             ProviderSystemTool::Wsl => WindowsSystemTool::Wsl,
             ProviderSystemTool::WindowsSandbox => WindowsSystemTool::WindowsSandbox,
         };
-        return trusted_windows_system_tool(tool).map_err(|error| {
+        trusted_windows_system_tool(tool).map_err(|error| {
             EnvironmentBackendError::InvalidRequest(format!(
                 "Trusted Windows provider executable is unavailable: {error}"
             ))
-        });
+        })
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -651,7 +651,7 @@ pub(crate) fn metadata_is_reparse_point(metadata: &fs::Metadata) -> bool {
         use std::os::windows::fs::MetadataExt;
 
         const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        return metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
     }
     #[cfg(not(target_os = "windows"))]
     false

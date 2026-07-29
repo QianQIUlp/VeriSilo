@@ -40,9 +40,7 @@ use engine::{
 };
 use environment::backend::{EnvironmentActionReceipt, EnvironmentBackendStatus};
 use environment::{EnvironmentManager, EnvironmentOperationRequest, WslStatus};
-use launcher::{
-    managed_profiles_are_quiescent_for_vault_restore, profile_in_use, RuntimeManager,
-};
+use launcher::{managed_profiles_are_quiescent_for_vault_restore, profile_in_use, RuntimeManager};
 use mihomo::{MihomoControllerInput, MihomoSnapshot};
 use runtime_watchdog::RuntimeWatchdog;
 use vault::{RemoteVaultState, VaultBackupReceipt, VaultRuntime};
@@ -1093,9 +1091,7 @@ fn restore_vault(
             .managed_profile_directories()
             .map_err(|error| error.to_string())?,
         VaultLockState::Locked => {
-            return Err(
-                "Unlock the current Vault before restoring a Vault backup.".to_owned(),
-            )
+            return Err("Unlock the current Vault before restoring a Vault backup.".to_owned())
         }
     };
     let mut runtime = state

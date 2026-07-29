@@ -3048,7 +3048,7 @@ fn metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
     {
         use std::os::windows::fs::MetadataExt;
         const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
-        return metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
     }
     #[cfg(not(target_os = "windows"))]
     false
@@ -3836,7 +3836,7 @@ fn production_state_store(
         let root = PathBuf::from(local_app_data)
             .join("VeriSilo")
             .join("engine-state");
-        return EngineStateStore::new(root, adapter_id).map(Some);
+        EngineStateStore::new(root, adapter_id).map(Some)
     }
     #[cfg(not(target_os = "windows"))]
     {
