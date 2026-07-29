@@ -2244,7 +2244,7 @@ fn preflight_proxy(
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsString, fs, net::TcpListener, path::PathBuf, thread};
+    use std::{ffi::OsString, fs, net::TcpListener, path::PathBuf};
 
     #[cfg(unix)]
     use std::{
@@ -2252,6 +2252,7 @@ mod tests {
         net::{Ipv4Addr, SocketAddr, TcpStream},
         process::Stdio,
         sync::{atomic::AtomicBool, mpsc, Arc, Mutex},
+        thread,
         time::{Duration, Instant},
     };
 
@@ -2805,7 +2806,7 @@ process.stdin.on('end', () => {
     return process.exit(0);
   }
   if (behavior === 'inherit_stdout_after_ack') {
-    require('node:child_process').spawn('sh', ['-c', 'sleep 2'], {
+    require('node:child_process').spawn('sh', ['-c', 'sleep 4'], {
       stdio: ['ignore', 1, 'ignore']
     });
     return process.exit(0);
@@ -2953,7 +2954,11 @@ process.stdin.on('end', () => {
                 panic!("inherited stdout did not fail closed");
             }
         }
-        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "launch failure waited {elapsed:?} for a descendant that inherited stdout"
+        );
     }
 
     #[test]
