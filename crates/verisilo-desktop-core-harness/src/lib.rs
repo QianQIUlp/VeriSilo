@@ -19,6 +19,8 @@ pub mod mihomo;
 pub mod native_host;
 #[path = "../../../apps/desktop/src-tauri/src/proxy_relay.rs"]
 pub mod proxy_relay;
+#[path = "../../../apps/desktop/src-tauri/src/runtime_watchdog.rs"]
+pub mod runtime_watchdog;
 #[path = "../../../apps/desktop/src-tauri/src/vault.rs"]
 pub mod vault;
 
@@ -31,4 +33,24 @@ pub fn compile_tauri_vault_control_plane(
 ) -> Result<(), vault::VaultError> {
     let state = runtime.remote_control_plane()?;
     runtime.persist_remote_control_plane(root, state)
+}
+
+/// Compile-time anchor for the native runtime watchdog, whose production
+/// owner lives in the Tauri AppState omitted from this harness.
+#[doc(hidden)]
+pub fn compile_native_runtime_watchdog(
+    runtime: &std::sync::Arc<std::sync::Mutex<launcher::RuntimeManager>>,
+) -> std::io::Result<()> {
+    drop(runtime_watchdog::RuntimeWatchdog::start(runtime)?);
+    Ok(())
+}
+
+/// Compile-time anchor for the quiescent runtime ownership transition used by
+/// the Tauri Vault restore command omitted from this harness.
+#[doc(hidden)]
+pub fn compile_vault_restore_runtime_epoch(
+    runtime: &mut launcher::RuntimeManager,
+) -> Option<domain::RuntimeActivation> {
+    let preparation = runtime.prepare_for_vault_restore()?;
+    Some(runtime.complete_successful_vault_restore(preparation))
 }

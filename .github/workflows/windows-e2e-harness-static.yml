@@ -69,8 +69,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - shell: pwsh
-        run: |
-          pwsh -NoProfile -File .\tests\windows\Invoke-VeriSiloWindowsE2E.ps1 -SelfTest
-          pwsh -NoProfile -File .\scripts\stage-hyperv-image.ps1 -SelfTest
-          pwsh -NoProfile -File .\scripts\download-windows-candidate.ps1 -SelfTest
+      - name: Verify Windows E2E runner input safety
+        shell: pwsh
+        run: pwsh -NoProfile -File .\tests\windows\Invoke-VeriSiloWindowsE2E.ps1 -SelfTest
+      - name: Verify Hyper-V image staging input safety
+        shell: pwsh
+        run: pwsh -NoProfile -File .\scripts\stage-hyperv-image.ps1 -SelfTest
+      - name: Verify Windows candidate extraction input safety
+        shell: pwsh
+        run: pwsh -NoProfile -File .\scripts\download-windows-candidate.ps1 -SelfTest

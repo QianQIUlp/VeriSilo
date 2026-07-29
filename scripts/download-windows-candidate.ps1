@@ -197,7 +197,7 @@ function Write-Receipt {
 }
 
 function New-TestArchive {
-  param([string]$Path, [hashtable]$Entries)
+  param([string]$Path, [System.Collections.IDictionary]$Entries)
   $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
   $archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create, $false)
   try {
@@ -223,9 +223,12 @@ function Invoke-SelfTest {
     $good = Join-Path $temporary 'good.zip'
     $traversal = Join-Path $temporary 'traversal.zip'
     $collision = Join-Path $temporary 'collision.zip'
+    $collisionEntries = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
+    $collisionEntries.Add('A/file.exe', 'a')
+    $collisionEntries.Add('a/file.exe', 'b')
     New-TestArchive $good @{ 'SHA256SUMS' = 'fixture'; 'nested/provenance.json' = '{}' }
     New-TestArchive $traversal @{ '../escape.exe' = 'fixture' }
-    New-TestArchive $collision @{ 'A/file.exe' = 'a'; 'a/file.exe' = 'b' }
+    New-TestArchive $collision $collisionEntries
     Expand-SafeArchive $good (Join-Path $temporary 'good-output')
     Assert-Rejected { Expand-SafeArchive $traversal (Join-Path $temporary 'traversal-output') } 'path traversal'
     Assert-Rejected { Expand-SafeArchive $collision (Join-Path $temporary 'collision-output') } 'a case-insensitive path collision'

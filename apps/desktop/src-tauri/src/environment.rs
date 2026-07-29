@@ -382,6 +382,12 @@ impl EnvironmentManager {
         )))
     }
 
+    pub fn ensure_no_local_environment_artifacts_for_restore(
+        &self,
+    ) -> Result<(), EnvironmentBackendError> {
+        backend::ensure_no_local_environment_artifacts_for_restore(&self.root.join("environments"))
+    }
+
     pub fn roots(&self) -> (&std::path::Path, &std::path::Path) {
         (&self.root, &self.resource_root)
     }
@@ -891,6 +897,31 @@ mod tests {
         manager
             .ensure_no_local_environment_artifacts(environment_id)
             .expect("Silo lifecycle may continue after provider cleanup");
+    }
+
+    #[test]
+    fn global_local_environment_inventory_blocks_restore_until_cleanup() {
+        let manager = manager();
+        manager
+            .ensure_no_local_environment_artifacts_for_restore()
+            .expect("missing environments root is clean");
+
+        let artifact = manager
+            .roots()
+            .0
+            .join("environments")
+            .join("wsl")
+            .join("partial-provider-state");
+        fs::create_dir_all(&artifact).expect("partial provider artifact");
+        let error = manager
+            .ensure_no_local_environment_artifacts_for_restore()
+            .expect_err("Vault restore must fail closed");
+        assert!(error.to_string().contains("before restoring the Vault"));
+
+        fs::remove_dir(&artifact).expect("remove partial provider artifact");
+        manager
+            .ensure_no_local_environment_artifacts_for_restore()
+            .expect("empty real provider directory is clean");
     }
 
     #[test]

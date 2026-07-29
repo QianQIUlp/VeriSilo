@@ -442,6 +442,18 @@ pub enum VaultError {
     SiloRemoteBound,
     #[error("Restoring over an existing Vault requires explicit confirmation.")]
     RestoreOverwriteNotConfirmed,
+    #[error(
+        "Unlock the current Vault before replacing it so VeriSilo can verify environment ownership."
+    )]
+    RestoreCurrentVaultLocked,
+    #[error(
+        "Destroy or explicitly force-detach every remote environment before restoring a Vault backup."
+    )]
+    RestoreActiveRemoteBindings,
+    #[error(
+        "The backup conflicts with retained remote-orphan audit state and cannot be restored safely."
+    )]
+    RestoreRemoteOwnershipConflict,
     #[error("The selected backup destination already exists.")]
     BackupDestinationExists,
     #[error("The selected Vault backup is too large.")]
@@ -627,9 +639,26 @@ impl VaultRuntime {
         let mut opened = open_envelope(&raw, passphrase)?;
 
         recover_interrupted_write(root)?;
-        if vault_path(root).exists() && !confirm_overwrite {
-            return Err(VaultError::RestoreOverwriteNotConfirmed);
-        }
+        let destination_exists = vault_path(root).exists();
+        let current_remote = if destination_exists {
+            if !confirm_overwrite {
+                return Err(VaultError::RestoreOverwriteNotConfirmed);
+            }
+            let current = self
+                .unlocked_without_activity()
+                .map_err(|_| VaultError::RestoreCurrentVaultLocked)?
+                .data
+                .remote_control_plane
+                .clone();
+            if !current.backend.bindings.is_empty() {
+                return Err(VaultError::RestoreActiveRemoteBindings);
+            }
+            current
+        } else {
+            RemoteVaultState::default()
+        };
+
+        merge_preserved_orphan_receipts(&mut opened.data, current_remote.orphan_receipts)?;
 
         // A backup contains metadata, not browser-owned Profile files. Always
         // rebase restored paths to this installation's managed root instead of
@@ -2140,6 +2169,42 @@ fn validate_vault_data(data: &VaultData) -> Result<(), VaultError> {
     validate_remote_control_plane(data)
 }
 
+fn merge_preserved_orphan_receipts(
+    data: &mut VaultData,
+    preserved: Vec<RemoteOrphanReceipt>,
+) -> Result<(), VaultError> {
+    let remote = &mut data.remote_control_plane;
+    for receipt in preserved {
+        if remote.backend.bindings.iter().any(|binding| {
+            binding.binding_id == receipt.binding_id
+                || (binding.server_id == receipt.server_id
+                    && binding.remote_environment_id == receipt.remote_environment_id)
+        }) {
+            return Err(VaultError::RestoreRemoteOwnershipConflict);
+        }
+        if let Some(existing) = remote
+            .orphan_receipts
+            .iter()
+            .find(|existing| existing.receipt_id == receipt.receipt_id)
+        {
+            if existing != &receipt {
+                return Err(VaultError::RestoreRemoteOwnershipConflict);
+            }
+            continue;
+        }
+        if remote.orphan_receipts.iter().any(|existing| {
+            existing.binding_id == receipt.binding_id
+                || (existing.server_id == receipt.server_id
+                    && existing.remote_environment_id == receipt.remote_environment_id)
+        }) || remote.orphan_receipts.len() >= MAX_REMOTE_ORPHAN_RECEIPTS
+        {
+            return Err(VaultError::RestoreRemoteOwnershipConflict);
+        }
+        remote.orphan_receipts.push(receipt);
+    }
+    validate_vault_data(data).map_err(|_| VaultError::RestoreRemoteOwnershipConflict)
+}
+
 fn validate_remote_control_plane(data: &VaultData) -> Result<(), VaultError> {
     let remote = &data.remote_control_plane;
     if remote.backend.bindings.len() > MAX_REMOTE_BINDINGS
@@ -2246,6 +2311,13 @@ fn validate_remote_control_plane(data: &VaultData) -> Result<(), VaultError> {
         {
             return Err(VaultError::InvalidData);
         }
+    }
+    if remote.backend.bindings.iter().any(|binding| {
+        orphan_binding_ids.contains(&binding.binding_id)
+            || orphan_remote_identities
+                .contains(&(binding.server_id, binding.remote_environment_id))
+    }) {
+        return Err(VaultError::InvalidData);
     }
     for (silo_id, result) in &remote.last_results {
         if *silo_id != result.silo_id
@@ -2378,7 +2450,9 @@ fn atomic_write_new(path: &Path, contents: &[u8]) -> Result<(), VaultError> {
         }
         return Err(VaultError::Filesystem(error));
     }
-    fs::remove_file(temporary_path)?;
+    // Publication already succeeded. A cleanup failure must not report the
+    // backup as failed while the destination is durable and visible.
+    let _ = fs::remove_file(temporary_path);
     Ok(())
 }
 
@@ -2403,8 +2477,12 @@ fn replace_file(temporary_path: &Path, destination_path: &Path) -> Result<(), Va
         }
         return Err(VaultError::Filesystem(error));
     }
+    // The new encrypted envelope is already committed at this point. Treat a
+    // stale recovery-copy cleanup failure as deferred housekeeping; returning
+    // an error here would make callers roll memory back to the old Vault while
+    // disk already contains the new Vault.
     if backup_path.exists() {
-        fs::remove_file(backup_path)?;
+        let _ = fs::remove_file(backup_path);
     }
     Ok(())
 }
@@ -2414,6 +2492,10 @@ fn recover_interrupted_write(root: &Path) -> Result<(), VaultError> {
     let backup_path = destination_path.with_extension("bak");
     if !destination_path.exists() && backup_path.exists() {
         fs::rename(backup_path, destination_path)?;
+    } else if destination_path.exists() && backup_path.exists() {
+        // A prior replacement committed successfully but could not remove its
+        // recovery copy. The destination remains authoritative.
+        let _ = fs::remove_file(backup_path);
     }
     Ok(())
 }
@@ -2605,6 +2687,19 @@ mod tests {
             last_results: Default::default(),
             pairing_revoked_at: None,
             orphan_receipts: Vec::new(),
+        }
+    }
+
+    fn orphan_receipt_from_binding(binding: &SiloBinding) -> RemoteOrphanReceipt {
+        RemoteOrphanReceipt {
+            receipt_id: Uuid::new_v4(),
+            silo_id: binding.silo_id,
+            binding_id: binding.binding_id,
+            remote_environment_id: binding.remote_environment_id,
+            server_id: binding.server_id,
+            endpoint: binding.endpoint.clone(),
+            detached_at_unix_ms: 1_800_000_200_000,
+            notice: REMOTE_ORPHAN_NOTICE.to_owned(),
         }
     }
 
@@ -4156,6 +4251,180 @@ mod tests {
 
         fs::remove_dir_all(source_root).expect("remove source root");
         fs::remove_dir_all(destination_root).expect("remove destination root");
+    }
+
+    #[test]
+    fn restore_requires_current_ownership_state_to_be_unlocked_and_unbound() {
+        let source_root = temporary_root();
+        let destination_root = temporary_root();
+        fs::create_dir_all(&source_root).expect("create source root");
+        fs::create_dir_all(&destination_root).expect("create destination root");
+        let backup_passphrase = "a restore source passphrase that is long enough";
+        let current_passphrase = "a current Vault passphrase that is long enough";
+
+        let mut source = VaultRuntime::default();
+        source
+            .initialize(&source_root, backup_passphrase)
+            .expect("initialize source Vault");
+        create_direct_silo(&source_root, &mut source, "source");
+        let backup_path = source_root.join("ownership-backup.json");
+        source
+            .backup(&source_root, &backup_path)
+            .expect("create source backup");
+
+        let mut destination = VaultRuntime::default();
+        destination
+            .initialize(&destination_root, current_passphrase)
+            .expect("initialize current Vault");
+        let before_locked =
+            fs::read(destination_root.join("vault.json")).expect("read current Vault");
+        destination.lock();
+        assert!(matches!(
+            destination.restore(&destination_root, &backup_path, backup_passphrase, true,),
+            Err(VaultError::RestoreCurrentVaultLocked)
+        ));
+        assert_eq!(
+            fs::read(destination_root.join("vault.json")).expect("unchanged locked Vault"),
+            before_locked
+        );
+
+        destination
+            .unlock(&destination_root, current_passphrase)
+            .expect("unlock current Vault");
+        let current_silo = create_direct_silo(&destination_root, &mut destination, "remote bound");
+        destination
+            .persist_remote_control_plane(&destination_root, minimal_remote_state(current_silo.id))
+            .expect("persist current remote binding");
+        let before_bound = fs::read(destination_root.join("vault.json")).expect("read bound Vault");
+        assert!(matches!(
+            destination.restore(&destination_root, &backup_path, backup_passphrase, true,),
+            Err(VaultError::RestoreActiveRemoteBindings)
+        ));
+        assert_eq!(
+            fs::read(destination_root.join("vault.json")).expect("unchanged bound Vault"),
+            before_bound
+        );
+
+        fs::remove_dir_all(source_root).expect("remove source root");
+        fs::remove_dir_all(destination_root).expect("remove destination root");
+    }
+
+    #[test]
+    fn restore_unions_orphan_receipts_and_rejects_rebinding_conflicts() {
+        let source_root = temporary_root();
+        let destination_root = temporary_root();
+        let conflict_source_root = temporary_root();
+        let conflict_destination_root = temporary_root();
+        for root in [
+            &source_root,
+            &destination_root,
+            &conflict_source_root,
+            &conflict_destination_root,
+        ] {
+            fs::create_dir_all(root).expect("create restore test root");
+        }
+        let backup_passphrase = "an orphan merge backup passphrase that is long enough";
+        let current_passphrase = "an orphan merge current passphrase that is long enough";
+        let shared_receipt =
+            orphan_receipt_from_binding(&minimal_remote_state(Uuid::new_v4()).backend.bindings[0]);
+        let backup_only_receipt =
+            orphan_receipt_from_binding(&minimal_remote_state(Uuid::new_v4()).backend.bindings[0]);
+        let current_only_receipt =
+            orphan_receipt_from_binding(&minimal_remote_state(Uuid::new_v4()).backend.bindings[0]);
+
+        let mut source = VaultRuntime::default();
+        source
+            .initialize(&source_root, backup_passphrase)
+            .expect("initialize orphan source Vault");
+        let source_remote = RemoteVaultState {
+            orphan_receipts: vec![shared_receipt.clone(), backup_only_receipt.clone()],
+            ..RemoteVaultState::default()
+        };
+        source
+            .persist_remote_control_plane(&source_root, source_remote)
+            .expect("persist backup orphan receipts");
+        let backup_path = source_root.join("orphan-merge-backup.json");
+        source
+            .backup(&source_root, &backup_path)
+            .expect("create orphan merge backup");
+
+        let mut destination = VaultRuntime::default();
+        destination
+            .initialize(&destination_root, current_passphrase)
+            .expect("initialize orphan destination Vault");
+        let destination_remote = RemoteVaultState {
+            orphan_receipts: vec![shared_receipt.clone(), current_only_receipt.clone()],
+            ..RemoteVaultState::default()
+        };
+        destination
+            .persist_remote_control_plane(&destination_root, destination_remote)
+            .expect("persist current orphan receipts");
+        destination
+            .restore(&destination_root, &backup_path, backup_passphrase, true)
+            .expect("merge current and backup orphan receipts");
+        let restored = destination
+            .remote_control_plane()
+            .expect("read merged orphan receipts");
+        assert_eq!(restored.orphan_receipts.len(), 3);
+        for expected in [shared_receipt, backup_only_receipt, current_only_receipt] {
+            assert!(restored.orphan_receipts.contains(&expected));
+        }
+
+        let mut conflict_source = VaultRuntime::default();
+        conflict_source
+            .initialize(&conflict_source_root, backup_passphrase)
+            .expect("initialize conflict source Vault");
+        let conflict_silo = create_direct_silo(
+            &conflict_source_root,
+            &mut conflict_source,
+            "conflicting remote binding",
+        );
+        let conflict_remote = minimal_remote_state(conflict_silo.id);
+        let conflicting_receipt = orphan_receipt_from_binding(&conflict_remote.backend.bindings[0]);
+        conflict_source
+            .persist_remote_control_plane(&conflict_source_root, conflict_remote)
+            .expect("persist backup binding");
+        let conflict_backup_path = conflict_source_root.join("conflict-backup.json");
+        conflict_source
+            .backup(&conflict_source_root, &conflict_backup_path)
+            .expect("create conflict backup");
+
+        let mut conflict_destination = VaultRuntime::default();
+        conflict_destination
+            .initialize(&conflict_destination_root, current_passphrase)
+            .expect("initialize conflict destination Vault");
+        let conflict_destination_remote = RemoteVaultState {
+            orphan_receipts: vec![conflicting_receipt],
+            ..RemoteVaultState::default()
+        };
+        conflict_destination
+            .persist_remote_control_plane(&conflict_destination_root, conflict_destination_remote)
+            .expect("persist conflicting orphan receipt");
+        let before_conflict = fs::read(conflict_destination_root.join("vault.json"))
+            .expect("read conflict destination");
+        assert!(matches!(
+            conflict_destination.restore(
+                &conflict_destination_root,
+                &conflict_backup_path,
+                backup_passphrase,
+                true,
+            ),
+            Err(VaultError::RestoreRemoteOwnershipConflict)
+        ));
+        assert_eq!(
+            fs::read(conflict_destination_root.join("vault.json"))
+                .expect("unchanged conflict destination"),
+            before_conflict
+        );
+
+        for root in [
+            source_root,
+            destination_root,
+            conflict_source_root,
+            conflict_destination_root,
+        ] {
+            fs::remove_dir_all(root).expect("remove restore test root");
+        }
     }
 
     #[test]

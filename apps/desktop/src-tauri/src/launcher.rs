@@ -5,7 +5,10 @@ use std::{
     net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::mpsc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -48,6 +51,7 @@ const ENGINE_EXIT_RECEIPT_GRACE: Duration = Duration::from_millis(100);
 const ENGINE_PROTOCOL_CHANNEL_CAPACITY: usize = 32;
 const HTTP_AUTH_EVIDENCE_LOOKBACK_SECONDS: i64 = 15;
 const EVIDENCE_CLOCK_SKEW_SECONDS: i64 = 5;
+pub(crate) const RUNTIME_HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Default)]
 pub struct RuntimeManager {
@@ -58,6 +62,10 @@ pub struct RuntimeManager {
     engine_runtime: Option<EngineRuntimeProtocol>,
     record_path: Option<PathBuf>,
     record: Option<RuntimeRecord>,
+}
+
+pub(crate) struct VaultRestoreRuntimePreparation {
+    _private: (),
 }
 
 struct RuntimeHealthContext {
@@ -360,6 +368,50 @@ impl RuntimeManager {
 
     pub fn activation(&mut self) -> RuntimeActivation {
         self.refresh();
+        self.activation
+            .clone()
+            .unwrap_or_else(RuntimeActivation::idle)
+    }
+
+    pub(crate) fn prepare_for_vault_restore(&mut self) -> Option<VaultRestoreRuntimePreparation> {
+        let activation = self.activation();
+        (runtime_allows_vault_restore(&activation)
+            && self.child.is_none()
+            && self.proxy_relay.is_none()
+            && self.health_context.is_none()
+            && self.engine_runtime.is_none()
+            && !self.needs_reconciliation())
+        .then_some(VaultRestoreRuntimePreparation { _private: () })
+    }
+
+    pub(crate) fn complete_successful_vault_restore(
+        &mut self,
+        _preparation: VaultRestoreRuntimePreparation,
+    ) -> RuntimeActivation {
+        // The preparation token is issued only while this mutex-owned runtime
+        // is proven quiescent. A successful Vault replacement starts a new
+        // ownership epoch, so no activation/evidence from the prior Vault may
+        // remain reachable or be republished.
+        self.proxy_relay = None;
+        self.health_context = None;
+        self.engine_runtime = None;
+        self.record = None;
+        if let Some(path) = self.record_path.as_ref() {
+            // The Vault is already committed. Stale-record cleanup is
+            // best-effort and must never roll the new Vault back.
+            let _ = fs::remove_file(path);
+        }
+        let activation = RuntimeActivation::idle();
+        self.activation = Some(activation.clone());
+        activation
+    }
+
+    pub(crate) fn activation_for_watchdog(
+        &mut self,
+        deadline: Instant,
+        cancelled: &AtomicBool,
+    ) -> RuntimeActivation {
+        self.refresh_until(deadline, cancelled, false);
         self.activation
             .clone()
             .unwrap_or_else(RuntimeActivation::idle)
@@ -1203,6 +1255,15 @@ impl RuntimeManager {
     }
 
     fn fail_closed_network_path(&mut self, reason: String, failure: RuntimeNetworkFailure) {
+        self.fail_closed_network_path_with_persistence(reason, failure, true);
+    }
+
+    fn fail_closed_network_path_with_persistence(
+        &mut self,
+        reason: String,
+        failure: RuntimeNetworkFailure,
+        persist_runtime_record: bool,
+    ) {
         let (silo_id, runtime_id, required, expected_relay, secret_revoked) = {
             let Some(context) = self.health_context.as_mut() else {
                 return;
@@ -1250,10 +1311,17 @@ impl RuntimeManager {
                 }
             ));
         }
-        self.persist_current_record(RuntimeState::VerificationFailed);
+        if persist_runtime_record {
+            self.persist_current_record(RuntimeState::VerificationFailed);
+        }
     }
 
-    fn drain_engine_runtime_receipts(&mut self, wait: Option<Duration>, child_exited: bool) {
+    fn drain_engine_runtime_receipts(
+        &mut self,
+        wait: Option<Duration>,
+        child_exited: bool,
+        persist_runtime_record: bool,
+    ) {
         let deadline = wait.map(|duration| Instant::now() + duration);
         let mut changed = false;
         let mut failure = None;
@@ -1365,17 +1433,32 @@ impl RuntimeManager {
                     || expects_managed_relay(&context.silo.network_profile)
             });
             if network_path_must_close {
-                self.fail_closed_network_path(
+                self.fail_closed_network_path_with_persistence(
                     format!("受控引擎运行证据失效：{reason}"),
                     RuntimeNetworkFailure::RuntimeEvidence,
+                    persist_runtime_record,
                 );
-            } else {
+            } else if persist_runtime_record {
                 self.persist_current_record(RuntimeState::VerificationFailed);
             }
         }
     }
 
     fn refresh(&mut self) {
+        let cancelled = AtomicBool::new(false);
+        self.refresh_until(
+            Instant::now() + RUNTIME_HEALTH_PROBE_TIMEOUT,
+            &cancelled,
+            true,
+        );
+    }
+
+    fn refresh_until(
+        &mut self,
+        deadline: Instant,
+        cancelled: &AtomicBool,
+        persist_runtime_record: bool,
+    ) {
         let child_status = self
             .child
             .as_mut()
@@ -1385,6 +1468,7 @@ impl RuntimeManager {
         self.drain_engine_runtime_receipts(
             child_exited.then_some(ENGINE_EXIT_RECEIPT_GRACE),
             child_exited,
+            persist_runtime_record,
         );
         if child_exited {
             let mut restore_missing = false;
@@ -1465,7 +1549,9 @@ impl RuntimeManager {
                 engine_evidence,
                 network_evidence,
             });
-            self.persist_current_record(RuntimeState::Stopped);
+            if persist_runtime_record {
+                self.persist_current_record(RuntimeState::Stopped);
+            }
             return;
         }
 
@@ -1478,6 +1564,9 @@ impl RuntimeManager {
             .as_ref()
             .is_some_and(|context| context.compromised)
         {
+            if persist_runtime_record {
+                self.persist_current_record(RuntimeState::VerificationFailed);
+            }
             return;
         }
 
@@ -1496,28 +1585,40 @@ impl RuntimeManager {
                     )
             });
         if exit_evidence_expired {
-            self.fail_closed_network_path(
+            self.fail_closed_network_path_with_persistence(
                 "已接受的 time-bounded Silo 出口证据已过期".to_owned(),
                 RuntimeNetworkFailure::ExitEvidence,
+                persist_runtime_record,
             );
+            return;
+        }
+
+        if cancelled.load(Ordering::Acquire) {
             return;
         }
 
         let relay_failed = self.health_context.as_ref().is_some_and(|context| {
             expects_managed_relay(&context.silo.network_profile)
                 && !self.proxy_relay.as_ref().is_some_and(|relay| {
-                    relay.matches_runtime(context.silo.id, context.runtime_id) && relay.is_healthy()
+                    relay.matches_runtime(context.silo.id, context.runtime_id)
+                        && relay.is_healthy_until(deadline, cancelled)
                 })
         });
+        if cancelled.load(Ordering::Acquire) {
+            return;
+        }
         let endpoint_error = self.health_context.as_ref().and_then(|context| {
             self.proxy_relay.as_ref().and_then(|relay| {
                 relay
                     .matches_runtime(context.silo.id, context.runtime_id)
-                    .then(|| relay.verify_upstream().err())
+                    .then(|| relay.verify_upstream_until(deadline, cancelled).err())
                     .flatten()
                     .map(|error| error.to_string())
             })
         });
+        if cancelled.load(Ordering::Acquire) {
+            return;
+        }
         let mihomo_error = self.health_context.as_ref().and_then(|context| {
             let binding = context.silo.network_profile.external_mihomo_binding()?;
             let NetworkProfile::FixedProxy { host, port, .. } = &context.silo.network_profile
@@ -1530,12 +1631,14 @@ impl RuntimeManager {
             let result = context.mihomo_guard.as_ref().map_or_else(
                 || Err(mihomo::MihomoError::ConfigurationDrift),
                 |guard| {
-                    mihomo::verify_runtime_guard(
+                    mihomo::verify_runtime_guard_until(
                         guard,
                         binding,
                         host,
                         *port,
                         context.mihomo_authentication.as_ref(),
+                        deadline,
+                        cancelled,
                     )
                 },
             );
@@ -1552,6 +1655,9 @@ impl RuntimeManager {
                 (error.to_string(), failure)
             })
         });
+        if cancelled.load(Ordering::Acquire) {
+            return;
+        }
         if relay_failed || endpoint_error.is_some() || mihomo_error.is_some() {
             let (message, failure) = if relay_failed {
                 (
@@ -1567,11 +1673,16 @@ impl RuntimeManager {
                 let (error, failure) = mihomo_error.expect("checked above");
                 (format!("Mihomo runtime guard 无法回读：{error}"), failure)
             };
-            self.fail_closed_network_path(message, failure);
-        } else if self
-            .activation
-            .as_ref()
-            .is_some_and(|activation| activation.state == RuntimeState::Running)
+            self.fail_closed_network_path_with_persistence(
+                message,
+                failure,
+                persist_runtime_record,
+            );
+        } else if persist_runtime_record
+            && self
+                .activation
+                .as_ref()
+                .is_some_and(|activation| activation.state == RuntimeState::Running)
         {
             self.persist_current_record(RuntimeState::Running);
         }
@@ -1589,10 +1700,25 @@ impl RuntimeManager {
     }
 }
 
+/// Vault replacement is safe only after the runtime has positively reached a
+/// quiescent state. A missing active Silo identifier is not enough: corrupt or
+/// incomplete recovery records deliberately use `None` while remaining
+/// untrusted.
+pub fn runtime_allows_vault_restore(activation: &RuntimeActivation) -> bool {
+    activation.active_silo_id.is_none()
+        && matches!(activation.state, RuntimeState::Idle | RuntimeState::Stopped)
+}
+
 pub fn profile_in_use(profile_directory: &Path) -> bool {
     ["SingletonLock", "SingletonCookie", "SingletonSocket"]
         .iter()
         .any(|name| fs::symlink_metadata(profile_directory.join(name)).is_ok())
+}
+
+pub fn managed_profiles_are_quiescent_for_vault_restore(profile_directories: &[PathBuf]) -> bool {
+    profile_directories
+        .iter()
+        .all(|profile_directory| !profile_in_use(profile_directory))
 }
 
 fn asserted_exit_state(has_public_ip_observation: bool) -> RuntimeEvidenceState {
@@ -2125,14 +2251,19 @@ mod tests {
         net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream},
         path::PathBuf,
         process::Stdio,
+        sync::{atomic::AtomicBool, mpsc},
         thread,
-        time::Duration,
+        time::{Duration, Instant},
     };
+
+    #[cfg(unix)]
+    use std::sync::{Arc, Mutex};
 
     use chrono::{Duration as ChronoDuration, Utc};
     use uuid::Uuid;
 
     use super::{
+        managed_profiles_are_quiescent_for_vault_restore, runtime_allows_vault_restore,
         spawn_engine_child_with, write_runtime_record, RuntimeHealthContext, RuntimeManager,
         RuntimeRecord,
     };
@@ -2156,6 +2287,8 @@ mod tests {
         NativeReputationState, NETWORK_REPUTATION_EXPLANATION, PROTOCOL_VERSION,
     };
     use crate::proxy_relay::{ProxyRelay, RelayAuthenticationEvidence};
+    #[cfg(unix)]
+    use crate::runtime_watchdog::RuntimeWatchdog;
     use crate::vault::{MihomoControllerAuthentication, ProxyAuthentication};
 
     fn test_silo(network_profile: NetworkProfile) -> Silo {
@@ -3509,6 +3642,121 @@ process.stdin.on('end', () => {
     }
 
     #[test]
+    fn vault_restore_requires_a_proven_quiescent_runtime_state() {
+        for state in [RuntimeState::Idle, RuntimeState::Stopped] {
+            let mut activation = RuntimeActivation::idle();
+            activation.state = state;
+            assert!(runtime_allows_vault_restore(&activation));
+        }
+
+        for state in [
+            RuntimeState::Preflight,
+            RuntimeState::Launching,
+            RuntimeState::Running,
+            RuntimeState::VerificationFailed,
+            RuntimeState::RecoveryRequired,
+            RuntimeState::Failed,
+        ] {
+            let mut activation = RuntimeActivation::idle();
+            activation.state = state;
+            assert!(!runtime_allows_vault_restore(&activation));
+        }
+
+        let mut active = RuntimeActivation::idle();
+        active.state = RuntimeState::Stopped;
+        active.active_silo_id = Some(Uuid::new_v4());
+        assert!(!runtime_allows_vault_restore(&active));
+
+        let mut idle = RuntimeManager::default();
+        assert!(idle.prepare_for_vault_restore().is_some());
+
+        let now = Utc::now();
+        let mut unresolved = RuntimeManager {
+            activation: Some(RuntimeActivation::idle()),
+            record: Some(RuntimeRecord {
+                silo_id: Uuid::new_v4(),
+                pid: u32::MAX,
+                started_at: now,
+                last_seen_at: now,
+                state: RuntimeState::Failed,
+            }),
+            ..RuntimeManager::default()
+        };
+        assert!(unresolved.prepare_for_vault_restore().is_none());
+
+        let profile = std::env::temp_dir().join(format!(
+            "verisilo-restore-profile-lock-test-{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&profile).expect("create managed profile fixture");
+        assert!(managed_profiles_are_quiescent_for_vault_restore(&[
+            profile.clone()
+        ]));
+        fs::write(profile.join("SingletonLock"), []).expect("create active profile lock");
+        assert!(!managed_profiles_are_quiescent_for_vault_restore(&[
+            profile.clone()
+        ]));
+        fs::remove_dir_all(profile).expect("remove managed profile fixture");
+    }
+
+    #[test]
+    fn successful_vault_restore_starts_a_clean_runtime_ownership_epoch() {
+        let root = std::env::temp_dir().join(format!(
+            "verisilo-restore-runtime-reset-test-{}",
+            Uuid::new_v4()
+        ));
+        let record_path = root.join("runtime").join("browser-session.json");
+        let now = Utc::now();
+        let record = RuntimeRecord {
+            silo_id: Uuid::new_v4(),
+            pid: u32::MAX,
+            started_at: now,
+            last_seen_at: now,
+            state: RuntimeState::Stopped,
+        };
+        write_runtime_record(&record_path, &record).expect("persist stale stopped record");
+        let silo = test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        let mut stale_activation = RuntimeActivation::idle();
+        stale_activation.state = RuntimeState::Stopped;
+        stale_activation.message = Some("old Vault runtime detail".to_owned());
+        stale_activation.browser_verification =
+            Some(crate::domain::verify_browser_descriptor(&silo.browser));
+        stale_activation.engine_evidence = Some(RuntimeEngineEvidence::configured(
+            EngineAdapterId::StockChrome,
+            false,
+        ));
+        stale_activation.network_evidence = Some(RuntimeNetworkEvidence::configured(
+            &silo.network_profile,
+            false,
+        ));
+        let mut runtime = RuntimeManager {
+            activation: Some(stale_activation),
+            record_path: Some(record_path.clone()),
+            record: Some(record),
+            ..RuntimeManager::default()
+        };
+        let preparation = runtime
+            .prepare_for_vault_restore()
+            .expect("stopped runtime is quiescent");
+
+        let activation = runtime.complete_successful_vault_restore(preparation);
+
+        assert_eq!(activation.state, RuntimeState::Idle);
+        assert!(activation.active_silo_id.is_none());
+        assert!(activation.message.is_none());
+        assert!(activation.browser_verification.is_none());
+        assert!(activation.engine_evidence.is_none());
+        assert!(activation.network_evidence.is_none());
+        assert!(runtime.record.is_none());
+        assert!(!record_path.exists());
+
+        fs::remove_dir_all(root).expect("remove runtime reset fixture");
+        fs::remove_dir_all(silo.profile_directory).expect("remove stale Silo profile fixture");
+    }
+
+    #[test]
     fn required_proxy_recovery_is_verification_failed_after_relay_loss() {
         let root = std::env::temp_dir().join(format!(
             "verisilo-runtime-failclosed-test-{}",
@@ -3681,6 +3929,184 @@ process.stdin.on('end', () => {
         upstream_worker
             .join()
             .expect("upstream health worker exits");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn watchdog_probe_timeout_closes_only_the_exact_runtime_relay() {
+        let upstream =
+            TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind slow required SOCKS upstream");
+        let upstream_port = upstream.local_addr().expect("upstream address").port();
+        let (greeting_seen_tx, greeting_seen) = mpsc::channel();
+        let (release_tx, release) = mpsc::channel();
+        let upstream_worker = thread::spawn(move || {
+            let (mut stream, _) = upstream.accept().expect("accept health probe");
+            let mut greeting = [0_u8; 3];
+            stream.read_exact(&mut greeting).expect("read greeting");
+            assert_eq!(greeting, [5, 1, 2]);
+            greeting_seen_tx.send(()).expect("report greeting");
+            stream.write_all(&[5]).expect("write partial method reply");
+            let _ = release.recv_timeout(Duration::from_secs(2));
+        });
+        let silo = test_silo(NetworkProfile::FixedProxy {
+            proxy_required: true,
+            scheme: ProxyScheme::Socks5,
+            host: "127.0.0.1".to_owned(),
+            port: upstream_port,
+            bypass_list: Vec::new(),
+            credential_reference: Some(Uuid::new_v4()),
+            external_mihomo: None,
+        });
+        let mut evidence = RuntimeNetworkEvidence::configured(&silo.network_profile, true);
+        let runtime_id = evidence.runtime_id;
+        evidence.endpoint = RuntimeEvidenceState::Reachable;
+        evidence.browser_routing = RuntimeEvidenceState::Applied;
+        let relay = ProxyRelay::start(
+            &silo.network_profile,
+            silo.id,
+            runtime_id,
+            Some(ProxyAuthentication::new(
+                "alice".to_owned(),
+                "secret".to_owned(),
+            )),
+        )
+        .expect("start exact runtime relay");
+        let old_port = relay.endpoint().port;
+        let child = std::process::Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .spawn()
+            .expect("spawn owned browser fixture");
+        let mut runtime = RuntimeManager {
+            child: Some(child),
+            activation: Some(RuntimeActivation {
+                active_silo_id: Some(silo.id),
+                state: RuntimeState::Running,
+                updated_at: Utc::now(),
+                message: None,
+                browser_verification: None,
+                engine_evidence: None,
+                network_evidence: Some(evidence),
+            }),
+            proxy_relay: Some(relay),
+            health_context: Some(RuntimeHealthContext {
+                silo,
+                runtime_id,
+                compromised: false,
+                mihomo_authentication: None,
+                mihomo_guard: None,
+            }),
+            ..RuntimeManager::default()
+        };
+        let cancelled = AtomicBool::new(false);
+        let started_at = Instant::now();
+
+        let activation =
+            runtime.activation_for_watchdog(started_at + Duration::from_millis(150), &cancelled);
+
+        greeting_seen
+            .recv_timeout(Duration::from_secs(1))
+            .expect("watchdog reached the authenticated SOCKS handshake");
+        assert_eq!(activation.state, RuntimeState::VerificationFailed);
+        assert!(runtime.proxy_relay.is_none());
+        assert!(runtime
+            .health_context
+            .as_ref()
+            .is_some_and(|context| context.compromised && context.runtime_id == runtime_id));
+        assert!(TcpStream::connect_timeout(
+            &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
+            Duration::from_millis(200),
+        )
+        .is_err());
+        assert!(runtime.child.as_mut().is_some_and(|child| child
+            .try_wait()
+            .ok()
+            .flatten()
+            .is_none()));
+        assert!(started_at.elapsed() < Duration::from_secs(1));
+
+        let _ = release_tx.send(());
+        if let Some(child) = runtime.child.as_mut() {
+            super::terminate_just_spawned_child(child);
+        }
+        runtime.child = None;
+        upstream_worker.join().expect("slow upstream exits");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_watchdog_detects_mihomo_drift_without_a_desktop_status_poll() {
+        let (runtime, _silo, old_port, _upstream, controller_worker, upstream_worker) =
+            mihomo_runtime_manager(MihomoRuntimeFixture::NodeDrift);
+        let runtime = Arc::new(Mutex::new(runtime));
+        let mut watchdog = RuntimeWatchdog::start(&runtime).expect("start native watchdog");
+
+        watchdog.tick_and_wait();
+
+        watchdog.shutdown();
+        let mut runtime = runtime.lock().expect("runtime after watchdog tick");
+        let activation = runtime
+            .activation
+            .as_ref()
+            .expect("watchdog preserves terminal activation");
+        assert_eq!(activation.state, RuntimeState::VerificationFailed);
+        assert!(runtime.proxy_relay.is_none());
+        assert!(runtime
+            .health_context
+            .as_ref()
+            .is_some_and(|context| context.compromised));
+        assert!(TcpStream::connect_timeout(
+            &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
+            Duration::from_millis(200),
+        )
+        .is_err());
+        assert!(runtime.child.as_mut().is_some_and(|child| child
+            .try_wait()
+            .ok()
+            .flatten()
+            .is_none()));
+
+        if let Some(child) = runtime.child.as_mut() {
+            super::terminate_just_spawned_child(child);
+        }
+        runtime.child = None;
+        drop(runtime);
+        controller_worker.join().expect("Controller worker exits");
+        upstream_worker
+            .join()
+            .expect("upstream health worker exits");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_watchdog_preserves_a_healthy_required_fixed_proxy() {
+        let (mut runtime, _silo, _runtime_id, _upstream) = http_runtime_manager();
+        runtime.child = Some(
+            std::process::Command::new("sh")
+                .args(["-c", "sleep 30"])
+                .spawn()
+                .expect("spawn owned browser fixture"),
+        );
+        let runtime = Arc::new(Mutex::new(runtime));
+        let mut watchdog = RuntimeWatchdog::start(&runtime).expect("start native watchdog");
+
+        watchdog.tick_and_wait();
+
+        watchdog.shutdown();
+        let mut runtime = runtime.lock().expect("runtime after watchdog tick");
+        assert!(runtime
+            .activation
+            .as_ref()
+            .is_some_and(|activation| activation.state == RuntimeState::Running));
+        assert!(runtime.proxy_relay.is_some());
+        assert!(runtime
+            .health_context
+            .as_ref()
+            .is_some_and(|context| !context.compromised));
+
+        if let Some(child) = runtime.child.as_mut() {
+            super::terminate_just_spawned_child(child);
+        }
+        runtime.child = None;
     }
 
     #[test]

@@ -62,13 +62,23 @@ import {
   renderLocalSiloReportHtml,
   serializeLocalSiloReport,
 } from "./reports.js";
-import { vaultAutoLockRefreshDelay } from "./vault-auto-lock.js";
+import {
+  vaultAutoLockDeadlinePassed,
+  vaultAutoLockRefreshDelay,
+} from "./vault-auto-lock.js";
+import {
+  acceptedRestoredVaultState,
+  scrubDesktopStatusForLockedUi,
+  VaultUiSession,
+  type VaultRefreshResult,
+} from "./vault-ui-session.js";
 import {
   canConfigureWslDistribution,
   requiresExplicitWslSelection,
 } from "./wsl-selection.js";
 
 const defaultColor = "#5b5ce2";
+const defaultMihomoControllerUrl = "http://127.0.0.1:9090/";
 
 type Notice = { tone: "error" | "success" | "info"; message: string } | null;
 type View =
@@ -85,6 +95,11 @@ function errorMessage(error: unknown): string {
 export function App() {
   const [view, setView] = useState<View>("overview");
   const [status, setStatus] = useState<DesktopStatus | null>(null);
+  const [uiVaultLocked, setUiVaultLocked] = useState(true);
+  const [vaultUiGeneration, setVaultUiGeneration] = useState(0);
+  const [vaultTransition, setVaultTransition] = useState<"idle" | "restoring">(
+    "idle",
+  );
   const [silos, setSilos] = useState<Silo[]>([]);
   const [archivedSilos, setArchivedSilos] = useState<Silo[]>([]);
   const [storageUsage, setStorageUsage] = useState<
@@ -107,7 +122,7 @@ export function App() {
   const [proxyUsername, setProxyUsername] = useState("");
   const [proxyPassword, setProxyPassword] = useState("");
   const [mihomoControllerUrl, setMihomoControllerUrl] = useState(
-    "http://127.0.0.1:9090/",
+    defaultMihomoControllerUrl,
   );
   const [mihomoControllerSecret, setMihomoControllerSecret] = useState("");
   const [mihomoSnapshot, setMihomoSnapshot] = useState<MihomoSnapshot | null>(
@@ -119,45 +134,161 @@ export function App() {
   );
   const [networkBusy, setNetworkBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [vaultBusy, setVaultBusy] = useState(false);
+  const refreshRequestRef = useRef(0);
+  const unlockedOperationRef = useRef(0);
+  const vaultOperationRef = useRef(0);
+  const networkRequestRef = useRef(0);
+  const mihomoRequestRef = useRef(0);
+  const vaultUiSessionRef = useRef(new VaultUiSession());
 
-  const refresh = useCallback(async (includeStorageUsage = true) => {
-    const [nextStatus, nextBrowsers] = await Promise.all([
-      desktopApi.status(),
-      desktopApi.discoverBrowsers(),
-    ]);
-    setStatus(nextStatus);
-    setBrowsers(nextBrowsers);
-
-    if (nextStatus.vault.state === "unlocked") {
-      const [active, archived, evidence] = await Promise.all([
-        desktopApi.listActiveSilos(),
-        desktopApi.listArchivedSilos(),
-        desktopApi.listNetworkEvidence(),
-      ]);
-      setSilos(active);
-      setArchivedSilos(archived);
-      setNetworkEvidenceHistory(evidence);
-
-      if (includeStorageUsage) {
-        const usageEntries = await Promise.all(
-          [...active, ...archived].map(async (silo) => {
-            try {
-              const usage = await desktopApi.siloStorageUsage(silo.id);
-              return [silo.id, usage.bytes] as const;
-            } catch {
-              return [silo.id, null] as const;
-            }
-          }),
-        );
-        setStorageUsage(Object.fromEntries(usageEntries));
-      }
-    } else {
-      setSilos([]);
-      setArchivedSilos([]);
-      setStorageUsage({});
-      setNetworkEvidenceHistory([]);
-    }
+  const scrubSensitiveUi = useCallback(() => {
+    setSilos([]);
+    setArchivedSilos([]);
+    setStorageUsage({});
+    setEditingSilo(null);
+    setNetworkEvidenceHistory([]);
+    setBrowsers([]);
+    setPassphrase("");
+    setName("");
+    setColor(defaultColor);
+    setBrowserPath("");
+    setBrowserKind("chrome");
+    setNetworkProfile(emptyNetwork());
+    setProxyImport("");
+    setProxyUsername("");
+    setProxyPassword("");
+    setMihomoControllerUrl(defaultMihomoControllerUrl);
+    setMihomoControllerSecret("");
+    setMihomoSnapshot(null);
+    setMihomoBusy(false);
+    setNetworkResult(null);
+    setNetworkBusy(false);
+    setBusy(false);
+    setNotice(null);
+    setStatus((currentStatus) => scrubDesktopStatusForLockedUi(currentStatus));
+    setView((currentView) =>
+      currentView === "create" ||
+      currentView === "edit" ||
+      currentView === "settings"
+        ? "overview"
+        : currentView,
+    );
   }, []);
+
+  const applyVaultUiLock = useCallback(
+    (invalidateSession: boolean) => {
+      if (invalidateSession) {
+        vaultUiSessionRef.current.invalidate();
+      }
+      unlockedOperationRef.current += 1;
+      networkRequestRef.current += 1;
+      mihomoRequestRef.current += 1;
+      setUiVaultLocked(true);
+      setVaultUiGeneration((generation) => generation + 1);
+      scrubSensitiveUi();
+    },
+    [scrubSensitiveUi],
+  );
+
+  const refresh = useCallback(
+    async (includeStorageUsage = true): Promise<VaultRefreshResult> => {
+      const requestId = ++refreshRequestRef.current;
+      const browsersPromise = desktopApi.discoverBrowsers().then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      let nextStatus: DesktopStatus;
+      try {
+        nextStatus = await desktopApi.status();
+      } catch (error) {
+        if (requestId !== refreshRequestRef.current) {
+          return "stale";
+        }
+        throw error;
+      }
+      if (requestId !== refreshRequestRef.current) {
+        return "stale";
+      }
+
+      const lockTransition = vaultUiSessionRef.current.observe(
+        nextStatus.vault.state,
+      );
+      setStatus(
+        nextStatus.vault.state === "unlocked"
+          ? nextStatus
+          : scrubDesktopStatusForLockedUi(nextStatus),
+      );
+
+      if (nextStatus.vault.state === "unlocked") {
+        setUiVaultLocked(false);
+        const sessionEpoch = vaultUiSessionRef.current.capture();
+        let browserResult:
+          | { ok: true; value: BrowserCandidate[] }
+          | { ok: false; error: unknown };
+        let active: Silo[];
+        let archived: Silo[];
+        let evidence: SiloNetworkEvidence[];
+        try {
+          [browserResult, [active, archived, evidence]] = await Promise.all([
+            browsersPromise,
+            Promise.all([
+              desktopApi.listActiveSilos(),
+              desktopApi.listArchivedSilos(),
+              desktopApi.listNetworkEvidence(),
+            ]),
+          ]);
+        } catch (error) {
+          if (
+            requestId !== refreshRequestRef.current ||
+            !vaultUiSessionRef.current.accepts(sessionEpoch)
+          ) {
+            return "stale";
+          }
+          throw error;
+        }
+        if (
+          requestId !== refreshRequestRef.current ||
+          !vaultUiSessionRef.current.accepts(sessionEpoch)
+        ) {
+          return "stale";
+        }
+        setBrowsers(browserResult.ok ? browserResult.value : []);
+        setSilos(active);
+        setArchivedSilos(archived);
+        setNetworkEvidenceHistory(evidence);
+
+        if (includeStorageUsage) {
+          const usageEntries = await Promise.all(
+            [...active, ...archived].map(async (silo) => {
+              try {
+                const usage = await desktopApi.siloStorageUsage(silo.id);
+                return [silo.id, usage.bytes] as const;
+              } catch {
+                return [silo.id, null] as const;
+              }
+            }),
+          );
+          if (
+            requestId !== refreshRequestRef.current ||
+            !vaultUiSessionRef.current.accepts(sessionEpoch)
+          ) {
+            return "stale";
+          }
+          setStorageUsage(Object.fromEntries(usageEntries));
+        }
+        if (!browserResult.ok) {
+          throw browserResult.error;
+        }
+      } else if (lockTransition) {
+        applyVaultUiLock(false);
+      } else {
+        setUiVaultLocked(true);
+      }
+      return nextStatus.vault.state;
+    },
+    [applyVaultUiLock],
+  );
 
   useEffect(() => {
     const refreshWithNotice = () =>
@@ -183,15 +314,19 @@ export function App() {
     if (delay === null) {
       return;
     }
-    const timer = window.setTimeout(
-      () =>
-        void refresh(false).catch((error: unknown) =>
-          setNotice({ tone: "error", message: errorMessage(error) }),
-        ),
-      delay,
-    );
+    const timer = window.setTimeout(() => {
+      applyVaultUiLock(true);
+      void refresh(false).catch((error: unknown) =>
+        setNotice({ tone: "error", message: errorMessage(error) }),
+      );
+    }, delay);
     return () => window.clearTimeout(timer);
-  }, [refresh, status?.vault.autoLockAt, status?.vault.state]);
+  }, [
+    applyVaultUiLock,
+    refresh,
+    status?.vault.autoLockAt,
+    status?.vault.state,
+  ]);
 
   const candidateOptions = useMemo(
     () => browsers.filter((candidate) => candidate.kind === browserKind),
@@ -199,26 +334,62 @@ export function App() {
   );
 
   useEffect(() => {
-    if (browserPath === "" && candidateOptions[0] !== undefined) {
+    if (
+      !uiVaultLocked &&
+      status?.vault.state === "unlocked" &&
+      browserPath === "" &&
+      candidateOptions[0] !== undefined
+    ) {
       setBrowserPath(candidateOptions[0].executablePath);
     }
-  }, [browserPath, candidateOptions]);
+  }, [browserPath, candidateOptions, status?.vault.state, uiVaultLocked]);
 
   const activeSilos = silos;
 
-  const withBusy = async (action: () => Promise<void>) => {
+  const withBusy = async (
+    action: (isCurrent: () => boolean) => Promise<void>,
+  ) => {
+    const sessionEpoch = vaultUiSessionRef.current.capture();
+    if (!vaultUiSessionRef.current.accepts(sessionEpoch)) {
+      return;
+    }
+    const operationId = ++unlockedOperationRef.current;
+    const isCurrent = () =>
+      operationId === unlockedOperationRef.current &&
+      vaultUiSessionRef.current.accepts(sessionEpoch);
     setBusy(true);
+    try {
+      await action(isCurrent);
+    } catch (error) {
+      if (isCurrent()) {
+        setNotice({ tone: "error", message: errorMessage(error) });
+      }
+    } finally {
+      if (operationId === unlockedOperationRef.current) {
+        setBusy(false);
+      }
+    }
+  };
+
+  const withVaultBusy = async (action: () => Promise<void>) => {
+    const operationId = ++vaultOperationRef.current;
+    setVaultTransition("idle");
+    setVaultBusy(true);
     try {
       await action();
     } catch (error) {
-      setNotice({ tone: "error", message: errorMessage(error) });
+      if (operationId === vaultOperationRef.current) {
+        setNotice({ tone: "error", message: errorMessage(error) });
+      }
     } finally {
-      setBusy(false);
+      if (operationId === vaultOperationRef.current) {
+        setVaultBusy(false);
+      }
     }
   };
 
   const submitVault = () =>
-    withBusy(async () => {
+    withVaultBusy(async () => {
       if (passphrase.length < 12) {
         throw new Error("请使用至少 12 个字符的保险库口令。");
       }
@@ -238,12 +409,66 @@ export function App() {
     });
 
   const lockVault = () =>
-    withBusy(async () => {
+    withVaultBusy(async () => {
       await desktopApi.lockVault();
+      applyVaultUiLock(true);
       setView("overview");
       setNotice({ tone: "info", message: "保险库已锁定。" });
       await refresh();
     });
+
+  const loadRestoredVaultState = async (operationId: number) => {
+    let result = await refresh();
+    if (result === "stale" && operationId === vaultOperationRef.current) {
+      result = await refresh();
+    }
+    const sessionEpoch = vaultUiSessionRef.current.capture();
+    const acceptedState = acceptedRestoredVaultState(
+      result,
+      vaultUiSessionRef.current.accepts(sessionEpoch),
+    );
+    if (operationId !== vaultOperationRef.current || acceptedState === null) {
+      throw new Error(
+        "恢复后的权威状态尚未完整载入；操作仍被隔离，请使用下方按钮重试。",
+      );
+    }
+    return acceptedState;
+  };
+
+  const completeVaultRestore = async (invalidatePreviousSession: boolean) => {
+    const operationId = ++vaultOperationRef.current;
+    setVaultTransition("restoring");
+    setVaultBusy(true);
+    setNotice(null);
+    if (invalidatePreviousSession) {
+      applyVaultUiLock(true);
+    }
+    try {
+      const vaultState = await loadRestoredVaultState(operationId);
+      if (operationId !== vaultOperationRef.current) {
+        return;
+      }
+      setNotice({
+        tone: vaultState === "unlocked" ? "success" : "info",
+        message:
+          vaultState === "unlocked"
+            ? "加密保险库已恢复并完成格式校验。请核对 Silo 列表；本机已有 Profile 不会被备份文件自动覆盖。"
+            : "加密保险库已恢复，但在载入期间已锁定。敏感界面状态仍为空，请重新解锁后核对 Silo 列表。",
+      });
+      setVaultTransition("idle");
+    } catch (error) {
+      if (operationId === vaultOperationRef.current) {
+        setNotice({ tone: "error", message: errorMessage(error) });
+      }
+    } finally {
+      if (operationId === vaultOperationRef.current) {
+        setVaultBusy(false);
+      }
+    }
+  };
+
+  const finishVaultRestore = () => completeVaultRestore(true);
+  const retryRestoredVaultState = () => completeVaultRestore(false);
 
   const chooseBrowser = (candidate: BrowserCandidate) => {
     setBrowserKind(candidate.kind);
@@ -251,7 +476,7 @@ export function App() {
   };
 
   const createSilo = () =>
-    withBusy(async () => {
+    withBusy(async (isCurrent) => {
       if (!networkProfileSchema.safeParse(networkProfile).success) {
         throw new Error(
           "网络配置尚未填写完整。请检查协议、主机、端口、PAC URL 或 Mihomo 绑定。",
@@ -294,6 +519,9 @@ export function App() {
           : {}),
       };
       const silo = await desktopApi.createSilo(input);
+      if (!isCurrent()) {
+        return;
+      }
       setName("");
       setNetworkProfile(emptyNetwork());
       setProxyImport("");
@@ -310,15 +538,21 @@ export function App() {
     });
 
   const launchSilo = (silo: Silo) =>
-    withBusy(async () => {
+    withBusy(async (isCurrent) => {
       const activation = await desktopApi.launchSilo(silo.id);
+      if (!isCurrent()) {
+        return;
+      }
       setNotice({ tone: "success", message: describeActivation(activation) });
       await refresh();
     });
 
   const recheckSiloBrowser = (silo: Silo) =>
-    withBusy(async () => {
+    withBusy(async (isCurrent) => {
       const verification = await desktopApi.recheckSiloBrowser(silo.id);
+      if (!isCurrent()) {
+        return;
+      }
       setNotice({
         tone: verification.state === "verified" ? "success" : "error",
         message: verification.message,
@@ -327,8 +561,11 @@ export function App() {
     });
 
   const recheckSiloRuntime = (silo: Silo) =>
-    withBusy(async () => {
+    withBusy(async (isCurrent) => {
       const activation = await desktopApi.recheckSiloRuntime(silo.id);
+      if (!isCurrent()) {
+        return;
+      }
       setNotice({
         tone: activation.state === "running" ? "success" : "error",
         message: describeActivation(activation),
@@ -337,8 +574,11 @@ export function App() {
     });
 
   const rebindSiloMihomo = (silo: Silo) =>
-    withBusy(async () => {
+    withBusy(async (isCurrent) => {
       const activation = await desktopApi.rebindSiloMihomo(silo.id);
+      if (!isCurrent()) {
+        return;
+      }
       setNotice({
         tone: activation.state === "running" ? "success" : "error",
         message: describeActivation(activation),
@@ -347,8 +587,11 @@ export function App() {
     });
 
   const archiveSilo = (silo: Silo) =>
-    withBusy(async () => {
+    withBusy(async (isCurrent) => {
       await desktopApi.archiveSilo(silo.id);
+      if (!isCurrent()) {
+        return;
+      }
       setNotice({
         tone: "info",
         message: `已归档「${silo.name}」。浏览器数据目录仍保留，未被删除。`,
@@ -362,13 +605,16 @@ export function App() {
     networkInput: UpdateSiloNetworkInput | null,
     engineInput: UpdateSiloEngineInput | null,
   ) =>
-    withBusy(async () => {
+    withBusy(async (isCurrent) => {
       const updated = await desktopApi.updateSiloConfiguration(
         silo.id,
         input,
         networkInput,
         engineInput,
       );
+      if (!isCurrent()) {
+        return;
+      }
       setEditingSilo(null);
       setView("overview");
       setNotice({
@@ -379,8 +625,11 @@ export function App() {
     });
 
   const restoreArchivedSilo = (silo: Silo) =>
-    withBusy(async () => {
+    withBusy(async (isCurrent) => {
       const restored = await desktopApi.restoreArchivedSilo(silo.id);
+      if (!isCurrent()) {
+        return;
+      }
       setNotice({
         tone: "success",
         message: `已恢复「${restored.name}」。原来的浏览器数据目录仍然沿用。`,
@@ -395,8 +644,11 @@ export function App() {
     if (!confirmed) {
       return;
     }
-    await withBusy(async () => {
+    await withBusy(async (isCurrent) => {
       await desktopApi.deleteSilo(silo.id);
+      if (!isCurrent()) {
+        return;
+      }
       setNotice({
         tone: "info",
         message: `已永久删除「${silo.name}」的受管目录和保险库记录。`,
@@ -413,8 +665,11 @@ export function App() {
     ) {
       return;
     }
-    await withBusy(async () => {
+    await withBusy(async (isCurrent) => {
       const removed = await desktopApi.clearNetworkEvidence(silo.id);
+      if (!isCurrent()) {
+        return;
+      }
       setNotice({
         tone: "info",
         message: `已清除 ${removed} 条「${silo.name}」网络证据记录。`,
@@ -424,7 +679,15 @@ export function App() {
   };
 
   const downloadLocalReport = (silo: Silo, format: "json" | "html") => {
-    if (status === null) {
+    const sessionEpoch = vaultUiSessionRef.current.capture();
+    if (status === null || !vaultUiSessionRef.current.accepts(sessionEpoch)) {
+      return;
+    }
+    if (vaultAutoLockDeadlinePassed(status.vault.autoLockAt)) {
+      applyVaultUiLock(true);
+      void refresh(false).catch((error: unknown) =>
+        setNotice({ tone: "error", message: errorMessage(error) }),
+      );
       return;
     }
     const report = buildLocalSiloReport({
@@ -459,9 +722,20 @@ export function App() {
   };
 
   const checkNetwork = async () => {
+    const sessionEpoch = vaultUiSessionRef.current.capture();
+    const requestId = ++networkRequestRef.current;
+    const isCurrent = () =>
+      requestId === networkRequestRef.current &&
+      vaultUiSessionRef.current.accepts(sessionEpoch);
+    if (!isCurrent()) {
+      return;
+    }
     setNetworkBusy(true);
     try {
       const result = await runDesktopNetworkCheck();
+      if (!isCurrent()) {
+        return;
+      }
       setNetworkResult(result);
       const useful = result.ip !== null || result.dns.providers.length > 0;
       setNotice({
@@ -471,9 +745,13 @@ export function App() {
           : "网络检查没有获得有效结果，请检查网络后重试。",
       });
     } catch (error) {
-      setNotice({ tone: "error", message: errorMessage(error) });
+      if (isCurrent()) {
+        setNotice({ tone: "error", message: errorMessage(error) });
+      }
     } finally {
-      setNetworkBusy(false);
+      if (requestId === networkRequestRef.current) {
+        setNetworkBusy(false);
+      }
     }
   };
 
@@ -497,6 +775,14 @@ export function App() {
   };
 
   const inspectMihomoController = async () => {
+    const sessionEpoch = vaultUiSessionRef.current.capture();
+    const requestId = ++mihomoRequestRef.current;
+    const isCurrent = () =>
+      requestId === mihomoRequestRef.current &&
+      vaultUiSessionRef.current.accepts(sessionEpoch);
+    if (!isCurrent()) {
+      return;
+    }
     setMihomoBusy(true);
     try {
       const snapshot = await desktopApi.inspectMihomoController({
@@ -516,6 +802,9 @@ export function App() {
       if (networkProfile.mode !== "fixed_proxy") {
         throw new Error("请先选择 Mihomo / Clash 网络方式。");
       }
+      if (!isCurrent()) {
+        return;
+      }
       setMihomoSnapshot(snapshot);
       setNetworkProfile({
         ...networkProfile,
@@ -533,10 +822,14 @@ export function App() {
         message: `已读取本机 Mihomo 控制器，并把这个 Silo 预绑定到「${selectedNode.name}」。创建后每次启动都会重新选择并复查。`,
       });
     } catch (error) {
-      setMihomoSnapshot(null);
-      setNotice({ tone: "error", message: errorMessage(error) });
+      if (isCurrent()) {
+        setMihomoSnapshot(null);
+        setNotice({ tone: "error", message: errorMessage(error) });
+      }
     } finally {
-      setMihomoBusy(false);
+      if (requestId === mihomoRequestRef.current) {
+        setMihomoBusy(false);
+      }
     }
   };
 
@@ -589,7 +882,7 @@ export function App() {
     );
   }
 
-  const vaultLocked = status.vault.state !== "unlocked";
+  const vaultLocked = uiVaultLocked || status.vault.state !== "unlocked";
 
   return (
     <main className="shell">
@@ -598,38 +891,46 @@ export function App() {
         <div className="topbar-status">
           <span className="local-pill">仅本机</span>
           <span className={`vault-pill${vaultLocked ? " locked" : ""}`}>
-            {vaultLocked ? "保险库已锁定" : "保险库已解锁"}
+            {vaultTransition === "restoring"
+              ? vaultBusy
+                ? "正在载入恢复后的保险库"
+                : "恢复状态等待重新载入"
+              : vaultLocked
+                ? "保险库已锁定"
+                : "保险库已解锁"}
           </span>
         </div>
       </header>
 
-      <nav className="tabbar" aria-label="VeriSilo 桌面端功能">
-        <TabButton
-          active={view === "overview" || view === "edit"}
-          label="环境概览"
-          onClick={() => setView("overview")}
-        />
-        <TabButton
-          active={view === "create"}
-          label="创建 Silo"
-          onClick={() => setView("create")}
-        />
-        <TabButton
-          active={view === "settings"}
-          label="保险库与数据"
-          onClick={() => setView("settings")}
-        />
-        <TabButton
-          active={view === "labs"}
-          label="实验室"
-          onClick={() => setView("labs")}
-        />
-        <TabButton
-          active={view === "capabilities"}
-          label="能力路线"
-          onClick={() => setView("capabilities")}
-        />
-      </nav>
+      {vaultTransition === "idle" ? (
+        <nav className="tabbar" aria-label="VeriSilo 桌面端功能">
+          <TabButton
+            active={view === "overview" || view === "edit"}
+            label="环境概览"
+            onClick={() => setView("overview")}
+          />
+          <TabButton
+            active={view === "create"}
+            label="创建 Silo"
+            onClick={() => setView("create")}
+          />
+          <TabButton
+            active={view === "settings"}
+            label="保险库与数据"
+            onClick={() => setView("settings")}
+          />
+          <TabButton
+            active={view === "labs"}
+            label="实验室"
+            onClick={() => setView("labs")}
+          />
+          <TabButton
+            active={view === "capabilities"}
+            label="能力路线"
+            onClick={() => setView("capabilities")}
+          />
+        </nav>
+      ) : null}
 
       {notice !== null ? (
         <div
@@ -642,9 +943,33 @@ export function App() {
       ) : null}
 
       {view === "overview" ? (
-        vaultLocked ? (
+        vaultTransition === "restoring" ? (
+          <section
+            aria-busy="true"
+            aria-live="polite"
+            className="panel loading-state"
+          >
+            <p className="eyebrow">保险库恢复</p>
+            <h1>
+              {vaultBusy
+                ? "正在载入恢复后的权威状态…"
+                : "恢复后的状态仍处于隔离"}
+            </h1>
+            <p>
+              VeriSilo
+              已清除旧会话中的表单、远程状态和批准位；完成新保险库、运行时与环境归属核对前不会开放操作。
+            </p>
+            <button
+              disabled={vaultBusy}
+              onClick={() => void retryRestoredVaultState()}
+              type="button"
+            >
+              {vaultBusy ? "正在重新载入…" : "重新载入权威状态"}
+            </button>
+          </section>
+        ) : vaultLocked ? (
           <VaultAccess
-            busy={busy}
+            busy={vaultBusy}
             passphrase={passphrase}
             setPassphrase={setPassphrase}
             status={status}
@@ -673,7 +998,7 @@ export function App() {
                 </button>
                 <button
                   className="button-secondary"
-                  disabled={busy}
+                  disabled={busy || vaultBusy}
                   onClick={() => void lockVault()}
                   type="button"
                 >
@@ -953,13 +1278,18 @@ export function App() {
             busy={busy}
             onNotice={setNotice}
             onRefresh={refresh}
+            onVaultRestored={finishVaultRestore}
             runBusy={withBusy}
           />
         )
       ) : null}
 
       {view === "capabilities" ? (
-        <CapabilityRoadmap silos={activeSilos} vaultLocked={vaultLocked} />
+        <CapabilityRoadmap
+          key={`${vaultUiGeneration}:${vaultLocked ? "locked" : "unlocked"}`}
+          silos={activeSilos}
+          vaultLocked={vaultLocked}
+        />
       ) : null}
 
       {view === "labs" ? (
@@ -2195,12 +2525,16 @@ function VaultAndDataPanel({
   busy,
   onNotice,
   onRefresh,
+  onVaultRestored,
   runBusy,
 }: {
   busy: boolean;
   onNotice: (notice: Notice) => void;
-  onRefresh: () => Promise<void>;
-  runBusy: (action: () => Promise<void>) => Promise<void>;
+  onRefresh: () => Promise<unknown>;
+  onVaultRestored: () => Promise<void>;
+  runBusy: (
+    action: (isCurrent: () => boolean) => Promise<void>,
+  ) => Promise<void>;
 }) {
   const [currentPassphrase, setCurrentPassphrase] = useState("");
   const [newPassphrase, setNewPassphrase] = useState("");
@@ -2211,7 +2545,7 @@ function VaultAndDataPanel({
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
 
   const changePassphrase = () =>
-    runBusy(async () => {
+    runBusy(async (isCurrent) => {
       if (newPassphrase.length < 12) {
         throw new Error("新口令至少需要 12 个字符。");
       }
@@ -2219,6 +2553,9 @@ function VaultAndDataPanel({
         throw new Error("两次输入的新口令不一致。");
       }
       await desktopApi.changeVaultPassphrase(currentPassphrase, newPassphrase);
+      if (!isCurrent()) {
+        return;
+      }
       setCurrentPassphrase("");
       setNewPassphrase("");
       setConfirmPassphrase("");
@@ -2231,8 +2568,11 @@ function VaultAndDataPanel({
     });
 
   const backupVault = () =>
-    runBusy(async () => {
+    runBusy(async (isCurrent) => {
       const receipt = await desktopApi.backupVault(backupPath.trim());
+      if (!isCurrent()) {
+        return;
+      }
       onNotice({
         tone: "success",
         message: `已备份加密保险库：${receipt.destinationPath}（${formatBytes(receipt.bytes)}）。浏览器 Profile 未包含在内。`,
@@ -2240,7 +2580,7 @@ function VaultAndDataPanel({
     });
 
   const restoreVault = () =>
-    runBusy(async () => {
+    runBusy(async (isCurrent) => {
       if (!confirmOverwrite) {
         throw new Error("请先确认覆盖当前保险库记录。");
       }
@@ -2249,15 +2589,10 @@ function VaultAndDataPanel({
         restorePassphrase,
         true,
       );
-      setRestorePath("");
-      setRestorePassphrase("");
-      setConfirmOverwrite(false);
-      onNotice({
-        tone: "success",
-        message:
-          "加密保险库已恢复并完成格式校验。请核对 Silo 列表；本机已有 Profile 不会被备份文件自动覆盖。",
-      });
-      await onRefresh();
+      if (!isCurrent()) {
+        return;
+      }
+      await onVaultRestored();
     });
 
   return (
@@ -4583,7 +4918,7 @@ function CapabilityRoadmap({
             用户自托管 HTTPS Origin
             <input
               autoComplete="off"
-              disabled={remoteBusy}
+              disabled={remoteBusy || vaultLocked}
               onChange={(event) => {
                 setRemoteOrigin(event.target.value);
                 setRemoteValidation(null);
@@ -4596,6 +4931,7 @@ function CapabilityRoadmap({
           <label>
             Pin 类型
             <select
+              disabled={remoteBusy || vaultLocked}
               onChange={(event) => {
                 setRemotePinKind(
                   event.target.value as RemoteEndpoint["pin"]["kind"],
@@ -4612,7 +4948,7 @@ function CapabilityRoadmap({
             SHA-256 pin（64 位小写十六进制）
             <input
               autoComplete="off"
-              disabled={remoteBusy}
+              disabled={remoteBusy || vaultLocked}
               maxLength={64}
               onChange={(event) => {
                 setRemotePinSha256(event.target.value);
@@ -4627,6 +4963,7 @@ function CapabilityRoadmap({
           <button
             className="button-secondary"
             disabled={
+              vaultLocked ||
               remoteOrigin.trim() === "" ||
               remoteBusy ||
               !/^[a-f0-9]{64}$/u.test(remotePinSha256.trim().toLowerCase())
@@ -4671,7 +5008,9 @@ function CapabilityRoadmap({
               配对令牌 ID（UUID）
               <input
                 autoComplete="off"
-                disabled={remoteBusy || remoteStatus?.pairing !== null}
+                disabled={
+                  remoteBusy || vaultLocked || remoteStatus?.pairing !== null
+                }
                 onChange={(event) =>
                   setRemotePairingTokenId(event.target.value)
                 }
@@ -4683,7 +5022,9 @@ function CapabilityRoadmap({
               一次性配对令牌
               <input
                 autoComplete="off"
-                disabled={remoteBusy || remoteStatus?.pairing !== null}
+                disabled={
+                  remoteBusy || vaultLocked || remoteStatus?.pairing !== null
+                }
                 onChange={(event) => setRemotePairingToken(event.target.value)}
                 spellCheck={false}
                 type="password"
@@ -4693,7 +5034,9 @@ function CapabilityRoadmap({
             <label>
               Agent 声明的到期时间
               <input
-                disabled={remoteBusy || remoteStatus?.pairing !== null}
+                disabled={
+                  remoteBusy || vaultLocked || remoteStatus?.pairing !== null
+                }
                 onChange={(event) =>
                   setRemotePairingExpiresAt(event.target.value)
                 }
@@ -4720,7 +5063,9 @@ function CapabilityRoadmap({
           <label className="remote-confirmation">
             <input
               checked={remotePairingApproved}
-              disabled={remoteBusy || remoteStatus?.pairing !== null}
+              disabled={
+                remoteBusy || vaultLocked || remoteStatus?.pairing !== null
+              }
               onChange={(event) =>
                 setRemotePairingApproved(event.target.checked)
               }

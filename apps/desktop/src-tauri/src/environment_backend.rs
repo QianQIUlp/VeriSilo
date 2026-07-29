@@ -42,6 +42,9 @@ enum ProviderSystemTool {
     WindowsSandbox,
 }
 
+type ProviderSystemToolResolver =
+    fn(ProviderSystemTool) -> Result<PathBuf, EnvironmentBackendError>;
+
 fn provider_system_tool(tool: ProviderSystemTool) -> Result<PathBuf, EnvironmentBackendError> {
     #[cfg(target_os = "windows")]
     {
@@ -820,6 +823,101 @@ pub fn local_environment_artifacts(
         }
     }
     Ok(artifacts)
+}
+
+fn local_environment_provider_directories() -> [(&'static str, EnvironmentBackendId); 3] {
+    [
+        ("wsl", EnvironmentBackendId::WslChromium),
+        ("sandbox", EnvironmentBackendId::WindowsSandbox),
+        ("hyperv", EnvironmentBackendId::HyperV),
+    ]
+}
+
+/// Inventories every durable local provider namespace without following links.
+/// Missing roots and real empty provider directories are clean. Every child of
+/// a provider directory counts as an artifact, regardless of its name or type,
+/// so partial writes and legacy/unknown layouts cannot be orphaned by restore.
+pub fn local_environment_artifact_inventory(
+    environment_root: &Path,
+) -> Result<Vec<EnvironmentBackendId>, EnvironmentBackendError> {
+    require_absolute_clean_path(environment_root, "Local environment inventory root")?;
+    let root_metadata = match fs::symlink_metadata(environment_root) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(EnvironmentBackendError::Io(error)),
+    };
+    if metadata_is_reparse_point(&root_metadata) || !root_metadata.is_dir() {
+        return Err(EnvironmentBackendError::InvalidRequest(
+            "Local environment inventory root must be a real directory, not a file, link, or reparse point."
+                .to_owned(),
+        ));
+    }
+
+    let providers = local_environment_provider_directories();
+    for entry in fs::read_dir(environment_root).map_err(EnvironmentBackendError::Io)? {
+        let entry = entry.map_err(EnvironmentBackendError::Io)?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            return Err(EnvironmentBackendError::InvalidRequest(
+                "Local environment inventory contains an unexpected top-level entry; Vault restore is blocked."
+                    .to_owned(),
+            ));
+        };
+        if !providers.iter().any(|(directory, _)| *directory == name) {
+            return Err(EnvironmentBackendError::InvalidRequest(
+                "Local environment inventory contains an unexpected top-level entry; Vault restore is blocked."
+                    .to_owned(),
+            ));
+        }
+        let metadata = fs::symlink_metadata(entry.path()).map_err(EnvironmentBackendError::Io)?;
+        if metadata_is_reparse_point(&metadata) || !metadata.is_dir() {
+            return Err(EnvironmentBackendError::InvalidRequest(
+                "Local environment provider namespaces must be real directories, not files, links, or reparse points."
+                    .to_owned(),
+            ));
+        }
+    }
+
+    let mut artifacts = Vec::new();
+    for (directory, backend) in providers {
+        let provider_root = environment_root.join(directory);
+        let metadata = match fs::symlink_metadata(&provider_root) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(EnvironmentBackendError::Io(error)),
+        };
+        if metadata_is_reparse_point(&metadata) || !metadata.is_dir() {
+            return Err(EnvironmentBackendError::InvalidRequest(
+                "Local environment provider namespaces must be real directories, not files, links, or reparse points."
+                    .to_owned(),
+            ));
+        }
+
+        let mut has_artifacts = false;
+        for entry in fs::read_dir(&provider_root).map_err(EnvironmentBackendError::Io)? {
+            let entry = entry.map_err(EnvironmentBackendError::Io)?;
+            fs::symlink_metadata(entry.path()).map_err(EnvironmentBackendError::Io)?;
+            has_artifacts = true;
+        }
+        if has_artifacts {
+            artifacts.push(backend);
+        }
+    }
+    Ok(artifacts)
+}
+
+/// Fails closed before Vault restore whenever any local provider artifact or
+/// unexpected namespace remains on disk.
+pub fn ensure_no_local_environment_artifacts_for_restore(
+    environment_root: &Path,
+) -> Result<(), EnvironmentBackendError> {
+    let artifacts = local_environment_artifact_inventory(environment_root)?;
+    if artifacts.is_empty() {
+        return Ok(());
+    }
+    Err(EnvironmentBackendError::InvalidRequest(format!(
+        "Destroy or detach every local environment before restoring the Vault; durable artifacts remain for {artifacts:?}."
+    )))
 }
 
 fn invalidate_binding(
@@ -1696,6 +1794,7 @@ pub struct WindowsSandboxBackend<R: ProcessRunner> {
     sandbox_available: bool,
     state_root: PathBuf,
     bootstrap_directory: PathBuf,
+    system_tool_resolver: ProviderSystemToolResolver,
     runner: R,
 }
 
@@ -1714,8 +1813,29 @@ impl<R: ProcessRunner> WindowsSandboxBackend<R> {
             sandbox_available,
             state_root,
             bootstrap_directory,
+            system_tool_resolver: provider_system_tool,
             runner,
         })
+    }
+
+    #[cfg(test)]
+    fn new_with_system_tool_resolver(
+        supported_platform: bool,
+        sandbox_available: bool,
+        state_root: PathBuf,
+        bootstrap_directory: PathBuf,
+        system_tool_resolver: ProviderSystemToolResolver,
+        runner: R,
+    ) -> Result<Self, EnvironmentBackendError> {
+        let mut backend = Self::new(
+            supported_platform,
+            sandbox_available,
+            state_root,
+            bootstrap_directory,
+            runner,
+        )?;
+        backend.system_tool_resolver = system_tool_resolver;
+        Ok(backend)
     }
 
     fn binding(&self, environment_id: Uuid) -> EnvironmentBinding {
@@ -1815,9 +1935,9 @@ impl<R: ProcessRunner> WindowsSandboxBackend<R> {
         require_absolute_clean_path(request_path, "Sandbox request path")?;
         let controller = self.controller_script_path();
         require_absolute_clean_path(&controller, "Sandbox controller path")?;
-        let sandbox_executable = provider_system_tool(ProviderSystemTool::WindowsSandbox)?;
+        let sandbox_executable = (self.system_tool_resolver)(ProviderSystemTool::WindowsSandbox)?;
         Ok(CommandSpec {
-            program: provider_system_tool(ProviderSystemTool::PowerShell)?,
+            program: (self.system_tool_resolver)(ProviderSystemTool::PowerShell)?,
             args: vec![
                 "-NoLogo".into(),
                 "-NoProfile".into(),
@@ -3052,6 +3172,25 @@ mod tests {
         assert_eq!(program, Path::new(basename));
     }
 
+    fn fixture_provider_system_tool(
+        tool: ProviderSystemTool,
+    ) -> Result<PathBuf, EnvironmentBackendError> {
+        let basename = match tool {
+            ProviderSystemTool::PowerShell => "powershell.exe",
+            ProviderSystemTool::Wsl => "wsl.exe",
+            ProviderSystemTool::WindowsSandbox => "WindowsSandbox.exe",
+        };
+        let current_directory = std::env::current_dir().map_err(EnvironmentBackendError::Io)?;
+        #[cfg(target_os = "windows")]
+        return Ok(current_directory.join(basename));
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = current_directory;
+            Ok(PathBuf::from(basename))
+        }
+    }
+
     fn wsl_prerequisites(agent_sha256: &str) -> WslChromiumPrerequisites {
         WslChromiumPrerequisites {
             supported_platform: true,
@@ -3156,6 +3295,100 @@ mod tests {
             .expect("sandbox response"),
             stderr: Vec::new(),
         }
+    }
+
+    #[test]
+    fn global_environment_inventory_allows_missing_and_empty_provider_directories() {
+        let environment_root = temporary_root("global-inventory-clean");
+        assert!(local_environment_artifact_inventory(&environment_root)
+            .expect("missing inventory root")
+            .is_empty());
+        ensure_no_local_environment_artifacts_for_restore(&environment_root)
+            .expect("missing inventory root is clean");
+
+        for directory in ["wsl", "sandbox", "hyperv"] {
+            fs::create_dir_all(environment_root.join(directory)).expect("empty provider directory");
+        }
+        assert!(local_environment_artifact_inventory(&environment_root)
+            .expect("empty provider inventory")
+            .is_empty());
+        ensure_no_local_environment_artifacts_for_restore(&environment_root)
+            .expect("real empty provider directories are clean");
+    }
+
+    #[test]
+    fn global_environment_inventory_counts_uuid_non_uuid_and_file_artifacts() {
+        let environment_root = temporary_root("global-inventory-artifacts");
+        fs::create_dir_all(
+            environment_root
+                .join("wsl")
+                .join(Uuid::new_v4().to_string()),
+        )
+        .expect("UUID provider artifact");
+        fs::create_dir_all(environment_root.join("sandbox").join("partial-create"))
+            .expect("non-UUID provider artifact");
+        fs::create_dir_all(environment_root.join("hyperv")).expect("Hyper-V provider directory");
+        fs::write(
+            environment_root.join("hyperv").join("interrupted.json"),
+            b"partial",
+        )
+        .expect("file provider artifact");
+
+        assert_eq!(
+            local_environment_artifact_inventory(&environment_root)
+                .expect("inventory every provider"),
+            vec![
+                EnvironmentBackendId::WslChromium,
+                EnvironmentBackendId::WindowsSandbox,
+                EnvironmentBackendId::HyperV,
+            ]
+        );
+        assert!(ensure_no_local_environment_artifacts_for_restore(&environment_root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn global_environment_inventory_counts_broken_symlinks_without_following_them() {
+        let environment_root = temporary_root("global-inventory-child-link");
+        let provider_root = environment_root.join("wsl");
+        fs::create_dir_all(&provider_root).expect("provider directory");
+        std::os::unix::fs::symlink(
+            environment_root.join("missing-target"),
+            provider_root.join("orphan-link"),
+        )
+        .expect("broken artifact symlink");
+
+        assert_eq!(
+            local_environment_artifact_inventory(&environment_root)
+                .expect("broken link is inventoried without traversal"),
+            vec![EnvironmentBackendId::WslChromium]
+        );
+    }
+
+    #[test]
+    fn global_environment_inventory_rejects_unexpected_top_level_entries() {
+        let environment_root = temporary_root("global-inventory-unexpected");
+        fs::create_dir_all(&environment_root).expect("inventory root");
+        fs::write(environment_root.join("unknown-provider"), b"unexpected")
+            .expect("unexpected top-level file");
+        let error = local_environment_artifact_inventory(&environment_root)
+            .expect_err("unexpected namespace must fail closed");
+        assert!(error.to_string().contains("unexpected top-level entry"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn global_environment_inventory_rejects_linked_provider_namespaces() {
+        let environment_root = temporary_root("global-inventory-provider-link");
+        let linked_target = temporary_root("global-inventory-provider-link-target");
+        fs::create_dir_all(&environment_root).expect("inventory root");
+        fs::create_dir_all(&linked_target).expect("linked target");
+        std::os::unix::fs::symlink(&linked_target, environment_root.join("sandbox"))
+            .expect("linked provider namespace");
+
+        let error = local_environment_artifact_inventory(&environment_root)
+            .expect_err("provider link must fail closed");
+        assert!(error.to_string().contains("real directories"));
     }
 
     #[test]
@@ -3655,10 +3888,12 @@ mod tests {
     #[test]
     fn sandbox_xml_denies_integrations_and_escapes_read_only_mapping() {
         let environment_id = Uuid::new_v4();
+        let host_folder = temporary_root("sandbox-xml").join("A&B<source>");
+        let host_text = host_folder.to_str().expect("Unicode test path");
         let xml = generate_sandbox_config(
             environment_id,
             &[SandboxMappedFolder {
-                host_folder: PathBuf::from("/tmp/A&B<source>"),
+                host_folder: host_folder.clone(),
                 sandbox_folder: "C:\\Read&Only".to_owned(),
                 read_only: true,
             }],
@@ -3677,9 +3912,9 @@ mod tests {
         ] {
             assert!(xml.contains(denied), "missing {denied}");
         }
-        assert!(xml.contains("A&amp;B&lt;source&gt;"));
+        assert!(xml.contains(&xml_escape(host_text)));
         assert!(xml.contains("C:\\Read&amp;Only"));
-        assert!(!xml.contains("/tmp/A&B<source>"));
+        assert!(!xml.contains(host_text));
     }
 
     #[test]
@@ -3723,11 +3958,12 @@ mod tests {
     fn sandbox_controller_uses_fixed_powershell_script_and_typed_paths() {
         let root = temporary_root("sandbox-command");
         let bootstrap = temporary_root("sandbox-command-bootstrap");
-        let backend = WindowsSandboxBackend::new(
+        let backend = WindowsSandboxBackend::new_with_system_tool_resolver(
             true,
             true,
             root,
             bootstrap.clone(),
+            fixture_provider_system_tool,
             RecordingRunner::default(),
         )
         .expect("backend");
@@ -3740,6 +3976,11 @@ mod tests {
         assert!(spec.args.contains(&"-RequestPath".into()));
         assert!(spec.args.contains(&request.into_os_string()));
         assert!(spec.args.contains(&"-SandboxExecutable".into()));
+        assert!(spec.args.contains(
+            &fixture_provider_system_tool(ProviderSystemTool::WindowsSandbox)
+                .expect("fixture Sandbox executable")
+                .into_os_string()
+        ));
         assert!(!spec.args.iter().any(|argument| argument == "-Command"));
         assert_eq!(spec.completion, CommandCompletion::WaitForExit);
     }
@@ -3759,22 +4000,24 @@ mod tests {
             environment_id,
             network: EnvironmentNetworkProfile::Direct,
         };
-        let mut first = WindowsSandboxBackend::new(
+        let mut first = WindowsSandboxBackend::new_with_system_tool_resolver(
             true,
             true,
             root.clone(),
             bootstrap.clone(),
+            fixture_provider_system_tool,
             RecordingRunner::default(),
         )
         .expect("first backend");
         first.create(request.clone()).expect("create descriptor");
         first.create(request).expect("idempotent create");
 
-        let mut recovered = WindowsSandboxBackend::new(
+        let mut recovered = WindowsSandboxBackend::new_with_system_tool_resolver(
             true,
             true,
             root,
             bootstrap,
+            fixture_provider_system_tool,
             RecordingRunner {
                 output: Some(sandbox_output(
                     environment_id,

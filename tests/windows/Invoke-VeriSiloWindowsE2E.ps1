@@ -905,7 +905,7 @@ if ($SelfTest) {
   $script:ArtifactDirectory = Join-Path ([IO.Path]::GetTempPath()) ("verisilo-e2e-self-test-" + [guid]::NewGuid())
   New-Item -ItemType Directory -Force -Path $script:ArtifactDirectory | Out-Null
   try { Invoke-SelfTest; Complete-Run } finally { Remove-Item -LiteralPath $script:ArtifactDirectory -Recurse -Force -ErrorAction SilentlyContinue }
-  exit $LASTEXITCODE
+  exit 0
 }
 
 if (-not (Test-WindowsHost)) {

@@ -1,6 +1,6 @@
 use std::{
     path::PathBuf,
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use chrono::Utc;
@@ -25,6 +25,7 @@ pub mod launcher;
 pub mod mihomo;
 pub mod native_host;
 pub mod proxy_relay;
+mod runtime_watchdog;
 pub mod vault;
 
 use domain::{
@@ -39,8 +40,11 @@ use engine::{
 };
 use environment::backend::{EnvironmentActionReceipt, EnvironmentBackendStatus};
 use environment::{EnvironmentManager, EnvironmentOperationRequest, WslStatus};
-use launcher::{profile_in_use, RuntimeManager};
+use launcher::{
+    managed_profiles_are_quiescent_for_vault_restore, profile_in_use, RuntimeManager,
+};
 use mihomo::{MihomoControllerInput, MihomoSnapshot};
+use runtime_watchdog::RuntimeWatchdog;
 use vault::{RemoteVaultState, VaultBackupReceipt, VaultRuntime};
 
 #[derive(Default)]
@@ -65,7 +69,8 @@ pub struct AppState {
     // The reservation stays held across slow provider/launcher completion.
     local_control: LocalEnvironmentControl,
     vault: Mutex<VaultRuntime>,
-    runtime: Mutex<RuntimeManager>,
+    runtime: Arc<Mutex<RuntimeManager>>,
+    runtime_watchdog: RuntimeWatchdog,
     environments: Mutex<EnvironmentManager>,
     // Remote lifecycle exchanges are serialized. Commands hold this guard
     // before Vault so a user lock/revocation linearizes after any in-flight
@@ -77,7 +82,9 @@ impl AppState {
     fn new(resource_root: PathBuf) -> Self {
         let root =
             app_data_root().expect("VeriSilo needs a writable local application data directory");
-        let runtime = RuntimeManager::open(&root);
+        let runtime = Arc::new(Mutex::new(RuntimeManager::open(&root)));
+        let runtime_watchdog =
+            RuntimeWatchdog::start(&runtime).expect("VeriSilo needs a native runtime watchdog");
         let environments = EnvironmentManager::new(root.clone(), resource_root.clone())
             .expect("VeriSilo needs valid fixed environment provider roots");
         Self {
@@ -85,7 +92,8 @@ impl AppState {
             resource_root,
             local_control: LocalEnvironmentControl::default(),
             vault: Mutex::new(VaultRuntime::default()),
-            runtime: Mutex::new(runtime),
+            runtime,
+            runtime_watchdog,
             environments: Mutex::new(environments),
             remote_control: Mutex::new(()),
         }
@@ -94,6 +102,7 @@ impl AppState {
 
 impl Drop for AppState {
     fn drop(&mut self) {
+        self.runtime_watchdog.shutdown();
         let _ = native_host::clear_runtime_status_snapshot(&self.root);
     }
 }
@@ -1066,17 +1075,51 @@ fn restore_vault(
     passphrase: String,
     confirm_overwrite: bool,
 ) -> Result<VaultStatus, String> {
-    // Every command that needs both locks acquires Vault before Runtime.
+    // Restore is a global ownership transition. Reserve remote and local
+    // lifecycle planes before Vault → Runtime → Environments so all in-flight
+    // provider work finishes and no new work can race the replacement.
+    let _remote_guard = state
+        .remote_control
+        .lock()
+        .map_err(|_| "VeriSilo remote control state is unavailable.".to_owned())?;
+    let _local_reservation = state.local_control.reserve()?;
     let mut vault = state
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    let managed_profile_directories = match vault.status(&state.root).state {
+        VaultLockState::Uninitialized => Vec::new(),
+        VaultLockState::Unlocked => vault
+            .managed_profile_directories()
+            .map_err(|error| error.to_string())?,
+        VaultLockState::Locked => {
+            return Err(
+                "Unlock the current Vault before restoring a Vault backup.".to_owned(),
+            )
+        }
+    };
     let mut runtime = state
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    if runtime.activation().active_silo_id.is_some() {
-        return Err("Close the running Silo before restoring a Vault backup.".to_owned());
+    let runtime_preparation = runtime
+        .prepare_for_vault_restore()
+        .ok_or_else(|| {
+            "Resolve or close every running, failed, or recovery-required Silo runtime before restoring a Vault backup."
+                .to_owned()
+        })?;
+    let environments = state
+        .environments
+        .lock()
+        .map_err(|_| "VeriSilo environment provider state is unavailable.".to_owned())?;
+    environments
+        .ensure_no_local_environment_artifacts_for_restore()
+        .map_err(|error| error.to_string())?;
+    if !managed_profiles_are_quiescent_for_vault_restore(&managed_profile_directories) {
+        return Err(
+            "Close every browser using a managed Silo Profile before restoring a Vault backup."
+                .to_owned(),
+        );
     }
     vault
         .restore(
@@ -1087,7 +1130,8 @@ fn restore_vault(
         )
         .map_err(|error| error.to_string())?;
     let vault_status = vault.status(&state.root);
-    let activation = runtime.activation();
+    let activation = runtime.complete_successful_vault_restore(runtime_preparation);
+    drop(environments);
     drop(runtime);
     drop(vault);
     publish_runtime_status(&state, &activation, &vault_status);

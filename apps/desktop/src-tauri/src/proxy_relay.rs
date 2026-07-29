@@ -25,9 +25,12 @@ use crate::{
 };
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+const HEALTH_IO_POLL: Duration = Duration::from_millis(100);
 const MAX_HTTP_RESPONSE_HEADER: usize = 16 * 1024;
 const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 const MAX_RELAY_RECEIPTS: usize = 128;
+const MAX_UPSTREAM_ADDRESSES: usize = 16;
 const RELAY_RECEIPT_MAX_AGE: Duration = Duration::from_secs(10 * 60);
 const RELAY_SHUTDOWN_GRACE: Duration = Duration::from_millis(750);
 const RELAY_SHUTDOWN_POLL: Duration = Duration::from_millis(10);
@@ -242,8 +245,7 @@ fn prune_stale_receipts(receipts: &mut VecDeque<RelayConnectionReceipt>, now: In
 #[derive(Debug)]
 struct RelayConfig {
     scheme: ProxyScheme,
-    host: String,
-    port: u16,
+    addresses: Vec<SocketAddr>,
     credentials: Arc<RuntimeCredentials>,
 }
 
@@ -394,6 +396,10 @@ impl ProxyRelay {
             return Err(ProxyRelayError::SocksCredentialTooLong);
         }
 
+        // Pin the addresses for this exact runtime before retaining its
+        // credentials. Health checks and relayed traffic then use the same
+        // finite endpoint set and never perform DNS while holding credentials.
+        let addresses = resolve_upstream_addresses(host, *port)?;
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
@@ -404,8 +410,7 @@ impl ProxyRelay {
         let credentials = Arc::new(RuntimeCredentials::new(authentication));
         let config = Arc::new(RelayConfig {
             scheme: scheme.clone(),
-            host: host.clone(),
-            port: *port,
+            addresses,
             credentials: Arc::clone(&credentials),
         });
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -422,6 +427,14 @@ impl ProxyRelay {
             while !thread_shutdown.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((stream, _)) => {
+                        // Winsock accepts a socket with the listener's nonblocking
+                        // mode. The worker below performs a bounded blocking
+                        // handshake, so normalize the accepted stream explicitly
+                        // on every platform before handing it off.
+                        if stream.set_nonblocking(false).is_err() {
+                            let _ = stream.shutdown(Shutdown::Both);
+                            continue;
+                        }
                         if thread_shutdown.load(Ordering::Acquire) {
                             let _ = stream.shutdown(Shutdown::Both);
                             break;
@@ -482,16 +495,8 @@ impl ProxyRelay {
     }
 
     pub fn is_healthy(&self) -> bool {
-        !self.shutdown.load(Ordering::Acquire)
-            && !self
-                .accept_thread
-                .as_ref()
-                .is_some_and(JoinHandle::is_finished)
-            && TcpStream::connect_timeout(
-                &SocketAddr::from((Ipv4Addr::LOCALHOST, self.endpoint.port)),
-                Duration::from_millis(500),
-            )
-            .is_ok()
+        let cancelled = AtomicBool::new(false);
+        self.is_healthy_until(Instant::now() + Duration::from_millis(500), &cancelled)
     }
 
     pub fn supports(profile: &NetworkProfile) -> bool {
@@ -519,20 +524,58 @@ impl ProxyRelay {
         self.receipts.binding.silo_id == silo_id && self.receipts.binding.runtime_id == runtime_id
     }
 
-    pub(crate) fn verify_upstream(&self) -> Result<(), ProxyRelayError> {
-        if self.shutdown.load(Ordering::Acquire) {
-            return Err(ProxyRelayError::Io(io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "proxy relay runtime was revoked",
-            )));
+    pub(crate) fn is_healthy_until(&self, deadline: Instant, cancelled: &AtomicBool) -> bool {
+        if self.shutdown.load(Ordering::Acquire)
+            || cancelled.load(Ordering::Acquire)
+            || self
+                .accept_thread
+                .as_ref()
+                .is_some_and(JoinHandle::is_finished)
+        {
+            return false;
         }
-        let authentication = self.credentials.snapshot()?;
-        let mut upstream = connect_with_timeout(&self.config.host, self.config.port)?;
-        upstream.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
-        upstream.set_write_timeout(Some(HANDSHAKE_TIMEOUT))?;
+        let Ok(timeout) = remaining_io_timeout(deadline, Duration::from_millis(500), cancelled)
+        else {
+            return false;
+        };
+        TcpStream::connect_timeout(
+            &SocketAddr::from((Ipv4Addr::LOCALHOST, self.endpoint.port)),
+            timeout,
+        )
+        .is_ok()
+    }
+
+    pub(crate) fn verify_upstream_until(
+        &self,
+        deadline: Instant,
+        cancelled: &AtomicBool,
+    ) -> Result<(), ProxyRelayError> {
+        if self.shutdown.load(Ordering::Acquire) || cancelled.load(Ordering::Acquire) {
+            return Err(revoked_relay_error());
+        }
+        let mut upstream = connect_addresses_until(
+            &self.config.addresses,
+            deadline,
+            cancelled,
+            Some(&self.shutdown),
+        )?;
+        if self.shutdown.load(Ordering::Acquire) || cancelled.load(Ordering::Acquire) {
+            let _ = upstream.shutdown(Shutdown::Both);
+            return Err(revoked_relay_error());
+        }
+        // DNS resolution and TCP connect completed before this snapshot. From
+        // here every credential-bearing operation shares the caller's total
+        // deadline and observes runtime revocation between bounded I/O polls.
         match self.config.scheme {
             ProxyScheme::Socks5 => {
-                negotiate_socks5_authentication(&mut upstream, authentication.as_ref())?;
+                let authentication = self.credentials.snapshot()?;
+                negotiate_socks5_authentication_until(
+                    &mut upstream,
+                    authentication.as_ref(),
+                    deadline,
+                    cancelled,
+                    Some(&self.shutdown),
+                )?;
                 Ok(())
             }
             ProxyScheme::Http => Ok(()),
@@ -557,7 +600,10 @@ impl ProxyRelay {
         }
         self.credentials.revoke();
         self.connections.revoke();
-        let _ = TcpStream::connect((Ipv4Addr::LOCALHOST, self.endpoint.port));
+        let _ = TcpStream::connect_timeout(
+            &SocketAddr::from((Ipv4Addr::LOCALHOST, self.endpoint.port)),
+            Duration::from_millis(100),
+        );
         if let Some(thread) = self.accept_thread.take() {
             let _ = thread.join();
         }
@@ -630,6 +676,13 @@ impl ProxyRelay {
             ProxyScheme::Https | ProxyScheme::Socks4 => Err(ProxyRelayError::UnsupportedProxy),
         }
     }
+}
+
+fn revoked_relay_error() -> ProxyRelayError {
+    ProxyRelayError::Io(io::Error::new(
+        io::ErrorKind::ConnectionAborted,
+        "proxy relay runtime was revoked",
+    ))
 }
 
 fn try_acquire_connection(active: &Arc<AtomicUsize>) -> Option<ActiveConnectionGuard> {
@@ -796,7 +849,7 @@ fn connect_configured_upstream(
     connection_id: u64,
     connections: &ActiveRelayConnections,
 ) -> io::Result<TcpStream> {
-    let upstream = connect_with_timeout(&config.host, config.port)?;
+    let upstream = connect_addresses_with_timeout(&config.addresses)?;
     connections.track(connection_id, &upstream)?;
     upstream.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
     upstream.set_write_timeout(Some(HANDSHAKE_TIMEOUT))?;
@@ -1014,7 +1067,7 @@ fn negotiate_socks5_authentication(
             "SOCKS5 credentials exceed the protocol limit",
         ));
     }
-    let mut request = Vec::with_capacity(username.len() + password.len() + 3);
+    let mut request = Zeroizing::new(Vec::with_capacity(username.len() + password.len() + 3));
     request.extend_from_slice(&[1, username.len() as u8]);
     request.extend_from_slice(username);
     request.push(password.len() as u8);
@@ -1027,6 +1080,126 @@ fn negotiate_socks5_authentication(
             io::ErrorKind::PermissionDenied,
             "upstream SOCKS5 proxy rejected credentials",
         ));
+    }
+    Ok(())
+}
+
+fn negotiate_socks5_authentication_until(
+    upstream: &mut TcpStream,
+    authentication: Option<&ProxyAuthentication>,
+    deadline: Instant,
+    cancelled: &AtomicBool,
+    revoked: Option<&AtomicBool>,
+) -> io::Result<()> {
+    let method = if authentication.is_some() { 2 } else { 0 };
+    write_all_until(upstream, &[5, 1, method], deadline, cancelled, revoked)?;
+    let mut response = [0_u8; 2];
+    read_exact_until(upstream, &mut response, deadline, cancelled, revoked)?;
+    if response != [5, method] {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            if authentication.is_some() {
+                "upstream SOCKS5 proxy refused username/password authentication"
+            } else {
+                "upstream SOCKS5 proxy refused no-authentication mode"
+            },
+        ));
+    }
+    let Some(authentication) = authentication else {
+        return Ok(());
+    };
+    let username = authentication.username().as_bytes();
+    let password = authentication.password().as_bytes();
+    if username.len() > u8::MAX as usize || password.len() > u8::MAX as usize {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "SOCKS5 credentials exceed the protocol limit",
+        ));
+    }
+    let mut request = Zeroizing::new(Vec::with_capacity(username.len() + password.len() + 3));
+    request.extend_from_slice(&[1, username.len() as u8]);
+    request.extend_from_slice(username);
+    request.push(password.len() as u8);
+    request.extend_from_slice(password);
+    write_all_until(upstream, &request, deadline, cancelled, revoked)?;
+    let mut authentication_response = [0_u8; 2];
+    read_exact_until(
+        upstream,
+        &mut authentication_response,
+        deadline,
+        cancelled,
+        revoked,
+    )?;
+    if authentication_response != [1, 0] {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "upstream SOCKS5 proxy rejected credentials",
+        ));
+    }
+    Ok(())
+}
+
+fn write_all_until(
+    stream: &mut TcpStream,
+    mut bytes: &[u8],
+    deadline: Instant,
+    cancelled: &AtomicBool,
+    revoked: Option<&AtomicBool>,
+) -> io::Result<()> {
+    while !bytes.is_empty() {
+        let timeout = remaining_relay_timeout(deadline, HEALTH_IO_POLL, cancelled, revoked)?;
+        stream.set_write_timeout(Some(timeout))?;
+        match stream.write(bytes) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "proxy health handshake closed while writing",
+                ))
+            }
+            Ok(written) => bytes = &bytes[written..],
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock
+                        | io::ErrorKind::TimedOut
+                        | io::ErrorKind::Interrupted
+                ) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn read_exact_until(
+    stream: &mut TcpStream,
+    mut bytes: &mut [u8],
+    deadline: Instant,
+    cancelled: &AtomicBool,
+    revoked: Option<&AtomicBool>,
+) -> io::Result<()> {
+    while !bytes.is_empty() {
+        let timeout = remaining_relay_timeout(deadline, HEALTH_IO_POLL, cancelled, revoked)?;
+        stream.set_read_timeout(Some(timeout))?;
+        match stream.read(bytes) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "proxy health handshake closed while reading",
+                ))
+            }
+            Ok(read) => {
+                let remaining = bytes;
+                bytes = &mut remaining[read..];
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock
+                        | io::ErrorKind::TimedOut
+                        | io::ErrorKind::Interrupted
+                ) => {}
+            Err(error) => return Err(error),
+        }
     }
     Ok(())
 }
@@ -1065,10 +1238,28 @@ fn write_socks_reply(client: &mut TcpStream, code: u8) -> io::Result<()> {
 }
 
 fn connect_with_timeout(host: &str, port: u16) -> io::Result<TcpStream> {
-    let addresses = (host.trim_matches(['[', ']']), port).to_socket_addrs()?;
+    let addresses = resolve_upstream_addresses(host, port)?;
+    connect_addresses_with_timeout(&addresses)
+}
+
+fn resolve_upstream_addresses(host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
+    let addresses = (host.trim_matches(['[', ']']), port)
+        .to_socket_addrs()?
+        .take(MAX_UPSTREAM_ADDRESSES)
+        .collect::<Vec<_>>();
+    if addresses.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "proxy host resolved to no addresses",
+        ));
+    }
+    Ok(addresses)
+}
+
+fn connect_addresses_with_timeout(addresses: &[SocketAddr]) -> io::Result<TcpStream> {
     let mut last_error = None;
     for address in addresses {
-        match TcpStream::connect_timeout(&address, Duration::from_secs(3)) {
+        match TcpStream::connect_timeout(address, CONNECT_TIMEOUT) {
             Ok(stream) => return Ok(stream),
             Err(error) => last_error = Some(error),
         }
@@ -1079,6 +1270,64 @@ fn connect_with_timeout(host: &str, port: u16) -> io::Result<TcpStream> {
             "proxy host resolved to no addresses",
         )
     }))
+}
+
+fn connect_addresses_until(
+    addresses: &[SocketAddr],
+    deadline: Instant,
+    cancelled: &AtomicBool,
+    revoked: Option<&AtomicBool>,
+) -> io::Result<TcpStream> {
+    let mut last_error = None;
+    for address in addresses {
+        let timeout = remaining_relay_timeout(deadline, CONNECT_TIMEOUT, cancelled, revoked)?;
+        match TcpStream::connect_timeout(address, timeout) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "proxy runtime has no pinned upstream addresses",
+        )
+    }))
+}
+
+fn remaining_io_timeout(
+    deadline: Instant,
+    maximum: Duration,
+    cancelled: &AtomicBool,
+) -> io::Result<Duration> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "proxy health check was cancelled",
+        ));
+    }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "proxy health check exceeded its total deadline",
+        ));
+    }
+    Ok(remaining.min(maximum))
+}
+
+fn remaining_relay_timeout(
+    deadline: Instant,
+    maximum: Duration,
+    cancelled: &AtomicBool,
+    revoked: Option<&AtomicBool>,
+) -> io::Result<Duration> {
+    if revoked.is_some_and(|revoked| revoked.load(Ordering::Acquire)) {
+        return Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            "proxy relay runtime was revoked",
+        ));
+    }
+    remaining_io_timeout(deadline, maximum, cancelled)
 }
 
 fn relay_bidirectionally(
@@ -1135,7 +1384,10 @@ mod tests {
     use std::{
         io::{Cursor, Read, Write},
         net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream},
-        sync::{atomic::AtomicUsize, Arc},
+        sync::{
+            atomic::{AtomicBool, AtomicUsize},
+            mpsc, Arc,
+        },
         thread,
         time::{Duration, Instant},
     };
@@ -1222,6 +1474,52 @@ mod tests {
     }
 
     #[test]
+    fn upstream_health_deadline_caps_a_slow_socks_handshake() {
+        let upstream = TcpListener::bind("127.0.0.1:0").expect("bind slow SOCKS upstream");
+        let upstream_address = upstream.local_addr().expect("slow upstream address");
+        let (greeting_seen_tx, greeting_seen) = mpsc::channel();
+        let (release_tx, release) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = upstream.accept().expect("accept health probe");
+            let mut greeting = [0_u8; 3];
+            stream
+                .read_exact(&mut greeting)
+                .expect("read health greeting");
+            greeting_seen_tx.send(()).expect("report health greeting");
+            stream.write_all(&[5]).expect("write partial method reply");
+            let _ = release.recv_timeout(Duration::from_secs(2));
+            let _ = stream.write_all(&[0]);
+        });
+        let relay = ProxyRelay::start(
+            &socks_profile(upstream_address.port()),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            None,
+        )
+        .expect("start relay with pinned upstream");
+        let cancelled = AtomicBool::new(false);
+        let started_at = Instant::now();
+
+        let result =
+            relay.verify_upstream_until(started_at + Duration::from_millis(150), &cancelled);
+
+        greeting_seen
+            .recv_timeout(Duration::from_secs(1))
+            .expect("health check reached SOCKS handshake");
+        assert!(matches!(
+            result,
+            Err(super::ProxyRelayError::Io(ref error))
+                if error.kind() == std::io::ErrorKind::TimedOut
+        ));
+        assert!(
+            started_at.elapsed() < Duration::from_secs(1),
+            "one total deadline must cap every partial SOCKS read"
+        );
+        let _ = release_tx.send(());
+        worker.join().expect("slow SOCKS worker exits");
+    }
+
+    #[test]
     fn authenticated_socks5_is_relayed_through_a_loopback_no_auth_endpoint() {
         let upstream = TcpListener::bind("127.0.0.1:0").expect("bind fake upstream");
         let upstream_address = upstream.local_addr().expect("fake upstream address");
@@ -1276,8 +1574,7 @@ mod tests {
                 stream,
                 &RelayConfig {
                     scheme: ProxyScheme::Socks5,
-                    host: "127.0.0.1".to_owned(),
-                    port: upstream_address.port(),
+                    addresses: vec![upstream_address],
                     credentials: Arc::new(RuntimeCredentials::new(Some(ProxyAuthentication::new(
                         "alice".to_owned(),
                         "secret".to_owned(),
