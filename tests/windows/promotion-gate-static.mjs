@@ -23,6 +23,8 @@ const [
   releasePolicy,
   releaseConfig,
   resetConfig,
+  unsignedConfig,
+  releaseHooks,
 ] = await Promise.all([
   read(".github/workflows/windows-e2e-real.yml"),
   read(".github/workflows/windows-release.yml"),
@@ -37,6 +39,8 @@ const [
   read("scripts/verify-release-policy.mjs"),
   read("apps/desktop/src-tauri/tauri.release.conf.json"),
   read("apps/desktop/src-tauri/tauri.release-reset.conf.json"),
+  read("apps/desktop/src-tauri/tauri.unsigned.conf.json"),
+  read("apps/desktop/src-tauri/windows/release-hooks.nsh"),
 ]);
 
 for (const workflow of [unsignedRelease, signedRelease]) {
@@ -167,6 +171,17 @@ assert.equal(
   "environment/images/",
 );
 assert.deepEqual(JSON.parse(resetConfig).bundle.resources, []);
+assert.deepEqual(JSON.parse(unsignedConfig).bundle.externalBin, []);
+assert.deepEqual(JSON.parse(unsignedConfig).bundle.resources, []);
+assert.equal(
+  JSON.parse(unsignedConfig).bundle.windows.nsis.installerHooks,
+  null,
+);
+assert.match(unsignedRelease, /tauri\.unsigned\.conf\.json/u);
+assert.match(unsignedRelease, /desktop-only current-user NSIS installer/u);
+assert.doesNotMatch(signedRelease, /tauri\.unsigned\.conf\.json/u);
+assert.match(releaseHooks, /ExecutionPolicy AllSigned/gu);
+assert.doesNotMatch(releaseHooks, /ExecutionPolicy (?:Bypass|RemoteSigned)/u);
 
 for (const workflow of [promotion, unsignedRelease, signedRelease]) {
   for (const line of workflow

@@ -136,9 +136,9 @@ jobs:
           node scripts/stage-windows-bundle.mjs --host apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/verisilo-native-host.exe --config artifacts/native-host/native-host-release-config.json
           node scripts/stage-windows-bundle.mjs --host apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/verisilo-native-host.exe --config artifacts/native-host/native-host-release-config.json --check
 
-      - name: Build unsigned desktop and current-user NSIS installer
+      - name: Build unsigned desktop-only current-user NSIS installer
         shell: pwsh
-        run: pnpm --filter @verisilo/desktop exec tauri build --ci --no-sign --target x86_64-pc-windows-msvc --config src-tauri/tauri.release-reset.conf.json --config src-tauri/tauri.release.conf.json
+        run: pnpm --filter @verisilo/desktop exec tauri build --ci --no-sign --target x86_64-pc-windows-msvc --config src-tauri/tauri.release-reset.conf.json --config src-tauri/tauri.release.conf.json --config src-tauri/tauri.unsigned.conf.json
 
       - name: Stage release candidate
         shell: pwsh

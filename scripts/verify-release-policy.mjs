@@ -129,6 +129,11 @@ function verifySignedWorkflowOrder(content) {
       "Signed Windows workflow must reset source resources before both build and bundle release configs.",
     );
   }
+  if (content.includes("tauri.unsigned.conf.json")) {
+    throw new Error(
+      "Signed Windows workflow must never load the desktop-only unsigned bundle override.",
+    );
+  }
 }
 
 function verifyPromotionWorkflow(content) {
@@ -208,6 +213,7 @@ async function verifyWorkflowPolicies() {
     requiredWorkflows[".github/workflows/windows-signed-release.yml"];
   const releaseConfigSequence =
     "--config src-tauri/tauri.release-reset.conf.json --config src-tauri/tauri.release.conf.json";
+  const unsignedConfigSequence = `${releaseConfigSequence} --config src-tauri/tauri.unsigned.conf.json`;
   if (
     !unsigned.includes("-Mode Unsigned") ||
     !unsigned.includes("windows-x64-unsigned") ||
@@ -219,7 +225,8 @@ async function verifyWorkflowPolicies() {
     !unsigned.includes("actions: read") ||
     unsigned.includes("Compress-Archive") ||
     unsigned.includes("secrets.VERISILO_AUTHENTICODE") ||
-    unsigned.split(releaseConfigSequence).length - 1 !== 1
+    unsigned.split(unsignedConfigSequence).length - 1 !== 1 ||
+    !unsigned.includes("desktop-only current-user NSIS installer")
   ) {
     throw new Error(
       "Unsigned Windows workflow is not clearly separated from signing inputs and output.",

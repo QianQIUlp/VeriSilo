@@ -97,13 +97,17 @@ async function selfTest() {
     config: stagedConfig,
     resources: stagedResources,
   } = stagingPaths();
-  const [releaseConfig, resetConfig] = await Promise.all([
+  const [releaseConfig, resetConfig, unsignedConfig] = await Promise.all([
     readFile(
       path.join(root, "apps/desktop/src-tauri/tauri.release.conf.json"),
       "utf8",
     ).then(JSON.parse),
     readFile(
       path.join(root, "apps/desktop/src-tauri/tauri.release-reset.conf.json"),
+      "utf8",
+    ).then(JSON.parse),
+    readFile(
+      path.join(root, "apps/desktop/src-tauri/tauri.unsigned.conf.json"),
       "utf8",
     ).then(JSON.parse),
   ]);
@@ -144,10 +148,15 @@ async function selfTest() {
         "target/verisilo-release-sidecars/verisilo-native-host",
       ]) ||
     !Array.isArray(resetConfig.bundle?.resources) ||
-    resetConfig.bundle.resources.length !== 0
+    resetConfig.bundle.resources.length !== 0 ||
+    !Array.isArray(unsignedConfig.bundle?.externalBin) ||
+    unsignedConfig.bundle.externalBin.length !== 0 ||
+    !Array.isArray(unsignedConfig.bundle?.resources) ||
+    unsignedConfig.bundle.resources.length !== 0 ||
+    unsignedConfig.bundle?.windows?.nsis?.installerHooks !== null
   ) {
     throw new Error(
-      "Windows bundle staging paths do not match Tauri conventions.",
+      "Windows bundle staging or unsigned desktop-only overrides do not match Tauri conventions.",
     );
   }
   process.stdout.write("Windows bundle staging self-test passed.\n");
