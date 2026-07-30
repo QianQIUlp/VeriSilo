@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "dev": "node scripts/build.mjs --watch",
+    "build": "node scripts/generate-icons.mjs --check && node scripts/build.mjs",
+    "dev": "node scripts/generate-icons.mjs --check && node scripts/build.mjs --watch",
+    "icons:generate": "node scripts/generate-icons.mjs",
+    "icons:check": "node scripts/generate-icons.mjs --check",
     "check": "tsc --project tsconfig.json --noEmit",
     "test": "vitest run"
   },
@@ -15,6 +17,7 @@
   "devDependencies": {
     "@types/chrome": "^0.0.319",
     "esbuild": "^0.25.2",
+    "sharp": "^0.35.3",
     "typescript": "^5.8.3",
     "vitest": "^3.1.1"
   }

@@ -28,6 +28,9 @@ await rm(outdir, { recursive: true, force: true });
 await mkdir(outdir, { recursive: true });
 await cp(resolve(root, "manifest.json"), resolve(outdir, "manifest.json"));
 await cp(resolve(root, "sidepanel.html"), resolve(outdir, "sidepanel.html"));
+await cp(resolve(root, "icons"), resolve(outdir, "icons"), {
+  recursive: true,
+});
 
 if (process.argv.includes("--watch")) {
   const buildContext = await context(options);
