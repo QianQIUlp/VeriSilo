@@ -2584,7 +2584,10 @@ mod tests {
         let result = atomic_write_with_directory_sync(&path, b"new vault", |published_path| {
             sync_called = true;
             assert_eq!(published_path, path);
-            assert_eq!(fs::read(published_path).expect("read published Vault"), b"new vault");
+            assert_eq!(
+                fs::read(published_path).expect("read published Vault"),
+                b"new vault"
+            );
             Err(VaultError::Filesystem(std::io::Error::other(
                 "synthetic directory sync failure",
             )))

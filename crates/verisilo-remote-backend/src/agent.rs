@@ -1768,10 +1768,7 @@ mod tests {
         }
     }
 
-    fn authorization_principal(
-        kind: PrincipalKind,
-        authorization_id: Uuid,
-    ) -> Principal {
+    fn authorization_principal(kind: PrincipalKind, authorization_id: Uuid) -> Principal {
         Principal {
             kind,
             credential_id: Uuid::new_v4(),
@@ -1959,10 +1956,7 @@ mod tests {
         let now = 1_059_000;
         core.clock = FixedClock(now);
         let mut open = request(
-            authorization_principal(
-                PrincipalKind::HumanSession,
-                authorization.authorization_id,
-            ),
+            authorization_principal(PrincipalKind::HumanSession, authorization.authorization_id),
             1,
             AgentCommand::OpenScreen { silo_id },
         );
@@ -1972,10 +1966,7 @@ mod tests {
             AgentResponse::Screen { channel } => channel,
             _ => panic!("wrong response"),
         };
-        assert_eq!(
-            channel.expires_at_unix_ms,
-            authorization.expires_at_unix_ms
-        );
+        assert_eq!(channel.expires_at_unix_ms, authorization.expires_at_unix_ms);
         assert_eq!(channel.expires_at_unix_ms - now, 1_000);
     }
 
@@ -1999,10 +1990,7 @@ mod tests {
 
         let channel = match core
             .execute(request(
-                authorization_principal(
-                    PrincipalKind::Automation,
-                    authorization.authorization_id,
-                ),
+                authorization_principal(PrincipalKind::Automation, authorization.authorization_id),
                 1,
                 AgentCommand::OpenScreen { silo_id },
             ))
@@ -2038,10 +2026,7 @@ mod tests {
 
         assert!(matches!(
             core.execute(request(
-                authorization_principal(
-                    PrincipalKind::Automation,
-                    authorization.authorization_id,
-                ),
+                authorization_principal(PrincipalKind::Automation, authorization.authorization_id,),
                 1,
                 AgentCommand::OpenScreen { silo_id },
             )),
