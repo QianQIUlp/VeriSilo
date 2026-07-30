@@ -6,6 +6,7 @@ import { observationReportSchema } from "./models.js";
 export const extensionPageMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("scan_current_tab") }).strict(),
   z.object({ type: z.literal("request_current_site_access") }).strict(),
+  z.object({ type: z.literal("revoke_current_site_access") }).strict(),
   z.object({ type: z.literal("get_current_report") }).strict(),
   z.object({ type: z.literal("get_saved_report_history") }).strict(),
   z.object({ type: z.literal("clear_saved_report_history") }).strict(),

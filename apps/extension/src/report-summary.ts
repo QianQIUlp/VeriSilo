@@ -69,7 +69,7 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
       label: "登录与站点数据",
       value: siteStateLabel(storageValue),
       detail:
-        "同一普通浏览器环境中的 Cookie 和站点存储会继续关联访问；InPrivate 可提供一个临时边界。",
+        "同一普通浏览器环境中的 Cookie 和站点存储会继续关联访问；Chrome 无痕 / Edge InPrivate 可提供一个临时边界。",
     },
     {
       id: "display",
@@ -165,7 +165,7 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
       title: "该站点可以发送通知",
       detail:
         "通知权限不会直接泄漏密码，但会保留一项站点授权，并可能暴露账号使用痕迹。",
-      action: "不需要时，可在 Edge 的站点权限中撤销通知。",
+      action: "不需要时，可在浏览器的站点权限中撤销通知。",
     });
   }
 

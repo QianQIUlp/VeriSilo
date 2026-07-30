@@ -30,12 +30,16 @@ const scanButton = requiredElement<HTMLButtonElement>("scan");
 const requestSiteAccessButton = requiredElement<HTMLButtonElement>(
   "request-site-access",
 );
+const revokeSiteAccessButton =
+  requiredElement<HTMLButtonElement>("revoke-site-access");
 const openPrivateButton = requiredElement<HTMLButtonElement>("open-private");
 const privacyEnableButton =
   requiredElement<HTMLButtonElement>("privacy-enable");
 const privacyRestoreButton =
   requiredElement<HTMLButtonElement>("privacy-restore");
 const desktopButton = requiredElement<HTMLButtonElement>("desktop");
+const desktopProjectButton =
+  requiredElement<HTMLButtonElement>("desktop-project");
 const exportJsonButton = requiredElement<HTMLButtonElement>("export-json");
 const exportHtmlButton = requiredElement<HTMLButtonElement>("export-html");
 const clearReportHistoryButton = requiredElement<HTMLButtonElement>(
@@ -90,28 +94,51 @@ const panels = Array.from(
 let latestReport: ObservationReport | null = null;
 let latestNetworkCheck: NetworkCheckResult | null = null;
 let latestNetworkHandoff: NetworkEvidenceHandoffStatus | null = null;
+let reportRefreshVersion = 0;
+let activeSitePermissionRefreshVersion = 0;
+let activeSiteOriginPattern: string | null = null;
 
 scanButton.addEventListener("click", () => void scan());
-requestSiteAccessButton.addEventListener(
-  "click",
-  () => void requestSiteAccess(),
-);
+requestSiteAccessButton.addEventListener("click", () => {
+  const permissionRequest =
+    activeSiteOriginPattern === null
+      ? null
+      : chrome.permissions.request({ origins: [activeSiteOriginPattern] });
+  void requestSiteAccess(permissionRequest);
+});
+revokeSiteAccessButton.addEventListener("click", () => void revokeSiteAccess());
 openPrivateButton.addEventListener("click", () => void openPrivateWorkspace());
-privacyEnableButton.addEventListener(
-  "click",
-  () => void enableRecommendedProtection(),
-);
+privacyEnableButton.addEventListener("click", () => {
+  const permissionRequest = chrome.permissions.request({
+    permissions: ["privacy"],
+  });
+  void enableRecommendedProtection(permissionRequest);
+});
 privacyRestoreButton.addEventListener(
   "click",
   () => void restorePrivacyControls(),
 );
-labsEnableButton.addEventListener("click", () => void enableWorkerExperiment());
+labsEnableButton.addEventListener("click", () => {
+  if (
+    !globalThis.confirm(
+      "开启当前站点的 VeriSilo Labs Worker 实验？它可能破坏网站；任何检测到的泄漏、页面异常、超时或权限变化都会立即恢复并停用。",
+    )
+  ) {
+    return;
+  }
+  const permissionRequest =
+    activeSiteOriginPattern === null
+      ? null
+      : chrome.permissions.request({ origins: [activeSiteOriginPattern] });
+  void enableWorkerExperiment(permissionRequest);
+});
 labsStopButton.addEventListener("click", () => void stopWorkerExperiment());
 labsClearReceiptsButton.addEventListener(
   "click",
   () => void clearLabsReceiptHistory(),
 );
-desktopButton.addEventListener("click", () => void openDesktopProject());
+desktopButton.addEventListener("click", () => void openDesktop());
+desktopProjectButton.addEventListener("click", () => void openDesktopProject());
 exportJsonButton.addEventListener("click", () => exportCurrentReport("json"));
 exportHtmlButton.addEventListener("click", () => exportCurrentReport("html"));
 clearReportHistoryButton.addEventListener(
@@ -149,23 +176,33 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
+chrome.tabs.onActivated.addListener(() => refreshActiveTabContext());
+chrome.windows.onFocusChanged.addListener(() => refreshActiveTabContext());
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (
+    tab.active &&
+    (changeInfo.status === "loading" || changeInfo.url !== undefined)
+  ) {
+    refreshActiveTabContext();
+  }
+});
+
 void refreshReport();
 void refreshIsolationStatus();
 void refreshNetworkCheck();
 void refreshSavedReportHistory();
 void refreshLabsStatus();
 void refreshLabsReceipts();
+void refreshActiveSitePermissionTarget();
 
-async function enableWorkerExperiment(): Promise<void> {
-  if (
-    !globalThis.confirm(
-      "开启当前站点的 VeriSilo Labs Worker 实验？它可能破坏网站；任何检测到的泄漏、页面异常、超时或权限变化都会立即恢复并停用。",
-    )
-  ) {
-    return;
-  }
+async function enableWorkerExperiment(
+  permissionRequest: Promise<boolean> | null,
+): Promise<void> {
   setLabsButtonsBusy(true, "正在观察与验证…");
   try {
+    if (permissionRequest !== null && !(await permissionRequest)) {
+      throw new Error("未授予当前站点权限；实验保持关闭，也没有注入页面。");
+    }
     const response = await sendMessage({
       type: "enable_dedicated_worker_experiment",
     });
@@ -413,21 +450,40 @@ async function waitForCompletedReport(
   return null;
 }
 
-async function requestSiteAccess(): Promise<void> {
+async function requestSiteAccess(
+  directPermissionRequest: Promise<boolean> | null,
+): Promise<void> {
   setBusy(requestSiteAccessButton, true, "正在检查…");
   try {
+    if (directPermissionRequest !== null) {
+      const granted = await directPermissionRequest;
+      showNotice(
+        granted ? "success" : "error",
+        granted
+          ? "当前站点权限已授予，可以扫描或运行明确启用的 Labs 实验。"
+          : "未授予当前站点权限；VeriSilo 没有注入或扫描页面。",
+      );
+      return;
+    }
     const response = await sendMessage({ type: "request_current_site_access" });
+    if (response.temporaryAccess === true) {
+      showNotice(
+        "success",
+        "工具栏已为当前标签页授予一次性访问权限，可以直接扫描；跨站导航或关闭标签页后会自动失效。",
+      );
+      return;
+    }
     if (response.alreadyGranted === true) {
       showNotice(
         "success",
-        "当前站点已有访问权限，无需重复请求。可以直接扫描。",
+        "当前站点已有长期访问权限，无需重复请求。可以直接扫描。",
       );
       return;
     }
     showNotice(
       response.requested === true ? "success" : "error",
       response.requested === true
-        ? "已向 Edge 发起站点访问请求。允许后再次扫描即可。"
+        ? "已向浏览器发起站点访问请求。请点击地址栏中的“允许”提示，授权后再扫描。"
         : "未能发起当前站点访问请求。",
     );
   } catch (error) {
@@ -437,16 +493,38 @@ async function requestSiteAccess(): Promise<void> {
   }
 }
 
+async function revokeSiteAccess(): Promise<void> {
+  setBusy(revokeSiteAccessButton, true, "正在撤销…");
+  try {
+    const response = await sendMessage({ type: "revoke_current_site_access" });
+    showNotice(
+      "success",
+      response.removed === true
+        ? "已撤销当前站点的长期访问权限；正在运行的该站点 Labs 实验也会停止并恢复。"
+        : "当前站点没有长期访问权限。工具栏授予的一次性权限会在跨站导航或关闭标签页后失效。",
+    );
+  } catch (error) {
+    showNotice("error", message(error));
+  } finally {
+    setBusy(revokeSiteAccessButton, false);
+    await refreshActiveSitePermissionTarget();
+  }
+}
+
 async function openPrivateWorkspace(): Promise<void> {
   setBusy(openPrivateButton, true, "正在打开…");
   try {
     const response = await sendMessage({ type: "open_private_workspace" });
     if (response.opened !== true) {
-      throw new Error("Edge 没有创建 InPrivate 窗口。");
+      throw new Error("浏览器没有创建隐私窗口。");
     }
+    // Creating a focused privacy window triggers tabs.onActivated. Let the
+    // context refresh finish before publishing the operation result so it is
+    // not immediately cleared as stale feedback from the previous tab.
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
     showNotice(
       "success",
-      "已在 InPrivate 中打开当前网站。它与普通窗口的网站数据分开；关闭全部 InPrivate 窗口后临时数据会被清除。",
+      "已在 Chrome 无痕 / Edge InPrivate 中打开当前网站。它与普通窗口的网站数据分开；关闭全部隐私窗口后临时网站数据会被清除。",
     );
     await refreshIsolationStatus();
   } catch (error) {
@@ -456,13 +534,12 @@ async function openPrivateWorkspace(): Promise<void> {
   }
 }
 
-async function enableRecommendedProtection(): Promise<void> {
+async function enableRecommendedProtection(
+  permissionRequest: Promise<boolean>,
+): Promise<void> {
   setPrivacyButtonsBusy(true, "正在验证…");
   try {
-    const permission = await sendMessage({
-      type: "request_optional_privacy_permission",
-    });
-    if (permission.granted !== true) {
+    if (!(await permissionRequest)) {
       throw new Error("未授予隐私控制权限，VeriSilo 没有更改浏览器设置。");
     }
 
@@ -507,10 +584,14 @@ async function restorePrivacyControls(): Promise<void> {
         capability?.operation === "verified" ||
         capability?.operation === "not_requested",
     ).length;
+    const permissionRemoved =
+      completed === capabilities.length
+        ? await chrome.permissions.remove({ permissions: ["privacy"] })
+        : false;
     showNotice(
       completed === capabilities.length ? "success" : "error",
       completed === capabilities.length
-        ? "VeriSilo 已恢复原设置，或确认没有需要恢复的设置。"
+        ? `VeriSilo 已恢复原设置，或确认没有需要恢复的设置${permissionRemoved ? "，并撤销了隐私控制权限" : ""}。`
         : "部分设置未能恢复；它可能已被浏览器策略或其他扩展接管。",
     );
     await refreshIsolationStatus();
@@ -521,11 +602,18 @@ async function restorePrivacyControls(): Promise<void> {
   }
 }
 
-async function openDesktopProject(): Promise<void> {
+async function openDesktop(): Promise<void> {
   setBusy(desktopButton, true, "正在打开…");
   try {
-    await chrome.tabs.create({ url: PRODUCT_WEBSITE_URL });
-    showNotice("success", "已打开 VeriSilo 项目页。");
+    const response = await sendMessage({ type: "open_desktop" });
+    if (response.desktopOpened !== true) {
+      showNotice(
+        "error",
+        "未检测到可用的 VeriSilo 桌面端或 Native Host。插件仍可独立扫描；安装并启动桌面端后再重试。",
+      );
+      return;
+    }
+    showNotice("success", "已通过 Native Host 打开 VeriSilo 桌面端。");
   } catch (error) {
     showNotice("error", message(error));
   } finally {
@@ -533,15 +621,61 @@ async function openDesktopProject(): Promise<void> {
   }
 }
 
+async function openDesktopProject(): Promise<void> {
+  setBusy(desktopProjectButton, true, "正在打开…");
+  try {
+    await chrome.tabs.create({ url: PRODUCT_WEBSITE_URL });
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+    showNotice("success", "已打开 VeriSilo 项目页。");
+  } catch (error) {
+    showNotice("error", message(error));
+  } finally {
+    setBusy(desktopProjectButton, false);
+  }
+}
+
 async function refreshReport(): Promise<void> {
+  const version = ++reportRefreshVersion;
   try {
     const response = await sendMessage({ type: "get_current_report" });
+    if (version !== reportRefreshVersion) {
+      return;
+    }
     renderReport(
       (response.report as ObservationReport | null | undefined) ?? null,
     );
   } catch (error) {
+    if (version !== reportRefreshVersion) {
+      return;
+    }
     showNotice("error", message(error));
   }
+}
+
+function refreshActiveTabContext(): void {
+  notice.textContent = "";
+  notice.className = "notice";
+  void refreshReport();
+  void refreshLabsStatus();
+  void refreshActiveSitePermissionTarget();
+}
+
+async function refreshActiveSitePermissionTarget(): Promise<void> {
+  const version = ++activeSitePermissionRefreshVersion;
+  // Clear synchronously so a click immediately after a tab/window change can
+  // never reuse the previous site's host pattern while the query is pending.
+  activeSiteOriginPattern = null;
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true,
+  });
+  if (version !== activeSitePermissionRefreshVersion) {
+    return;
+  }
+  activeSiteOriginPattern =
+    tab?.url !== undefined && /^https?:/u.test(tab.url)
+      ? `${new URL(tab.url).origin}/*`
+      : null;
 }
 
 async function refreshSavedReportHistory(): Promise<void> {
@@ -616,8 +750,8 @@ async function refreshIsolationStatus(): Promise<void> {
     });
     const incognitoAllowed = response.incognitoAllowed === true;
     privateStatus.textContent = incognitoAllowed
-      ? "已允许 InPrivate。注意：所有 InPrivate 窗口共享同一个临时空间，不等于多个独立账号容器。"
-      : "首次使用需要在“扩展管理 → VeriSilo Companion”中打开“允许 InPrivate”。";
+      ? "已允许隐私窗口。注意：所有 Chrome 无痕 / Edge InPrivate 窗口共享同一个临时空间，不等于多个独立账号容器。"
+      : "首次使用需要在“扩展管理 → VeriSilo Companion”中允许扩展在 Chrome 无痕 / Edge InPrivate 中运行。";
 
     const privacyGranted = response.privacyGranted === true;
     renderControlStatus(
@@ -703,10 +837,16 @@ async function runNetworkCheck(
 async function clearNetworkCheck(): Promise<void> {
   try {
     await sendMessage({ type: "clear_network_check" });
+    const permissionRemoved = await chrome.permissions.remove({
+      origins: [...NETWORK_CHECK_ORIGINS],
+    });
     latestNetworkCheck = null;
     latestNetworkHandoff = null;
     renderNetworkFactState();
-    showNotice("success", "已从本次浏览器会话中清除网络检查结果。");
+    showNotice(
+      "success",
+      `已从本次浏览器会话中清除网络检查结果${permissionRemoved ? "，并撤销三方检测端点权限" : ""}。`,
+    );
   } catch (error) {
     showNotice("error", message(error));
   }
@@ -800,7 +940,7 @@ function renderFact(fact: HumanFact): HTMLElement {
     clearButton.className = "button subtle";
     clearButton.id = "network-clear";
     clearButton.type = "button";
-    clearButton.textContent = "清除结果";
+    clearButton.textContent = "清除结果并撤销权限";
     clearButton.hidden = latestNetworkCheck === null;
     clearButton.addEventListener("click", () => void clearNetworkCheck());
     actions.append(checkButton, clearButton);

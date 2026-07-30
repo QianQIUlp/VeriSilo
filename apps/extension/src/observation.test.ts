@@ -24,6 +24,11 @@ describe("extension observation contract", () => {
         type: "request_current_site_access",
       }),
     ).toEqual({ type: "request_current_site_access" });
+    expect(
+      extensionPageMessageSchema.parse({
+        type: "revoke_current_site_access",
+      }),
+    ).toEqual({ type: "revoke_current_site_access" });
   });
 
   it("accepts lightweight isolation controls and rejects unknown fields", () => {

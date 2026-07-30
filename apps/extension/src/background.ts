@@ -143,6 +143,8 @@ async function handleMessage(
       return scanCurrentTab();
     case "request_current_site_access":
       return requestCurrentSiteAccess();
+    case "revoke_current_site_access":
+      return revokeCurrentSiteAccess();
     case "get_current_report":
       return getCurrentReport();
     case "get_saved_report_history":
@@ -235,17 +237,19 @@ async function requestCurrentSiteAccess(): Promise<Record<string, unknown>> {
   if (tab.id === undefined) {
     throw new Error("No active browser tab is available.");
   }
-  if (tab.url === undefined || !/^https?:/u.test(tab.url)) {
+  if (tab.url !== undefined && !/^https?:/u.test(tab.url)) {
     throw new Error("只能为普通 HTTP(S) 页面请求站点访问权限。");
   }
 
-  const originPattern = `${new URL(tab.url).origin}/*`;
-  if (
-    await chrome.permissions.contains({
-      origins: [originPattern],
-    })
-  ) {
-    return { requested: false, alreadyGranted: true };
+  if (tab.url !== undefined) {
+    const originPattern = `${new URL(tab.url).origin}/*`;
+    if (
+      await chrome.permissions.contains({
+        origins: [originPattern],
+      })
+    ) {
+      return { requested: false, alreadyGranted: true };
+    }
   }
 
   type HostAccessRequestApi = typeof chrome.permissions & {
@@ -254,7 +258,7 @@ async function requestCurrentSiteAccess(): Promise<Record<string, unknown>> {
   const permissions = chrome.permissions as HostAccessRequestApi;
   if (permissions.addHostAccessRequest === undefined) {
     throw new Error(
-      "此版本 Edge 不支持逐站点访问请求。请从目标网页点击 VeriSilo 工具栏图标，以授予本页一次性扫描访问权限。",
+      "此浏览器版本不支持逐站点访问请求。请从目标网页点击 VeriSilo 工具栏图标，以授予本页一次性扫描访问权限。",
     );
   }
 
@@ -265,10 +269,39 @@ async function requestCurrentSiteAccess(): Promise<Record<string, unknown>> {
     if (
       /already has access|已有.*访问|已经.*访问/iu.test(errorMessage(error))
     ) {
-      return { requested: false, alreadyGranted: true };
+      const originPattern =
+        tab.url !== undefined && /^https?:/u.test(tab.url)
+          ? `${new URL(tab.url).origin}/*`
+          : null;
+      const alreadyGranted =
+        originPattern !== null &&
+        (await chrome.permissions.contains({ origins: [originPattern] }));
+      return {
+        requested: false,
+        alreadyGranted,
+        temporaryAccess: !alreadyGranted,
+      };
     }
     throw error;
   }
+}
+
+async function revokeCurrentSiteAccess(): Promise<Record<string, unknown>> {
+  const tab = await activeTab();
+  if (
+    tab.url === undefined ||
+    !/^https?:/u.test(tab.url) ||
+    tab.id === undefined
+  ) {
+    throw new Error(
+      "无法识别当前普通 HTTP(S) 站点，或当前站点没有可撤销的长期权限。",
+    );
+  }
+  const originPattern = `${new URL(tab.url).origin}/*`;
+  const removed = await chrome.permissions.remove({
+    origins: [originPattern],
+  });
+  return { removed, originPattern };
 }
 
 async function getCurrentReport(): Promise<Record<string, unknown>> {
@@ -594,7 +627,7 @@ async function openPrivateWorkspace(): Promise<Record<string, unknown>> {
   const incognitoAllowed = await isIncognitoAllowed();
   if (!incognitoAllowed) {
     throw new Error(
-      "Edge 尚未允许 VeriSilo 在 InPrivate 中运行。请打开“扩展管理 → VeriSilo Companion → 允许 InPrivate”，然后重试。",
+      "浏览器尚未允许 VeriSilo 在隐私窗口中运行。请打开“扩展管理 → VeriSilo Companion”，允许在 Chrome 无痕或 Edge InPrivate 中运行，然后重试。",
     );
   }
 
