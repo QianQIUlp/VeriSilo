@@ -296,7 +296,14 @@ export async function handleLabsContentStop(
   ) {
     return { stopped: false };
   }
-  const stopped = await stopActiveWorkerRun(message.stopCode);
+  // Page-originated messages are bounded termination signals, not trusted
+  // evidence. Keep fail-closed restoration without letting the page assert a
+  // leak classification in an extension-owned receipt.
+  const stopCode =
+    message.stopCode === "worker_canary_leak"
+      ? "verification_failed"
+      : message.stopCode;
+  const stopped = await stopActiveWorkerRun(stopCode);
   return { stopped: stopped !== null };
 }
 
