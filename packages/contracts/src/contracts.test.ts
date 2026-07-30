@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { analyzeConsistency } from "./analysis.js";
 import { parseNativeMessage } from "./protocol.js";
-import { networkProfileSchema, runtimeCapabilitySchema } from "./models.js";
+import {
+  networkProfileSchema,
+  runtimeActivationSchema,
+  runtimeCapabilitySchema,
+} from "./models.js";
 
 describe("VeriSilo contracts", () => {
   it("accepts an explicit direct network profile", () => {
@@ -18,6 +22,67 @@ describe("VeriSilo contracts", () => {
     expect(() =>
       networkProfileSchema.parse({ mode: "direct", proxyRequired: true }),
     ).toThrow();
+  });
+
+  it("rejects direct bypass rules on a fail-closed proxy", () => {
+    expect(() =>
+      networkProfileSchema.parse({
+        mode: "fixed_proxy",
+        proxyRequired: true,
+        scheme: "socks5",
+        host: "127.0.0.1",
+        port: 7890,
+        bypassList: ["localhost"],
+      }),
+    ).toThrow(/bypass/);
+  });
+
+  it("accepts only a fail-closed loopback binding for an external Mihomo controller", () => {
+    const base = {
+      mode: "fixed_proxy" as const,
+      proxyRequired: true,
+      scheme: "socks5" as const,
+      host: "127.0.0.1",
+      port: 7890,
+      bypassList: [],
+      externalMihomo: {
+        controllerUrl: "http://127.0.0.1:9090/",
+        selectorGroup: "GLOBAL",
+        nodeName: "Tokyo 01",
+      },
+    };
+    expect(networkProfileSchema.parse(base)).toEqual(base);
+    expect(() =>
+      networkProfileSchema.parse({
+        ...base,
+        externalMihomo: {
+          ...base.externalMihomo,
+          controllerUrl: "http://192.0.2.20:9090/",
+        },
+      }),
+    ).toThrow(/loopback/);
+  });
+
+  it("keeps configured, applied, and verified network stages distinct", () => {
+    expect(
+      runtimeActivationSchema.parse({
+        activeSiloId: "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
+        state: "running",
+        updatedAt: new Date().toISOString(),
+        networkEvidence: {
+          provider: "fixed_proxy",
+          configuration: "configured",
+          controllerBinding: "not_applicable",
+          endpoint: "reachable",
+          authentication: "configured",
+          browserRouting: "applied",
+          exit: "not_requested",
+          dns: "not_requested",
+          webRtc: "not_requested",
+          safeguards: ["no_direct_fallback"],
+        },
+      }).networkEvidence?.exit,
+    ).toBe("not_requested");
   });
 
   it("requires runtime evidence before a capability may be called verified", () => {

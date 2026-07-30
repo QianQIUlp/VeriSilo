@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VeriSilo Companion",
-  "version": "0.2.2",
+  "version": "0.2.4",
   "description": "Browser identity checks, opt-in network verification, and lightweight local isolation for VeriSilo.",
   "action": {
     "default_title": "Open VeriSilo"

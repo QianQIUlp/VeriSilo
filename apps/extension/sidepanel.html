@@ -701,6 +701,16 @@
         background: var(--primary-soft);
       }
 
+      .badge.engine {
+        color: #6b46a8;
+        background: #f2eaff;
+      }
+
+      .badge.vm {
+        color: #176b73;
+        background: #e7f8f8;
+      }
+
       .badge.unsupported {
         color: #667085;
         background: #f0f2f6;
@@ -1089,7 +1099,8 @@
                   <h3>减少网络旁路信号</h3>
                   <p>
                     限制 WebRTC 非代理
-                    UDP，并关闭网络预测。设置作用于当前浏览器环境，不是单个账号。
+                    UDP，并关闭网络预测。设置作用于当前浏览器环境，不是单个账号；回读成功也不是包级
+                    WebRTC 出口证明。
                   </p>
                 </div>
                 <span class="badge best-effort">尽力</span>
@@ -1131,16 +1142,16 @@
                 <div class="capability-row">
                   <span class="capability-name">临时登录状态</span>
                   <span class="capability-explanation"
-                    >普通窗口与一个 InPrivate 空间分开</span
+                    >普通窗口与一个浏览器隐私空间分开</span
                   >
                   <span class="badge reliable">可用</span>
                 </div>
                 <div class="capability-row">
                   <span class="capability-name">多账户 Cookie 容器</span>
                   <span class="capability-explanation"
-                    >Edge 扩展不能创建任意独立 Cookie 仓库</span
+                    >Chromium 扩展不能创建任意独立 Cookie 仓库</span
                   >
-                  <span class="badge desktop">桌面端</span>
+                  <span class="badge desktop">桌面 Silo</span>
                 </div>
                 <div class="capability-row">
                   <span class="capability-name">站点完整数据</span>
@@ -1148,28 +1159,42 @@
                     >LocalStorage、IndexedDB、缓存和 Service Worker 需独立
                     Profile</span
                   >
-                  <span class="badge desktop">桌面端</span>
+                  <span class="badge desktop">桌面 Silo</span>
                 </div>
                 <div class="capability-row">
                   <span class="capability-name">UA / 语言 / 时区</span>
                   <span class="capability-explanation"
-                    >扩展只能做可检测且覆盖不完整的页面修改</span
+                    >扩展页面修改覆盖不完整；路线中由跨上下文引擎协调</span
                   >
-                  <span class="badge best-effort">实验</span>
+                  <span class="badge engine">V0.7 引擎</span>
                 </div>
                 <div class="capability-row">
                   <span class="capability-name">Canvas / 显卡 / 字体</span>
                   <span class="capability-explanation"
-                    >浏览器没有原生的逐账号虚拟化接口</span
+                    >专用引擎控制可见值；VM 提供更强系统边界</span
                   >
-                  <span class="badge unsupported">不可原生控制</span>
+                  <span class="badge engine">引擎 / VM</span>
                 </div>
                 <div class="capability-row">
-                  <span class="capability-name">TLS / QUIC / 硬件</span>
+                  <span class="capability-name">QUIC / HTTP/3</span>
                   <span class="capability-explanation"
-                    >扩展无法改写底层网络栈或真实设备</span
+                    >扩展不能控制；桌面启动与协议验证已列入 V0.7</span
                   >
-                  <span class="badge unsupported">不支持</span>
+                  <span class="badge engine">V0.7 路线</span>
+                </div>
+                <div class="capability-row">
+                  <span class="capability-name">TLS 指纹</span>
+                  <span class="capability-explanation"
+                    >独立 Profile 不改变网络栈，需要专用引擎或远端栈</span
+                  >
+                  <span class="badge engine">引擎 / 远程</span>
+                </div>
+                <div class="capability-row">
+                  <span class="capability-name">真实硬件 / 操作系统</span>
+                  <span class="capability-explanation"
+                    >字段改写不等于设备变化，需要 VM、远程环境或真实设备</span
+                  >
+                  <span class="badge vm">V0.8–V0.9</span>
                 </div>
               </div>
             </article>
@@ -1180,11 +1205,11 @@
               <h3>需要多个长期账号身份？</h3>
               <p>
                 VeriSilo 桌面端用独立 user-data-dir
-                分开全部网站数据，而不是只替换 Cookie。
+                分开全部网站数据；专用引擎、VM 与远程环境也已进入正式路线。
               </p>
             </div>
             <button class="button secondary" id="desktop" type="button">
-              连接桌面端
+              查看桌面端项目
             </button>
           </div>
         </section>

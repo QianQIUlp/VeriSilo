@@ -35,7 +35,9 @@ export function describeNetwork(profile: NetworkProfile): string {
     case "direct":
       return "直连（不使用系统代理）";
     case "fixed_proxy":
-      return `${profile.scheme}://${profile.host}:${profile.port}${profile.proxyRequired ? "（必须代理）" : ""}`;
+      return profile.externalMihomo === undefined
+        ? `${profile.scheme}://${profile.host}:${profile.port}${profile.proxyRequired ? "（必须代理）" : ""}`
+        : `Mihomo「${profile.externalMihomo.nodeName}」· ${profile.host}:${profile.port}（必须代理）`;
     case "pac":
       return `PAC：${profile.pacUrl}${profile.proxyRequired ? "（必须代理）" : ""}`;
   }

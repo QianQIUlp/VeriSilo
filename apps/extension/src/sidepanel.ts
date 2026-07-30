@@ -1,6 +1,7 @@
 import {
   type ObservationReport,
   type ObservedSignal,
+  PRODUCT_WEBSITE_URL,
   type RuntimeCapability,
 } from "@verisilo/contracts";
 
@@ -73,7 +74,7 @@ privacyRestoreButton.addEventListener(
   "click",
   () => void restorePrivacyControls(),
 );
-desktopButton.addEventListener("click", () => void connectDesktop());
+desktopButton.addEventListener("click", () => void openDesktopProject());
 exportJsonButton.addEventListener("click", () => exportCurrentReport("json"));
 exportHtmlButton.addEventListener("click", () => exportCurrentReport("html"));
 for (const tab of tabButtons) {
@@ -218,16 +219,11 @@ async function restorePrivacyControls(): Promise<void> {
   }
 }
 
-async function connectDesktop(): Promise<void> {
-  setBusy(desktopButton, true, "连接中…");
+async function openDesktopProject(): Promise<void> {
+  setBusy(desktopButton, true, "正在打开…");
   try {
-    const response = await sendMessage({ type: "open_desktop" });
-    showNotice(
-      response.connected === true ? "success" : "error",
-      response.connected === true
-        ? "已连接 VeriSilo 桌面端。"
-        : `桌面端尚未连接：${String(response.reason ?? "未安装或未运行")}`,
-    );
+    await chrome.tabs.create({ url: PRODUCT_WEBSITE_URL });
+    showNotice("success", "已打开 VeriSilo 项目页。");
   } catch (error) {
     showNotice("error", message(error));
   } finally {
@@ -310,7 +306,7 @@ async function runNetworkCheck(
     showNotice(
       hasUsefulResult ? "success" : "error",
       hasUsefulResult
-        ? "出口检查完成。DNS 结果只表示两家公共 DoH 的一致性，不证明本机或运营商 DNS 一定没有劫持。"
+        ? "当前浏览器环境的出口检查完成。DNS 结果只表示两家公共 DoH 的一致性，不证明实际递归 DNS 路径无泄漏或劫持。"
         : "网络检查没有获得有效结果，请查看网络或扩展权限后重试。",
     );
   } catch (error) {
@@ -406,7 +402,7 @@ function renderFact(fact: HumanFact): HTMLElement {
     checkButton.className = "button subtle";
     checkButton.id = "network-check";
     checkButton.type = "button";
-    checkButton.textContent = "同意并检查出口 IP 与公共 DNS";
+    checkButton.textContent = "同意并检查当前环境出口";
     checkButton.addEventListener("click", () => {
       // Edge requires this API call to happen directly in the click callback,
       // before any confirmation dialog, message round-trip, or awaited work.
@@ -426,7 +422,7 @@ function renderFact(fact: HumanFact): HTMLElement {
     const disclosure = document.createElement("small");
     disclosure.className = "network-disclosure";
     disclosure.textContent =
-      "点击“同意并检查”后会连接 ipwho.is、Cloudflare 1.1.1.1 和 Google Public DNS；三方会看到你的请求 IP。DNS 仅比较固定域名的公共 DoH 结果，不能证明本机 DNS 未被劫持。不会自动运行。";
+      "结果属于当前浏览器环境；在桌面 Silo 中运行时才是该 Silo 的出口证据。点击后会连接 ipwho.is、Cloudflare 1.1.1.1 和 Google Public DNS，三方会看到请求 IP。公共 DoH 对比不是 DNS 泄漏测试。不会自动运行。";
     element.append(badges, actions, disclosure);
   }
   return element;
@@ -451,13 +447,11 @@ function renderNetworkFactState(): void {
   badges.replaceChildren();
   clearButton.hidden = latestNetworkCheck === null;
   checkButton.textContent =
-    latestNetworkCheck === null
-      ? "同意并检查出口 IP 与公共 DNS"
-      : "同意并重新检查";
+    latestNetworkCheck === null ? "同意并检查当前环境出口" : "同意并重新检查";
   if (latestNetworkCheck === null) {
     value.textContent = "本次未验证";
     detail.textContent =
-      "点击后可查看公网 IP、出口地区、ASN、运营商、时区组合及公共 DNS 一致性。";
+      "点击后可查看当前浏览器环境的公网 IP、出口地区、ASN、运营商、时区/语言建议及公共 DNS 答案一致性。";
     return;
   }
 
@@ -493,6 +487,14 @@ function renderNetworkFactState(): void {
         browserTimezone === result.ip.timezone
           ? networkChip("浏览器与出口时区一致", "good")
           : networkChip("浏览器与出口时区不一致", "attention"),
+      );
+    }
+    const languageRegion = observedLanguageRegion(latestReport);
+    if (languageRegion !== null && result.ip.countryCode !== null) {
+      badges.append(
+        languageRegion === result.ip.countryCode.toUpperCase()
+          ? networkChip("语言地区与出口国家一致", "good")
+          : networkChip("语言地区与出口国家不同（仅建议）", "attention"),
       );
     }
   }
@@ -532,6 +534,24 @@ function observedTimezone(report: ObservationReport | null): string | null {
     (signal) => signal.id === "timezone" && signal.status === "ok",
   )?.value;
   return typeof value === "string" ? value : null;
+}
+
+function observedLanguageRegion(
+  report: ObservationReport | null,
+): string | null {
+  const value = recordValue(
+    report?.signals.find(
+      (signal) => signal.id === "navigator" && signal.status === "ok",
+    )?.value,
+  );
+  const language = typeof value?.language === "string" ? value.language : null;
+  if (language === null) {
+    return null;
+  }
+  const region = language
+    .split("-")
+    .find((part, index) => index > 0 && /^[A-Za-z]{2}$/u.test(part));
+  return region?.toUpperCase() ?? null;
 }
 
 function renderFinding(finding: HumanFinding): HTMLElement {
@@ -621,7 +641,8 @@ function renderControlStatus(
   if (!privacyGranted) {
     element.textContent = `${label}：待授权`;
   } else if (effective) {
-    element.textContent = `${label}：已生效`;
+    element.textContent =
+      label === "WebRTC" ? `${label}：策略已回读` : `${label}：已生效`;
   } else if (state === "controlled_by_other_extensions") {
     element.textContent = `${label}：被其他扩展控制`;
   } else if (state === "not_controllable") {

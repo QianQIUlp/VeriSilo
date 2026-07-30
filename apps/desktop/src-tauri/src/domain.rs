@@ -67,12 +67,26 @@ pub enum NetworkProfile {
         host: String,
         port: u16,
         bypass_list: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credential_reference: Option<Uuid>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        external_mihomo: Option<ExternalMihomoBinding>,
     },
     #[serde(rename = "pac")]
     Pac {
         proxy_required: bool,
         pac_url: String,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalMihomoBinding {
+    pub controller_url: String,
+    pub selector_group: String,
+    pub node_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller_secret_reference: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,9 +117,13 @@ impl NetworkProfile {
             )),
             Self::Direct { .. } => Ok(()),
             Self::FixedProxy {
+                proxy_required,
+                scheme,
                 host,
                 port,
                 bypass_list,
+                credential_reference,
+                external_mihomo,
                 ..
             } => {
                 if host.trim().is_empty()
@@ -137,6 +155,33 @@ impl NetworkProfile {
                         "Proxy bypass entries must be short, non-empty values without separators."
                             .to_owned(),
                     ));
+                }
+
+                if self.requires_proxy() && !bypass_list.is_empty() {
+                    return Err(DomainError::InvalidNetwork(
+                        "A required proxy profile cannot contain direct bypass rules.".to_owned(),
+                    ));
+                }
+
+                if credential_reference.is_some()
+                    && !matches!(scheme, ProxyScheme::Http | ProxyScheme::Socks5)
+                {
+                    return Err(DomainError::InvalidNetwork(
+                        "Stored proxy credentials require an HTTP or SOCKS5 upstream.".to_owned(),
+                    ));
+                }
+
+                if let Some(binding) = external_mihomo {
+                    if !*proxy_required
+                        || !matches!(scheme, ProxyScheme::Socks5)
+                        || !is_loopback_host(host)
+                    {
+                        return Err(DomainError::InvalidNetwork(
+                            "An external Mihomo binding requires a fail-closed loopback SOCKS5 endpoint."
+                                .to_owned(),
+                        ));
+                    }
+                    validate_mihomo_binding(binding)?;
                 }
 
                 Ok(())
@@ -173,6 +218,13 @@ impl NetworkProfile {
     }
 
     pub fn launch_arguments(&self) -> Vec<OsString> {
+        self.launch_arguments_with_proxy_override(None)
+    }
+
+    pub fn launch_arguments_with_proxy_override(
+        &self,
+        proxy_override: Option<(&str, u16)>,
+    ) -> Vec<OsString> {
         match self {
             Self::Direct { .. } => vec![OsString::from("--no-proxy-server")],
             Self::FixedProxy {
@@ -182,17 +234,33 @@ impl NetworkProfile {
                 bypass_list,
                 ..
             } => {
+                let (launch_scheme, launch_host, launch_port) = proxy_override
+                    .map(|(override_host, override_port)| ("socks5", override_host, override_port))
+                    .unwrap_or((scheme.as_str(), host.as_str(), *port));
+                let launch_authority_host =
+                    if launch_host.contains(':') && !launch_host.starts_with('[') {
+                        format!("[{launch_host}]")
+                    } else {
+                        launch_host.to_owned()
+                    };
                 let mut arguments = vec![OsString::from(format!(
-                    "--proxy-server={}://{}:{}",
-                    scheme.as_str(),
-                    host,
-                    port
+                    "--proxy-server={launch_scheme}://{launch_authority_host}:{launch_port}"
                 ))];
                 if !bypass_list.is_empty() {
                     arguments.push(OsString::from(format!(
                         "--proxy-bypass-list={}",
                         bypass_list.join(";")
                     )));
+                }
+                if self.requires_proxy() {
+                    arguments.push(OsString::from("--proxy-bypass-list=<-loopback>"));
+                    arguments.push(OsString::from(format!(
+                        "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE {launch_host}"
+                    )));
+                    arguments.push(OsString::from("--disable-quic"));
+                    arguments.push(OsString::from(
+                        "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+                    ));
                 }
                 arguments
             }
@@ -216,7 +284,7 @@ pub struct Silo {
     pub archived_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSiloInput {
     pub name: String,
@@ -224,6 +292,23 @@ pub struct CreateSiloInput {
     pub browser_kind: BrowserKind,
     pub executable_path: String,
     pub network_profile: NetworkProfile,
+    #[serde(default)]
+    pub proxy_credentials: Option<ProxyCredentialsInput>,
+    #[serde(default)]
+    pub mihomo_controller_secret: Option<MihomoControllerSecretInput>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProxyCredentialsInput {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MihomoControllerSecretInput {
+    pub secret: String,
 }
 
 impl CreateSiloInput {
@@ -247,18 +332,153 @@ impl CreateSiloInput {
             ));
         }
 
-        self.network_profile.validate()
+        self.network_profile.validate()?;
+
+        if self.network_profile.credential_reference().is_some() {
+            return Err(DomainError::InvalidNetwork(
+                "A new Silo cannot supply an existing credential reference.".to_owned(),
+            ));
+        }
+        if self
+            .network_profile
+            .mihomo_controller_secret_reference()
+            .is_some()
+        {
+            return Err(DomainError::InvalidNetwork(
+                "A new Silo cannot supply an existing Mihomo controller secret reference."
+                    .to_owned(),
+            ));
+        }
+
+        if let Some(credentials) = &self.proxy_credentials {
+            if !matches!(&self.network_profile, NetworkProfile::FixedProxy { .. }) {
+                return Err(DomainError::InvalidNetwork(
+                    "Proxy credentials require a fixed proxy profile.".to_owned(),
+                ));
+            }
+            if credentials.username.trim().is_empty()
+                || credentials.username.len() > 512
+                || credentials.password.len() > 1_024
+                || credentials.username.chars().any(char::is_control)
+                || credentials.password.chars().any(char::is_control)
+            {
+                return Err(DomainError::InvalidNetwork(
+                    "Proxy credentials are empty, too long, or contain control characters."
+                        .to_owned(),
+                ));
+            }
+            let supports_local_auth_relay = matches!(
+                &self.network_profile,
+                NetworkProfile::FixedProxy {
+                    scheme: ProxyScheme::Http | ProxyScheme::Socks5,
+                    ..
+                }
+            );
+            if !supports_local_auth_relay {
+                return Err(DomainError::InvalidNetwork(
+                    "Automatic proxy authentication currently supports HTTP and SOCKS5. Use an external Mihomo endpoint for other authenticated protocols."
+                        .to_owned(),
+                ));
+            }
+        }
+
+        if let Some(controller_secret) = &self.mihomo_controller_secret {
+            if self.network_profile.external_mihomo_binding().is_none() {
+                return Err(DomainError::InvalidNetwork(
+                    "A Mihomo controller secret requires an external Mihomo binding.".to_owned(),
+                ));
+            }
+            if controller_secret.secret.len() > 1_024
+                || controller_secret.secret.chars().any(char::is_control)
+            {
+                return Err(DomainError::InvalidNetwork(
+                    "The Mihomo controller secret is too long or contains control characters."
+                        .to_owned(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl NetworkProfile {
+    pub fn credential_reference(&self) -> Option<Uuid> {
+        match self {
+            Self::FixedProxy {
+                credential_reference,
+                ..
+            } => *credential_reference,
+            Self::Direct { .. } | Self::Pac { .. } => None,
+        }
+    }
+
+    pub fn external_mihomo_binding(&self) -> Option<&ExternalMihomoBinding> {
+        match self {
+            Self::FixedProxy {
+                external_mihomo, ..
+            } => external_mihomo.as_ref(),
+            Self::Direct { .. } | Self::Pac { .. } => None,
+        }
+    }
+
+    pub fn mihomo_controller_secret_reference(&self) -> Option<Uuid> {
+        self.external_mihomo_binding()
+            .and_then(|binding| binding.controller_secret_reference)
+    }
+
+    pub fn set_credential_reference(&mut self, reference: Uuid) -> Result<(), DomainError> {
+        match self {
+            Self::FixedProxy {
+                credential_reference,
+                ..
+            } => {
+                *credential_reference = Some(reference);
+                Ok(())
+            }
+            Self::Direct { .. } | Self::Pac { .. } => Err(DomainError::InvalidNetwork(
+                "Only fixed proxies can reference credentials.".to_owned(),
+            )),
+        }
+    }
+
+    pub fn set_mihomo_controller_secret_reference(
+        &mut self,
+        reference: Uuid,
+    ) -> Result<(), DomainError> {
+        let Some(binding) = (match self {
+            Self::FixedProxy {
+                external_mihomo, ..
+            } => external_mihomo.as_mut(),
+            Self::Direct { .. } | Self::Pac { .. } => None,
+        }) else {
+            return Err(DomainError::InvalidNetwork(
+                "Only an external Mihomo binding can reference a controller secret.".to_owned(),
+            ));
+        };
+        binding.controller_secret_reference = Some(reference);
+        Ok(())
     }
 }
 
 impl Silo {
     pub fn launch_arguments(&self) -> Vec<OsString> {
+        self.launch_arguments_with_proxy_override(None)
+    }
+
+    pub fn launch_arguments_with_proxy_override(
+        &self,
+        proxy_override: Option<(&str, u16)>,
+    ) -> Vec<OsString> {
         let mut arguments = vec![
             OsString::from(format!("--user-data-dir={}", self.profile_directory)),
             OsString::from("--no-first-run"),
             OsString::from("--no-default-browser-check"),
         ];
-        arguments.extend(self.network_profile.launch_arguments());
+        arguments.extend(
+            self.network_profile
+                .launch_arguments_with_proxy_override(proxy_override),
+        );
         arguments
     }
 }
@@ -270,6 +490,7 @@ pub struct RuntimeActivation {
     pub state: RuntimeState,
     pub updated_at: DateTime<Utc>,
     pub message: Option<String>,
+    pub network_evidence: Option<RuntimeNetworkEvidence>,
 }
 
 impl RuntimeActivation {
@@ -279,6 +500,118 @@ impl RuntimeActivation {
             state: RuntimeState::Idle,
             updated_at: Utc::now(),
             message: None,
+            network_evidence: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeNetworkEvidence {
+    pub provider: RuntimeNetworkProvider,
+    pub configuration: RuntimeEvidenceState,
+    pub controller_binding: RuntimeEvidenceState,
+    pub endpoint: RuntimeEvidenceState,
+    pub authentication: RuntimeEvidenceState,
+    pub browser_routing: RuntimeEvidenceState,
+    pub exit: RuntimeEvidenceState,
+    pub dns: RuntimeEvidenceState,
+    pub web_rtc: RuntimeEvidenceState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_label: Option<String>,
+    pub safeguards: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeNetworkProvider {
+    Direct,
+    FixedProxy,
+    ExternalMihomo,
+    Pac,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeEvidenceState {
+    NotApplicable,
+    NotRequested,
+    Configured,
+    Reachable,
+    Applied,
+    Verified,
+    Failed,
+    Unavailable,
+}
+
+impl RuntimeNetworkEvidence {
+    pub fn configured(profile: &NetworkProfile, has_authentication: bool) -> Self {
+        match profile {
+            NetworkProfile::Direct { .. } => Self {
+                provider: RuntimeNetworkProvider::Direct,
+                configuration: RuntimeEvidenceState::Configured,
+                controller_binding: RuntimeEvidenceState::NotApplicable,
+                endpoint: RuntimeEvidenceState::NotApplicable,
+                authentication: RuntimeEvidenceState::NotApplicable,
+                browser_routing: RuntimeEvidenceState::NotRequested,
+                exit: RuntimeEvidenceState::NotRequested,
+                dns: RuntimeEvidenceState::NotRequested,
+                web_rtc: RuntimeEvidenceState::NotRequested,
+                endpoint_label: None,
+                safeguards: Vec::new(),
+            },
+            NetworkProfile::FixedProxy {
+                host,
+                port,
+                external_mihomo,
+                ..
+            } => Self {
+                provider: if external_mihomo.is_some() {
+                    RuntimeNetworkProvider::ExternalMihomo
+                } else {
+                    RuntimeNetworkProvider::FixedProxy
+                },
+                configuration: RuntimeEvidenceState::Configured,
+                controller_binding: if external_mihomo.is_some() {
+                    RuntimeEvidenceState::Configured
+                } else {
+                    RuntimeEvidenceState::NotApplicable
+                },
+                endpoint: RuntimeEvidenceState::NotRequested,
+                authentication: if has_authentication {
+                    RuntimeEvidenceState::Configured
+                } else {
+                    RuntimeEvidenceState::NotApplicable
+                },
+                browser_routing: RuntimeEvidenceState::NotRequested,
+                exit: RuntimeEvidenceState::NotRequested,
+                dns: RuntimeEvidenceState::NotRequested,
+                web_rtc: RuntimeEvidenceState::NotRequested,
+                endpoint_label: Some(format!("{host}:{port}")),
+                safeguards: if profile.requires_proxy() {
+                    vec![
+                        "no_direct_fallback".to_owned(),
+                        "browser_dns_through_proxy".to_owned(),
+                        "quic_disabled".to_owned(),
+                        "non_proxied_webrtc_udp_disabled".to_owned(),
+                    ]
+                } else {
+                    Vec::new()
+                },
+            },
+            NetworkProfile::Pac { .. } => Self {
+                provider: RuntimeNetworkProvider::Pac,
+                configuration: RuntimeEvidenceState::Configured,
+                controller_binding: RuntimeEvidenceState::NotApplicable,
+                endpoint: RuntimeEvidenceState::Unavailable,
+                authentication: RuntimeEvidenceState::NotApplicable,
+                browser_routing: RuntimeEvidenceState::NotRequested,
+                exit: RuntimeEvidenceState::NotRequested,
+                dns: RuntimeEvidenceState::NotRequested,
+                web_rtc: RuntimeEvidenceState::NotRequested,
+                endpoint_label: None,
+                safeguards: Vec::new(),
+            },
         }
     }
 }
@@ -397,6 +730,50 @@ fn is_hex_color(color: &str) -> bool {
             .all(|character| character.is_ascii_hexdigit())
 }
 
+fn is_loopback_host(host: &str) -> bool {
+    let normalized = host.trim().trim_matches(['[', ']']).to_ascii_lowercase();
+    matches!(normalized.as_str(), "127.0.0.1" | "::1")
+}
+
+fn validate_mihomo_binding(binding: &ExternalMihomoBinding) -> Result<(), DomainError> {
+    if binding.controller_url.len() > 2_048 {
+        return Err(DomainError::InvalidNetwork(
+            "The Mihomo controller URL is too long.".to_owned(),
+        ));
+    }
+    let controller = Url::parse(&binding.controller_url).map_err(|_| {
+        DomainError::InvalidNetwork("The Mihomo controller URL is invalid.".to_owned())
+    })?;
+    let controller_host = controller.host_str().unwrap_or_default();
+    if controller.scheme() != "http"
+        || !is_loopback_host(controller_host)
+        || controller.port().is_none()
+        || !controller.username().is_empty()
+        || controller.password().is_some()
+        || controller.path() != "/"
+        || controller.query().is_some()
+        || controller.fragment().is_some()
+    {
+        return Err(DomainError::InvalidNetwork(
+            "The Mihomo controller must be an explicit loopback HTTP URL such as http://127.0.0.1:9090/."
+                .to_owned(),
+        ));
+    }
+    if binding.selector_group.trim().is_empty()
+        || binding.selector_group.chars().count() > 128
+        || binding.selector_group.chars().any(char::is_control)
+        || binding.node_name.trim().is_empty()
+        || binding.node_name.chars().count() > 256
+        || binding.node_name.chars().any(char::is_control)
+    {
+        return Err(DomainError::InvalidNetwork(
+            "Mihomo selector and node names must be short, non-empty values without control characters."
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{NetworkProfile, ProxyScheme};
@@ -417,6 +794,8 @@ mod tests {
             host: "127.0.0.1".to_owned(),
             port: 1080,
             bypass_list: vec!["localhost".to_owned()],
+            credential_reference: None,
+            external_mihomo: None,
         };
         let arguments = profile
             .launch_arguments()
@@ -440,6 +819,8 @@ mod tests {
             host: "127.0.0.1".to_owned(),
             port: 0,
             bypass_list: vec![],
+            credential_reference: None,
+            external_mihomo: None,
         }
         .validate()
         .is_err());
@@ -449,5 +830,34 @@ mod tests {
         }
         .validate()
         .is_err());
+    }
+
+    #[test]
+    fn required_proxy_arguments_block_local_dns_quic_and_non_proxy_webrtc_udp() {
+        let profile = NetworkProfile::FixedProxy {
+            proxy_required: true,
+            scheme: ProxyScheme::Socks5,
+            host: "127.0.0.1".to_owned(),
+            port: 7890,
+            bypass_list: vec![],
+            credential_reference: None,
+            external_mihomo: None,
+        };
+        let arguments = profile
+            .launch_arguments()
+            .into_iter()
+            .map(|argument| argument.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        assert!(arguments.contains(&"--proxy-server=socks5://127.0.0.1:7890".to_owned()));
+        assert!(arguments
+            .contains(&"--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1".to_owned()));
+        assert!(arguments.contains(&"--proxy-bypass-list=<-loopback>".to_owned()));
+        assert!(arguments.contains(&"--disable-quic".to_owned()));
+        assert!(
+            arguments.contains(&"--webrtc-ip-handling-policy=disable_non_proxied_udp".to_owned())
+        );
+        assert!(arguments
+            .iter()
+            .all(|argument| !argument.contains("direct://")));
     }
 }

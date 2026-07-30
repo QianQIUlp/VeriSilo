@@ -5,15 +5,20 @@ use tauri::{Manager, State};
 use uuid::Uuid;
 
 pub mod domain;
+pub mod environment;
 pub mod launcher;
+pub mod mihomo;
 pub mod native_host;
+pub mod proxy_relay;
 pub mod vault;
 
 use domain::{
     app_data_root, discover_browsers as discover_installed_browsers, BrowserCandidate,
     CreateSiloInput, RuntimeActivation, Silo, VaultStatus,
 };
+use environment::WslStatus;
 use launcher::{profile_in_use, RuntimeManager};
+use mihomo::{MihomoControllerInput, MihomoSnapshot};
 use vault::VaultRuntime;
 
 pub struct AppState {
@@ -98,6 +103,16 @@ fn discover_browsers() -> Vec<BrowserCandidate> {
 }
 
 #[tauri::command]
+fn detect_wsl() -> WslStatus {
+    environment::detect_wsl()
+}
+
+#[tauri::command]
+fn inspect_mihomo_controller(input: MihomoControllerInput) -> Result<MihomoSnapshot, String> {
+    mihomo::inspect_controller(&input).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn list_silos(state: State<'_, AppState>) -> Result<Vec<Silo>, String> {
     let mut vault = state
         .vault
@@ -143,7 +158,7 @@ fn archive_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<(), String>
 
 #[tauri::command]
 fn launch_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActivation, String> {
-    let (silo, managed_profile_directories) = {
+    let (silo, managed_profile_directories, proxy_authentication, mihomo_authentication) = {
         let mut vault = state
             .vault
             .lock()
@@ -152,14 +167,30 @@ fn launch_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActiv
         let managed_profile_directories = vault
             .managed_profile_directories()
             .map_err(|error| error.to_string())?;
-        (silo, managed_profile_directories)
+        let proxy_authentication = vault
+            .proxy_authentication_for_silo(silo_id)
+            .map_err(|error| error.to_string())?;
+        let mihomo_authentication = vault
+            .mihomo_controller_authentication_for_silo(silo_id)
+            .map_err(|error| error.to_string())?;
+        (
+            silo,
+            managed_profile_directories,
+            proxy_authentication,
+            mihomo_authentication,
+        )
     };
     let mut runtime = state
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
     runtime
-        .launch(&silo, &managed_profile_directories)
+        .launch(
+            &silo,
+            &managed_profile_directories,
+            proxy_authentication,
+            mihomo_authentication,
+        )
         .map_err(|error| error.to_string())
 }
 
@@ -178,6 +209,8 @@ pub fn run() {
             unlock_vault,
             lock_vault,
             discover_browsers,
+            detect_wsl,
+            inspect_mihomo_controller,
             list_silos,
             create_silo,
             archive_silo,
