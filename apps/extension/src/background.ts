@@ -27,6 +27,7 @@ import {
   planSavedReportPrune,
   SAVED_REPORT_KEY_PREFIX,
   SAVED_REPORT_TTL_MS,
+  shouldPersistSavedReport,
 } from "./saved-report-history.js";
 import {
   clearLabsReceipts,
@@ -121,7 +122,9 @@ async function handleMessage(
     await chrome.storage.session.set({
       [reportKey(tabId)]: contentMessage.data.report,
     });
-    await saveRedactedReport(contentMessage.data.report);
+    if (shouldPersistSavedReport(sender.tab?.incognito)) {
+      await saveRedactedReport(contentMessage.data.report);
+    }
     return { report: contentMessage.data.report };
   }
 

@@ -5,11 +5,18 @@ import {
   planSavedReportPrune,
   SAVED_REPORT_KEY_PREFIX,
   SAVED_REPORT_TTL_MS,
+  shouldPersistSavedReport,
 } from "./saved-report-history.js";
 
 const now = Date.parse("2026-07-28T12:00:00.000Z");
 
 describe("saved observation report retention", () => {
+  it("persists regular-tab reports but not private-tab reports", () => {
+    expect(shouldPersistSavedReport(false)).toBe(true);
+    expect(shouldPersistSavedReport(true)).toBe(false);
+    expect(shouldPersistSavedReport(undefined)).toBe(false);
+  });
+
   it("keeps the newest bounded history while reserving the incoming slot", () => {
     const values = Object.fromEntries(
       Array.from({ length: MAX_SAVED_REPORTS + 5 }, (_, index) => [
