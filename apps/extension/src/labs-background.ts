@@ -34,6 +34,7 @@ import {
   stopWorkerExperiment,
   type LabsRun,
 } from "./labs-state.js";
+import { sendNativeMessageWithTimeout } from "./native-messaging.js";
 
 const NATIVE_HOST_NAME = "io.verisilo.host";
 const LABS_STATUS_KEY = "labs:status";
@@ -610,7 +611,7 @@ async function resolveActiveSiloId(nowUnixMs: number): Promise<string | null> {
   const requestId = crypto.randomUUID();
   let raw: unknown;
   try {
-    raw = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
+    raw = await sendNativeMessageWithTimeout(NATIVE_HOST_NAME, {
       type: "get_runtime_status",
       protocolVersion: PROTOCOL_VERSION,
       requestId,

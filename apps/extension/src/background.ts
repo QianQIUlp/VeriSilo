@@ -40,6 +40,7 @@ import {
   labsTabRemoved,
   stopDedicatedWorkerExperiment,
 } from "./labs-background.js";
+import { sendNativeMessageWithTimeout } from "./native-messaging.js";
 
 const NATIVE_HOST_NAME = "io.verisilo.host";
 const REPORT_KEY_PREFIX = "report:";
@@ -475,7 +476,7 @@ async function handoffNetworkEvidence(
 
   const submitRequestId = crypto.randomUUID();
   try {
-    const submitRaw = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
+    const submitRaw = await sendNativeMessageWithTimeout(NATIVE_HOST_NAME, {
       type: "submit_network_evidence",
       protocolVersion: PROTOCOL_VERSION,
       requestId: submitRequestId,
@@ -514,7 +515,7 @@ async function resolveRuntimeEvidenceBinding(): Promise<RuntimeBindingResolution
   const requestId = crypto.randomUUID();
   let statusRaw: unknown;
   try {
-    statusRaw = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
+    statusRaw = await sendNativeMessageWithTimeout(NATIVE_HOST_NAME, {
       type: "get_runtime_status",
       protocolVersion: PROTOCOL_VERSION,
       requestId,
@@ -1044,7 +1045,7 @@ function isIncognitoAllowed(): Promise<boolean> {
 async function connectNativeHost(): Promise<Record<string, unknown>> {
   try {
     const requestId = crypto.randomUUID();
-    const raw = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
+    const raw = await sendNativeMessageWithTimeout(NATIVE_HOST_NAME, {
       type: "handshake",
       protocolVersion: PROTOCOL_VERSION,
       requestId,
@@ -1057,7 +1058,7 @@ async function connectNativeHost(): Promise<Record<string, unknown>> {
     }
 
     const openRequestId = crypto.randomUUID();
-    const openRaw = await chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, {
+    const openRaw = await sendNativeMessageWithTimeout(NATIVE_HOST_NAME, {
       type: "open_desktop",
       protocolVersion: PROTOCOL_VERSION,
       requestId: openRequestId,
