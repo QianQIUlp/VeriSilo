@@ -21,6 +21,7 @@ pub const MAX_HUMAN_SESSION_SECONDS: u64 = 8 * 60 * 60;
 pub const MAX_AUTOMATION_SECONDS: u64 = 60 * 60;
 pub const MAX_INPUT_EVENTS: usize = 128;
 pub const MAX_ACTIVITY_ENTRIES: usize = 2_000;
+const MAX_SCREEN_CHANNEL_LIFETIME_MS: u64 = 5 * 60 * 1_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -868,22 +869,28 @@ impl<P: AgentProvider, S: AgentStore, C: Clock> AgentCore<P, S, C> {
             }
             AgentCommand::OpenScreen { silo_id } => {
                 let record = self.record(silo_id, now, false)?;
-                let authorization_id = authorize_scope(
+                let (authorization_id, authorization_expires_at_unix_ms) = authorize_scope(
                     &self.store,
                     principal,
                     silo_id,
                     now,
                     AutomationScope::ReadScreen,
                 )?;
-                let channel =
-                    self.provider
-                        .open_screen(&record, authorization_id, now + 5 * 60 * 1_000)?;
+                let requested_expires_at_unix_ms = authorization_expires_at_unix_ms
+                    .min(now.saturating_add(MAX_SCREEN_CHANNEL_LIFETIME_MS));
+                let channel = self.provider.open_screen(
+                    &record,
+                    authorization_id,
+                    requested_expires_at_unix_ms,
+                )?;
                 if channel.remote_environment_id != record.remote_environment_id
                     || channel.authorization_id != authorization_id
                     || channel.expires_at_unix_ms <= now
+                    || channel.expires_at_unix_ms > requested_expires_at_unix_ms
                 {
                     return Err(AgentError::Provider(
-                        "Provider returned a mismatched or expired screen channel.".to_owned(),
+                        "Provider returned a mismatched or out-of-bounds screen channel."
+                            .to_owned(),
                     ));
                 }
                 Ok(AgentResponse::Screen { channel })
@@ -1276,9 +1283,13 @@ fn authorize_scope(
     silo_id: Uuid,
     now: u64,
     scope: AutomationScope,
-) -> Result<Uuid, AgentError> {
+) -> Result<(Uuid, u64), AgentError> {
     if principal.kind == PrincipalKind::HumanSession {
-        return Ok(authorize_human(store, principal, silo_id, now)?.authorization_id);
+        let authorization = authorize_human(store, principal, silo_id, now)?;
+        return Ok((
+            authorization.authorization_id,
+            authorization.expires_at_unix_ms,
+        ));
     }
     let authorization = authorize_automation(store, principal, silo_id, now)?;
     if !authorization.scopes.contains(&scope) {
@@ -1286,7 +1297,10 @@ fn authorize_scope(
             "Automation grant lacks the requested scope.".to_owned(),
         ));
     }
-    Ok(authorization.authorization_id)
+    Ok((
+        authorization.authorization_id,
+        authorization.expires_at_unix_ms,
+    ))
 }
 
 fn authorize_input(
@@ -1305,6 +1319,7 @@ fn authorize_input(
         ));
     }
     authorize_scope(store, principal, silo_id, now, AutomationScope::SendInput)
+        .map(|(authorization_id, _)| authorization_id)
 }
 
 fn validate_input(events: &[InputEvent]) -> Result<(), AgentError> {
@@ -1450,6 +1465,7 @@ mod tests {
     struct FakeProvider {
         omit_volume: bool,
         deletion_key_destroyed: bool,
+        screen_expiry_extension_ms: u64,
     }
 
     impl FakeProvider {
@@ -1588,7 +1604,8 @@ mod tests {
                 channel_id: Uuid::new_v4(),
                 remote_environment_id: record.remote_environment_id,
                 authorization_id,
-                expires_at_unix_ms,
+                expires_at_unix_ms: expires_at_unix_ms
+                    .saturating_add(self.screen_expiry_extension_ms),
                 transport: ScreenTransport::AuthenticatedEncryptedStream,
             })
         }
@@ -1729,11 +1746,45 @@ mod tests {
         .expect("create");
     }
 
+    fn grant_read_screen(
+        core: &mut AgentCore<FakeProvider, MemoryAgentStore, FixedClock>,
+        silo_id: Uuid,
+    ) -> AutomationAuthorization {
+        match core
+            .execute(request(
+                control(),
+                1,
+                AgentCommand::GrantAutomation {
+                    silo_id,
+                    lifetime_seconds: 600,
+                    scopes: vec![AutomationScope::ReadScreen],
+                    approved_by_user: true,
+                },
+            ))
+            .expect("grant screen automation")
+        {
+            AgentResponse::Automation { authorization } => authorization,
+            _ => panic!("wrong response"),
+        }
+    }
+
+    fn authorization_principal(
+        kind: PrincipalKind,
+        authorization_id: Uuid,
+    ) -> Principal {
+        Principal {
+            kind,
+            credential_id: Uuid::new_v4(),
+            authorization_id: Some(authorization_id),
+        }
+    }
+
     #[test]
     fn create_rejects_an_unencrypted_volume() {
         let provider = FakeProvider {
             omit_volume: true,
             deletion_key_destroyed: true,
+            screen_expiry_extension_ms: 0,
         };
         let mut core = AgentCore::new(
             node(),
@@ -1766,6 +1817,7 @@ mod tests {
         let provider = FakeProvider {
             omit_volume: false,
             deletion_key_destroyed: true,
+            screen_expiry_extension_ms: 0,
         };
         let mut core = AgentCore::new(
             node(),
@@ -1817,6 +1869,7 @@ mod tests {
         let provider = FakeProvider {
             omit_volume: false,
             deletion_key_destroyed: true,
+            screen_expiry_extension_ms: 0,
         };
         let mut core = AgentCore::new(
             node(),
@@ -1874,10 +1927,134 @@ mod tests {
     }
 
     #[test]
+    fn screen_channel_is_capped_by_near_expiry_human_session() {
+        let provider = FakeProvider {
+            omit_volume: false,
+            deletion_key_destroyed: true,
+            screen_expiry_extension_ms: 0,
+        };
+        let mut core = AgentCore::new(
+            node(),
+            provider,
+            MemoryAgentStore::default(),
+            FixedClock(1_000_000),
+        )
+        .expect("agent");
+        let silo_id = Uuid::new_v4();
+        create(&mut core, silo_id);
+        let authorization = match core
+            .execute(request(
+                control(),
+                1,
+                AgentCommand::OpenHumanSession {
+                    silo_id,
+                    lifetime_seconds: 60,
+                },
+            ))
+            .expect("open human session")
+        {
+            AgentResponse::HumanSession { authorization } => authorization,
+            _ => panic!("wrong response"),
+        };
+        let now = 1_059_000;
+        core.clock = FixedClock(now);
+        let mut open = request(
+            authorization_principal(
+                PrincipalKind::HumanSession,
+                authorization.authorization_id,
+            ),
+            1,
+            AgentCommand::OpenScreen { silo_id },
+        );
+        open.sent_at_unix_ms = now;
+
+        let channel = match core.execute(open).expect("open screen") {
+            AgentResponse::Screen { channel } => channel,
+            _ => panic!("wrong response"),
+        };
+        assert_eq!(
+            channel.expires_at_unix_ms,
+            authorization.expires_at_unix_ms
+        );
+        assert_eq!(channel.expires_at_unix_ms - now, 1_000);
+    }
+
+    #[test]
+    fn screen_channel_keeps_five_minute_lifetime_for_normal_automation_grant() {
+        let provider = FakeProvider {
+            omit_volume: false,
+            deletion_key_destroyed: true,
+            screen_expiry_extension_ms: 0,
+        };
+        let mut core = AgentCore::new(
+            node(),
+            provider,
+            MemoryAgentStore::default(),
+            FixedClock(1_000_000),
+        )
+        .expect("agent");
+        let silo_id = Uuid::new_v4();
+        create(&mut core, silo_id);
+        let authorization = grant_read_screen(&mut core, silo_id);
+
+        let channel = match core
+            .execute(request(
+                authorization_principal(
+                    PrincipalKind::Automation,
+                    authorization.authorization_id,
+                ),
+                1,
+                AgentCommand::OpenScreen { silo_id },
+            ))
+            .expect("open screen")
+        {
+            AgentResponse::Screen { channel } => channel,
+            _ => panic!("wrong response"),
+        };
+        assert_eq!(
+            channel.expires_at_unix_ms,
+            1_000_000 + MAX_SCREEN_CHANNEL_LIFETIME_MS
+        );
+        assert!(channel.expires_at_unix_ms < authorization.expires_at_unix_ms);
+    }
+
+    #[test]
+    fn screen_channel_rejects_provider_expiry_beyond_requested_deadline() {
+        let provider = FakeProvider {
+            omit_volume: false,
+            deletion_key_destroyed: true,
+            screen_expiry_extension_ms: 1,
+        };
+        let mut core = AgentCore::new(
+            node(),
+            provider,
+            MemoryAgentStore::default(),
+            FixedClock(1_000_000),
+        )
+        .expect("agent");
+        let silo_id = Uuid::new_v4();
+        create(&mut core, silo_id);
+        let authorization = grant_read_screen(&mut core, silo_id);
+
+        assert!(matches!(
+            core.execute(request(
+                authorization_principal(
+                    PrincipalKind::Automation,
+                    authorization.authorization_id,
+                ),
+                1,
+                AgentCommand::OpenScreen { silo_id },
+            )),
+            Err(AgentError::Provider(_))
+        ));
+    }
+
+    #[test]
     fn replay_unknown_fields_and_input_limits_are_rejected() {
         let provider = FakeProvider {
             omit_volume: false,
             deletion_key_destroyed: true,
+            screen_expiry_extension_ms: 0,
         };
         let mut core = AgentCore::new(
             node(),
