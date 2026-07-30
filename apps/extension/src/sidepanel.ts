@@ -97,6 +97,7 @@ let latestNetworkHandoff: NetworkEvidenceHandoffStatus | null = null;
 let reportRefreshVersion = 0;
 let labsRefreshVersion = 0;
 let activeSitePermissionRefreshVersion = 0;
+let networkHandoffExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 let activeSiteOriginPattern: string | null = null;
 
 scanButton.addEventListener("click", () => void scan());
@@ -867,10 +868,12 @@ async function refreshNetworkCheck(): Promise<void> {
       )
         ? response.handoff
         : null;
+    scheduleNetworkHandoffExpiry();
     renderNetworkFactState();
   } catch {
     latestNetworkCheck = null;
     latestNetworkHandoff = null;
+    scheduleNetworkHandoffExpiry();
     renderNetworkFactState();
   }
 }
@@ -897,6 +900,7 @@ async function runNetworkCheck(
     )
       ? response.handoff
       : null;
+    scheduleNetworkHandoffExpiry();
     renderNetworkFactState();
     const hasUsefulResult =
       latestNetworkCheck.ip !== null ||
@@ -924,6 +928,7 @@ async function clearNetworkCheck(): Promise<void> {
     });
     latestNetworkCheck = null;
     latestNetworkHandoff = null;
+    scheduleNetworkHandoffExpiry();
     renderNetworkFactState();
     showNotice(
       "success",
@@ -1011,7 +1016,7 @@ function renderFact(fact: HumanFact): HTMLElement {
     checkButton.type = "button";
     checkButton.textContent = "同意并检查当前环境出口";
     checkButton.addEventListener("click", () => {
-      // Edge requires this API call to happen directly in the click callback,
+      // Chromium requires this API call to happen directly in the click callback,
       // before any confirmation dialog, message round-trip, or awaited work.
       const permissionRequest = chrome.permissions.request({
         origins: [...NETWORK_CHECK_ORIGINS],
@@ -1063,11 +1068,7 @@ function renderNetworkFactState(): void {
   }
 
   const result = latestNetworkCheck;
-  badges.append(
-    latestNetworkHandoff?.state === "submitted"
-      ? networkChip("已交给桌面 Silo", "good")
-      : networkChip("仅本地显示", "neutral"),
-  );
+  badges.append(networkHandoffChip(latestNetworkHandoff));
   if (result.ip === null) {
     value.textContent = "出口 IP 获取失败";
     detail.textContent =
@@ -1129,6 +1130,47 @@ function renderNetworkFactState(): void {
       : networkChip("DNSSEC 未完整验证", "attention"),
   );
   badges.append(networkChip("IP 信誉/黑名单未评分", "neutral"));
+}
+
+function networkHandoffChip(
+  handoff: NetworkEvidenceHandoffStatus | null,
+): HTMLElement {
+  if (handoff?.state === "submitted") {
+    return Date.parse(handoff.expiresAt) > Date.now()
+      ? networkChip("桌面 Silo 已接收", "good")
+      : networkChip("桌面证据已过期", "attention");
+  }
+  const reason = handoff?.state === "local_only" ? handoff.reason : null;
+  const reasonLabels = {
+    desktop_unavailable: "桌面不可用 · 仅本地",
+    runtime_not_ready: "桌面 Silo 未就绪 · 仅本地",
+    submission_rejected: "桌面拒绝接收 · 仅本地",
+  } as const;
+  return networkChip(
+    reason === null ? "仅本地显示" : reasonLabels[reason],
+    reason === null ? "neutral" : "attention",
+  );
+}
+
+function scheduleNetworkHandoffExpiry(): void {
+  if (networkHandoffExpiryTimer !== null) {
+    clearTimeout(networkHandoffExpiryTimer);
+    networkHandoffExpiryTimer = null;
+  }
+  if (latestNetworkHandoff?.state !== "submitted") {
+    return;
+  }
+  const delay = Date.parse(latestNetworkHandoff.expiresAt) - Date.now();
+  if (!Number.isFinite(delay) || delay <= 0) {
+    return;
+  }
+  networkHandoffExpiryTimer = setTimeout(
+    () => {
+      networkHandoffExpiryTimer = null;
+      renderNetworkFactState();
+    },
+    Math.min(delay + 10, 2_147_483_647),
+  );
 }
 
 function networkChip(
