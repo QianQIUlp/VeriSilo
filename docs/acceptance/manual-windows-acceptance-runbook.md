@@ -217,7 +217,7 @@ Chrome：
 2. 打开右上角“开发者模式”。
 3. 点击“加载已解压的扩展程序”。
 4. 选择第 2 节 `$Dist` 输出并保存在 `extension-dist-path.txt` 的目录。
-5. 确认版本是 `0.2.4`，卡片没有 manifest 或 Service Worker 错误。
+5. 确认版本是 `0.2.5`，卡片没有 manifest 或 Service Worker 错误。
 6. 进入“详细信息”，打开“允许在无痕模式下使用”。
 7. 记录扩展 ID 到 `$Evidence\chrome-extension-id.txt`，并固定工具栏图标。
 
@@ -227,7 +227,7 @@ Edge：
 2. 打开“开发人员模式”。
 3. 点击“加载解压缩的扩展”。
 4. 选择同一个 `$Dist` 目录。
-5. 确认版本 `0.2.4` 且无错误。
+5. 确认版本 `0.2.5` 且无错误。
 6. 进入“详细信息”，打开“允许在 InPrivate 中”。
 7. 记录扩展 ID 到 `$Evidence\edge-extension-id.txt`，并固定工具栏图标。
 

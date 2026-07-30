@@ -34,7 +34,7 @@ pnpm extension:verify
 
 Then open `chrome://extensions` or `edge://extensions`, enable Developer mode,
 choose **Load unpacked**, and select the generated
-`apps/extension/dist` directory. Confirm that version `0.2.4` loads without a
+`apps/extension/dist` directory. Confirm that version `0.2.5` loads without a
 manifest or Service Worker error, record the development extension ID, and
 open VeriSilo from the toolbar action. The action grants one-tab access and
 opens the Side Panel; granting a site's longer-lived optional host permission
