@@ -76,6 +76,10 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading" || changeInfo.url !== undefined) {
     void chrome.storage.session.remove(reportKey(tabId));
+    // Chromium can report status="loading" even for history.pushState/hash
+    // updates. Labs probes the current realm before deciding that the old one
+    // disappeared, so same-document wrappers are restored instead of merely
+    // being recorded as restored.
     labsTabNavigated(tabId);
   }
 });

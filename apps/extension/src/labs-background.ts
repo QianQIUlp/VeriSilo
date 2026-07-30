@@ -42,11 +42,14 @@ const LABS_RECEIPT_PREFIX = "labs-receipt:";
 const LABS_AUTHORIZATION_PREFIX = "labs-authorization:";
 const MAX_LABS_RECEIPTS = 50;
 const MAX_RUNTIME_SNAPSHOT_AGE_MS = 45_000;
+const CANARY_MONITOR_INTERVAL_MS = 5_000;
 
 type ActiveWorkerRun = {
   run: LabsRun;
   canary: string;
+  persistLocalState: boolean;
   timeout: ReturnType<typeof setTimeout> | null;
+  canaryMonitor: ReturnType<typeof setTimeout> | null;
 };
 
 let activeWorkerRun: ActiveWorkerRun | null = null;
@@ -96,6 +99,9 @@ export async function enableDedicatedWorkerExperiment(): Promise<
   Record<string, unknown>
 > {
   await ensureInitialized();
+  if (stopping !== null) {
+    await stopping;
+  }
   if (activeWorkerRun !== null) {
     await stopActiveWorkerRun("user_requested");
   }
@@ -108,6 +114,7 @@ export async function enableDedicatedWorkerExperiment(): Promise<
     throw new Error("实验室只能在当前普通 HTTP(S) 页面上运行。");
   }
   const now = new Date();
+  const persistLocalState = tab.incognito === false;
   const origin = new URL(tab.url).origin;
   const siteHost = new URL(origin).host;
   const siloId = await resolveActiveSiloId(now.getTime());
@@ -163,7 +170,12 @@ export async function enableDedicatedWorkerExperiment(): Promise<
         constructorWrapped: false,
         now: new Date(),
       });
-      return await stopRunBeforeActivation(run, "verification_failed", tab.id);
+      return await stopRunBeforeActivation(
+        run,
+        "verification_failed",
+        tab.id,
+        persistLocalState,
+      );
     }
 
     const applied = await executeMain<WorkerLabApplyResult>(tab.id, {
@@ -184,9 +196,15 @@ export async function enableDedicatedWorkerExperiment(): Promise<
         applied?.active === true && applied.constructorWrapped,
       now: new Date(),
     });
-    activeWorkerRun = { run, canary, timeout: null };
+    activeWorkerRun = {
+      run,
+      canary,
+      persistLocalState,
+      timeout: null,
+      canaryMonitor: null,
+    };
     await saveExperiment(run.experiment);
-    await saveAuthorization(run.experiment, true);
+    await saveAuthorization(run.experiment, true, persistLocalState);
     if (applied?.active !== true || !applied.constructorWrapped) {
       const stopped = await stopActiveWorkerRun("verification_failed");
       return {
@@ -246,12 +264,13 @@ export async function enableDedicatedWorkerExperiment(): Promise<
     );
     activeWorkerRun.run = run;
     await saveExperiment(run.experiment);
-    await saveReceipt(run.experiment.lastReceipt);
+    await saveReceipt(run.experiment.lastReceipt, persistLocalState);
     if (!run.experiment.enabled) {
-      await saveAuthorization(run.experiment, false);
+      await saveAuthorization(run.experiment, false, persistLocalState);
       activeWorkerRun = null;
     } else {
       scheduleRuntimeTimeout();
+      scheduleCanaryMonitor(activeWorkerRun);
     }
     return {
       experiments: mergeWithUnsupported(run.experiment),
@@ -267,7 +286,12 @@ export async function enableDedicatedWorkerExperiment(): Promise<
         localTemporary: scope.mode === "local_temporary",
       };
     }
-    return stopRunBeforeActivation(run, "verification_failed", tab.id);
+    return stopRunBeforeActivation(
+      run,
+      "verification_failed",
+      tab.id,
+      persistLocalState,
+    );
   }
 }
 
@@ -332,7 +356,11 @@ export async function clearLabsReceipts(): Promise<Record<string, unknown>> {
 
 export function labsTabNavigated(tabId: number): void {
   if (activeWorkerRun?.run.experiment.scope?.tabId === tabId) {
-    void stopActiveWorkerRun("site_navigation", true);
+    // Attempt an in-realm restore first because Chromium emits a loading
+    // update for both cross-document and same-document history navigation.
+    // If the destination is already cross-origin/inaccessible, the old realm
+    // is necessarily gone and an injection failure is safe to treat as such.
+    void stopActiveWorkerRun("site_navigation", false, true);
   }
 }
 
@@ -388,15 +416,17 @@ async function recoverInterruptedRun(): Promise<void> {
     restored,
     new Date(),
   );
+  const persistLocalState = await shouldPersistLocalLabsState(scope.tabId);
   await saveExperiment(recovered.experiment);
-  await saveReceipt(recovered.experiment.lastReceipt);
-  await saveAuthorization(recovered.experiment, false);
+  await saveReceipt(recovered.experiment.lastReceipt, persistLocalState);
+  await saveAuthorization(recovered.experiment, false, persistLocalState);
 }
 
 async function stopRunBeforeActivation(
   run: LabsRun,
   code: LabsStopConditionCode,
   tabId: number,
+  persistLocalState: boolean,
 ): Promise<Record<string, unknown>> {
   let restored = true;
   if (run.experiment.runId !== null) {
@@ -415,8 +445,8 @@ async function stopRunBeforeActivation(
   }
   const stopped = stopWorkerExperiment(run, code, restored, new Date());
   await saveExperiment(stopped.experiment);
-  await saveReceipt(stopped.experiment.lastReceipt);
-  await saveAuthorization(stopped.experiment, false);
+  await saveReceipt(stopped.experiment.lastReceipt, persistLocalState);
+  await saveAuthorization(stopped.experiment, false, persistLocalState);
   return {
     experiments: mergeWithUnsupported(stopped.experiment),
     permissionGranted: true,
@@ -427,6 +457,7 @@ async function stopRunBeforeActivation(
 async function stopActiveWorkerRun(
   stopCode: LabsStopConditionCode,
   realmGone = false,
+  restoreUnavailableMeansRealmGone = false,
 ): Promise<LabsExperiment | null> {
   if (stopping !== null) {
     return stopping;
@@ -438,6 +469,9 @@ async function stopActiveWorkerRun(
   activeWorkerRun = null;
   if (active.timeout !== null) {
     clearTimeout(active.timeout);
+  }
+  if (active.canaryMonitor !== null) {
+    clearTimeout(active.canaryMonitor);
   }
   stopping = (async () => {
     const experiment = active.run.experiment;
@@ -453,7 +487,7 @@ async function stopActiveWorkerRun(
         });
         restored = result?.restored === true && result.constructorNative;
       } catch {
-        restored = false;
+        restored = restoreUnavailableMeansRealmGone;
       }
     }
     const stopped = stopWorkerExperiment(
@@ -463,8 +497,12 @@ async function stopActiveWorkerRun(
       new Date(),
     );
     await saveExperiment(stopped.experiment);
-    await saveReceipt(stopped.experiment.lastReceipt);
-    await saveAuthorization(stopped.experiment, false);
+    await saveReceipt(stopped.experiment.lastReceipt, active.persistLocalState);
+    await saveAuthorization(
+      stopped.experiment,
+      false,
+      active.persistLocalState,
+    );
     return stopped.experiment;
   })();
   try {
@@ -495,6 +533,60 @@ function scheduleRuntimeTimeout(): void {
     () => void stopActiveWorkerRun("timeout"),
     Math.max(0, Date.parse(expiresAt) - Date.now()),
   );
+}
+
+function scheduleCanaryMonitor(active: ActiveWorkerRun): void {
+  const expiresAt = active.run.experiment.expiresAt;
+  if (
+    activeWorkerRun !== active ||
+    !active.run.experiment.enabled ||
+    active.canaryMonitor !== null ||
+    expiresAt === null
+  ) {
+    return;
+  }
+  const remainingMs = Date.parse(expiresAt) - Date.now();
+  if (remainingMs <= 0) {
+    return;
+  }
+  active.canaryMonitor = setTimeout(
+    () => {
+      active.canaryMonitor = null;
+      void monitorCanaryExposure(active);
+    },
+    Math.min(CANARY_MONITOR_INTERVAL_MS, remainingMs),
+  );
+}
+
+async function monitorCanaryExposure(active: ActiveWorkerRun): Promise<void> {
+  const experiment = active.run.experiment;
+  if (
+    activeWorkerRun !== active ||
+    !experiment.enabled ||
+    experiment.scope === null
+  ) {
+    return;
+  }
+  let leak: LabsStopConditionCode | null;
+  try {
+    leak = await findCanaryLeak(
+      experiment.scope.tabId,
+      experiment.scope.siteOrigin,
+      active.canary,
+    );
+  } catch {
+    leak = "verification_failed";
+  }
+  // A previous scan may finish after the run was stopped or replaced. It
+  // must neither stop the replacement nor install another monitor for it.
+  if (activeWorkerRun !== active) {
+    return;
+  }
+  if (leak !== null) {
+    await stopActiveWorkerRun(leak);
+    return;
+  }
+  scheduleCanaryMonitor(active);
 }
 
 async function findCanaryLeak(
@@ -649,6 +741,17 @@ async function activeRegularTab(): Promise<chrome.tabs.Tab | null> {
   return tab ?? null;
 }
 
+async function shouldPersistLocalLabsState(tabId: number): Promise<boolean> {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return tab.incognito === false;
+  } catch {
+    // Unknown or already-closed tabs are treated conservatively so a private
+    // run can never be recovered into shared extension-local history.
+    return false;
+  }
+}
+
 function mergeWithUnsupported(worker: LabsExperiment): LabsExperiment[] {
   const defaults = createDefaultLabsExperiments();
   return [worker, defaults[1]!, defaults[2]!];
@@ -670,8 +773,9 @@ async function saveExperiment(experiment: LabsExperiment): Promise<void> {
 async function saveAuthorization(
   experiment: LabsExperiment,
   enabled: boolean,
+  persistLocalState: boolean,
 ): Promise<void> {
-  if (experiment.scope === null) {
+  if (!persistLocalState || experiment.scope === null) {
     return;
   }
   const authorization = persistentLabsAuthorization(
@@ -692,8 +796,9 @@ async function saveAuthorization(
 
 async function saveReceipt(
   receipt: LabsExperimentReceipt | null,
+  persistLocalState: boolean,
 ): Promise<void> {
-  if (receipt === null) {
+  if (!persistLocalState || receipt === null) {
     return;
   }
   await pruneLabsReceipts(1);

@@ -144,6 +144,28 @@ describe("Labs experiment state machine", () => {
     });
   });
 
+  it.each([
+    "timeout",
+    "site_navigation",
+    "permission_taken_over",
+    "extension_context_lost",
+  ] as const)("records a successful %s lifecycle stop as restored", (code) => {
+    const stopped = stopWorkerExperiment(
+      applyingRun(),
+      code,
+      true,
+      new Date(NOW.getTime() + 500),
+    );
+    expect(stopped.experiment).toMatchObject({
+      state: "restored",
+      enabled: false,
+      lastReceipt: {
+        stopCode: code,
+        restore: { attempted: true, succeeded: true },
+      },
+    });
+  });
+
   it("reports a successful late injection as best-effort, never verified", () => {
     const completed = completeWorkerVerification(
       applyingRun(),
