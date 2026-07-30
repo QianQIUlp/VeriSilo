@@ -198,6 +198,9 @@ async function scanCurrentTab(): Promise<Record<string, unknown>> {
     throw new Error("VeriSilo 只扫描普通 HTTP(S) 页面。");
   }
 
+  const origin = new URL(tab.url).origin;
+  await chrome.storage.session.remove(reportKey(tab.id));
+
   try {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -224,7 +227,7 @@ async function scanCurrentTab(): Promise<Record<string, unknown>> {
     mainWorldInjected = false;
   }
 
-  return { started: true, mainWorldInjected };
+  return { started: true, mainWorldInjected, origin };
 }
 
 async function requestCurrentSiteAccess(): Promise<Record<string, unknown>> {

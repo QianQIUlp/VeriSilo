@@ -368,18 +368,49 @@ function setLabsButtonsBusy(busy: boolean, busyText?: string): void {
 async function scan(): Promise<void> {
   setBusy(scanButton, true, "正在扫描…");
   try {
+    const startedAt = Date.now();
     const response = await sendMessage({ type: "scan_current_tab" });
+    const report = await waitForCompletedReport(
+      startedAt,
+      typeof response.origin === "string" ? response.origin : null,
+    );
+    if (report === null) {
+      throw new Error(
+        "扫描未在 7 秒内完成。页面可能阻止了某项浏览器信号；请重试或查看扩展错误日志。",
+      );
+    }
+    renderReport(report);
     showNotice(
       "success",
       response.mainWorldInjected === false
-        ? "基础扫描已启动。页面主环境观察不可用，结论会明确标注覆盖边界。"
-        : "扫描已启动，结果完成后会自动整理为身份结论。",
+        ? "基础扫描已完成。页面主环境观察不可用，结论已明确标注覆盖边界。"
+        : "扫描已完成，结果已整理为身份结论。",
     );
   } catch (error) {
     showNotice("error", message(error));
   } finally {
     setBusy(scanButton, false);
   }
+}
+
+async function waitForCompletedReport(
+  startedAt: number,
+  expectedOrigin: string | null,
+): Promise<ObservationReport | null> {
+  const deadline = startedAt + 7_000;
+  while (Date.now() < deadline) {
+    const response = await sendMessage({ type: "get_current_report" });
+    const parsed = observationReportSchema.safeParse(response.report);
+    if (
+      parsed.success &&
+      Date.parse(parsed.data.collectedAt) >= startedAt - 1_000 &&
+      (expectedOrigin === null || parsed.data.origin === expectedOrigin)
+    ) {
+      return parsed.data;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+  return null;
 }
 
 async function requestSiteAccess(): Promise<void> {
