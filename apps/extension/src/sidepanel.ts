@@ -95,6 +95,7 @@ let latestReport: ObservationReport | null = null;
 let latestNetworkCheck: NetworkCheckResult | null = null;
 let latestNetworkHandoff: NetworkEvidenceHandoffStatus | null = null;
 let reportRefreshVersion = 0;
+let labsRefreshVersion = 0;
 let activeSitePermissionRefreshVersion = 0;
 let activeSiteOriginPattern: string | null = null;
 
@@ -159,7 +160,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       void refreshNetworkCheck();
     }
     if (changedKeys.includes("labs:status")) {
-      void refreshLabsStatus();
+      void refreshLabsStatus(true);
     }
   }
   if (
@@ -217,8 +218,8 @@ async function enableWorkerExperiment(
       showNotice(
         "success",
         worker.scope?.mode === "local_temporary"
-          ? "窄 Worker 自检已通过，但注入顺序无法证明；仅本机临时运行，不属于任何桌面 Silo。"
-          : "窄 Worker 自检已通过并绑定当前 Silo/站点；注入顺序无法证明，所以只标记 best-effort。",
+          ? "网页后台任务检查已启动；覆盖范围有限。它只在当前浏览器临时运行，不属于桌面 Silo。"
+          : "网页后台任务检查已启动并绑定当前桌面 Silo 与网站；由于无法覆盖所有网页运行区域，状态标为“有限覆盖”。",
       );
     } else if (worker.state === "leak_detected") {
       showNotice(
@@ -260,12 +261,39 @@ async function stopWorkerExperiment(): Promise<void> {
   }
 }
 
-async function refreshLabsStatus(): Promise<void> {
+async function refreshLabsStatus(announceAutomaticStop = false): Promise<void> {
+  const version = ++labsRefreshVersion;
   try {
     const response = await sendMessage({ type: "get_labs_status" });
+    if (version !== labsRefreshVersion) {
+      return;
+    }
     const worker = workerExperimentFromResponse(response);
     renderWorkerExperiment(worker);
+    if (
+      announceAutomaticStop &&
+      worker?.lastReceipt !== null &&
+      worker?.lastReceipt !== undefined
+    ) {
+      if (worker.state === "failed" || worker.state === "leak_detected") {
+        showNotice(
+          "error",
+          `Labs 已因“${labsStopLabel(worker.lastReceipt.stopCode)}”停止；原 Worker constructor ${worker.lastReceipt.restore.succeeded ? "已恢复" : "未能确认恢复"}。`,
+        );
+      } else if (
+        worker.state === "restored" &&
+        worker.lastReceipt.stopCode !== "user_requested"
+      ) {
+        showNotice(
+          "success",
+          `Labs 已因“${labsStopLabel(worker.lastReceipt.stopCode)}”自动停止并恢复。`,
+        );
+      }
+    }
   } catch (error) {
+    if (version !== labsRefreshVersion) {
+      return;
+    }
     labsWorkerStatus.textContent = "状态不可用";
     labsWorkerStatus.className = "status-chip warning";
     labsScope.textContent = `无法读取实验状态：${message(error)}`;
@@ -285,7 +313,7 @@ async function refreshLabsReceipts(): Promise<void> {
       typeof response.maximum === "number" ? response.maximum : 50;
     const retentionDays =
       typeof response.retentionDays === "number" ? response.retentionDays : 30;
-    labsReceiptStatus.textContent = `本机保存 ${receipts.length}/${maximum} 份脱敏收据；${retentionDays} 天后自动清理。`;
+    labsReceiptStatus.textContent = `本机保存 ${receipts.length}/${maximum} 份脱敏收据；${retentionDays} 天后自动清理；下方显示最近 ${Math.min(receipts.length, 8)} 份。`;
     labsClearReceiptsButton.disabled = receipts.length === 0;
     renderLabsReceipts(receipts);
   } catch {
@@ -359,15 +387,69 @@ function renderWorkerExperiment(experiment: LabsExperiment | null): void {
 function renderLabsReceipts(receipts: LabsExperimentReceipt[]): void {
   labsReceiptList.replaceChildren();
   for (const receipt of receipts.slice(0, 8)) {
-    const item = document.createElement("article");
+    const item = document.createElement("details");
     item.className = "labs-receipt";
+    const summary = document.createElement("summary");
     const title = document.createElement("strong");
     title.textContent = `${labsStateLabel(receipt.state)} · ${receipt.scope.siteHost}`;
     const detail = document.createElement("span");
-    detail.textContent = `${formatDate(receipt.finalizedAt)} · ${receipt.stopCode === null ? "无停止条件" : receipt.stopCode} · 恢复${receipt.restore.succeeded ? "已确认" : "未确认"}`;
-    item.append(title, detail);
+    const restoreLabel = receipt.restore.attempted
+      ? `恢复${receipt.restore.succeeded ? "已确认" : "未确认"}`
+      : "尚未执行恢复";
+    detail.textContent = `${formatDate(receipt.finalizedAt)} · ${labsStopLabel(receipt.stopCode)} · ${restoreLabel}`;
+    summary.append(title, detail);
+    const phases = document.createElement("ul");
+    phases.className = "labs-stop-list";
+    for (const phase of receipt.phases) {
+      const row = document.createElement("li");
+      row.textContent = `${labsPhaseLabel(phase.phase)}：${phase.outcome === "passed" ? "通过" : phase.outcome === "failed" ? "失败" : "未执行"} · ${phase.evidenceCodes.join("、") || "无证据码"}`;
+      phases.append(row);
+    }
+    const coverage = document.createElement("p");
+    coverage.className = "labs-evidence";
+    coverage.textContent = `覆盖：新建 Worker ${receipt.coverage.newDedicatedWorkers}；同源 iframe ${receipt.coverage.windowIframe}；注入顺序 ${receipt.coverage.injectionOrder}；Cookie ${receipt.coverage.cookies}；Service Worker ${receipt.coverage.serviceWorkers}。`;
+    item.append(summary, phases, coverage);
     labsReceiptList.append(item);
   }
+}
+
+function labsPhaseLabel(
+  phase: LabsExperimentReceipt["phases"][number]["phase"],
+): string {
+  return {
+    observe: "Observe 观察",
+    apply: "Apply 应用",
+    verify: "Verify 验证",
+    restore: "Restore 恢复",
+  }[phase];
+}
+
+function labsStopLabel(code: LabsExperimentReceipt["stopCode"]): string {
+  if (code === null) {
+    return "运行中无停止条件";
+  }
+  const labels: Record<
+    Exclude<LabsExperimentReceipt["stopCode"], null>,
+    string
+  > = {
+    cross_tab_canary_leak: "跨标签页 canary 泄漏",
+    iframe_canary_leak: "iframe canary 泄漏",
+    worker_canary_leak: "Worker canary 泄漏",
+    service_worker_canary_leak: "Service Worker URL 泄漏",
+    cookie_canary_leak: "Cookie canary 泄漏",
+    window_canary_leak: "页面 canary 泄漏",
+    page_error: "页面异常",
+    worker_error: "Worker 异常",
+    timeout: "运行超时",
+    permission_taken_over: "站点权限已撤销或被接管",
+    site_navigation: "页面已切换",
+    scope_violation: "超出实验范围",
+    verification_failed: "验证失败",
+    extension_context_lost: "扩展上下文丢失",
+    user_requested: "用户手动停止",
+    expired: "授权已过期",
+  };
+  return labels[code];
 }
 
 function labsStateLabel(state: LabsExperiment["state"]): string {
@@ -375,7 +457,7 @@ function labsStateLabel(state: LabsExperiment["state"]): string {
     disabled: "默认关闭",
     permission_missing: "缺少站点权限",
     applying: "正在应用",
-    best_effort: "Best-effort",
+    best_effort: "有限覆盖",
     verified: "已验证",
     failed: "失败并停用",
     leak_detected: "泄漏即停",
