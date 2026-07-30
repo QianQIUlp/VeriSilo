@@ -50,6 +50,10 @@ for (const pattern of [
 }
 
 const background = await readFile(resolve(dist, "background.js"), "utf8");
+const storeDisclosure = await readFile(
+  resolve(root, "docs/store-disclosure.md"),
+  "utf8",
+);
 if (!background.includes("storage.local.setAccessLevel")) {
   throw new Error(
     "VeriSilo extension must restrict storage.local to trusted contexts.",
@@ -84,6 +88,21 @@ for (const url of allowedNetworkUrls) {
   if (!bundledNetworkUrls.has(url)) {
     throw new Error(
       `Extension bundle is missing an audited network URL: ${url}`,
+    );
+  }
+}
+
+for (const requiredDisclosure of [
+  "chrome.storage.session",
+  "chrome.storage.local",
+  "Native Messaging",
+  "encrypted Vault",
+  "extension observation",
+  "does not transmit browsing activity",
+]) {
+  if (!storeDisclosure.includes(requiredDisclosure)) {
+    throw new Error(
+      `Store disclosure is missing the current local data-flow boundary: ${requiredDisclosure}`,
     );
   }
 }

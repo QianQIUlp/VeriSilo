@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "engineId": "controlled-chromium",
+  "engineVersion": "150.0.0",
+  "channel": "experimental",
+  "platform": "windows-x64",
+  "executableRelativePath": "bin/chromium.exe",
+  "artifactSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "signature": {
+    "algorithm": "cms-detached-sha256",
+    "keyId": "0000000000000000000000000000000000000000000000000000000000000000",
+    "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "capabilities": [
+    "identity_template",
+    "ua_ua_ch",
+    "language_timezone",
+    "screen",
+    "canvas",
+    "webgl",
+    "fonts",
+    "media_devices",
+    "request_headers",
+    "window",
+    "iframe",
+    "dedicated_worker",
+    "site_fallback"
+  ]
+}

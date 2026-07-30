@@ -2,7 +2,8 @@ use std::{
     collections::HashMap,
     io::{self, Read, Write},
     net::{IpAddr, SocketAddr, TcpStream},
-    time::Duration,
+    sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, Instant},
 };
 
 use chrono::Utc;
@@ -15,6 +16,7 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::{domain::ExternalMihomoBinding, vault::MihomoControllerAuthentication};
 
 const CONTROLLER_TIMEOUT: Duration = Duration::from_secs(5);
+const CONTROLLER_IO_POLL: Duration = Duration::from_millis(100);
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Clone, Deserialize)]
@@ -65,6 +67,17 @@ pub struct MihomoNode {
     pub alive: Option<bool>,
 }
 
+/// Immutable, in-memory evidence for the exact external Mihomo instance and
+/// listener accepted at launch. It is deliberately not serialized: recovery
+/// after a desktop restart must perform a fresh launch instead of trusting an
+/// old Controller/config snapshot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MihomoRuntimeGuard {
+    controller_endpoint: SocketAddr,
+    proxy_endpoint: SocketAddr,
+    configuration: Value,
+}
+
 #[derive(Debug, Error)]
 pub enum MihomoError {
     #[error("Mihomo Controller 只允许显式本机 HTTP 地址，例如 http://127.0.0.1:9090/。")]
@@ -85,6 +98,14 @@ pub enum MihomoError {
     NodeUnavailable(String),
     #[error("Mihomo 回读结果显示选择组“{group}”没有保持在节点“{node}”。")]
     SelectionNotApplied { group: String, node: String },
+    #[error("必须代理的 Mihomo 路径要求 GLOBAL 选择组和 global 模式，不能允许规则命中 DIRECT。")]
+    DirectFallbackPossible,
+    #[error("Mihomo 选择的节点“{0}”是 DIRECT/REJECT 或无法证明为远端代理节点。")]
+    UnsafeSelectedNode(String),
+    #[error("Mihomo 配置没有把所选 loopback SOCKS5 端口绑定为 socks-port 或 mixed-port。")]
+    ProxyListenerMismatch,
+    #[error("Mihomo Controller 的运行中配置已漂移。")]
+    ConfigurationDrift,
 }
 
 pub fn inspect_controller(input: &MihomoControllerInput) -> Result<MihomoSnapshot, MihomoError> {
@@ -143,6 +164,17 @@ pub fn apply_binding(
         .map_err(|_| MihomoError::InvalidResponse)?;
     controller_request(&binding.controller_url, "PUT", &path, secret, Some(&body))?;
 
+    verify_binding(binding, authentication)
+}
+
+/// Read-only health check for a binding that was explicitly selected earlier.
+/// It never changes the user's long-lived node selection.
+pub fn verify_binding(
+    binding: &ExternalMihomoBinding,
+    authentication: Option<&MihomoControllerAuthentication>,
+) -> Result<(), MihomoError> {
+    let secret = authentication.map_or("", MihomoControllerAuthentication::secret);
+    validate_secret(secret)?;
     let after = controller_request(&binding.controller_url, "GET", "/proxies", secret, None)?;
     let after = parse_snapshot(&after)?;
     let selected = after
@@ -171,6 +203,296 @@ pub fn apply_binding(
         return Err(MihomoError::NodeUnavailable(binding.node_name.clone()));
     }
     Ok(())
+}
+
+/// Captures the exact Controller endpoint, proxy listener and redacted config
+/// accepted for this required-proxy launch. `global` + `GLOBAL` is the narrow
+/// external-Mihomo mode in which VeriSilo can reject an intentional ruleset
+/// fallback to `DIRECT` before browser traffic is admitted.
+pub fn capture_runtime_guard(
+    binding: &ExternalMihomoBinding,
+    proxy_host: &str,
+    proxy_port: u16,
+    authentication: Option<&MihomoControllerAuthentication>,
+) -> Result<MihomoRuntimeGuard, MihomoError> {
+    let secret = authentication.map_or("", MihomoControllerAuthentication::secret);
+    validate_secret(secret)?;
+    let controller_endpoint = controller_endpoint(&binding.controller_url)?;
+    let proxy_endpoint = loopback_proxy_endpoint(proxy_host, proxy_port)?;
+    let snapshot = read_binding_snapshot(binding, secret)?;
+    validate_required_route(binding, &snapshot)?;
+    let configuration = read_runtime_configuration(binding, proxy_endpoint, secret)?;
+    Ok(MihomoRuntimeGuard {
+        controller_endpoint,
+        proxy_endpoint,
+        configuration,
+    })
+}
+
+/// Rechecks an existing guard without applying a node or configuration. Any
+/// endpoint, authentication, selection, node-health or config mismatch is a
+/// terminal result for the caller's exact relay; this function never repairs
+/// or rotates the user's Mihomo process in the background.
+pub fn verify_runtime_guard(
+    guard: &MihomoRuntimeGuard,
+    binding: &ExternalMihomoBinding,
+    proxy_host: &str,
+    proxy_port: u16,
+    authentication: Option<&MihomoControllerAuthentication>,
+) -> Result<(), MihomoError> {
+    let secret = authentication.map_or("", MihomoControllerAuthentication::secret);
+    validate_secret(secret)?;
+    let controller_endpoint = controller_endpoint(&binding.controller_url)?;
+    let proxy_endpoint = loopback_proxy_endpoint(proxy_host, proxy_port)?;
+    if controller_endpoint != guard.controller_endpoint || proxy_endpoint != guard.proxy_endpoint {
+        return Err(MihomoError::ConfigurationDrift);
+    }
+    let snapshot = read_binding_snapshot(binding, secret)?;
+    validate_required_route(binding, &snapshot)?;
+    let configuration = read_runtime_configuration(binding, proxy_endpoint, secret)?;
+    if configuration != guard.configuration {
+        return Err(MihomoError::ConfigurationDrift);
+    }
+    Ok(())
+}
+
+/// Deadline-aware variant used by the native runtime watchdog. Both
+/// Controller reads share one absolute deadline, so reconnects and slow
+/// trickle responses cannot reset the health-check budget.
+pub(crate) fn verify_runtime_guard_until(
+    guard: &MihomoRuntimeGuard,
+    binding: &ExternalMihomoBinding,
+    proxy_host: &str,
+    proxy_port: u16,
+    authentication: Option<&MihomoControllerAuthentication>,
+    deadline: Instant,
+    cancelled: &AtomicBool,
+) -> Result<(), MihomoError> {
+    ensure_probe_active(deadline, cancelled)?;
+    let secret = authentication.map_or("", MihomoControllerAuthentication::secret);
+    validate_secret(secret)?;
+    let controller_endpoint = controller_endpoint(&binding.controller_url)?;
+    let proxy_endpoint = loopback_proxy_endpoint(proxy_host, proxy_port)?;
+    if controller_endpoint != guard.controller_endpoint || proxy_endpoint != guard.proxy_endpoint {
+        return Err(MihomoError::ConfigurationDrift);
+    }
+    let snapshot = read_binding_snapshot_until(binding, secret, deadline, cancelled)?;
+    validate_required_route(binding, &snapshot)?;
+    ensure_probe_active(deadline, cancelled)?;
+    let configuration =
+        read_runtime_configuration_until(binding, proxy_endpoint, secret, deadline, cancelled)?;
+    ensure_probe_active(deadline, cancelled)?;
+    if configuration != guard.configuration {
+        return Err(MihomoError::ConfigurationDrift);
+    }
+    Ok(())
+}
+
+fn read_binding_snapshot(
+    binding: &ExternalMihomoBinding,
+    secret: &str,
+) -> Result<MihomoSnapshot, MihomoError> {
+    let body = controller_request(&binding.controller_url, "GET", "/proxies", secret, None)?;
+    let snapshot = parse_snapshot(&body)?;
+    let selected = snapshot
+        .groups
+        .iter()
+        .find(|group| group.name == binding.selector_group)
+        .and_then(|group| group.selected.as_deref());
+    if selected != Some(binding.node_name.as_str()) {
+        return Err(MihomoError::SelectionNotApplied {
+            group: binding.selector_group.clone(),
+            node: binding.node_name.clone(),
+        });
+    }
+    Ok(snapshot)
+}
+
+fn read_binding_snapshot_until(
+    binding: &ExternalMihomoBinding,
+    secret: &str,
+    deadline: Instant,
+    cancelled: &AtomicBool,
+) -> Result<MihomoSnapshot, MihomoError> {
+    let body = controller_request_until(
+        &binding.controller_url,
+        "GET",
+        "/proxies",
+        secret,
+        None,
+        deadline,
+        cancelled,
+    )?;
+    ensure_probe_active(deadline, cancelled)?;
+    let snapshot = parse_snapshot(&body)?;
+    let selected = snapshot
+        .groups
+        .iter()
+        .find(|group| group.name == binding.selector_group)
+        .and_then(|group| group.selected.as_deref());
+    if selected != Some(binding.node_name.as_str()) {
+        return Err(MihomoError::SelectionNotApplied {
+            group: binding.selector_group.clone(),
+            node: binding.node_name.clone(),
+        });
+    }
+    Ok(snapshot)
+}
+
+fn validate_required_route(
+    binding: &ExternalMihomoBinding,
+    snapshot: &MihomoSnapshot,
+) -> Result<(), MihomoError> {
+    if binding.selector_group != "GLOBAL" {
+        return Err(MihomoError::DirectFallbackPossible);
+    }
+    let node = snapshot
+        .groups
+        .iter()
+        .find(|group| group.name == binding.selector_group)
+        .and_then(|group| {
+            group
+                .nodes
+                .iter()
+                .find(|node| node.name == binding.node_name)
+        })
+        .ok_or_else(|| MihomoError::NodeNotFound {
+            group: binding.selector_group.clone(),
+            node: binding.node_name.clone(),
+        })?;
+    if node.alive == Some(false) {
+        return Err(MihomoError::NodeUnavailable(binding.node_name.clone()));
+    }
+    let proxy_type = node.proxy_type.as_deref().unwrap_or_default();
+    if proxy_type.is_empty()
+        || matches!(
+            proxy_type.to_ascii_lowercase().as_str(),
+            "direct" | "reject" | "reject-drop" | "pass" | "compatible"
+        )
+    {
+        return Err(MihomoError::UnsafeSelectedNode(binding.node_name.clone()));
+    }
+    Ok(())
+}
+
+fn read_runtime_configuration(
+    binding: &ExternalMihomoBinding,
+    proxy_endpoint: SocketAddr,
+    secret: &str,
+) -> Result<Value, MihomoError> {
+    let body = Zeroizing::new(controller_request(
+        &binding.controller_url,
+        "GET",
+        "/configs",
+        secret,
+        None,
+    )?);
+    let mut configuration: Value =
+        serde_json::from_slice(&body).map_err(|_| MihomoError::InvalidResponse)?;
+    // Redact and zeroize before any validation can return early.
+    redact_configuration_secrets(&mut configuration);
+    let object = configuration
+        .as_object()
+        .ok_or(MihomoError::InvalidResponse)?;
+    let mode = object
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !mode.eq_ignore_ascii_case("global") {
+        return Err(MihomoError::DirectFallbackPossible);
+    }
+    let expected_port = u64::from(proxy_endpoint.port());
+    let listener_matches = ["socks-port", "mixed-port"]
+        .iter()
+        .any(|field| object.get(*field).and_then(Value::as_u64) == Some(expected_port));
+    if !listener_matches {
+        return Err(MihomoError::ProxyListenerMismatch);
+    }
+    Ok(configuration)
+}
+
+fn read_runtime_configuration_until(
+    binding: &ExternalMihomoBinding,
+    proxy_endpoint: SocketAddr,
+    secret: &str,
+    deadline: Instant,
+    cancelled: &AtomicBool,
+) -> Result<Value, MihomoError> {
+    let body = controller_request_until(
+        &binding.controller_url,
+        "GET",
+        "/configs",
+        secret,
+        None,
+        deadline,
+        cancelled,
+    )?;
+    ensure_probe_active(deadline, cancelled)?;
+    let mut configuration: Value =
+        serde_json::from_slice(&body).map_err(|_| MihomoError::InvalidResponse)?;
+    // Redact and zeroize before any validation can return early.
+    redact_configuration_secrets(&mut configuration);
+    let object = configuration
+        .as_object()
+        .ok_or(MihomoError::InvalidResponse)?;
+    let mode = object
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !mode.eq_ignore_ascii_case("global") {
+        return Err(MihomoError::DirectFallbackPossible);
+    }
+    let expected_port = u64::from(proxy_endpoint.port());
+    let listener_matches = ["socks-port", "mixed-port"]
+        .iter()
+        .any(|field| object.get(*field).and_then(Value::as_u64) == Some(expected_port));
+    if !listener_matches {
+        return Err(MihomoError::ProxyListenerMismatch);
+    }
+    Ok(configuration)
+}
+
+fn redact_configuration_secrets(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                let key = key.to_ascii_lowercase();
+                if key.contains("secret")
+                    || key.contains("password")
+                    || key.contains("token")
+                    || key.contains("authorization")
+                {
+                    zeroize_json_strings(value);
+                    *value = Value::String("<redacted>".to_owned());
+                } else {
+                    redact_configuration_secrets(value);
+                }
+            }
+        }
+        Value::Array(values) => values.iter_mut().for_each(redact_configuration_secrets),
+        _ => {}
+    }
+}
+
+fn zeroize_json_strings(value: &mut Value) {
+    match value {
+        Value::String(value) => value.zeroize(),
+        Value::Array(values) => values.iter_mut().for_each(zeroize_json_strings),
+        Value::Object(object) => object.values_mut().for_each(zeroize_json_strings),
+        _ => {}
+    }
+}
+
+fn loopback_proxy_endpoint(host: &str, port: u16) -> Result<SocketAddr, MihomoError> {
+    let ip = host
+        .trim()
+        .trim_matches(['[', ']'])
+        .parse::<IpAddr>()
+        .map_err(|_| MihomoError::ProxyListenerMismatch)?;
+    if !ip.is_loopback() || port == 0 {
+        return Err(MihomoError::ProxyListenerMismatch);
+    }
+    Ok(SocketAddr::new(ip, port))
 }
 
 fn validate_secret(secret: &str) -> Result<(), MihomoError> {
@@ -324,8 +646,158 @@ fn controller_request(
     stream.write_all(request.as_bytes())?;
     stream.write_all(body)?;
 
-    let response = read_http_response(&mut stream)?;
+    let response = Zeroizing::new(read_http_response(&mut stream)?);
     parse_http_response(&response)
+}
+
+fn controller_request_until(
+    controller_url: &str,
+    method: &str,
+    path: &str,
+    secret: &str,
+    body: Option<&[u8]>,
+    deadline: Instant,
+    cancelled: &AtomicBool,
+) -> Result<Zeroizing<Vec<u8>>, MihomoError> {
+    ensure_probe_active(deadline, cancelled)?;
+    let endpoint = controller_endpoint(controller_url)?;
+    // Connect before constructing any authorization buffer. A slow or failed
+    // connection therefore never retains an extra copy of the Vault secret.
+    let connect_timeout =
+        remaining_controller_timeout(deadline, cancelled)?.min(CONTROLLER_TIMEOUT);
+    let mut stream = TcpStream::connect_timeout(&endpoint, connect_timeout)?;
+    ensure_probe_active(deadline, cancelled)?;
+
+    let authorization = Zeroizing::new(if secret.is_empty() {
+        String::new()
+    } else {
+        format!("Authorization: Bearer {secret}\r\n")
+    });
+    let body = body.unwrap_or_default();
+    let content_headers = if body.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            body.len()
+        )
+    };
+    let host_header = if endpoint.is_ipv6() {
+        format!("[{}]:{}", endpoint.ip(), endpoint.port())
+    } else {
+        format!("{}:{}", endpoint.ip(), endpoint.port())
+    };
+    let request = Zeroizing::new(format!(
+        "{method} {path} HTTP/1.1\r\nHost: {host_header}\r\nAccept: application/json\r\n{}{content_headers}Connection: close\r\n\r\n",
+        authorization.as_str(),
+    ));
+    drop(authorization);
+    let request_result = write_all_until(&mut stream, request.as_bytes(), deadline, cancelled);
+    // Do not retain the bearer header while a Controller trickles its response.
+    drop(request);
+    request_result?;
+    write_all_until(&mut stream, body, deadline, cancelled)?;
+
+    let response = read_http_response_until(&mut stream, deadline, cancelled)?;
+    ensure_probe_active(deadline, cancelled)?;
+    parse_http_response(&response).map(Zeroizing::new)
+}
+
+fn write_all_until(
+    stream: &mut TcpStream,
+    mut bytes: &[u8],
+    deadline: Instant,
+    cancelled: &AtomicBool,
+) -> Result<(), MihomoError> {
+    while !bytes.is_empty() {
+        let timeout = remaining_controller_timeout(deadline, cancelled)?.min(CONTROLLER_IO_POLL);
+        stream.set_write_timeout(Some(timeout))?;
+        match stream.write(bytes) {
+            Ok(0) => {
+                return Err(MihomoError::Io(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "Mihomo Controller closed while a request was being written",
+                )))
+            }
+            Ok(written) => bytes = &bytes[written..],
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock
+                        | io::ErrorKind::TimedOut
+                        | io::ErrorKind::Interrupted
+                ) => {}
+            Err(error) => return Err(MihomoError::Io(error)),
+        }
+    }
+    Ok(())
+}
+
+fn read_http_response_until(
+    stream: &mut TcpStream,
+    deadline: Instant,
+    cancelled: &AtomicBool,
+) -> Result<Zeroizing<Vec<u8>>, MihomoError> {
+    let mut response = Zeroizing::new(Vec::new());
+    let mut buffer = [0_u8; 8 * 1_024];
+    loop {
+        let timeout = remaining_controller_timeout(deadline, cancelled)?.min(CONTROLLER_IO_POLL);
+        stream.set_read_timeout(Some(timeout))?;
+        match stream.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => {
+                response.extend_from_slice(&buffer[..read]);
+                if response.len() > MAX_RESPONSE_BYTES {
+                    return Err(MihomoError::InvalidResponse);
+                }
+                if http_response_is_complete(&response) {
+                    break;
+                }
+            }
+            Err(error)
+                if error.kind() == io::ErrorKind::ConnectionReset
+                    && http_response_is_complete(&response) =>
+            {
+                break;
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock
+                        | io::ErrorKind::TimedOut
+                        | io::ErrorKind::Interrupted
+                ) => {}
+            Err(error) => return Err(MihomoError::Io(error)),
+        }
+    }
+    if response.is_empty() {
+        return Err(MihomoError::InvalidResponse);
+    }
+    Ok(response)
+}
+
+fn ensure_probe_active(deadline: Instant, cancelled: &AtomicBool) -> Result<(), MihomoError> {
+    remaining_controller_timeout(deadline, cancelled).map(|_| ())
+}
+
+fn remaining_controller_timeout(
+    deadline: Instant,
+    cancelled: &AtomicBool,
+) -> Result<Duration, MihomoError> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(MihomoError::Io(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "Mihomo runtime guard check was cancelled",
+        )));
+    }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(MihomoError::Io(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Mihomo runtime guard check exceeded its total deadline",
+        )));
+    }
+    Ok(remaining)
 }
 
 fn read_http_response(stream: &mut TcpStream) -> Result<Vec<u8>, MihomoError> {
@@ -492,10 +964,18 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::TcpListener,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc, Arc,
+        },
         thread,
+        time::{Duration, Instant},
     };
 
-    use super::{apply_binding, inspect_controller, MihomoControllerInput};
+    use super::{
+        apply_binding, capture_runtime_guard, inspect_controller, verify_runtime_guard,
+        verify_runtime_guard_until, MihomoControllerInput, MihomoError, MihomoRuntimeGuard,
+    };
     use crate::domain::ExternalMihomoBinding;
 
     const RESPONSE_BEFORE: &str = r#"{"proxies":{"GLOBAL":{"type":"Selector","now":"old","all":["old","Tokyo 01"]},"old":{"type":"Socks5","alive":true,"history":[{"delay":120}]},"Tokyo 01":{"type":"Socks5","alive":true,"history":[{"delay":42}]}}}"#;
@@ -510,6 +990,17 @@ mod tests {
             body
         )
         .expect("write fake controller response");
+    }
+
+    fn write_json_keep_alive(stream: &mut std::net::TcpStream, body: &str) {
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .expect("write keep-alive controller response");
+        stream.flush().expect("flush keep-alive response");
     }
 
     fn read_request(stream: &mut std::net::TcpStream) -> String {
@@ -544,6 +1035,28 @@ mod tests {
             request.extend_from_slice(&buffer[..read]);
         }
         String::from_utf8(request).expect("controller request is UTF-8")
+    }
+
+    fn test_runtime_guard(controller: std::net::SocketAddr) -> MihomoRuntimeGuard {
+        MihomoRuntimeGuard {
+            controller_endpoint: controller,
+            proxy_endpoint: "127.0.0.1:7891".parse().expect("proxy endpoint"),
+            configuration: serde_json::json!({
+                "mode": "global",
+                "socks-port": 7891,
+                "mixed-port": 0,
+                "allow-lan": false
+            }),
+        }
+    }
+
+    fn test_binding(controller: std::net::SocketAddr) -> ExternalMihomoBinding {
+        ExternalMihomoBinding {
+            controller_url: format!("http://127.0.0.1:{}/", controller.port()),
+            selector_group: "GLOBAL".to_owned(),
+            node_name: "Tokyo 01".to_owned(),
+            controller_secret_reference: None,
+        }
     }
 
     #[test]
@@ -603,5 +1116,235 @@ mod tests {
             secret: String::new(),
         })
         .is_err());
+    }
+
+    #[test]
+    fn runtime_guard_total_deadline_caps_a_slow_controller_response() {
+        let listener =
+            TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("bind slow controller");
+        let address = listener.local_addr().expect("slow controller address");
+        let (request_seen_tx, request_seen) = mpsc::channel();
+        let (release_tx, release) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept guard request");
+            let request = read_request(&mut stream);
+            assert!(request.contains("Authorization: Bearer controller-secret"));
+            request_seen_tx.send(()).expect("report guard request");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{{",
+                RESPONSE_AFTER.len()
+            )
+            .expect("write partial controller response");
+            let _ = release.recv_timeout(Duration::from_secs(2));
+        });
+        let guard = test_runtime_guard(address);
+        let binding = test_binding(address);
+        let authentication =
+            crate::vault::MihomoControllerAuthentication::new("controller-secret".to_owned());
+        let cancelled = AtomicBool::new(false);
+        let started_at = Instant::now();
+
+        let result = verify_runtime_guard_until(
+            &guard,
+            &binding,
+            "127.0.0.1",
+            7891,
+            Some(&authentication),
+            started_at + Duration::from_millis(150),
+            &cancelled,
+        );
+
+        request_seen
+            .recv_timeout(Duration::from_secs(1))
+            .expect("bounded guard sent its request");
+        assert!(matches!(
+            result,
+            Err(MihomoError::Io(ref error))
+                if error.kind() == std::io::ErrorKind::TimedOut
+        ));
+        assert!(started_at.elapsed() < Duration::from_secs(1));
+        let _ = release_tx.send(());
+        server.join().expect("slow controller exits");
+    }
+
+    #[test]
+    fn runtime_guard_accepts_complete_keep_alive_responses_without_waiting_for_eof() {
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .expect("bind keep-alive controller");
+        let address = listener.local_addr().expect("controller address");
+        let (release_tx, release) = mpsc::channel();
+        let release = Arc::new(std::sync::Mutex::new(release));
+        let server = thread::spawn(move || {
+            let mut handlers = Vec::new();
+            for body in [
+                RESPONSE_AFTER.to_owned(),
+                r#"{"mode":"global","socks-port":7891,"mixed-port":0,"allow-lan":false}"#
+                    .to_owned(),
+            ] {
+                let (mut stream, _) = listener.accept().expect("accept keep-alive request");
+                let release = Arc::clone(&release);
+                handlers.push(thread::spawn(move || {
+                    let _ = read_request(&mut stream);
+                    write_json_keep_alive(&mut stream, &body);
+                    let _ = release
+                        .lock()
+                        .expect("keep-alive release lock")
+                        .recv_timeout(Duration::from_secs(2));
+                }));
+            }
+            for handler in handlers {
+                handler.join().expect("keep-alive handler exits");
+            }
+        });
+        let guard = test_runtime_guard(address);
+        let binding = test_binding(address);
+        let cancelled = AtomicBool::new(false);
+        let started_at = Instant::now();
+
+        let result = verify_runtime_guard_until(
+            &guard,
+            &binding,
+            "127.0.0.1",
+            7891,
+            None,
+            started_at + Duration::from_secs(1),
+            &cancelled,
+        );
+
+        assert!(result.is_ok());
+        let _ = release_tx.send(());
+        let _ = release_tx.send(());
+        server.join().expect("keep-alive controller exits");
+    }
+
+    #[test]
+    fn runtime_guard_cancellation_interrupts_a_secret_bearing_request() {
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .expect("bind cancellable controller");
+        let address = listener.local_addr().expect("controller address");
+        let (request_seen_tx, request_seen) = mpsc::channel();
+        let (release_tx, release) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept guard request");
+            let request = read_request(&mut stream);
+            assert!(request.contains("Authorization: Bearer controller-secret"));
+            request_seen_tx.send(()).expect("report guard request");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{{",
+                RESPONSE_AFTER.len()
+            )
+            .expect("write partial controller response");
+            let _ = release.recv_timeout(Duration::from_secs(2));
+        });
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let guard = test_runtime_guard(address);
+        let binding = test_binding(address);
+        let (result_tx, result_rx) = mpsc::channel();
+        let probe = thread::spawn(move || {
+            let authentication =
+                crate::vault::MihomoControllerAuthentication::new("controller-secret".to_owned());
+            let result = verify_runtime_guard_until(
+                &guard,
+                &binding,
+                "127.0.0.1",
+                7891,
+                Some(&authentication),
+                Instant::now() + Duration::from_secs(5),
+                &worker_cancelled,
+            );
+            result_tx.send(result).expect("return cancelled result");
+        });
+        request_seen
+            .recv_timeout(Duration::from_secs(1))
+            .expect("secret-bearing request was sent");
+
+        cancelled.store(true, Ordering::Release);
+
+        let result = result_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("cancelled guard exits within one I/O poll");
+        assert!(matches!(
+            result,
+            Err(MihomoError::Io(ref error))
+                if error.kind() == std::io::ErrorKind::Interrupted
+        ));
+        let _ = release_tx.send(());
+        probe.join().expect("cancelled probe exits");
+        server.join().expect("cancellable controller exits");
+    }
+
+    #[test]
+    fn required_runtime_guard_rejects_config_drift_without_rebinding() {
+        let listener =
+            TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("bind fake controller");
+        let address = listener.local_addr().expect("fake controller address");
+        let server = thread::spawn(move || {
+            for index in 0..4 {
+                let (mut stream, _) = listener.accept().expect("accept guard request");
+                let request = read_request(&mut stream);
+                if request.starts_with("GET /proxies HTTP/1.1") {
+                    write_json(&mut stream, RESPONSE_AFTER);
+                } else {
+                    assert!(request.starts_with("GET /configs HTTP/1.1"));
+                    let config = if index < 2 {
+                        r#"{"mode":"global","socks-port":7891,"mixed-port":0,"allow-lan":false}"#
+                    } else {
+                        r#"{"mode":"global","socks-port":7891,"mixed-port":0,"allow-lan":true}"#
+                    };
+                    write_json(&mut stream, config);
+                }
+            }
+        });
+        let binding = ExternalMihomoBinding {
+            controller_url: format!("http://127.0.0.1:{}/", address.port()),
+            selector_group: "GLOBAL".to_owned(),
+            node_name: "Tokyo 01".to_owned(),
+            controller_secret_reference: None,
+        };
+
+        let guard = capture_runtime_guard(&binding, "127.0.0.1", 7891, None)
+            .expect("capture safe global runtime");
+        assert!(matches!(
+            verify_runtime_guard(&guard, &binding, "127.0.0.1", 7891, None),
+            Err(MihomoError::ConfigurationDrift)
+        ));
+        server.join().expect("fake controller exits");
+    }
+
+    #[test]
+    fn required_runtime_guard_rejects_rule_mode_direct_fallback() {
+        let listener =
+            TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("bind fake controller");
+        let address = listener.local_addr().expect("fake controller address");
+        let server = thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().expect("accept guard request");
+                let request = read_request(&mut stream);
+                if request.starts_with("GET /proxies HTTP/1.1") {
+                    write_json(&mut stream, RESPONSE_AFTER);
+                } else {
+                    assert!(request.starts_with("GET /configs HTTP/1.1"));
+                    write_json(
+                        &mut stream,
+                        r#"{"mode":"rule","socks-port":7891,"mixed-port":0}"#,
+                    );
+                }
+            }
+        });
+        let binding = ExternalMihomoBinding {
+            controller_url: format!("http://127.0.0.1:{}/", address.port()),
+            selector_group: "GLOBAL".to_owned(),
+            node_name: "Tokyo 01".to_owned(),
+            controller_secret_reference: None,
+        };
+
+        assert!(matches!(
+            capture_runtime_guard(&binding, "127.0.0.1", 7891, None),
+            Err(MihomoError::DirectFallbackPossible)
+        ));
+        server.join().expect("fake controller exits");
     }
 }

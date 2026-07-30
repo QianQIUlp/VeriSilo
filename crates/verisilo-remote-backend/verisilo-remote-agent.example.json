@@ -1,0 +1,88 @@
+{
+  "listenAddress": "0.0.0.0:8443",
+  "tlsCertificateChainPath": "/etc/verisilo-agent/tls/fullchain.pem",
+  "tlsPrivateKeyPath": "/etc/verisilo-agent/tls/private-key.pem",
+  "authStatePath": "/var/lib/verisilo-agent/auth-state.json",
+  "agentStatePath": "/var/lib/verisilo-agent/agent-state.json",
+  "credentialLifetimeSeconds": 28800,
+  "node": {
+    "nodeId": "a1f54472-2d2f-4c88-b1f1-510720195e4c",
+    "ownership": "user_self_hosted",
+    "operatorLabel": "My self-hosted node",
+    "dataRegion": "operator-defined",
+    "keyCustody": "user_controlled",
+    "cost": {
+      "currency": "USD",
+      "estimatedMicrosPerHour": 0,
+      "notice": "No provider artifact is configured; lifecycle operations are unavailable."
+    }
+  },
+  "provider": {
+    "mode": "unavailable",
+    "capabilities": [
+      {
+        "operation": "create",
+        "availability": {
+          "availability": "unavailable",
+          "reason": "No fixed local provider artifact is configured."
+        }
+      },
+      {
+        "operation": "start",
+        "availability": {
+          "availability": "unavailable",
+          "reason": "No fixed local provider artifact is configured."
+        }
+      },
+      {
+        "operation": "stop",
+        "availability": {
+          "availability": "unavailable",
+          "reason": "No fixed local provider artifact is configured."
+        }
+      },
+      {
+        "operation": "pause",
+        "availability": {
+          "availability": "unavailable",
+          "reason": "No fixed local provider artifact is configured."
+        }
+      },
+      {
+        "operation": "snapshot",
+        "availability": {
+          "availability": "unavailable",
+          "reason": "No fixed local provider artifact is configured."
+        }
+      },
+      {
+        "operation": "destroy",
+        "availability": {
+          "availability": "unavailable",
+          "reason": "No fixed local provider artifact is configured."
+        }
+      },
+      {
+        "operation": "configureNetwork",
+        "availability": {
+          "availability": "unavailable",
+          "reason": "No fixed local provider artifact is configured."
+        }
+      },
+      {
+        "operation": "health",
+        "availability": {
+          "availability": "unavailable",
+          "reason": "No fixed local provider artifact is configured."
+        }
+      },
+      {
+        "operation": "logs",
+        "availability": {
+          "availability": "unavailable",
+          "reason": "No fixed local provider artifact is configured."
+        }
+      }
+    ]
+  }
+}

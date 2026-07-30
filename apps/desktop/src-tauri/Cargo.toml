@@ -18,6 +18,15 @@ path = "src/main.rs"
 name = "verisilo-native-host"
 path = "src/bin/verisilo-native-host.rs"
 
+[[bin]]
+name = "verisilo-acceptance-driver"
+path = "acceptance/windows_acceptance_driver.rs"
+required-features = ["acceptance-tests"]
+
+[features]
+default = []
+acceptance-tests = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -35,3 +44,4 @@ thiserror = "2.0.12"
 url = "2.5.4"
 uuid = { version = "1.16.0", features = ["serde", "v4"] }
 zeroize = "1.8.1"
+verisilo-remote-backend = { path = "../../../crates/verisilo-remote-backend" }

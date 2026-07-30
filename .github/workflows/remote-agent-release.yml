@@ -1,0 +1,83 @@
+name: Self-hosted Remote Agent candidate (Linux x64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      agentVersion:
+        description: Remote Agent version (must match its Cargo.toml)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-audited-linux-agent:
+    name: Build and audit Linux x64 Agent candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VERISILO_REMOTE_AGENT_VERSION: ${{ inputs.agentVersion }}
+      VERISILO_BUILD_TARGET: x86_64-unknown-linux-gnu
+      VERISILO_SIGNING_STATE: unsigned
+      VERISILO_SOURCE_DIRTY: "false"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.1
+
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Freeze source metadata
+        shell: bash
+        run: |
+          echo "VERISILO_SOURCE_REVISION=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct "${GITHUB_SHA}")" >> "${GITHUB_ENV}"
+
+      - name: Verify fixed Agent source and requested version
+        run: node scripts/verify-remote-agent-source.mjs
+
+      - name: Run locked Rust checks and tests
+        run: |
+          cargo fmt --manifest-path crates/verisilo-remote-backend/Cargo.toml -- --check
+          cargo check --locked --all-targets --manifest-path crates/verisilo-remote-backend/Cargo.toml --target x86_64-unknown-linux-gnu
+          cargo test --locked --all-targets --manifest-path crates/verisilo-remote-backend/Cargo.toml --target x86_64-unknown-linux-gnu
+
+      - name: Build fixed operator binary
+        run: cargo build --locked --release --manifest-path crates/verisilo-remote-backend/Cargo.toml --target x86_64-unknown-linux-gnu --bin verisilo-remote-agent
+
+      - name: Stage operator-owned deployment candidate
+        shell: bash
+        run: |
+          install -d -m 0755 artifacts/remote-agent
+          install -m 0755 crates/verisilo-remote-backend/target/x86_64-unknown-linux-gnu/release/verisilo-remote-agent artifacts/remote-agent/verisilo-remote-agent
+          install -m 0644 crates/verisilo-remote-backend/verisilo-remote-agent.example.json artifacts/remote-agent/verisilo-remote-agent.example.json
+          install -m 0644 crates/verisilo-remote-backend/DEPLOYMENT.md artifacts/remote-agent/DEPLOYMENT.md
+          install -m 0644 LICENSE artifacts/remote-agent/LICENSE
+          install -m 0644 THIRD_PARTY_NOTICES.md artifacts/remote-agent/THIRD_PARTY_NOTICES.md
+
+      - name: Generate and verify dependency evidence
+        run: |
+          node scripts/generate-sbom.mjs --profile remote-agent --out artifacts/remote-agent/sbom
+          node scripts/generate-sbom.mjs --profile remote-agent --out artifacts/remote-agent/sbom --check
+          node scripts/generate-license-report.mjs --collect --profile remote-agent --out artifacts/remote-agent/dependency-licenses.json
+          node scripts/generate-license-report.mjs --collect --profile remote-agent --out artifacts/remote-agent/dependency-licenses.json --check
+
+      - name: Generate and verify SHA-256 manifest and provenance
+        run: |
+          node scripts/generate-release-metadata.mjs --dir artifacts/remote-agent --profile remote-agent
+          node scripts/generate-release-metadata.mjs --dir artifacts/remote-agent --profile remote-agent --check
+
+      - name: Upload audited unsigned Agent candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-remote-agent-${{ inputs.agentVersion }}-linux-x64-unsigned
+          path: artifacts/remote-agent/
+          if-no-files-found: error
+          retention-days: 14
