@@ -2418,6 +2418,14 @@ fn vault_path(root: &Path) -> PathBuf {
 }
 
 fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), VaultError> {
+    atomic_write_with_directory_sync(path, contents, sync_parent_directory)
+}
+
+fn atomic_write_with_directory_sync(
+    path: &Path,
+    contents: &[u8],
+    sync_directory: impl FnOnce(&Path) -> Result<(), VaultError>,
+) -> Result<(), VaultError> {
     let temporary_path = path.with_extension("tmp");
     let mut temporary = fs::File::create(&temporary_path)?;
     temporary.write_all(contents)?;
@@ -2425,6 +2433,7 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), VaultError> {
     drop(temporary);
 
     replace_file(&temporary_path, path)?;
+    sync_directory(path)?;
     Ok(())
 }
 
@@ -2464,26 +2473,47 @@ fn replace_file(temporary_path: &Path, destination_path: &Path) -> Result<(), Va
 
 #[cfg(target_os = "windows")]
 fn replace_file(temporary_path: &Path, destination_path: &Path) -> Result<(), VaultError> {
-    // Windows does not replace an existing destination with std::fs::rename.
-    // Keep a same-directory recovery copy until the new encrypted envelope is in place.
-    let backup_path = destination_path.with_extension("bak");
-    if destination_path.exists() {
-        fs::copy(destination_path, &backup_path)?;
-        fs::remove_file(destination_path)?;
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
     }
-    if let Err(error) = fs::rename(temporary_path, destination_path) {
-        if backup_path.exists() {
-            let _ = fs::rename(&backup_path, destination_path);
-        }
-        return Err(VaultError::Filesystem(error));
+    let existing = temporary_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let replacement = destination_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let succeeded = unsafe {
+        MoveFileExW(
+            existing.as_ptr(),
+            replacement.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if succeeded == 0 {
+        return Err(VaultError::Filesystem(std::io::Error::last_os_error()));
     }
-    // The new encrypted envelope is already committed at this point. Treat a
-    // stale recovery-copy cleanup failure as deferred housekeeping; returning
-    // an error here would make callers roll memory back to the old Vault while
-    // disk already contains the new Vault.
-    if backup_path.exists() {
-        let _ = fs::remove_file(backup_path);
-    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn sync_parent_directory(path: &Path) -> Result<(), VaultError> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn sync_parent_directory(_path: &Path) -> Result<(), VaultError> {
+    // MoveFileExW(MOVEFILE_WRITE_THROUGH) flushes the replacement before return.
     Ok(())
 }
 
@@ -2525,8 +2555,9 @@ mod tests {
     };
 
     use super::{
-        derive_key, open_envelope, RemoteVaultState, VaultData, VaultEnvelope, VaultError,
-        VaultRuntime, VAULT_DATA_SCHEMA_VERSION,
+        atomic_write, atomic_write_with_directory_sync, derive_key, open_envelope,
+        RemoteVaultState, VaultData, VaultEnvelope, VaultError, VaultRuntime,
+        VAULT_DATA_SCHEMA_VERSION,
     };
     use crate::domain::{
         BrowserKind, CreateSiloInput, NetworkProfile, ProxyCredentialsInput, ProxyScheme,
@@ -2541,6 +2572,42 @@ mod tests {
 
     fn temporary_root() -> std::path::PathBuf {
         env::temp_dir().join(format!("verisilo-vault-test-{}", Uuid::new_v4()))
+    }
+
+    #[test]
+    fn atomic_write_requires_directory_sync_before_success() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create test root");
+        let path = root.join("vault.json");
+        let mut sync_called = false;
+
+        let result = atomic_write_with_directory_sync(&path, b"new vault", |published_path| {
+            sync_called = true;
+            assert_eq!(published_path, path);
+            assert_eq!(fs::read(published_path).expect("read published Vault"), b"new vault");
+            Err(VaultError::Filesystem(std::io::Error::other(
+                "synthetic directory sync failure",
+            )))
+        });
+
+        assert!(matches!(result, Err(VaultError::Filesystem(_))));
+        assert!(sync_called);
+        fs::remove_dir_all(root).expect("remove test root");
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_destination_without_recovery_artifacts() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create test root");
+        let path = root.join("vault.json");
+        fs::write(&path, b"old vault").expect("seed existing Vault");
+
+        atomic_write(&path, b"new vault").expect("replace Vault durably");
+
+        assert_eq!(fs::read(&path).expect("read replaced Vault"), b"new vault");
+        assert!(!path.with_extension("tmp").exists());
+        assert!(!path.with_extension("bak").exists());
+        fs::remove_dir_all(root).expect("remove test root");
     }
 
     fn create_test_browser(root: &std::path::Path) -> std::path::PathBuf {
