@@ -154,22 +154,63 @@ export function installDedicatedWorkerExperiment(input: {
     state.restore(true, stopCode);
   }
 
+  function belongsToSiteRealm(realm: RealmWindow): boolean {
+    const visited = new Set<RealmWindow>();
+    let current = realm;
+    while (!visited.has(current)) {
+      visited.add(current);
+      try {
+        if (current.location.origin === input.siteOrigin) {
+          return true;
+        }
+        if (current.location.origin !== "null") {
+          return false;
+        }
+
+        const hrefWithoutFragment = current.location.href.split("#", 1)[0];
+        if (
+          hrefWithoutFragment !== "about:blank" &&
+          hrefWithoutFragment !== "about:srcdoc"
+        ) {
+          return false;
+        }
+
+        // about:blank and srcdoc expose a null URL origin even when their
+        // effective origin is inherited. Access to the document and this
+        // owner/parent relationship must both succeed before following that
+        // inheritance; sandboxed and cross-origin frames therefore stay out.
+        void current.document;
+        const owner = current.frameElement;
+        const parent = current.parent as RealmWindow;
+        if (
+          owner === null ||
+          parent === current ||
+          owner.ownerDocument.defaultView !== parent
+        ) {
+          return false;
+        }
+        current = parent;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
   function wrapRealm(realm: RealmWindow): void {
     if (wrappedRealms.has(realm)) {
       return;
     }
-    let realmOrigin: string;
     let NativeWorker: typeof Worker;
     try {
-      realmOrigin = realm.location.origin;
+      if (!belongsToSiteRealm(realm)) {
+        return;
+      }
       NativeWorker = realm.Worker;
     } catch {
       return;
     }
-    if (
-      realmOrigin !== input.siteOrigin ||
-      typeof NativeWorker !== "function"
-    ) {
+    if (typeof NativeWorker !== "function") {
       return;
     }
     const originalDescriptor = Object.getOwnPropertyDescriptor(realm, "Worker");
@@ -340,7 +381,7 @@ export function installDedicatedWorkerExperiment(input: {
     for (const frame of frames) {
       try {
         const child = frame.contentWindow as RealmWindow | null;
-        if (child !== null && child.location.origin === input.siteOrigin) {
+        if (child !== null && belongsToSiteRealm(child)) {
           wrapFrames(child);
         }
       } catch {
@@ -373,10 +414,7 @@ export function installDedicatedWorkerExperiment(input: {
               () => {
                 try {
                   const child = frame.contentWindow as RealmWindow | null;
-                  if (
-                    child !== null &&
-                    child.location.origin === input.siteOrigin
-                  ) {
+                  if (child !== null && belongsToSiteRealm(child)) {
                     wrapFrames(child);
                   }
                 } catch {

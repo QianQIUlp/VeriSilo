@@ -7,6 +7,74 @@ const manifest = JSON.parse(
   await readFile(resolve(dist, "manifest.json"), "utf8"),
 );
 
+const expectedIcons = Object.fromEntries(
+  [16, 32, 48, 128].map((size) => [String(size), `icons/verisilo-${size}.png`]),
+);
+if (
+  JSON.stringify(manifest.icons) !== JSON.stringify(expectedIcons) ||
+  JSON.stringify(manifest.action?.default_icon) !==
+    JSON.stringify(expectedIcons)
+) {
+  throw new Error(
+    "Extension manifest must use the website brand icon at 16/32/48/128px.",
+  );
+}
+for (const [sizeText, relativePath] of Object.entries(expectedIcons)) {
+  const size = Number(sizeText);
+  const png = await readFile(resolve(dist, relativePath));
+  if (
+    !png
+      .subarray(0, 8)
+      .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+    png.readUInt32BE(16) !== size ||
+    png.readUInt32BE(20) !== size
+  ) {
+    throw new Error(
+      `Extension icon is not a ${size}x${size} PNG: ${relativePath}`,
+    );
+  }
+}
+
+const sidepanelHtml = await readFile(resolve(dist, "sidepanel.html"), "utf8");
+const isolationPanel = sidepanelHtml.match(
+  /<section[^>]+id="panel-isolation"[\s\S]*?<\/section>/u,
+)?.[0];
+if (isolationPanel === undefined) {
+  throw new Error("Extension bundle is missing the isolation panel.");
+}
+if (/V0\.\d/u.test(isolationPanel) || /正式路线/u.test(isolationPanel)) {
+  throw new Error(
+    "Isolation guidance must describe current desktop capabilities without roadmap versions.",
+  );
+}
+for (const requiredGuidance of [
+  "高级诊断工具 · 默认关闭",
+  "不含账号或个人信息",
+  "普通浏览和多账号隔离不需要开启",
+  "只有点击开启才会改变当前网页",
+  "当前扩展不支持",
+]) {
+  if (!sidepanelHtml.includes(requiredGuidance)) {
+    throw new Error(`Extension Labs guidance is missing: ${requiredGuidance}`);
+  }
+}
+for (const staleLabel of ["不可选 · unsupported", "V0.7 路线"]) {
+  if (sidepanelHtml.includes(staleLabel)) {
+    throw new Error(
+      `Extension bundle still exposes stale UI copy: ${staleLabel}`,
+    );
+  }
+}
+if (
+  !/\.labs-warning\s*\{[^}]*overflow:\s*hidden;[^}]*padding:\s*16px;/u.test(
+    sidepanelHtml,
+  )
+) {
+  throw new Error(
+    "Labs introduction card is missing its bounded inner spacing.",
+  );
+}
+
 const requiredPermissions = [
   "storage",
   "sidePanel",

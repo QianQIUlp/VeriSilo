@@ -11,7 +11,7 @@
   "scripts": {
     "build": "pnpm --recursive run build",
     "check": "pnpm --recursive run check",
-    "test": "pnpm --recursive run test",
+    "test": "pnpm --recursive run test && pnpm session-fixture:self-test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "assets:generate": "node scripts/generate-tauri-icon.mjs",
@@ -24,6 +24,7 @@
     "extension:build": "pnpm --filter @verisilo/extension build",
     "extension:verify": "node scripts/verify-extension-bundle.mjs",
     "extension:package:self-test": "node scripts/package-extension-zip.mjs --self-test",
+    "session-fixture:self-test": "node tests/fixtures/session-site/self-test.mjs",
     "native-host:verify": "node scripts/verify-native-host-source.mjs",
     "engine:verify": "node scripts/verify-engine-source.mjs",
     "engine:verify:release": "node scripts/verify-engine-source.mjs --release",

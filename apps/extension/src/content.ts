@@ -12,6 +12,8 @@ declare global {
 
 let currentReport: ObservationReport | null = null;
 let pendingMainWorldSignal: ObservedSignal | null = null;
+let scanGeneration = 0;
+const COLLECTOR_TIMEOUT_MS = 5_000;
 
 if (!window.__verisiloContentInstalled) {
   window.__verisiloContentInstalled = true;
@@ -20,6 +22,9 @@ if (!window.__verisiloContentInstalled) {
 void collectAndSendReport();
 
 async function collectAndSendReport(): Promise<void> {
+  const generation = ++scanGeneration;
+  currentReport = null;
+  pendingMainWorldSignal = null;
   const signals = await Promise.all([
     collect("navigator", "window", "stable", "medium", () => ({
       userAgent: navigator.userAgent,
@@ -71,6 +76,10 @@ async function collectAndSendReport(): Promise<void> {
       dedicatedWorkerSelfTest,
     ),
   ]);
+
+  if (generation !== scanGeneration) {
+    return;
+  }
 
   const isolatedReport = observationReportSchema.parse({
     schemaVersion: 1,
@@ -195,6 +204,10 @@ async function collect(
 ): Promise<ObservedSignal> {
   const startedAt = performance.now();
   try {
+    const value = await withTimeout(
+      Promise.resolve().then(callback),
+      COLLECTOR_TIMEOUT_MS,
+    );
     return {
       id,
       source,
@@ -203,7 +216,7 @@ async function collect(
       sensitivity,
       collectedAt: new Date().toISOString(),
       durationMs: Math.round(performance.now() - startedAt),
-      value: await callback(),
+      value,
     };
   } catch (error) {
     return {
@@ -219,6 +232,28 @@ async function collect(
           ? error.message.slice(0, 512)
           : String(error).slice(0, 512),
     };
+  }
+}
+
+async function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timeout = window.setTimeout(
+          () => reject(new Error("Signal collector timed out.")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) {
+      window.clearTimeout(timeout);
+    }
   }
 }
 

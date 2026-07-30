@@ -30,12 +30,16 @@ const scanButton = requiredElement<HTMLButtonElement>("scan");
 const requestSiteAccessButton = requiredElement<HTMLButtonElement>(
   "request-site-access",
 );
+const revokeSiteAccessButton =
+  requiredElement<HTMLButtonElement>("revoke-site-access");
 const openPrivateButton = requiredElement<HTMLButtonElement>("open-private");
 const privacyEnableButton =
   requiredElement<HTMLButtonElement>("privacy-enable");
 const privacyRestoreButton =
   requiredElement<HTMLButtonElement>("privacy-restore");
 const desktopButton = requiredElement<HTMLButtonElement>("desktop");
+const desktopProjectButton =
+  requiredElement<HTMLButtonElement>("desktop-project");
 const exportJsonButton = requiredElement<HTMLButtonElement>("export-json");
 const exportHtmlButton = requiredElement<HTMLButtonElement>("export-html");
 const clearReportHistoryButton = requiredElement<HTMLButtonElement>(
@@ -90,28 +94,53 @@ const panels = Array.from(
 let latestReport: ObservationReport | null = null;
 let latestNetworkCheck: NetworkCheckResult | null = null;
 let latestNetworkHandoff: NetworkEvidenceHandoffStatus | null = null;
+let reportRefreshVersion = 0;
+let labsRefreshVersion = 0;
+let activeSitePermissionRefreshVersion = 0;
+let networkHandoffExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+let activeSiteOriginPattern: string | null = null;
 
 scanButton.addEventListener("click", () => void scan());
-requestSiteAccessButton.addEventListener(
-  "click",
-  () => void requestSiteAccess(),
-);
+requestSiteAccessButton.addEventListener("click", () => {
+  const permissionRequest =
+    activeSiteOriginPattern === null
+      ? null
+      : chrome.permissions.request({ origins: [activeSiteOriginPattern] });
+  void requestSiteAccess(permissionRequest);
+});
+revokeSiteAccessButton.addEventListener("click", () => void revokeSiteAccess());
 openPrivateButton.addEventListener("click", () => void openPrivateWorkspace());
-privacyEnableButton.addEventListener(
-  "click",
-  () => void enableRecommendedProtection(),
-);
+privacyEnableButton.addEventListener("click", () => {
+  const permissionRequest = chrome.permissions.request({
+    permissions: ["privacy"],
+  });
+  void enableRecommendedProtection(permissionRequest);
+});
 privacyRestoreButton.addEventListener(
   "click",
   () => void restorePrivacyControls(),
 );
-labsEnableButton.addEventListener("click", () => void enableWorkerExperiment());
+labsEnableButton.addEventListener("click", () => {
+  if (
+    !globalThis.confirm(
+      "开启当前站点的 VeriSilo Labs Worker 实验？它可能破坏网站；任何检测到的泄漏、页面异常、超时或权限变化都会立即恢复并停用。",
+    )
+  ) {
+    return;
+  }
+  const permissionRequest =
+    activeSiteOriginPattern === null
+      ? null
+      : chrome.permissions.request({ origins: [activeSiteOriginPattern] });
+  void enableWorkerExperiment(permissionRequest);
+});
 labsStopButton.addEventListener("click", () => void stopWorkerExperiment());
 labsClearReceiptsButton.addEventListener(
   "click",
   () => void clearLabsReceiptHistory(),
 );
-desktopButton.addEventListener("click", () => void openDesktopProject());
+desktopButton.addEventListener("click", () => void openDesktop());
+desktopProjectButton.addEventListener("click", () => void openDesktopProject());
 exportJsonButton.addEventListener("click", () => exportCurrentReport("json"));
 exportHtmlButton.addEventListener("click", () => exportCurrentReport("html"));
 clearReportHistoryButton.addEventListener(
@@ -132,7 +161,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       void refreshNetworkCheck();
     }
     if (changedKeys.includes("labs:status")) {
-      void refreshLabsStatus();
+      void refreshLabsStatus(true);
     }
   }
   if (
@@ -149,23 +178,33 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
+chrome.tabs.onActivated.addListener(() => refreshActiveTabContext());
+chrome.windows.onFocusChanged.addListener(() => refreshActiveTabContext());
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (
+    tab.active &&
+    (changeInfo.status === "loading" || changeInfo.url !== undefined)
+  ) {
+    refreshActiveTabContext();
+  }
+});
+
 void refreshReport();
 void refreshIsolationStatus();
 void refreshNetworkCheck();
 void refreshSavedReportHistory();
 void refreshLabsStatus();
 void refreshLabsReceipts();
+void refreshActiveSitePermissionTarget();
 
-async function enableWorkerExperiment(): Promise<void> {
-  if (
-    !globalThis.confirm(
-      "开启当前站点的 VeriSilo Labs Worker 实验？它可能破坏网站；任何检测到的泄漏、页面异常、超时或权限变化都会立即恢复并停用。",
-    )
-  ) {
-    return;
-  }
+async function enableWorkerExperiment(
+  permissionRequest: Promise<boolean> | null,
+): Promise<void> {
   setLabsButtonsBusy(true, "正在观察与验证…");
   try {
+    if (permissionRequest !== null && !(await permissionRequest)) {
+      throw new Error("未授予当前站点权限；实验保持关闭，也没有注入页面。");
+    }
     const response = await sendMessage({
       type: "enable_dedicated_worker_experiment",
     });
@@ -180,8 +219,8 @@ async function enableWorkerExperiment(): Promise<void> {
       showNotice(
         "success",
         worker.scope?.mode === "local_temporary"
-          ? "窄 Worker 自检已通过，但注入顺序无法证明；仅本机临时运行，不属于任何桌面 Silo。"
-          : "窄 Worker 自检已通过并绑定当前 Silo/站点；注入顺序无法证明，所以只标记 best-effort。",
+          ? "网页后台任务检查已启动；覆盖范围有限。它只在当前浏览器临时运行，不属于桌面 Silo。"
+          : "网页后台任务检查已启动并绑定当前桌面 Silo 与网站；由于无法覆盖所有网页运行区域，状态标为“有限覆盖”。",
       );
     } else if (worker.state === "leak_detected") {
       showNotice(
@@ -223,12 +262,39 @@ async function stopWorkerExperiment(): Promise<void> {
   }
 }
 
-async function refreshLabsStatus(): Promise<void> {
+async function refreshLabsStatus(announceAutomaticStop = false): Promise<void> {
+  const version = ++labsRefreshVersion;
   try {
     const response = await sendMessage({ type: "get_labs_status" });
+    if (version !== labsRefreshVersion) {
+      return;
+    }
     const worker = workerExperimentFromResponse(response);
     renderWorkerExperiment(worker);
+    if (
+      announceAutomaticStop &&
+      worker?.lastReceipt !== null &&
+      worker?.lastReceipt !== undefined
+    ) {
+      if (worker.state === "failed" || worker.state === "leak_detected") {
+        showNotice(
+          "error",
+          `Labs 已因“${labsStopLabel(worker.lastReceipt.stopCode)}”停止；原 Worker constructor ${worker.lastReceipt.restore.succeeded ? "已恢复" : "未能确认恢复"}。`,
+        );
+      } else if (
+        worker.state === "restored" &&
+        worker.lastReceipt.stopCode !== "user_requested"
+      ) {
+        showNotice(
+          "success",
+          `Labs 已因“${labsStopLabel(worker.lastReceipt.stopCode)}”自动停止并恢复。`,
+        );
+      }
+    }
   } catch (error) {
+    if (version !== labsRefreshVersion) {
+      return;
+    }
     labsWorkerStatus.textContent = "状态不可用";
     labsWorkerStatus.className = "status-chip warning";
     labsScope.textContent = `无法读取实验状态：${message(error)}`;
@@ -248,7 +314,7 @@ async function refreshLabsReceipts(): Promise<void> {
       typeof response.maximum === "number" ? response.maximum : 50;
     const retentionDays =
       typeof response.retentionDays === "number" ? response.retentionDays : 30;
-    labsReceiptStatus.textContent = `本机保存 ${receipts.length}/${maximum} 份脱敏收据；${retentionDays} 天后自动清理。`;
+    labsReceiptStatus.textContent = `本机保存 ${receipts.length}/${maximum} 份脱敏收据；${retentionDays} 天后自动清理；下方显示最近 ${Math.min(receipts.length, 8)} 份。`;
     labsClearReceiptsButton.disabled = receipts.length === 0;
     renderLabsReceipts(receipts);
   } catch {
@@ -322,15 +388,69 @@ function renderWorkerExperiment(experiment: LabsExperiment | null): void {
 function renderLabsReceipts(receipts: LabsExperimentReceipt[]): void {
   labsReceiptList.replaceChildren();
   for (const receipt of receipts.slice(0, 8)) {
-    const item = document.createElement("article");
+    const item = document.createElement("details");
     item.className = "labs-receipt";
+    const summary = document.createElement("summary");
     const title = document.createElement("strong");
     title.textContent = `${labsStateLabel(receipt.state)} · ${receipt.scope.siteHost}`;
     const detail = document.createElement("span");
-    detail.textContent = `${formatDate(receipt.finalizedAt)} · ${receipt.stopCode === null ? "无停止条件" : receipt.stopCode} · 恢复${receipt.restore.succeeded ? "已确认" : "未确认"}`;
-    item.append(title, detail);
+    const restoreLabel = receipt.restore.attempted
+      ? `恢复${receipt.restore.succeeded ? "已确认" : "未确认"}`
+      : "尚未执行恢复";
+    detail.textContent = `${formatDate(receipt.finalizedAt)} · ${labsStopLabel(receipt.stopCode)} · ${restoreLabel}`;
+    summary.append(title, detail);
+    const phases = document.createElement("ul");
+    phases.className = "labs-stop-list";
+    for (const phase of receipt.phases) {
+      const row = document.createElement("li");
+      row.textContent = `${labsPhaseLabel(phase.phase)}：${phase.outcome === "passed" ? "通过" : phase.outcome === "failed" ? "失败" : "未执行"} · ${phase.evidenceCodes.join("、") || "无证据码"}`;
+      phases.append(row);
+    }
+    const coverage = document.createElement("p");
+    coverage.className = "labs-evidence";
+    coverage.textContent = `覆盖：新建 Worker ${receipt.coverage.newDedicatedWorkers}；同源 iframe ${receipt.coverage.windowIframe}；注入顺序 ${receipt.coverage.injectionOrder}；Cookie ${receipt.coverage.cookies}；Service Worker ${receipt.coverage.serviceWorkers}。`;
+    item.append(summary, phases, coverage);
     labsReceiptList.append(item);
   }
+}
+
+function labsPhaseLabel(
+  phase: LabsExperimentReceipt["phases"][number]["phase"],
+): string {
+  return {
+    observe: "Observe 观察",
+    apply: "Apply 应用",
+    verify: "Verify 验证",
+    restore: "Restore 恢复",
+  }[phase];
+}
+
+function labsStopLabel(code: LabsExperimentReceipt["stopCode"]): string {
+  if (code === null) {
+    return "运行中无停止条件";
+  }
+  const labels: Record<
+    Exclude<LabsExperimentReceipt["stopCode"], null>,
+    string
+  > = {
+    cross_tab_canary_leak: "跨标签页 canary 泄漏",
+    iframe_canary_leak: "iframe canary 泄漏",
+    worker_canary_leak: "Worker canary 泄漏",
+    service_worker_canary_leak: "Service Worker URL 泄漏",
+    cookie_canary_leak: "Cookie canary 泄漏",
+    window_canary_leak: "页面 canary 泄漏",
+    page_error: "页面异常",
+    worker_error: "Worker 异常",
+    timeout: "运行超时",
+    permission_taken_over: "站点权限已撤销或被接管",
+    site_navigation: "页面已切换",
+    scope_violation: "超出实验范围",
+    verification_failed: "验证失败",
+    extension_context_lost: "扩展上下文丢失",
+    user_requested: "用户手动停止",
+    expired: "授权已过期",
+  };
+  return labels[code];
 }
 
 function labsStateLabel(state: LabsExperiment["state"]): string {
@@ -338,7 +458,7 @@ function labsStateLabel(state: LabsExperiment["state"]): string {
     disabled: "默认关闭",
     permission_missing: "缺少站点权限",
     applying: "正在应用",
-    best_effort: "Best-effort",
+    best_effort: "有限覆盖",
     verified: "已验证",
     failed: "失败并停用",
     leak_detected: "泄漏即停",
@@ -368,12 +488,23 @@ function setLabsButtonsBusy(busy: boolean, busyText?: string): void {
 async function scan(): Promise<void> {
   setBusy(scanButton, true, "正在扫描…");
   try {
+    const startedAt = Date.now();
     const response = await sendMessage({ type: "scan_current_tab" });
+    const report = await waitForCompletedReport(
+      startedAt,
+      typeof response.origin === "string" ? response.origin : null,
+    );
+    if (report === null) {
+      throw new Error(
+        "扫描未在 7 秒内完成。页面可能阻止了某项浏览器信号；请重试或查看扩展错误日志。",
+      );
+    }
+    renderReport(report);
     showNotice(
       "success",
       response.mainWorldInjected === false
-        ? "基础扫描已启动。页面主环境观察不可用，结论会明确标注覆盖边界。"
-        : "扫描已启动，结果完成后会自动整理为身份结论。",
+        ? "基础扫描已完成。页面主环境观察不可用，结论已明确标注覆盖边界。"
+        : "扫描已完成，结果已整理为身份结论。",
     );
   } catch (error) {
     showNotice("error", message(error));
@@ -382,21 +513,60 @@ async function scan(): Promise<void> {
   }
 }
 
-async function requestSiteAccess(): Promise<void> {
+async function waitForCompletedReport(
+  startedAt: number,
+  expectedOrigin: string | null,
+): Promise<ObservationReport | null> {
+  const deadline = startedAt + 7_000;
+  while (Date.now() < deadline) {
+    const response = await sendMessage({ type: "get_current_report" });
+    const parsed = observationReportSchema.safeParse(response.report);
+    if (
+      parsed.success &&
+      Date.parse(parsed.data.collectedAt) >= startedAt - 1_000 &&
+      (expectedOrigin === null || parsed.data.origin === expectedOrigin)
+    ) {
+      return parsed.data;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+  return null;
+}
+
+async function requestSiteAccess(
+  directPermissionRequest: Promise<boolean> | null,
+): Promise<void> {
   setBusy(requestSiteAccessButton, true, "正在检查…");
   try {
+    if (directPermissionRequest !== null) {
+      const granted = await directPermissionRequest;
+      showNotice(
+        granted ? "success" : "error",
+        granted
+          ? "当前站点权限已授予，可以扫描或运行明确启用的 Labs 实验。"
+          : "未授予当前站点权限；VeriSilo 没有注入或扫描页面。",
+      );
+      return;
+    }
     const response = await sendMessage({ type: "request_current_site_access" });
+    if (response.temporaryAccess === true) {
+      showNotice(
+        "success",
+        "工具栏已为当前标签页授予一次性访问权限，可以直接扫描；跨站导航或关闭标签页后会自动失效。",
+      );
+      return;
+    }
     if (response.alreadyGranted === true) {
       showNotice(
         "success",
-        "当前站点已有访问权限，无需重复请求。可以直接扫描。",
+        "当前站点已有长期访问权限，无需重复请求。可以直接扫描。",
       );
       return;
     }
     showNotice(
       response.requested === true ? "success" : "error",
       response.requested === true
-        ? "已向 Edge 发起站点访问请求。允许后再次扫描即可。"
+        ? "已向浏览器发起站点访问请求。请点击地址栏中的“允许”提示，授权后再扫描。"
         : "未能发起当前站点访问请求。",
     );
   } catch (error) {
@@ -406,16 +576,38 @@ async function requestSiteAccess(): Promise<void> {
   }
 }
 
+async function revokeSiteAccess(): Promise<void> {
+  setBusy(revokeSiteAccessButton, true, "正在撤销…");
+  try {
+    const response = await sendMessage({ type: "revoke_current_site_access" });
+    showNotice(
+      "success",
+      response.removed === true
+        ? "已撤销当前站点的长期访问权限；正在运行的该站点 Labs 实验也会停止并恢复。"
+        : "当前站点没有长期访问权限。工具栏授予的一次性权限会在跨站导航或关闭标签页后失效。",
+    );
+  } catch (error) {
+    showNotice("error", message(error));
+  } finally {
+    setBusy(revokeSiteAccessButton, false);
+    await refreshActiveSitePermissionTarget();
+  }
+}
+
 async function openPrivateWorkspace(): Promise<void> {
   setBusy(openPrivateButton, true, "正在打开…");
   try {
     const response = await sendMessage({ type: "open_private_workspace" });
     if (response.opened !== true) {
-      throw new Error("Edge 没有创建 InPrivate 窗口。");
+      throw new Error("浏览器没有创建隐私窗口。");
     }
+    // Creating a focused privacy window triggers tabs.onActivated. Let the
+    // context refresh finish before publishing the operation result so it is
+    // not immediately cleared as stale feedback from the previous tab.
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
     showNotice(
       "success",
-      "已在 InPrivate 中打开当前网站。它与普通窗口的网站数据分开；关闭全部 InPrivate 窗口后临时数据会被清除。",
+      "已在 Chrome 无痕 / Edge InPrivate 中打开当前网站。它与普通窗口的网站数据分开；关闭全部隐私窗口后临时网站数据会被清除。",
     );
     await refreshIsolationStatus();
   } catch (error) {
@@ -425,13 +617,12 @@ async function openPrivateWorkspace(): Promise<void> {
   }
 }
 
-async function enableRecommendedProtection(): Promise<void> {
+async function enableRecommendedProtection(
+  permissionRequest: Promise<boolean>,
+): Promise<void> {
   setPrivacyButtonsBusy(true, "正在验证…");
   try {
-    const permission = await sendMessage({
-      type: "request_optional_privacy_permission",
-    });
-    if (permission.granted !== true) {
+    if (!(await permissionRequest)) {
       throw new Error("未授予隐私控制权限，VeriSilo 没有更改浏览器设置。");
     }
 
@@ -476,10 +667,14 @@ async function restorePrivacyControls(): Promise<void> {
         capability?.operation === "verified" ||
         capability?.operation === "not_requested",
     ).length;
+    const permissionRemoved =
+      completed === capabilities.length
+        ? await chrome.permissions.remove({ permissions: ["privacy"] })
+        : false;
     showNotice(
       completed === capabilities.length ? "success" : "error",
       completed === capabilities.length
-        ? "VeriSilo 已恢复原设置，或确认没有需要恢复的设置。"
+        ? `VeriSilo 已恢复原设置，或确认没有需要恢复的设置${permissionRemoved ? "，并撤销了隐私控制权限" : ""}。`
         : "部分设置未能恢复；它可能已被浏览器策略或其他扩展接管。",
     );
     await refreshIsolationStatus();
@@ -490,11 +685,18 @@ async function restorePrivacyControls(): Promise<void> {
   }
 }
 
-async function openDesktopProject(): Promise<void> {
+async function openDesktop(): Promise<void> {
   setBusy(desktopButton, true, "正在打开…");
   try {
-    await chrome.tabs.create({ url: PRODUCT_WEBSITE_URL });
-    showNotice("success", "已打开 VeriSilo 项目页。");
+    const response = await sendMessage({ type: "open_desktop" });
+    if (response.desktopOpened !== true) {
+      showNotice(
+        "error",
+        "未检测到可用的 VeriSilo 桌面端或 Native Host。插件仍可独立扫描；安装并启动桌面端后再重试。",
+      );
+      return;
+    }
+    showNotice("success", "已通过 Native Host 打开 VeriSilo 桌面端。");
   } catch (error) {
     showNotice("error", message(error));
   } finally {
@@ -502,15 +704,61 @@ async function openDesktopProject(): Promise<void> {
   }
 }
 
+async function openDesktopProject(): Promise<void> {
+  setBusy(desktopProjectButton, true, "正在打开…");
+  try {
+    await chrome.tabs.create({ url: PRODUCT_WEBSITE_URL });
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+    showNotice("success", "已打开 VeriSilo 项目页。");
+  } catch (error) {
+    showNotice("error", message(error));
+  } finally {
+    setBusy(desktopProjectButton, false);
+  }
+}
+
 async function refreshReport(): Promise<void> {
+  const version = ++reportRefreshVersion;
   try {
     const response = await sendMessage({ type: "get_current_report" });
+    if (version !== reportRefreshVersion) {
+      return;
+    }
     renderReport(
       (response.report as ObservationReport | null | undefined) ?? null,
     );
   } catch (error) {
+    if (version !== reportRefreshVersion) {
+      return;
+    }
     showNotice("error", message(error));
   }
+}
+
+function refreshActiveTabContext(): void {
+  notice.textContent = "";
+  notice.className = "notice";
+  void refreshReport();
+  void refreshLabsStatus();
+  void refreshActiveSitePermissionTarget();
+}
+
+async function refreshActiveSitePermissionTarget(): Promise<void> {
+  const version = ++activeSitePermissionRefreshVersion;
+  // Clear synchronously so a click immediately after a tab/window change can
+  // never reuse the previous site's host pattern while the query is pending.
+  activeSiteOriginPattern = null;
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true,
+  });
+  if (version !== activeSitePermissionRefreshVersion) {
+    return;
+  }
+  activeSiteOriginPattern =
+    tab?.url !== undefined && /^https?:/u.test(tab.url)
+      ? `${new URL(tab.url).origin}/*`
+      : null;
 }
 
 async function refreshSavedReportHistory(): Promise<void> {
@@ -585,8 +833,8 @@ async function refreshIsolationStatus(): Promise<void> {
     });
     const incognitoAllowed = response.incognitoAllowed === true;
     privateStatus.textContent = incognitoAllowed
-      ? "已允许 InPrivate。注意：所有 InPrivate 窗口共享同一个临时空间，不等于多个独立账号容器。"
-      : "首次使用需要在“扩展管理 → VeriSilo Companion”中打开“允许 InPrivate”。";
+      ? "已允许隐私窗口。注意：所有 Chrome 无痕 / Edge InPrivate 窗口共享同一个临时空间，不等于多个独立账号容器。"
+      : "首次使用需要在“扩展管理 → VeriSilo Companion”中允许扩展在 Chrome 无痕 / Edge InPrivate 中运行。";
 
     const privacyGranted = response.privacyGranted === true;
     renderControlStatus(
@@ -620,10 +868,12 @@ async function refreshNetworkCheck(): Promise<void> {
       )
         ? response.handoff
         : null;
+    scheduleNetworkHandoffExpiry();
     renderNetworkFactState();
   } catch {
     latestNetworkCheck = null;
     latestNetworkHandoff = null;
+    scheduleNetworkHandoffExpiry();
     renderNetworkFactState();
   }
 }
@@ -650,6 +900,7 @@ async function runNetworkCheck(
     )
       ? response.handoff
       : null;
+    scheduleNetworkHandoffExpiry();
     renderNetworkFactState();
     const hasUsefulResult =
       latestNetworkCheck.ip !== null ||
@@ -672,10 +923,17 @@ async function runNetworkCheck(
 async function clearNetworkCheck(): Promise<void> {
   try {
     await sendMessage({ type: "clear_network_check" });
+    const permissionRemoved = await chrome.permissions.remove({
+      origins: [...NETWORK_CHECK_ORIGINS],
+    });
     latestNetworkCheck = null;
     latestNetworkHandoff = null;
+    scheduleNetworkHandoffExpiry();
     renderNetworkFactState();
-    showNotice("success", "已从本次浏览器会话中清除网络检查结果。");
+    showNotice(
+      "success",
+      `已从本次浏览器会话中清除网络检查结果${permissionRemoved ? "，并撤销三方检测端点权限" : ""}。`,
+    );
   } catch (error) {
     showNotice("error", message(error));
   }
@@ -758,7 +1016,7 @@ function renderFact(fact: HumanFact): HTMLElement {
     checkButton.type = "button";
     checkButton.textContent = "同意并检查当前环境出口";
     checkButton.addEventListener("click", () => {
-      // Edge requires this API call to happen directly in the click callback,
+      // Chromium requires this API call to happen directly in the click callback,
       // before any confirmation dialog, message round-trip, or awaited work.
       const permissionRequest = chrome.permissions.request({
         origins: [...NETWORK_CHECK_ORIGINS],
@@ -769,7 +1027,7 @@ function renderFact(fact: HumanFact): HTMLElement {
     clearButton.className = "button subtle";
     clearButton.id = "network-clear";
     clearButton.type = "button";
-    clearButton.textContent = "清除结果";
+    clearButton.textContent = "清除结果并撤销权限";
     clearButton.hidden = latestNetworkCheck === null;
     clearButton.addEventListener("click", () => void clearNetworkCheck());
     actions.append(checkButton, clearButton);
@@ -810,11 +1068,7 @@ function renderNetworkFactState(): void {
   }
 
   const result = latestNetworkCheck;
-  badges.append(
-    latestNetworkHandoff?.state === "submitted"
-      ? networkChip("已交给桌面 Silo", "good")
-      : networkChip("仅本地显示", "neutral"),
-  );
+  badges.append(networkHandoffChip(latestNetworkHandoff));
   if (result.ip === null) {
     value.textContent = "出口 IP 获取失败";
     detail.textContent =
@@ -876,6 +1130,47 @@ function renderNetworkFactState(): void {
       : networkChip("DNSSEC 未完整验证", "attention"),
   );
   badges.append(networkChip("IP 信誉/黑名单未评分", "neutral"));
+}
+
+function networkHandoffChip(
+  handoff: NetworkEvidenceHandoffStatus | null,
+): HTMLElement {
+  if (handoff?.state === "submitted") {
+    return Date.parse(handoff.expiresAt) > Date.now()
+      ? networkChip("桌面 Silo 已接收", "good")
+      : networkChip("桌面证据已过期", "attention");
+  }
+  const reason = handoff?.state === "local_only" ? handoff.reason : null;
+  const reasonLabels = {
+    desktop_unavailable: "桌面不可用 · 仅本地",
+    runtime_not_ready: "桌面 Silo 未就绪 · 仅本地",
+    submission_rejected: "桌面拒绝接收 · 仅本地",
+  } as const;
+  return networkChip(
+    reason === null ? "仅本地显示" : reasonLabels[reason],
+    reason === null ? "neutral" : "attention",
+  );
+}
+
+function scheduleNetworkHandoffExpiry(): void {
+  if (networkHandoffExpiryTimer !== null) {
+    clearTimeout(networkHandoffExpiryTimer);
+    networkHandoffExpiryTimer = null;
+  }
+  if (latestNetworkHandoff?.state !== "submitted") {
+    return;
+  }
+  const delay = Date.parse(latestNetworkHandoff.expiresAt) - Date.now();
+  if (!Number.isFinite(delay) || delay <= 0) {
+    return;
+  }
+  networkHandoffExpiryTimer = setTimeout(
+    () => {
+      networkHandoffExpiryTimer = null;
+      renderNetworkFactState();
+    },
+    Math.min(delay + 10, 2_147_483_647),
+  );
 }
 
 function networkChip(

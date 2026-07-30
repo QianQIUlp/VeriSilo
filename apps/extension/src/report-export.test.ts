@@ -37,4 +37,26 @@ describe("report export", () => {
     expect(html).toContain("关键身份");
     expect(html).toContain("技术数据（默认已脱敏）");
   });
+
+  it("does not include high-sensitivity WebGL renderer values in the HTML summary", () => {
+    const renderer = "VERISILO_HIGH_SENSITIVITY_WEBGL_RENDERER_SENTINEL";
+    const html = reportAsHtml({
+      ...report,
+      signals: [
+        {
+          id: "webgl",
+          source: "window",
+          status: "ok",
+          stability: "session",
+          sensitivity: "high",
+          collectedAt: "2026-01-01T00:00:00.000Z",
+          durationMs: 1,
+          value: { renderer },
+        },
+      ],
+    });
+
+    expect(html).not.toContain(renderer);
+    expect(html).toContain("[redacted by default]");
+  });
 });

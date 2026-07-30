@@ -21,7 +21,7 @@ export function reportAsJson(report: ObservationReport): string {
 
 export function reportAsHtml(report: ObservationReport): string {
   const safeReport = redactObservationReport(report);
-  const human = summarizeReport(report);
+  const human = summarizeReport(safeReport);
   const facts = human.facts
     .map(
       (fact) => `

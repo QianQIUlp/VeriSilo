@@ -7,29 +7,177 @@
   <body>
     <h1>Local session fixture</h1>
     <label>Identity <input id="identity" /></label>
-    <button id="save">Save local session</button>
-    <button id="clear">Clear local session</button>
-    <output id="status"></output>
+    <button id="save">Save all browser state</button>
+    <button id="read">Read all browser state</button>
+    <button id="clear">Clear all browser state</button>
+    <pre id="status"></pre>
     <script>
       const input = document.querySelector("#identity");
       const status = document.querySelector("#status");
-      function show() {
-        const identity = localStorage.getItem("verisilo-fixture");
-        status.textContent = identity
-          ? `Current session: ${identity}`
-          : "No local session";
+      const databaseName = "verisilo-session-fixture";
+      const cacheName = "verisilo-session-fixture";
+
+      function showError(error) {
+        status.textContent = `ERROR: ${String(error)}`;
       }
-      document.querySelector("#save").addEventListener("click", () => {
-        localStorage.setItem("verisilo-fixture", input.value);
-        document.cookie = `verisilo-fixture=${encodeURIComponent(input.value)}; SameSite=Lax; Path=/`;
-        show();
+
+      function withTimeout(promise, milliseconds, label) {
+        let timer;
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`${label} timed out`)),
+              milliseconds,
+            );
+          }),
+        ]).finally(() => clearTimeout(timer));
+      }
+
+      function openDatabase() {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(databaseName, 1);
+          request.onupgradeneeded = () =>
+            request.result.createObjectStore("values");
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve(request.result);
+        });
+      }
+
+      async function writeIndexedDb(value) {
+        const database = await openDatabase();
+        await new Promise((resolve, reject) => {
+          const transaction = database.transaction("values", "readwrite");
+          transaction.objectStore("values").put(value, "identity");
+          transaction.onerror = () => reject(transaction.error);
+          transaction.oncomplete = resolve;
+        });
+        database.close();
+      }
+
+      async function readIndexedDb() {
+        if (typeof indexedDB.databases !== "function") {
+          throw new Error("indexedDB.databases() is unavailable");
+        }
+        const exists = (await indexedDB.databases()).some(
+          (database) => database.name === databaseName,
+        );
+        if (!exists) {
+          return { exists: false, value: null };
+        }
+        const database = await openDatabase();
+        const value = await new Promise((resolve, reject) => {
+          const transaction = database.transaction("values", "readonly");
+          const request = transaction.objectStore("values").get("identity");
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve(request.result ?? null);
+        });
+        database.close();
+        return { exists: true, value };
+      }
+
+      function deleteDatabase() {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.deleteDatabase(databaseName);
+          request.onerror = () => reject(request.error);
+          request.onsuccess = resolve;
+          request.onblocked = () =>
+            reject(new Error("IndexedDB deletion blocked"));
+        });
+      }
+
+      function cookieValue() {
+        const prefix = "verisilo-fixture=";
+        const item = document.cookie
+          .split("; ")
+          .find((candidate) => candidate.startsWith(prefix));
+        return item === undefined
+          ? null
+          : decodeURIComponent(item.slice(prefix.length));
+      }
+
+      async function show() {
+        const indexedDb = await readIndexedDb();
+        const cacheExists = await caches.has(cacheName);
+        const cached = cacheExists
+          ? await caches
+              .open(cacheName)
+              .then((cache) => cache.match("/fixture-cache-entry"))
+          : undefined;
+        const registration = await navigator.serviceWorker.getRegistration();
+        status.textContent = JSON.stringify(
+          {
+            localStorage: localStorage.getItem("verisilo-fixture"),
+            sessionStorage: sessionStorage.getItem("verisilo-fixture"),
+            cookie: cookieValue(),
+            indexedDB: indexedDb.value,
+            indexedDBExists: indexedDb.exists,
+            cache: cached === undefined ? null : await cached.text(),
+            cacheExists,
+            serviceWorkerRegistration:
+              registration?.active?.state ??
+              registration?.waiting?.state ??
+              registration?.installing?.state ??
+              null,
+            serviceWorkerController:
+              navigator.serviceWorker.controller?.state ?? null,
+          },
+          null,
+          2,
+        );
+      }
+
+      document.querySelector("#save").addEventListener("click", async () => {
+        try {
+          status.textContent = JSON.stringify({ operation: "saving" });
+          const value = input.value;
+          localStorage.setItem("verisilo-fixture", value);
+          sessionStorage.setItem("verisilo-fixture", value);
+          document.cookie = `verisilo-fixture=${encodeURIComponent(value)}; SameSite=Lax; Path=/`;
+          await writeIndexedDb(value);
+          const cache = await caches.open(cacheName);
+          await cache.put("/fixture-cache-entry", new Response(value));
+          await withTimeout(
+            navigator.serviceWorker.register("/service-worker.js"),
+            5_000,
+            "Service Worker registration",
+          );
+          await withTimeout(
+            navigator.serviceWorker.ready,
+            5_000,
+            "Service Worker activation",
+          );
+          await show();
+        } catch (error) {
+          showError(error);
+        }
       });
-      document.querySelector("#clear").addEventListener("click", () => {
-        localStorage.removeItem("verisilo-fixture");
-        document.cookie = "verisilo-fixture=; Max-Age=0; Path=/";
-        show();
+
+      document.querySelector("#read").addEventListener("click", async () => {
+        try {
+          await show();
+        } catch (error) {
+          showError(error);
+        }
       });
-      show();
+
+      document.querySelector("#clear").addEventListener("click", async () => {
+        try {
+          localStorage.removeItem("verisilo-fixture");
+          sessionStorage.removeItem("verisilo-fixture");
+          document.cookie = "verisilo-fixture=; Max-Age=0; Path=/";
+          await deleteDatabase();
+          await caches.delete(cacheName);
+          const registrations =
+            await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((item) => item.unregister()));
+          await show();
+        } catch (error) {
+          showError(error);
+        }
+      });
+
+      void show().catch(showError);
     </script>
   </body>
 </html>

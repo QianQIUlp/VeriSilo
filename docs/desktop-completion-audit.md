@@ -1,5 +1,7 @@
 # VeriSilo 桌面端完成度滚动审计
 
+> **历史快照提示（2026-07-30）**：本文主体是 2026-07-28 的审计快照，其中对 V0.7–V0.9“无实现/只有路线”的若干表述已经落后于最新 `main`。当前可达代码、自动化边界和真实 Windows 待验收项以 [`acceptance/windows-desktop-integration-matrix.md`](acceptance/windows-desktop-integration-matrix.md) 为准。本文保留用于追踪原始缺口，不应单独用作当前完成度结论。
+
 > 审计日期：2026-07-28
 >
 > 审计对象：`codex/desktop-complete-v0-9` 在功能基线 `9abe37ec273d0f123329face439e551e7ca8defa` 上的仓库证据

@@ -242,10 +242,18 @@ export function stopWorkerExperiment(
   now: Date,
 ): LabsRun {
   const isLeak = leakStopCodes.has(stopCode);
+  const isCleanLifecycleStop = [
+    "user_requested",
+    "expired",
+    "timeout",
+    "site_navigation",
+    "permission_taken_over",
+    "extension_context_lost",
+  ].includes(stopCode);
   const state =
     isLeak && restoreSucceeded
       ? "leak_detected"
-      : ["user_requested", "expired"].includes(stopCode) && restoreSucceeded
+      : isCleanLifecycleStop && restoreSucceeded
         ? "restored"
         : "failed";
   const restorePhase: LabsPhaseReceipt = {

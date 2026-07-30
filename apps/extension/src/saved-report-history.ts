@@ -9,6 +9,12 @@ export interface SavedReportPrunePlan {
   removeKeys: string[];
 }
 
+export function shouldPersistSavedReport(
+  tabIncognito: boolean | undefined,
+): boolean {
+  return tabIncognito === false;
+}
+
 export function planSavedReportPrune(
   values: Record<string, unknown>,
   nowUnixMs: number,

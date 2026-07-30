@@ -16,10 +16,13 @@ its lowercase SHA-256, and the exact
    runner-temporary ZIP, rejects expired records, traversal, links, any archive
    with other entries, and a hash mismatch, then stages the VHDX and strict
    versioned manifest under the ignored Cargo target tree;
-4. stages the Host and copies every release script into that tree before
-   building a current-user NSIS installer with `tauri.release.conf.json`;
-5. includes install/verify/uninstall scripts and NSIS hooks for the HKCU Native
-   Messaging registration;
+4. stages the Host and copies every release script into that tree for the loose
+   audited candidate, then builds an explicitly desktop-only current-user NSIS
+   installer by applying `tauri.unsigned.conf.json` after the release config;
+5. excludes the Host sidecar, release resources, and Native Host installer hooks
+   from that unsigned NSIS: unsigned PowerShell cannot satisfy the signed
+   installer's `AllSigned` boundary, and the artifact must not pretend that it
+   can register the Host;
 6. builds the Companion directory and a deterministic ZIP32/store archive whose
    entries are byte-sorted and whose DOS timestamps come from
    `SOURCE_DATE_EPOCH`; `extension-zip-manifest.json` binds every source file and
@@ -40,7 +43,7 @@ exist. Its order is intentionally fixed:
 2. run `tauri build --no-bundle --no-sign` to create `verisilo.exe` without an
    installer;
 3. Authenticode-sign and timestamp `verisilo.exe`, the staged Native Host
-   sidecar, and all seven staged PS1 resources, then immediately verify signer and
+   sidecar, and all eight staged PS1 resources, then immediately verify signer and
    timestamp certificates;
 4. run `tauri bundle --no-sign`, which bundles those already-signed inputs without
    rebuilding them;
@@ -54,6 +57,9 @@ password secrets are scoped only to the materialization/signing steps; the gate
 does not print them or record the PFX filename. Certificate/key extensions are
 also forbidden by the release policy scanner. The signed and unsigned artifacts
 use distinct `-signed` and `-unsigned` names and must never be relabeled.
+The unsigned artifact still carries the exact Host and scripts as loose audited
+files for the external promotion harness, but its NSIS installer exercises only
+the desktop shell and is not Native Host or integration evidence.
 
 Neither workflow creates a GitHub Release, publishes either store extension, or
 uploads to a public server. The unsigned workflow never signs a file. The store
@@ -197,7 +203,7 @@ release gate, not proof that a binary contains no undiscovered sensitive data.
 The normal development config remains buildable without published store IDs. A
 release build first runs `stage-windows-bundle.mjs`, which copies the already-built
 Host, verified config, and exact release-script allowlist under the ignored Cargo
-`target` directory. The release workflow then merges
+`target` directory. The signed release workflow then merges
 `tauri.release-reset.conf.json` followed by `tauri.release.conf.json`. The reset
 replaces the normal config's source-resource map before the release map is added;
 this prevents an unsigned source PS1 with the same bundle destination from
@@ -223,6 +229,13 @@ there is no backup/restore window that can strand signed source files after a
 failure. This wiring still requires a real standard-user NSIS
 install/upgrade/uninstall run on Windows 10 and Windows 11. Merely constructing
 the installer from signed inputs is not that E2E evidence.
+
+The unsigned workflow adds `tauri.unsigned.conf.json` last. That override clears
+`externalBin`, `resources`, and `installerHooks`, producing a desktop-only NSIS
+instead of invoking unsigned PS1 under `AllSigned`. The loose Host/resources are
+still staged and hashed for the exact-candidate promotion harness, which
+registers the Host explicitly and does not treat the unsigned installer as an
+integration result.
 
 ## Authenticode boundary
 

@@ -39,6 +39,7 @@ const provenanceProfiles = {
       ".github/workflows/windows-e2e-harness-static.yml",
       "apps/desktop/src-tauri/tauri.release.conf.json",
       "apps/desktop/src-tauri/tauri.release-reset.conf.json",
+      "apps/desktop/src-tauri/tauri.unsigned.conf.json",
       "apps/desktop/src-tauri/windows/release-hooks.nsh",
       "scripts/authenticode-gate.ps1",
       "scripts/download-windows-candidate.ps1",
