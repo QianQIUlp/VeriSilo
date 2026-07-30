@@ -15,8 +15,34 @@ pnpm install
 pnpm check
 pnpm test
 pnpm extension:build
-pnpm desktop:dev
+pnpm desktop:dev # Frontend-only Vite preview; this is not a Tauri desktop run.
+pnpm --filter @verisilo/desktop tauri dev # Real desktop development run.
 ```
+
+For a full Windows manual pass, including the exact Rust checks, browser
+profiles, Native Host registration, and evidence files, follow the
+[step-by-step Windows acceptance runbook](acceptance/manual-windows-acceptance-runbook.md).
+
+## Companion extension manual installation
+
+Build the unpacked extension first:
+
+```bash
+pnpm extension:build
+pnpm extension:verify
+```
+
+Then open `chrome://extensions` or `edge://extensions`, enable Developer mode,
+choose **Load unpacked**, and select the generated
+`apps/extension/dist` directory. Confirm that version `0.2.4` loads without a
+manifest or Service Worker error, record the development extension ID, and
+open VeriSilo from the toolbar action. The action grants one-tab access and
+opens the Side Panel; granting a site's longer-lived optional host permission
+is a separate, reversible operation inside the panel.
+
+Reload the unpacked extension after every rebuild. Reloading destroys the old
+extension context, so an active Labs experiment must recover fail-closed and
+its restore receipt must be checked before continuing acceptance.
 
 ## Vault schema compatibility
 
@@ -99,9 +125,14 @@ pwsh -File scripts/verify-native-host-install.ps1 `
 
 `prepare-native-host-release.mjs` fails before writing output unless both IDs are valid. Run Cargo in the same environment so the Host embeds exactly those IDs. Do not commit the generated release configuration before the real store IDs exist.
 
-For an unpacked extension and debug Host only:
+For an unpacked extension and debug Host only, register each browser with the
+development ID shown on its own extensions page:
 
 ```powershell
+pwsh -File scripts/register-native-host.ps1 `
+  -Browser chrome `
+  -ExtensionId '<chrome://extensions development ID>' `
+  -HostPath '<debug-dir>\verisilo-native-host.exe'
 pwsh -File scripts/register-native-host.ps1 `
   -Browser edge `
   -ExtensionId '<edge://extensions development ID>' `

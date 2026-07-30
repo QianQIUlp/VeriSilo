@@ -50,6 +50,11 @@ pnpm release:self-test
 The desktop app additionally needs a Rust stable toolchain and the Windows Tauri prerequisites. See [the development guide](docs/development.md).
 The current requirement-by-requirement evidence and remaining gaps are tracked in
 [the desktop completion audit](docs/desktop-completion-audit.md).
+The latest hands-on Companion results and the next Windows/desktop integration
+gate are tracked in [the extension functional acceptance record](docs/acceptance/extension-functional-acceptance-2026-07-30.md)
+and [the Windows desktop integration matrix](docs/acceptance/windows-desktop-integration-matrix.md).
+Use [the step-by-step Windows manual acceptance runbook](docs/acceptance/manual-windows-acceptance-runbook.md)
+for the exact Chrome, Edge, desktop, Native Host, and evidence-capture operations.
 
 ## Product site
 
