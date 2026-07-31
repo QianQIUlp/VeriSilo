@@ -60,7 +60,6 @@ impl LocalEnvironmentControl {
 
 pub struct AppState {
     root: PathBuf,
-    resource_root: PathBuf,
     // Local stock/provider lifecycle operations first reserve local_control,
     // then acquire Vault → Runtime → Environments when each is needed. A
     // command may drop an inner guard but must never reacquire an earlier one.
@@ -87,7 +86,6 @@ impl AppState {
             .expect("VeriSilo needs valid fixed environment provider roots");
         Self {
             root,
-            resource_root,
             local_control: LocalEnvironmentControl::default(),
             vault: Mutex::new(VaultRuntime::default()),
             runtime,

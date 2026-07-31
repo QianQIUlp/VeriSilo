@@ -727,7 +727,14 @@ fn write_all_until(
                         | io::ErrorKind::TimedOut
                         | io::ErrorKind::Interrupted
                 ) => {}
-            Err(error) => return Err(MihomoError::Io(error)),
+            Err(error) => {
+                // Windows can surface a peer reset at the same instant that
+                // the watchdog cancels this probe. Cancellation is the
+                // authoritative result and must not become a flaky,
+                // platform-specific socket failure.
+                ensure_probe_active(deadline, cancelled)?;
+                return Err(MihomoError::Io(error));
+            }
         }
     }
     Ok(())
@@ -767,7 +774,10 @@ fn read_http_response_until(
                         | io::ErrorKind::TimedOut
                         | io::ErrorKind::Interrupted
                 ) => {}
-            Err(error) => return Err(MihomoError::Io(error)),
+            Err(error) => {
+                ensure_probe_active(deadline, cancelled)?;
+                return Err(MihomoError::Io(error));
+            }
         }
     }
     if response.is_empty() {
@@ -1130,12 +1140,11 @@ mod tests {
             let request = read_request(&mut stream);
             assert!(request.contains("Authorization: Bearer controller-secret"));
             request_seen_tx.send(()).expect("report guard request");
-            write!(
+            let _ = write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{{",
                 RESPONSE_AFTER.len()
-            )
-            .expect("write partial controller response");
+            );
             let _ = release.recv_timeout(Duration::from_secs(2));
         });
         let guard = test_runtime_guard(address);
@@ -1230,12 +1239,11 @@ mod tests {
             let request = read_request(&mut stream);
             assert!(request.contains("Authorization: Bearer controller-secret"));
             request_seen_tx.send(()).expect("report guard request");
-            write!(
+            let _ = write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{{",
                 RESPONSE_AFTER.len()
-            )
-            .expect("write partial controller response");
+            );
             let _ = release.recv_timeout(Duration::from_secs(2));
         });
         let cancelled = Arc::new(AtomicBool::new(false));

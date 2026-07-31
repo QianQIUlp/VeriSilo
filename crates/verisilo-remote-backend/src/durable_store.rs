@@ -7,7 +7,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
 };
@@ -18,7 +18,7 @@ use uuid::Uuid;
 use verisilo_remote_backend::{
     agent::{
         deletion_resources_are_bound, ActivityEntry, AgentError, AgentStore,
-        AutomationAuthorization, DeletionProof, EnvironmentRecord, EnvironmentState,
+        AutomationAuthorization, DeletionProof, EnvironmentRecord, EnvironmentState, KeyCustody,
         SessionAuthorization, MAX_ACTIVITY_ENTRIES,
     },
     MAX_REPLAY_WINDOW_ENTRIES,
@@ -317,14 +317,24 @@ fn validate_state(state: &PersistedAgentState) -> Result<(), AgentError> {
     }
     for (silo_id, record) in &state.environments {
         if silo_id != &record.silo_id
+            || record.silo_id == Uuid::nil()
             || record.binding_id == Uuid::nil()
             || record.remote_environment_id == Uuid::nil()
+            || record.node_id == Uuid::nil()
             || record.expires_at_unix_ms <= record.created_at_unix_ms
             || record.last_activity_at_unix_ms < record.created_at_unix_ms
         {
             return Err(store_error("Agent environment record is inconsistent."));
         }
+        let volume_is_active_attestation = record.volume.encrypted
+            && record.volume.key_custody == KeyCustody::UserControlled
+            && record.volume.volume_id != Uuid::nil()
+            && record.volume.key_id != Uuid::nil();
         match (record.state, record.deletion_proof_id) {
+            // Provider-assigned IDs can be absent or invalid until create
+            // validation completes. This state is a recovery journal, never
+            // an active environment.
+            (EnvironmentState::Provisioning, None) => {}
             (EnvironmentState::Deleted, Some(proof_id)) => {
                 let proof = state.proofs.get(&proof_id).ok_or_else(|| {
                     store_error("Deleted environment is missing its deletion proof.")
@@ -352,7 +362,12 @@ fn validate_state(state: &PersistedAgentState) -> Result<(), AgentError> {
             (EnvironmentState::Deleted, None) | (_, Some(_)) => {
                 return Err(store_error("Environment deletion state is ambiguous."));
             }
-            _ => {}
+            (_, None) if volume_is_active_attestation => {}
+            _ => {
+                return Err(store_error(
+                    "Active environment volume attestation is invalid.",
+                ));
+            }
         }
     }
     if state
@@ -420,13 +435,51 @@ fn recover_interrupted_write(destination: &Path) -> Result<(), AgentError> {
     Ok(())
 }
 
+fn parent_directory(path: &Path) -> Result<&Path, AgentError> {
+    path.parent()
+        .ok_or_else(|| store_error("Agent state path has no parent."))
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(path: &Path) -> Result<(), AgentError> {
+    let parent = parent_directory(path)?;
+    fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(io_error)
+}
+
+#[cfg(windows)]
+fn sync_parent_directory(path: &Path) -> Result<(), AgentError> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    // Windows rejects the ordinary file open used for Unix directory fsync.
+    // Open the existing directory with backup semantics and write access so
+    // `sync_all` can issue FlushFileBuffers for the renamed directory entry.
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+    const GENERIC_WRITE: u32 = 0x4000_0000;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+
+    let parent = parent_directory(path)?;
+    let mut options = OpenOptions::new();
+    options
+        .access_mode(GENERIC_WRITE)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+    options
+        .open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(io_error)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn sync_parent_directory(path: &Path) -> Result<(), AgentError> {
     let parent = path
         .parent()
         .ok_or_else(|| store_error("Agent state path has no parent."))?;
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(io_error)
+    let _ = parent;
+    Ok(())
 }
 
 fn io_error(error: std::io::Error) -> AgentError {
@@ -493,6 +546,50 @@ mod tests {
         assert!(matches!(
             reopened.claim_request(principal_id, request_id, &nonce, 1),
             Err(AgentError::Replay)
+        ));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_directory_commit_supports_initial_create_and_replacement() {
+        let root = root("windows-directory-commit");
+        let path = root.join("state.json");
+        let silo_id = Uuid::new_v4();
+
+        let mut store = DurableAgentStore::open(path.clone()).unwrap();
+        store.insert_environment(record(silo_id)).unwrap();
+        drop(store);
+
+        let reopened = DurableAgentStore::open(path).unwrap();
+        assert!(reopened.environment(silo_id).is_some());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn provisioning_journal_survives_reopen_but_cannot_become_invalid_active_state() {
+        let root = root("provisioning-journal");
+        let path = root.join("state.json");
+        let silo_id = Uuid::new_v4();
+        let mut pending = record(silo_id);
+        pending.state = EnvironmentState::Provisioning;
+        pending.volume.encrypted = false;
+        pending.volume.volume_id = Uuid::nil();
+        pending.volume.key_id = Uuid::nil();
+
+        let mut store = DurableAgentStore::open(path.clone()).unwrap();
+        store.insert_environment(pending.clone()).unwrap();
+        drop(store);
+
+        let mut reopened = DurableAgentStore::open(path).unwrap();
+        assert_eq!(
+            reopened.environment(silo_id).unwrap().state,
+            EnvironmentState::Provisioning
+        );
+        pending.state = EnvironmentState::Created;
+        assert!(matches!(
+            reopened.update_environment(pending),
+            Err(AgentError::Store(_))
         ));
         let _ = fs::remove_dir_all(root);
     }

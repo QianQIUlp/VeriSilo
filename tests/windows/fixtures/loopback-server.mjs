@@ -7,12 +7,18 @@ function readArgument(name) {
 
 const host = readArgument("--host") ?? "127.0.0.1";
 const port = Number(readArgument("--port") ?? process.env.PORT ?? 4173);
+const harnessToken = readArgument("--token");
 
 if (host !== "127.0.0.1") {
   throw new Error("The Windows E2E fixture may bind only to 127.0.0.1.");
 }
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("--port must be a TCP port between 1 and 65535.");
+}
+if (!/^[0-9a-f]{64}$/u.test(harnessToken ?? "")) {
+  throw new Error(
+    "--token must be a random 256-bit lowercase hexadecimal value.",
+  );
 }
 
 const events = [];
@@ -27,12 +33,21 @@ function page() {
   const operation = params.get("op");
   const value = params.get("value") ?? "";
   const expected = params.get("expected") ?? "";
+  const expectedPersistent = params.get("expectedPersistent") ?? "";
+  const expectedEphemeral = params.get("expectedEphemeral") ?? "";
+  const operationToken = params.get("operationToken") ?? "";
   const result = document.querySelector("#result");
 
   function finish(ok, details) {
     const prefix = ok ? "PASS" : "FAIL";
-    document.title = "VERISILO_E2E:" + prefix + ":" + details;
+    document.title =
+      "VERISILO_E2E:" + prefix + ":" + operationToken + ":" + details;
     result.textContent = document.title;
+  }
+
+  if (!/^[0-9a-f]{32}$/.test(operationToken)) {
+    finish(false, "invalid-operation-token");
+    throw new Error("invalid operation token");
   }
 
   function cookies() {
@@ -93,6 +108,20 @@ function page() {
         await indexedDbValue(),
       ];
       finish(actual.every((item) => item === expected), actual.join(","));
+    } else if (operation === "read-lifecycle") {
+      const persistent = [
+        localStorage.getItem("marker") ?? "",
+        await indexedDbValue(),
+      ];
+      const ephemeral = [
+        sessionStorage.getItem("marker") ?? "",
+        cookies().verisilo_e2e ?? "",
+      ];
+      finish(
+        persistent.every((item) => item === expectedPersistent) &&
+          ephemeral.every((item) => item === expectedEphemeral),
+        [...persistent, ...ephemeral].join(","),
+      );
     } else {
       finish(false, "unknown-operation");
     }
@@ -104,6 +133,27 @@ function page() {
 
 const server = createServer((request, response) => {
   const url = new URL(request.url ?? "/", `http://${host}:${port}`);
+  if (url.searchParams.get("harnessToken") !== harnessToken) {
+    response.writeHead(403, {
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+    });
+    response.end("Forbidden");
+    return;
+  }
+  if (url.pathname === "/__health" && request.method === "GET") {
+    response.writeHead(200, {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8",
+    });
+    response.end(
+      `${JSON.stringify({
+        schema: "urn:verisilo:windows-e2e-fixture-health:1",
+        token: harnessToken,
+      })}\n`,
+    );
+    return;
+  }
   if (url.pathname === "/__reset" && request.method === "POST") {
     events.length = 0;
     response.writeHead(204).end();
@@ -131,7 +181,7 @@ const server = createServer((request, response) => {
 
 server.listen(port, host, () => {
   process.stdout.write(
-    `VeriSilo Windows E2E fixture: http://${host}:${port}\n`,
+    `VeriSilo Windows E2E fixture listening on ${host}:${port}\n`,
   );
 });
 

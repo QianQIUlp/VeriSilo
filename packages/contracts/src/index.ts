@@ -1,4 +1,5 @@
 export * from "./analysis.js";
+export * from "./bounded-response.js";
 export * from "./engine.js";
 export * from "./environment.js";
 export * from "./labs.js";

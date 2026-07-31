@@ -62,7 +62,9 @@ boundaries, not claims that every schema shipped in a public Windows release.
 | 7              | Force-detach orphan receipts that explicitly do not claim remote deletion               | Current write format.                                                                                                    |
 
 Envelope version 1 (password-derived data key) remains import-only and is
-rewrapped with a random DEK in envelope version 2. Envelope and payload DTOs
+rewrapped with a random DEK in envelope version 2. Passphrase changes rotate
+that DEK for future Vault state; historical backups remain independently
+decryptable with their original passphrase. Envelope and payload DTOs
 reject unknown fields, unsupported versions, cross-schema downgrade shapes,
 missing fields required by the source schema, corrupted AEAD data, and an
 incorrect passphrase. A successful migration is persisted by same-directory

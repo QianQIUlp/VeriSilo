@@ -75,39 +75,67 @@ function verifyWorkflowActionPins(relativePath, content) {
   }
 }
 
+function workflowJobBlocks(content) {
+  const jobsStart = content.indexOf("\njobs:\n");
+  if (jobsStart === -1) {
+    throw new Error("Workflow has no jobs mapping.");
+  }
+  const jobsSection = content.slice(jobsStart + 1);
+  const matches = [...jobsSection.matchAll(/^  ([a-z0-9][a-z0-9-]*):\r?$/gmu)];
+  const result = {};
+  for (const [index, match] of matches.entries()) {
+    const name = match[1];
+    if (Object.hasOwn(result, name)) {
+      throw new Error(`Workflow repeats job ${name}.`);
+    }
+    result[name] = jobsSection.slice(
+      match.index,
+      matches[index + 1]?.index ?? jobsSection.length,
+    );
+  }
+  return result;
+}
+
 function verifySignedWorkflowOrder(content) {
   const releaseConfigSequence =
     "--config src-tauri/tauri.release-reset.conf.json --config src-tauri/tauri.release.conf.json";
-  const markers = [
-    "tauri build --ci --no-bundle --no-sign",
-    "-Mode SignAndVerify -ReleaseDirectory apps/desktop/src-tauri/target",
-    "tauri bundle --ci --no-sign",
-    "-Mode SignAndVerify -ReleaseDirectory artifacts/release",
-    "-Mode VerifySigned -ReleaseDirectory artifacts/release",
+  const expectedJobs = [
+    "build-unsigned-inner",
+    "sign-inner-isolated",
+    "package-unsigned-outer",
+    "sign-outer-isolated",
+    "audit-signed-candidate",
   ];
-  let previousIndex = -1;
-  for (const marker of markers) {
-    const index = content.indexOf(marker);
-    if (index <= previousIndex) {
-      throw new Error(
-        "Signed Windows workflow does not preserve build, inner-sign, bundle, installer-sign, final-verify order.",
-      );
-    }
-    previousIndex = index;
+  const jobs = workflowJobBlocks(content);
+  if (JSON.stringify(Object.keys(jobs)) !== JSON.stringify(expectedJobs)) {
+    throw new Error(
+      "Signed Windows workflow must contain only the ordered build, isolated inner-sign, package, isolated outer-sign, and audit jobs.",
+    );
   }
   for (const required of [
-    "environment: windows-signing",
+    "authenticodeSignerSha256:",
+    "concurrency:",
+    "cancel-in-progress: false",
     "if: github.ref == 'refs/heads/main'",
-    "ref: refs/heads/main",
+    "ref: ${{ github.sha }}",
     "fetch-depth: 0",
-    "Require protected main checkout before any secret access",
-    "does not exactly match origin/main",
+    "exactly match both GITHUB_SHA and origin/main",
     "secrets.VERISILO_AUTHENTICODE_PFX_BASE64",
     "secrets.VERISILO_AUTHENTICODE_PASSWORD",
     "VERISILO_AUTHENTICODE_SIGNER_SHA256",
-    "ExpectedSignerCertificateSha256",
     "VERISILO_ENGINE_SIGNER_SHA256",
     "pnpm engine:verify:release",
+    "Self-test release tooling before any secret-bearing job",
+    "verisilo-environment-probe.ps1 -SelfTest",
+    "verisilo-hyperv.ps1 -SelfTest",
+    "verisilo-sandbox.ps1 -SelfTest",
+    "urn:verisilo:inner-signing-input:1",
+    "urn:verisilo:signed-inner-payload:1",
+    "urn:verisilo:outer-signing-input:1",
+    "urn:verisilo:signed-outer-payload:1",
+    "Import-PfxCertificate",
+    "-Exportable:$false",
+    "TimeStamperCertificate",
     "if: always()",
     "windows-x64-signed",
   ]) {
@@ -115,13 +143,104 @@ function verifySignedWorkflowOrder(content) {
       throw new Error(`Signed Windows workflow is missing ${required}.`);
     }
   }
+
+  const build = jobs["build-unsigned-inner"];
+  const innerSign = jobs["sign-inner-isolated"];
+  const packageOuter = jobs["package-unsigned-outer"];
+  const outerSign = jobs["sign-outer-isolated"];
+  const audit = jobs["audit-signed-candidate"];
+  for (const [jobName, block] of Object.entries(jobs)) {
+    const isSigningJob = [
+      "sign-inner-isolated",
+      "sign-outer-isolated",
+    ].includes(jobName);
+    if (isSigningJob) {
+      for (const required of [
+        "runs-on: windows-latest",
+        "environment: windows-signing",
+        "actions/download-artifact@",
+        "actions/upload-artifact@",
+        "secrets.VERISILO_AUTHENTICODE_PFX_BASE64",
+        "secrets.VERISILO_AUTHENTICODE_PASSWORD",
+        "Remove any residual signing material",
+      ]) {
+        if (!block.includes(required)) {
+          throw new Error(
+            `Isolated signing job ${jobName} is missing ${required}.`,
+          );
+        }
+      }
+      for (const forbidden of [
+        "actions/checkout@",
+        "pnpm",
+        "setup-node@",
+        "rust-toolchain@",
+        "cargo ",
+        "node ",
+        "./scripts/",
+      ]) {
+        if (block.includes(forbidden)) {
+          throw new Error(
+            `Isolated signing job ${jobName} contains candidate/dependency execution marker ${forbidden}.`,
+          );
+        }
+      }
+    } else if (
+      block.includes("environment: windows-signing") ||
+      block.includes("secrets.VERISILO_AUTHENTICODE")
+    ) {
+      throw new Error(
+        `Non-signing job ${jobName} must never receive signing environment secrets.`,
+      );
+    }
+  }
   if (
-    content.indexOf(
-      "Require protected main checkout before any secret access",
-    ) > content.indexOf("Require and materialize ephemeral signing certificate")
+    content.split("environment: windows-signing").length - 1 !== 2 ||
+    content.split("secrets.VERISILO_AUTHENTICODE_PFX_BASE64").length - 1 !==
+      2 ||
+    content.split("secrets.VERISILO_AUTHENTICODE_PASSWORD").length - 1 !== 2
   ) {
     throw new Error(
-      "Signed workflow must verify protected main before materializing signing secrets.",
+      "Signing environment and both secrets must appear only in the two isolated signing jobs.",
+    );
+  }
+  for (const [block, requiredNeed] of [
+    [innerSign, "needs: build-unsigned-inner"],
+    [packageOuter, "needs: sign-inner-isolated"],
+    [outerSign, "needs: package-unsigned-outer"],
+    [audit, "needs: sign-outer-isolated"],
+  ]) {
+    if (!block.includes(requiredNeed)) {
+      throw new Error(
+        `Signed workflow is missing strict topology edge ${requiredNeed}.`,
+      );
+    }
+  }
+  if (
+    !build.includes("tauri build --ci --no-bundle --no-sign") ||
+    !build.includes("-Mode Unsigned") ||
+    !packageOuter.includes("tauri bundle --ci --no-sign") ||
+    !packageOuter.includes("exactly one unsigned file") ||
+    !innerSign.includes("exact fixed allowlist") ||
+    !outerSign.includes("sign only installer") ||
+    !audit.includes("-Mode VerifySigned -ReleaseDirectory artifacts/release")
+  ) {
+    throw new Error(
+      "Signed workflow does not preserve unsigned build, allowlisted inner signing, bundle, installer-only signing, and final verification.",
+    );
+  }
+  const finalGate = audit.indexOf(
+    "Generate provenance and repeat every final content gate",
+  );
+  if (
+    finalGate === -1 ||
+    audit.indexOf("pnpm release:metadata", finalGate) === -1 ||
+    audit.indexOf("pnpm licenses:check", finalGate) === -1 ||
+    audit.indexOf("package-extension-zip.mjs", finalGate) === -1 ||
+    audit.indexOf("verify-release-policy.mjs", finalGate) === -1
+  ) {
+    throw new Error(
+      "Final no-secret audit must repeat provenance, license, extension ZIP, and release policy gates after all mutations.",
     );
   }
   if (content.split(releaseConfigSequence).length - 1 !== 2) {

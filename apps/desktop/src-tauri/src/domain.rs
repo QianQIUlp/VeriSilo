@@ -152,18 +152,57 @@ pub fn trusted_windows_system_tool(tool: WindowsSystemTool) -> Result<PathBuf, D
         WindowsSystemTool::Certutil => system_directory.join("certutil.exe"),
     };
     let canonical_system = fs::canonicalize(&system_directory)?;
+    let candidate_metadata = fs::symlink_metadata(&candidate)?;
     let canonical_candidate = fs::canonicalize(&candidate)?;
     if !canonical_candidate.starts_with(&canonical_system)
-        || !canonical_candidate.is_file()
-        || fs::symlink_metadata(&canonical_candidate)?.file_attributes()
-            & FILE_ATTRIBUTE_REPARSE_POINT
-            != 0
+        || !candidate_metadata.is_file()
+        || candidate_metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
     {
         return Err(DomainError::InvalidSilo(
             "Windows system tool path is outside System32, missing, or a reparse point.".to_owned(),
         ));
     }
-    Ok(canonical_candidate)
+    // `std::fs::canonicalize` returns an extended-length (`\\?\`) path on Windows.
+    // Windows PowerShell 5.1 cannot initialize reliably when launched through that spelling,
+    // so preserve the fixed System32 path after validating it against the canonical root.
+    Ok(candidate)
+}
+
+#[cfg(target_os = "windows")]
+fn trusted_windows_powershell_security_module(
+    powershell: &Path,
+) -> Result<(PathBuf, PathBuf), DomainError> {
+    use std::os::windows::fs::MetadataExt;
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    let powershell_root = powershell.parent().ok_or_else(|| {
+        DomainError::InvalidSilo(
+            "Windows PowerShell has no trusted installation directory.".to_owned(),
+        )
+    })?;
+    let module_root = powershell_root.join("Modules");
+    let module_directory = module_root.join("Microsoft.PowerShell.Security");
+    let module_manifest = module_directory.join("Microsoft.PowerShell.Security.psd1");
+    let canonical_root = fs::canonicalize(powershell_root)?;
+    let canonical_manifest = fs::canonicalize(&module_manifest)?;
+    if !module_root.is_dir()
+        || !module_directory.is_dir()
+        || !canonical_manifest.starts_with(&canonical_root)
+        || !canonical_manifest.is_file()
+        || [&module_root, &module_directory, &module_manifest]
+            .iter()
+            .any(|path| {
+                fs::symlink_metadata(path)
+                    .map(|metadata| metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+                    .unwrap_or(true)
+            })
+    {
+        return Err(DomainError::InvalidSilo(
+            "The fixed Windows PowerShell security module is missing, redirected, or outside its trusted installation directory."
+                .to_owned(),
+        ));
+    }
+    Ok((module_root, module_manifest))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1060,11 +1099,13 @@ pub fn inspect_browser_executable(
         return Err(BrowserVerificationError::FilenameMismatch);
     }
 
-    verify_windows_browser_publisher(kind, &resolved_path)?;
-    let output = browser_version_output(&resolved_path)?;
     let prefix = match kind {
         BrowserKind::Chrome => "Google Chrome ",
         BrowserKind::Edge => "Microsoft Edge ",
+    };
+    let output = match verify_windows_browser_identity(kind, &resolved_path)? {
+        Some(version) => format!("{prefix}{version}"),
+        None => browser_version_output(&resolved_path)?,
     };
     let version = output
         .strip_prefix(prefix)
@@ -1232,43 +1273,109 @@ fn paths_match(stored: &str, resolved: &str) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn verify_windows_browser_publisher(
+fn verify_windows_browser_identity(
     kind: &BrowserKind,
     executable_path: &Path,
-) -> Result<(), BrowserVerificationError> {
+) -> Result<Option<String>, BrowserVerificationError> {
     #[cfg(test)]
     if executable_path.with_extension("version-output").is_file() {
-        return Ok(());
+        return Ok(None);
     }
-    const SCRIPT: &str = "$s = Get-AuthenticodeSignature -LiteralPath $args[0]; if ($s.Status -ne 'Valid' -or $null -eq $s.SignerCertificate) { exit 3 }; [Console]::Out.WriteLine($s.SignerCertificate.Subject)";
+    const PATH_ENVIRONMENT_VARIABLE: &str = "VERISILO_BROWSER_VERIFICATION_PATH";
+    const MODULE_ENVIRONMENT_VARIABLE: &str = "VERISILO_POWERSHELL_SECURITY_MODULE";
+    const SCRIPT: &str = "$ErrorActionPreference = 'Stop'; try { $m = [Environment]::GetEnvironmentVariable('VERISILO_POWERSHELL_SECURITY_MODULE', 'Process'); if ([string]::IsNullOrWhiteSpace($m)) { exit 7 }; Import-Module -Name $m -Force -ErrorAction Stop; $p = [Environment]::GetEnvironmentVariable('VERISILO_BROWSER_VERIFICATION_PATH', 'Process'); if ([string]::IsNullOrWhiteSpace($p)) { exit 2 }; $s = Get-AuthenticodeSignature -LiteralPath $p; if ($s.Status -ne 'Valid' -or $null -eq $s.SignerCertificate) { exit 3 }; $n = $s.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false); if ([string]::IsNullOrWhiteSpace($n)) { exit 4 }; $v = [Diagnostics.FileVersionInfo]::GetVersionInfo($p); if ($null -eq $v -or [string]::IsNullOrWhiteSpace($v.ProductName) -or [string]::IsNullOrWhiteSpace($v.ProductVersion)) { exit 5 }; [Console]::Out.Write($n); [Console]::Out.Write([char]10); [Console]::Out.Write($v.ProductName); [Console]::Out.Write([char]10); [Console]::Out.Write($v.ProductVersion) } catch { $id = [string]$_.FullyQualifiedErrorId; if ([string]::IsNullOrWhiteSpace($id)) { $id = $_.Exception.GetType().FullName }; [Console]::Error.Write($id); exit 6 }";
     let powershell = trusted_windows_system_tool(WindowsSystemTool::PowerShell)
+        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
+    let (module_root, module_manifest) = trusted_windows_powershell_security_module(&powershell)
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
     let output = Command::new(powershell)
         .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-        .arg(executable_path)
+        .env(PATH_ENVIRONMENT_VARIABLE, executable_path)
+        .env(MODULE_ENVIRONMENT_VARIABLE, module_manifest)
+        // Do not inherit a caller-controlled or PowerShell-7-only module search path.
+        .env("PSModulePath", module_root)
         .output()
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
     if !output.status.success() {
+        return match output.status.code() {
+            Some(3 | 4) => Err(BrowserVerificationError::PublisherMismatch),
+            code => Err(BrowserVerificationError::Probe(format!(
+                "Windows browser signature or version metadata probe failed with exit code {}{}.",
+                code.map_or_else(|| "unavailable".to_owned(), |value| value.to_string()),
+                windows_probe_failure_detail(&output.stderr)
+                    .map(|detail| format!(" ({detail})"))
+                    .unwrap_or_default()
+            ))),
+        };
+    }
+    let identity = std::str::from_utf8(&output.stdout).map_err(|_| {
+        BrowserVerificationError::Probe(
+            "Windows browser identity metadata is not UTF-8.".to_owned(),
+        )
+    })?;
+    let fields = identity
+        .split('\n')
+        .map(|field| field.trim_end_matches('\r'))
+        .collect::<Vec<_>>();
+    if fields.len() != 3 || fields.iter().any(|field| field.trim() != *field) {
+        return Err(BrowserVerificationError::Probe(
+            "Windows browser identity metadata has an invalid shape.".to_owned(),
+        ));
+    }
+    let (expected_publisher, expected_product) = match kind {
+        BrowserKind::Chrome => ("Google LLC", "Google Chrome"),
+        BrowserKind::Edge => ("Microsoft Corporation", "Microsoft Edge"),
+    };
+    if fields[0] != expected_publisher {
         return Err(BrowserVerificationError::PublisherMismatch);
     }
-    let subject = String::from_utf8_lossy(&output.stdout);
-    let expected = match kind {
-        BrowserKind::Chrome => ["O=Google LLC", "CN=Google LLC"],
-        BrowserKind::Edge => ["O=Microsoft Corporation", "CN=Microsoft Corporation"],
-    };
-    if expected.iter().any(|value| subject.contains(value)) {
-        Ok(())
-    } else {
-        Err(BrowserVerificationError::PublisherMismatch)
+    if fields[1] != expected_product {
+        return Err(BrowserVerificationError::KindMismatch);
     }
+    let version = fields[2];
+    if version.is_empty()
+        || version.len() > 128
+        || !version.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_')
+        })
+    {
+        return Err(BrowserVerificationError::Probe(
+            "Windows browser product version metadata is invalid.".to_owned(),
+        ));
+    }
+    Ok(Some(version.to_owned()))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_probe_failure_detail(stderr: &[u8]) -> Option<String> {
+    let decoded = String::from_utf8_lossy(stderr);
+    let printable = decoded
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let compact = printable.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.is_empty() {
+        return None;
+    }
+    let mut bounded = compact.chars().take(240).collect::<String>();
+    if compact.chars().count() > 240 {
+        bounded.push('…');
+    }
+    Some(bounded)
 }
 
 #[cfg(not(target_os = "windows"))]
-fn verify_windows_browser_publisher(
+fn verify_windows_browser_identity(
     _kind: &BrowserKind,
     _executable_path: &Path,
-) -> Result<(), BrowserVerificationError> {
-    Ok(())
+) -> Result<Option<String>, BrowserVerificationError> {
+    Ok(None)
 }
 
 fn is_hex_color(color: &str) -> bool {
@@ -1330,6 +1437,12 @@ mod tests {
 
     use uuid::Uuid;
 
+    #[cfg(target_os = "windows")]
+    use super::{
+        trusted_windows_powershell_security_module, trusted_windows_system_tool,
+        verify_windows_browser_identity, windows_probe_failure_detail, BrowserVerificationError,
+        WindowsSystemTool,
+    };
     use super::{
         verify_browser_descriptor, BrowserDescriptor, BrowserKind, BrowserVerificationState,
         NetworkProfile, ProxyScheme, Silo,
@@ -1343,6 +1456,56 @@ mod tests {
         fs::write(executable.with_extension("version-output"), output)
             .expect("write version fixture");
         fs::canonicalize(executable).expect("canonical browser fixture")
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn trusted_windows_system_tools_return_spawnable_dos_paths() {
+        let powershell = trusted_windows_system_tool(WindowsSystemTool::PowerShell)
+            .expect("resolve trusted Windows PowerShell");
+        let rendered = powershell.to_string_lossy();
+
+        assert!(powershell.is_file());
+        assert!(
+            !rendered.starts_with(r"\\?\"),
+            "trusted tools must not be returned with an extended-length prefix: {rendered}"
+        );
+
+        let (module_root, module_manifest) =
+            trusted_windows_powershell_security_module(&powershell)
+                .expect("resolve fixed Windows PowerShell security module");
+        assert!(module_root.is_dir());
+        assert!(module_manifest.is_file());
+        assert_eq!(
+            module_manifest.file_name().and_then(|name| name.to_str()),
+            Some("Microsoft.PowerShell.Security.psd1")
+        );
+        assert!(!module_manifest.to_string_lossy().starts_with(r"\\?\"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_probe_failure_diagnostics_are_bounded_and_control_free() {
+        let raw = format!("probe\r\n\u{1b}[31m{}", "x".repeat(300));
+        let detail = windows_probe_failure_detail(raw.as_bytes()).expect("probe diagnostic");
+
+        assert!(detail.starts_with("probe [31m"));
+        assert!(detail.ends_with('…'));
+        assert!(detail.chars().count() <= 241);
+        assert!(!detail.chars().any(char::is_control));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_identity_probe_loads_the_fixed_security_module() {
+        let powershell = trusted_windows_system_tool(WindowsSystemTool::PowerShell)
+            .expect("resolve trusted Windows PowerShell");
+        let result = verify_windows_browser_identity(&BrowserKind::Edge, &powershell);
+
+        assert!(
+            !matches!(result, Err(BrowserVerificationError::Probe(_))),
+            "the fixed security module should load from the trusted installation: {result:?}"
+        );
     }
 
     #[test]

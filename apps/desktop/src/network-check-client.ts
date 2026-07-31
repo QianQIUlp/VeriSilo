@@ -1,6 +1,7 @@
 import {
   buildNetworkCheckResult,
   NETWORK_CHECK_ENDPOINTS,
+  readBoundedUtf8Response,
   type NetworkCheckResult,
 } from "@verisilo/contracts";
 
@@ -71,10 +72,7 @@ async function fetchBoundedJson(
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    const text = await response.text();
-    if (new TextEncoder().encode(text).byteLength > RESPONSE_LIMIT_BYTES) {
-      throw new Error("响应超过 64 KiB");
-    }
+    const text = await readBoundedUtf8Response(response, RESPONSE_LIMIT_BYTES);
     return JSON.parse(text) as unknown;
   } finally {
     window.clearTimeout(timeout);

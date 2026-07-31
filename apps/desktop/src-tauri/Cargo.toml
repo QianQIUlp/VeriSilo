@@ -5,6 +5,7 @@ description = "Verified browser environment isolation and privacy auditing"
 authors = ["VeriSilo contributors"]
 edition = "2021"
 rust-version = "1.88"
+default-run = "verisilo"
 
 [lib]
 name = "verisilo_desktop_lib"
@@ -45,3 +46,6 @@ url = "2.5.4"
 uuid = { version = "1.16.0", features = ["serde", "v4"] }
 zeroize = "1.8.1"
 verisilo-remote-backend = { path = "../../../crates/verisilo-remote-backend" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading"] }

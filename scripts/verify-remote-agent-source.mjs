@@ -193,7 +193,7 @@ for (const boundary of [
   "does not simulate a VM, browser",
   "no shell, caller path, arbitrary argument, or remote URL",
   "does not include\\s+or claim an implemented media stream",
-  "operator-owned\\s+connection admission/rate limiting",
+  "operator-owned\\s+connection\\s+admission/rate\\s+limiting",
 ]) {
   assert.match(deployment, new RegExp(boundary, "u"));
 }

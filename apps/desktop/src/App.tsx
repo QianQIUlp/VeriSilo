@@ -2562,7 +2562,7 @@ function VaultAndDataPanel({
       onNotice({
         tone: "success",
         message:
-          "保险库口令已更新。浏览器 Profile 不属于保险库加密范围，没有被重新加密。",
+          "保险库口令和数据加密密钥已轮换。浏览器 Profile 不属于保险库加密范围，没有被重新加密。",
       });
       await onRefresh();
     });
@@ -2602,7 +2602,10 @@ function VaultAndDataPanel({
           <div>
             <p className="eyebrow">保险库口令</p>
             <h1>更换保护本地配置的口令</h1>
-            <p>VeriSilo 没有找回机制。新口令只重新保护随机 DEK。</p>
+            <p>
+              VeriSilo
+              没有找回机制。更换口令会轮换保险库的数据加密密钥；旧备份仍是独立历史快照，应按敏感数据妥善保管或销毁。
+            </p>
           </div>
         </div>
         <div className="form-grid three-columns">

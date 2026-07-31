@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PROTOCOL_VERSION } from "@verisilo/contracts";
+
 import {
   enableDedicatedWorkerExperiment,
   handleLabsContentStop,
@@ -68,11 +70,16 @@ function installMonitorChromeMock(
   ) => CanaryExposure | Promise<CanaryExposure> = () => CLEAR_CANARY_EXPOSURE,
   incognito = false,
   restoreFails = false,
+  runtimeStatus:
+    ((requestId: string) => unknown | Promise<unknown>) | null = null,
+  permissionCheck: (checkNumber: number) => boolean | Promise<boolean> = () =>
+    true,
 ) {
   const sessionStorage: Record<string, unknown> = {};
   const localStorage: Record<string, unknown> = {};
   const restoreCalls: string[] = [];
   let scanCount = 0;
+  let permissionCheckCount = 0;
   const executeScript = vi.fn(async (injection: unknown) => {
     const request = injection as {
       files?: string[];
@@ -120,13 +127,21 @@ function installMonitorChromeMock(
   });
   vi.stubGlobal("chrome", {
     permissions: {
-      contains: vi.fn(async () => true),
+      contains: vi.fn(async () => {
+        permissionCheckCount += 1;
+        return permissionCheck(permissionCheckCount);
+      }),
       request: vi.fn(async () => true),
     },
     runtime: {
-      sendNativeMessage: vi.fn(async () => {
-        throw new Error("desktop runtime unavailable in test");
-      }),
+      sendNativeMessage: vi.fn(
+        async (_host: string, message: { requestId: string }) => {
+          if (runtimeStatus === null) {
+            throw new Error("desktop runtime unavailable in test");
+          }
+          return runtimeStatus(message.requestId);
+        },
+      ),
     },
     scripting: { executeScript },
     storage: {
@@ -338,6 +353,95 @@ describe("Labs page stop provenance", () => {
       enabled: false,
       state: "restored",
       lastReceipt: { stopCode: "user_requested" },
+    });
+  });
+
+  it("fails closed when the periodic permission check rejects", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-30T00:00:00.000Z"));
+    const harness = installMonitorChromeMock(
+      undefined,
+      false,
+      false,
+      null,
+      (checkNumber) => {
+        if (checkNumber >= 3) {
+          throw new Error("permission service unavailable");
+        }
+        return true;
+      },
+    );
+
+    await enableDedicatedWorkerExperiment();
+    expect(harness.scanCount()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.waitFor(() => expect(harness.restoreCalls).toHaveLength(1));
+
+    expect(harness.scanCount()).toBe(1);
+    expect(harness.sessionStorage["labs:status"]).toMatchObject({
+      enabled: false,
+      state: "failed",
+      lastReceipt: {
+        stopCode: "verification_failed",
+        restore: { attempted: true, succeeded: true },
+      },
+    });
+  });
+
+  it("restores a desktop-bound run when the Vault or active Silo changes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-30T00:00:00.000Z"));
+    const siloId = "6c0bd487-a28a-49f4-8996-1fe16d7f010e";
+    let statusCalls = 0;
+    const harness = installMonitorChromeMock(
+      () => CLEAR_CANARY_EXPOSURE,
+      false,
+      false,
+      (requestId) => {
+        statusCalls += 1;
+        const now = new Date();
+        return {
+          type: "runtime_status",
+          protocolVersion: PROTOCOL_VERSION,
+          requestId,
+          snapshotWrittenAt: now.toISOString(),
+          activation: {
+            activeSiloId: statusCalls === 1 ? siloId : null,
+            state: statusCalls === 1 ? "running" : "idle",
+            updatedAt: now.toISOString(),
+            networkEvidence: null,
+          },
+          vault:
+            statusCalls === 1
+              ? {
+                  state: "unlocked",
+                  autoLockAt: new Date(
+                    now.getTime() + 10 * 60 * 1_000,
+                  ).toISOString(),
+                }
+              : { state: "locked", autoLockAt: null },
+        };
+      },
+    );
+
+    await enableDedicatedWorkerExperiment();
+    expect(harness.sessionStorage["labs:status"]).toMatchObject({
+      enabled: true,
+      scope: { mode: "desktop_silo", siloId },
+    });
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.waitFor(() => expect(harness.restoreCalls).toHaveLength(1));
+
+    expect(statusCalls).toBe(2);
+    expect(harness.sessionStorage["labs:status"]).toMatchObject({
+      enabled: false,
+      state: "failed",
+      lastReceipt: {
+        stopCode: "scope_violation",
+        restore: { attempted: true, succeeded: true },
+      },
     });
   });
 

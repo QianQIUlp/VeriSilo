@@ -576,11 +576,13 @@ impl VaultRuntime {
 
         let new_salt = random_bytes::<16>();
         let new_kek = derive_key(new_passphrase, &new_salt)?;
-        let (old_salt, old_kek) = {
+        let new_dek = Zeroizing::new(random_bytes::<32>());
+        let (old_salt, old_kek, old_dek) = {
             let unlocked = self.unlocked_mut_without_activity()?;
-            let old = (unlocked.salt, unlocked.kek.clone());
+            let old = (unlocked.salt, unlocked.kek.clone(), unlocked.dek.clone());
             unlocked.salt = new_salt;
             unlocked.kek = new_kek;
+            unlocked.dek = new_dek;
             old
         };
 
@@ -588,6 +590,7 @@ impl VaultRuntime {
             if let Some(unlocked) = self.unlocked.as_mut() {
                 unlocked.salt = old_salt;
                 unlocked.kek = old_kek;
+                unlocked.dek = old_dek;
             }
             return Err(error);
         }
@@ -658,7 +661,7 @@ impl VaultRuntime {
             RemoteVaultState::default()
         };
 
-        merge_preserved_orphan_receipts(&mut opened.data, current_remote.orphan_receipts)?;
+        merge_preserved_remote_security_state(&mut opened.data, current_remote)?;
 
         // A backup contains metadata, not browser-owned Profile files. Always
         // rebase restored paths to this installation's managed root instead of
@@ -832,12 +835,16 @@ impl VaultRuntime {
             .ok_or(VaultError::SiloNotFound)
     }
 
+    fn acquire_silo_profile_lease(
+        &mut self,
+        silo_id: Uuid,
+    ) -> Result<BrowserProfileLease, VaultError> {
+        let profile_directories = self.silo_by_id(silo_id)?.all_engine_profile_directories();
+        BrowserProfileLease::acquire(&profile_directories)
+    }
+
     fn silo_has_browser_lock(&mut self, silo_id: Uuid) -> Result<bool, VaultError> {
-        let silo = self.silo_by_id(silo_id)?;
-        Ok(silo
-            .all_engine_profile_directories()
-            .iter()
-            .any(|directory| profile_has_browser_lock(directory)))
+        Ok(self.acquire_silo_profile_lease(silo_id).is_err())
     }
 
     pub fn create_silo(&mut self, root: &Path, input: CreateSiloInput) -> Result<Silo, VaultError> {
@@ -943,9 +950,8 @@ impl VaultRuntime {
         input
             .validate()
             .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
-        if self.silo_has_browser_lock(silo_id)? {
-            return Err(VaultError::SiloProfileInUse);
-        }
+        let profile_directories = self.silo_by_id(silo_id)?.all_engine_profile_directories();
+        let _browser_profile_guard = BrowserProfileLease::acquire(&profile_directories)?;
         let browser_inspection =
             inspect_browser_executable(&input.browser_kind, Path::new(&input.executable_path))
                 .map_err(|error| VaultError::BrowserVerification(error.to_string()))?;
@@ -1009,9 +1015,7 @@ impl VaultRuntime {
             .validate(effective_network)
             .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
         }
-        if self.silo_has_browser_lock(silo_id)? {
-            return Err(VaultError::SiloProfileInUse);
-        }
+        let _browser_profile_guard = self.acquire_silo_profile_lease(silo_id)?;
         let browser_inspection =
             inspect_browser_executable(&input.browser_kind, Path::new(&input.executable_path))
                 .map_err(|error| VaultError::BrowserVerification(error.to_string()))?;
@@ -1099,9 +1103,7 @@ impl VaultRuntime {
         if is_active {
             return Err(VaultError::SiloRunning);
         }
-        if self.silo_has_browser_lock(silo_id)? {
-            return Err(VaultError::SiloProfileInUse);
-        }
+        let _browser_profile_guard = self.acquire_silo_profile_lease(silo_id)?;
         let descriptor = self.silo_by_id(silo_id)?.browser;
         let inspection =
             inspect_browser_executable(&descriptor.kind, Path::new(&descriptor.executable_path))
@@ -1148,9 +1150,7 @@ impl VaultRuntime {
             return Err(VaultError::SiloRunning);
         }
         validate_silo_name(name).map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
-        if self.silo_has_browser_lock(silo_id)? {
-            return Err(VaultError::SiloProfileInUse);
-        }
+        let _browser_profile_guard = self.acquire_silo_profile_lease(silo_id)?;
         let prospective_data = {
             let unlocked = self.unlocked_mut_for_activity()?;
             let mut data = unlocked.data.clone();
@@ -1185,9 +1185,7 @@ impl VaultRuntime {
         }
         .validate(&input.network_profile)
         .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
-        if self.silo_has_browser_lock(silo_id)? {
-            return Err(VaultError::SiloProfileInUse);
-        }
+        let _browser_profile_guard = self.acquire_silo_profile_lease(silo_id)?;
 
         let UpdateSiloNetworkInput {
             mut network_profile,
@@ -1260,9 +1258,7 @@ impl VaultRuntime {
         input
             .validate(&network_profile)
             .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
-        if self.silo_has_browser_lock(silo_id)? {
-            return Err(VaultError::SiloProfileInUse);
-        }
+        let _browser_profile_guard = self.acquire_silo_profile_lease(silo_id)?;
         let prospective_data = {
             let unlocked = self.unlocked_mut_for_activity()?;
             let mut data = unlocked.data.clone();
@@ -1287,6 +1283,7 @@ impl VaultRuntime {
         if is_active {
             return Err(VaultError::SiloRunning);
         }
+        let _browser_profile_guard = self.acquire_silo_profile_lease(silo_id)?;
         let prospective_data = {
             let unlocked = self.unlocked_mut_for_activity()?;
             let mut data = unlocked.data.clone();
@@ -1310,6 +1307,7 @@ impl VaultRuntime {
         root: &Path,
         silo_id: Uuid,
     ) -> Result<Silo, VaultError> {
+        let _browser_profile_guard = self.acquire_silo_profile_lease(silo_id)?;
         let prospective_data = {
             let unlocked = self.unlocked_mut_for_activity()?;
             let mut data = unlocked.data.clone();
@@ -1353,6 +1351,11 @@ impl VaultRuntime {
 
         let profile_directory = self.silo_profile_directory(silo_id)?;
         let managed_directory = verified_managed_silo_directory(root, silo_id, &profile_directory)?;
+        // Do not retain the profile lease across the quarantine rename: its
+        // non-share-delete handle deliberately makes Windows reject an
+        // ancestor rename. The check and rename are still fail-safe under a
+        // competing runtime: if launch wins, Windows rejects this rename; if
+        // this rename wins, launch's required-root validation fails.
         if self.silo_has_browser_lock(silo_id)? {
             return Err(VaultError::SiloProfileInUse);
         }
@@ -1730,10 +1733,188 @@ fn verified_managed_silo_directory(
     Ok(managed_directory)
 }
 
-fn profile_has_browser_lock(profile_directory: &Path) -> bool {
-    ["SingletonLock", "SingletonCookie", "SingletonSocket"]
-        .iter()
-        .any(|name| fs::symlink_metadata(profile_directory.join(name)).is_ok())
+pub(crate) fn profile_has_browser_lock(profile_directory: &Path) -> bool {
+    BrowserProfileLease::acquire(&[profile_directory.to_path_buf()]).is_err()
+}
+
+pub(crate) struct BrowserProfileLease {
+    #[cfg(target_os = "windows")]
+    _locks: Vec<WindowsProfileFileLock>,
+}
+
+impl BrowserProfileLease {
+    pub(crate) fn acquire_for_runtime(
+        profile_directories: &[PathBuf],
+        required_profile_root: &Path,
+    ) -> Result<Self, VaultError> {
+        if !profile_directories
+            .iter()
+            .any(|directory| directory == required_profile_root)
+        {
+            return Err(VaultError::UnmanagedProfile);
+        }
+        Self::acquire_inner(profile_directories, Some(required_profile_root))
+    }
+
+    pub(crate) fn acquire(profile_directories: &[PathBuf]) -> Result<Self, VaultError> {
+        Self::acquire_inner(profile_directories, None)
+    }
+
+    fn acquire_inner(
+        profile_directories: &[PathBuf],
+        required_profile_root: Option<&Path>,
+    ) -> Result<Self, VaultError> {
+        #[cfg(not(target_os = "windows"))]
+        let _ = required_profile_root;
+        for profile_directory in profile_directories {
+            if chromium_profile_sentinel_exists(profile_directory)? {
+                return Err(VaultError::SiloProfileInUse);
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let mut locks = Vec::new();
+            let mut required_profile_locked = required_profile_root.is_none();
+            for profile_directory in profile_directories {
+                match fs::symlink_metadata(profile_directory) {
+                    Ok(metadata)
+                        if metadata.is_dir() && !metadata_is_link_or_reparse(&metadata) => {}
+                    Ok(_) => return Err(VaultError::UnmanagedProfile),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        if required_profile_root == Some(profile_directory.as_path()) {
+                            return Err(VaultError::UnmanagedProfile);
+                        }
+                        continue;
+                    }
+                    Err(error) => return Err(VaultError::Filesystem(error)),
+                }
+                // Browser-owned Profile trees can contain hundreds of
+                // thousands of changing cache entries. A runtime lease only
+                // needs to anchor the managed root path; recursively walking
+                // live browser data is both racy and unbounded.
+                ensure_path_ancestors_have_no_links_or_reparse_points(profile_directory)?;
+                let lock = WindowsProfileFileLock::acquire(
+                    &profile_directory.join(".verisilo-runtime.lock"),
+                )
+                .map_err(|_| VaultError::SiloProfileInUse)?;
+                locks.push(lock);
+                if required_profile_root == Some(profile_directory.as_path()) {
+                    required_profile_locked = true;
+                }
+            }
+            if !required_profile_locked {
+                return Err(VaultError::UnmanagedProfile);
+            }
+            for profile_directory in profile_directories {
+                if chromium_profile_sentinel_exists(profile_directory)? {
+                    return Err(VaultError::SiloProfileInUse);
+                }
+            }
+            Ok(Self { _locks: locks })
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(Self {})
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) const CHROMIUM_PROFILE_SENTINEL_NAMES: &[&str] = &["lockfile"];
+#[cfg(not(target_os = "windows"))]
+pub(crate) const CHROMIUM_PROFILE_SENTINEL_NAMES: &[&str] =
+    &["SingletonLock", "SingletonCookie", "SingletonSocket"];
+
+pub(crate) fn chromium_profile_sentinel_exists(
+    profile_directory: &Path,
+) -> Result<bool, VaultError> {
+    for name in CHROMIUM_PROFILE_SENTINEL_NAMES {
+        match fs::symlink_metadata(profile_directory.join(name)) {
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(VaultError::Filesystem(error)),
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsProfileFileLock {
+    file: fs::File,
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsProfileFileLock {
+    fn acquire(path: &Path) -> std::io::Result<Self> {
+        use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+        use windows_sys::Win32::{
+            Storage::FileSystem::{LockFileEx, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY},
+            System::IO::OVERLAPPED,
+        };
+
+        const FILE_SHARE_READ: u32 = 0x0000_0001;
+        const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata_is_link_or_reparse(&metadata) || !metadata.is_file() => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "the runtime lease path is not a regular file",
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            // Do not grant FILE_SHARE_DELETE. Otherwise another process can
+            // rename or delete the directory entry while this file object is
+            // locked, recreate the same path, and obtain an unrelated byte
+            // range lock. Keeping the path anchored makes this a real
+            // cross-process profile lease.
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        let metadata = file.metadata()?;
+        if metadata_is_link_or_reparse(&metadata) || !metadata.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "the runtime lease handle is not a regular file",
+            ));
+        }
+        let mut overlapped = OVERLAPPED::default();
+        let locked = unsafe {
+            LockFileEx(
+                file.as_raw_handle() as _,
+                LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+                0,
+                1,
+                0,
+                &mut overlapped,
+            )
+        };
+        if locked == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(Self { file })
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsProfileFileLock {
+    fn drop(&mut self) {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::{Storage::FileSystem::UnlockFileEx, System::IO::OVERLAPPED};
+
+        let mut overlapped = OVERLAPPED::default();
+        let _ = unsafe { UnlockFileEx(self.file.as_raw_handle() as _, 0, 1, 0, &mut overlapped) };
+    }
 }
 
 fn browser_paths_match(stored: &str, resolved: &str) -> bool {
@@ -1774,6 +1955,20 @@ fn ensure_tree_has_no_links_or_reparse_points(path: &Path) -> Result<(), VaultEr
     if metadata.is_dir() {
         for entry in fs::read_dir(path)? {
             ensure_tree_has_no_links_or_reparse_points(&entry?.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn ensure_path_ancestors_have_no_links_or_reparse_points(path: &Path) -> Result<(), VaultError> {
+    for ancestor in path.ancestors() {
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata_is_link_or_reparse(&metadata) => {
+                return Err(VaultError::UnmanagedProfile);
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(VaultError::Filesystem(error)),
         }
     }
     Ok(())
@@ -2169,12 +2364,75 @@ fn validate_vault_data(data: &VaultData) -> Result<(), VaultError> {
     validate_remote_control_plane(data)
 }
 
-fn merge_preserved_orphan_receipts(
+fn merge_preserved_remote_security_state(
     data: &mut VaultData,
-    preserved: Vec<RemoteOrphanReceipt>,
+    preserved: RemoteVaultState,
 ) -> Result<(), VaultError> {
     let remote = &mut data.remote_control_plane;
-    for receipt in preserved {
+    let current_pairing_is_revoked =
+        preserved.pairing_revoked_at.is_some() && preserved.backend.pairing.is_none();
+    if let Some(revoked_at) = preserved.pairing_revoked_at {
+        let is_newer = remote
+            .pairing_revoked_at
+            .as_ref()
+            .is_none_or(|restored_at| revoked_at > *restored_at);
+        if is_newer {
+            remote.pairing_revoked_at = Some(revoked_at);
+        }
+    }
+
+    if current_pairing_is_revoked {
+        // A deliberate revocation in the current Vault is a monotonic
+        // security event. Restoring an older authenticated snapshot must not
+        // silently resurrect its credential.
+        remote.backend.pairing = None;
+        if preserved.endpoint.is_some() {
+            remote.endpoint = preserved.endpoint.clone();
+        }
+    } else if let Some(current_pairing) = preserved.backend.pairing {
+        match remote.backend.pairing.as_mut() {
+            Some(restored_pairing)
+                if restored_pairing.server_id == current_pairing.server_id
+                    && restored_pairing.client_credential_id
+                        == current_pairing.client_credential_id
+                    && restored_pairing.node == current_pairing.node
+                    && restored_pairing.client_credential == current_pairing.client_credential
+                    && restored_pairing.credential_expires_at_unix_ms
+                        == current_pairing.credential_expires_at_unix_ms
+                    && restored_pairing.capabilities == current_pairing.capabilities =>
+            {
+                if remote.endpoint != preserved.endpoint {
+                    return Err(VaultError::RestoreRemoteOwnershipConflict);
+                }
+                restored_pairing.last_client_sequence = restored_pairing
+                    .last_client_sequence
+                    .max(current_pairing.last_client_sequence);
+                restored_pairing.last_server_sequence = restored_pairing
+                    .last_server_sequence
+                    .max(current_pairing.last_server_sequence);
+            }
+            None => {
+                remote.endpoint = preserved.endpoint.clone();
+                remote.backend.pairing = Some(current_pairing);
+            }
+            Some(_) => return Err(VaultError::RestoreRemoteOwnershipConflict),
+        }
+    }
+
+    let mut used_pairing_tokens = remote
+        .backend
+        .used_pairing_token_ids
+        .iter()
+        .chain(preserved.backend.used_pairing_token_ids.iter())
+        .copied()
+        .collect::<HashSet<_>>();
+    if used_pairing_tokens.len() > MAX_USED_PAIRING_TOKENS {
+        return Err(VaultError::RestoreRemoteOwnershipConflict);
+    }
+    remote.backend.used_pairing_token_ids = used_pairing_tokens.drain().collect();
+    remote.backend.used_pairing_token_ids.sort_unstable();
+
+    for receipt in preserved.orphan_receipts {
         if remote.backend.bindings.iter().any(|binding| {
             binding.binding_id == receipt.binding_id
                 || (binding.server_id == receipt.server_id
@@ -4023,12 +4281,14 @@ mod tests {
         assert_eq!(renamed.name, "renamed");
         assert_eq!(renamed.id, original.id);
         let profile = std::path::PathBuf::from(&original.profile_directory);
-        fs::write(profile.join("SingletonLock"), []).expect("create profile lock");
+        fs::write(profile.join(super::CHROMIUM_PROFILE_SENTINEL_NAMES[0]), [])
+            .expect("create profile lock");
         assert!(matches!(
             vault.rename_silo(&root, original.id, "blocked", false),
             Err(VaultError::SiloProfileInUse)
         ));
-        fs::remove_file(profile.join("SingletonLock")).expect("remove profile lock");
+        fs::remove_file(profile.join(super::CHROMIUM_PROFILE_SENTINEL_NAMES[0]))
+            .expect("remove profile lock");
 
         vault
             .archive_silo(&root, original.id, false)
@@ -4109,7 +4369,8 @@ mod tests {
         .contains("updated-secret"));
 
         fs::write(
-            std::path::Path::new(&original.profile_directory).join("SingletonLock"),
+            std::path::Path::new(&original.profile_directory)
+                .join(super::CHROMIUM_PROFILE_SENTINEL_NAMES[0]),
             [],
         )
         .expect("create profile lock");
@@ -4168,12 +4429,14 @@ mod tests {
             assert!(link_target.exists());
             fs::remove_file(profile_link).expect("remove profile symlink");
         }
-        fs::write(profile.join("SingletonLock"), []).expect("create profile lock");
+        fs::write(profile.join(super::CHROMIUM_PROFILE_SENTINEL_NAMES[0]), [])
+            .expect("create profile lock");
         assert!(matches!(
             vault.delete_silo(&root, silo.id, false, true),
             Err(VaultError::SiloProfileInUse)
         ));
-        fs::remove_file(profile.join("SingletonLock")).expect("remove profile lock");
+        fs::remove_file(profile.join(super::CHROMIUM_PROFILE_SENTINEL_NAMES[0]))
+            .expect("remove profile lock");
 
         let unrelated = root.join("default-profile");
         fs::create_dir_all(&unrelated).expect("create unrelated profile");
@@ -4214,8 +4477,123 @@ mod tests {
         fs::remove_dir_all(root).expect("remove test vault directory");
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
-    fn passphrase_change_rewraps_the_same_dek_and_invalidates_the_old_passphrase() {
+    fn permanent_delete_rejects_a_held_windows_runtime_profile_lease() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create test vault directory");
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, "a passphrase that is long enough")
+            .expect("initialize vault");
+        let silo = create_direct_silo(&root, &mut vault, "locked profile");
+        let profile = std::path::PathBuf::from(&silo.profile_directory);
+        let held_lock = super::BrowserProfileLease::acquire(&[profile.clone()])
+            .expect("hold the VeriSilo runtime profile lease");
+
+        assert!(matches!(
+            vault.delete_silo(&root, silo.id, false, true),
+            Err(VaultError::SiloProfileInUse)
+        ));
+        assert!(root.join("silos").join(silo.id.to_string()).exists());
+        assert_eq!(vault.list_silos().expect("list retained Silo").len(), 1);
+
+        drop(held_lock);
+        vault
+            .delete_silo(&root, silo.id, false, true)
+            .expect("delete after the OS lock is released");
+        assert!(!root.join("silos").join(silo.id.to_string()).exists());
+        fs::remove_dir_all(root).expect("remove test vault directory");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_runtime_profile_lease_anchors_the_lock_path_until_drop() {
+        let root = temporary_root();
+        let profile = root.join("profile");
+        fs::create_dir_all(&profile).expect("create managed profile fixture");
+        let lock_path = profile.join(".verisilo-runtime.lock");
+        let renamed_lock_path = profile.join(".verisilo-runtime-renamed.lock");
+        let held_lock = super::BrowserProfileLease::acquire(&[profile.clone()])
+            .expect("hold the VeriSilo runtime profile lease");
+
+        assert!(
+            fs::remove_file(&lock_path).is_err(),
+            "a live lease must deny deletion of its lock path"
+        );
+        assert!(
+            fs::rename(&lock_path, &renamed_lock_path).is_err(),
+            "a live lease must deny renaming of its lock path"
+        );
+        assert!(
+            super::BrowserProfileLease::acquire(&[profile.clone()]).is_err(),
+            "a second runtime must not acquire the same profile lease"
+        );
+
+        drop(held_lock);
+        let replacement = super::BrowserProfileLease::acquire(&[profile])
+            .expect("the lease must be reusable after its owner drops");
+        drop(replacement);
+        fs::remove_dir_all(root).expect("remove runtime lease fixture");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_runtime_profile_lease_rejects_missing_roots_and_reparse_lock_paths() {
+        use std::os::windows::fs::symlink_file;
+
+        let root = temporary_root();
+        let missing_profile = root.join("missing-profile");
+        assert!(super::BrowserProfileLease::acquire_for_runtime(
+            std::slice::from_ref(&missing_profile),
+            &missing_profile,
+        )
+        .is_err());
+        assert!(!missing_profile.exists());
+
+        let profile = root.join("profile");
+        fs::create_dir_all(profile.join(".verisilo-runtime.lock"))
+            .expect("create a non-file lock-path fixture");
+        assert!(super::BrowserProfileLease::acquire(&[profile.clone()]).is_err());
+        fs::remove_dir(profile.join(".verisilo-runtime.lock"))
+            .expect("remove non-file lock-path fixture");
+
+        let symlink_target = root.join("symlink-target");
+        fs::write(&symlink_target, b"not a lease").expect("create symlink target");
+        let lock_path = profile.join(".verisilo-runtime.lock");
+        if symlink_file(&symlink_target, &lock_path).is_ok() {
+            assert!(
+                super::BrowserProfileLease::acquire(&[profile]).is_err(),
+                "a prepositioned reparse-point lock path must be rejected"
+            );
+        }
+        fs::remove_dir_all(root).expect("remove reparse lock-path fixture");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_runtime_profile_lease_rolls_back_partial_multi_profile_acquisition() {
+        let root = temporary_root();
+        let profile_a = root.join("profile-a");
+        let profile_b = root.join("profile-b");
+        fs::create_dir_all(&profile_a).expect("create profile A");
+        fs::create_dir_all(&profile_b).expect("create profile B");
+        let held_b = super::BrowserProfileLease::acquire(std::slice::from_ref(&profile_b))
+            .expect("hold profile B");
+
+        assert!(
+            super::BrowserProfileLease::acquire(&[profile_a.clone(), profile_b.clone()]).is_err()
+        );
+        let held_a = super::BrowserProfileLease::acquire(std::slice::from_ref(&profile_a))
+            .expect("profile A was rolled back after profile B failed");
+
+        drop(held_a);
+        drop(held_b);
+        fs::remove_dir_all(root).expect("remove multi-profile rollback fixture");
+    }
+
+    #[test]
+    fn passphrase_change_rotates_the_dek_and_invalidates_the_old_passphrase() {
         let root = temporary_root();
         fs::create_dir_all(&root).expect("create test vault directory");
         let old_passphrase = "the old passphrase is long enough";
@@ -4234,12 +4612,12 @@ mod tests {
         vault
             .change_passphrase(&root, old_passphrase, new_passphrase)
             .expect("change passphrase");
-        let after = fs::read(root.join("vault.json")).expect("read rewrapped envelope");
+        let after = fs::read(root.join("vault.json")).expect("read rotated envelope");
         let new_dek = open_envelope(&after, new_passphrase)
-            .expect("open rewrapped envelope")
+            .expect("open rotated envelope")
             .dek
             .to_vec();
-        assert_eq!(old_dek, new_dek);
+        assert_ne!(old_dek, new_dek);
         assert_ne!(
             serde_json::from_slice::<serde_json::Value>(&before).expect("old envelope")["salt"],
             serde_json::from_slice::<serde_json::Value>(&after).expect("new envelope")["salt"]
@@ -4494,6 +4872,108 @@ mod tests {
             conflict_destination_root,
         ] {
             fs::remove_dir_all(root).expect("remove restore test root");
+        }
+    }
+
+    #[test]
+    fn restore_preserves_remote_replay_ledgers_and_pairing_revocation() {
+        let source_root = temporary_root();
+        let destination_root = temporary_root();
+        let revoked_root = temporary_root();
+        for root in [&source_root, &destination_root, &revoked_root] {
+            fs::create_dir_all(root).expect("create rollback test root");
+        }
+        let backup_passphrase = "a replay backup passphrase that is long enough";
+        let current_passphrase = "a replay current passphrase that is long enough";
+        let backup_token = Uuid::new_v4();
+        let current_token = Uuid::new_v4();
+
+        let mut source = VaultRuntime::default();
+        source
+            .initialize(&source_root, backup_passphrase)
+            .expect("initialize replay source Vault");
+        let mut backup_remote = minimal_remote_state(Uuid::new_v4());
+        backup_remote.backend.bindings.clear();
+        let pairing = backup_remote
+            .backend
+            .pairing
+            .as_mut()
+            .expect("backup pairing");
+        pairing.last_client_sequence = 2;
+        pairing.last_server_sequence = 3;
+        backup_remote.backend.used_pairing_token_ids = vec![backup_token];
+        source
+            .persist_remote_control_plane(&source_root, backup_remote.clone())
+            .expect("persist replay backup state");
+        let backup_path = source_root.join("replay-backup.json");
+        source
+            .backup(&source_root, &backup_path)
+            .expect("create replay backup");
+
+        let mut destination = VaultRuntime::default();
+        destination
+            .initialize(&destination_root, current_passphrase)
+            .expect("initialize current replay Vault");
+        let mut current_remote = backup_remote.clone();
+        let pairing = current_remote
+            .backend
+            .pairing
+            .as_mut()
+            .expect("current pairing");
+        pairing.last_client_sequence = 20;
+        pairing.last_server_sequence = 30;
+        current_remote.backend.used_pairing_token_ids = vec![current_token];
+        destination
+            .persist_remote_control_plane(&destination_root, current_remote)
+            .expect("persist current replay state");
+        destination
+            .restore(&destination_root, &backup_path, backup_passphrase, true)
+            .expect("restore without rolling back replay state");
+        let restored = destination
+            .remote_control_plane()
+            .expect("read replay-protected restore");
+        let restored_pairing = restored.backend.pairing.expect("retained pairing");
+        assert_eq!(restored_pairing.last_client_sequence, 20);
+        assert_eq!(restored_pairing.last_server_sequence, 30);
+        assert_eq!(restored.backend.used_pairing_token_ids, {
+            let mut expected = vec![backup_token, current_token];
+            expected.sort_unstable();
+            expected
+        });
+
+        let mut revoked = VaultRuntime::default();
+        revoked
+            .initialize(&revoked_root, current_passphrase)
+            .expect("initialize revoked replay Vault");
+        let mut revoked_remote = backup_remote;
+        revoked_remote.backend.pairing = None;
+        revoked_remote.pairing_revoked_at = Some(Utc::now());
+        revoked_remote.backend.used_pairing_token_ids = vec![current_token];
+        revoked
+            .persist_remote_control_plane(&revoked_root, revoked_remote.clone())
+            .expect("persist revocation");
+        revoked
+            .restore(&revoked_root, &backup_path, backup_passphrase, true)
+            .expect("restore without resurrecting a revoked pairing");
+        let restored_revoked = revoked
+            .remote_control_plane()
+            .expect("read revocation-protected restore");
+        assert!(restored_revoked.backend.pairing.is_none());
+        assert_eq!(
+            restored_revoked.pairing_revoked_at,
+            revoked_remote.pairing_revoked_at
+        );
+        assert!(restored_revoked
+            .backend
+            .used_pairing_token_ids
+            .contains(&backup_token));
+        assert!(restored_revoked
+            .backend
+            .used_pairing_token_ids
+            .contains(&current_token));
+
+        for root in [source_root, destination_root, revoked_root] {
+            fs::remove_dir_all(root).expect("remove rollback test root");
         }
     }
 

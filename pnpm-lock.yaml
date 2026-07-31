@@ -13,6 +13,9 @@ importers:
       prettier-plugin-astro:
         specifier: ^0.14.1
         version: 0.14.1
+      semver:
+        specifier: 7.8.5
+        version: 7.8.5
 
   apps/desktop:
     dependencies:

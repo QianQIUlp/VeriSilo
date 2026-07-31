@@ -290,28 +290,45 @@ async function expectedReport(npmPath, cargoPath, options) {
   return expectedReportFromRaw(npmRaw, cargoRaw, options);
 }
 
-function collect(command, args, label) {
+function collect(command, args, label, env = process.env) {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "buffer",
+    env,
     maxBuffer: 64 * 1024 * 1024,
     shell: false,
     windowsHide: true,
   });
   if (result.error !== undefined || result.status !== 0) {
     const stderr = result.stderr?.toString("utf8").trim().slice(0, 2_000);
+    const stdout = result.stdout?.toString("utf8").trim().slice(0, 2_000);
+    const detail = stderr === "" || stderr === undefined ? stdout : stderr;
     throw new Error(
-      `${label} collection failed${stderr === "" || stderr === undefined ? "." : `: ${stderr}`}`,
+      `${label} collection failed${detail === "" || detail === undefined ? "." : `: ${detail}`}`,
       { cause: result.error },
     );
   }
   return result.stdout;
 }
 
+function pnpmChildEnvironment() {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (
+      key.toLowerCase().startsWith("npm_") ||
+      key.toUpperCase().startsWith("PNPM_") ||
+      key === "INIT_CWD" ||
+      key === "COREPACK_HOME"
+    ) {
+      delete env[key];
+    }
+  }
+  return env;
+}
+
 async function collectExpectedReport(options) {
-  const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const npmRaw = options.includeNpm
-    ? collect(pnpm, ["licenses", "list", "--json"], "pnpm license metadata")
+    ? collectPnpmLicenseMetadata()
     : Buffer.from("{}");
   const cargoRaw = collect(
     "cargo",
@@ -328,6 +345,38 @@ async function collectExpectedReport(options) {
     "Cargo license metadata",
   );
   return expectedReportFromRaw(npmRaw, cargoRaw, options);
+}
+
+function collectPnpmLicenseMetadata() {
+  const args = ["licenses", "list", "--json"];
+  if (process.platform !== "win32") {
+    return collect(
+      "pnpm",
+      args,
+      "pnpm license metadata",
+      pnpmChildEnvironment(),
+    );
+  }
+
+  // Node cannot execute a .cmd shim with shell:false on Windows (EINVAL).
+  // pnpm sets npm_execpath for every package script, so invoke that pinned JS
+  // entry point with the current Node executable instead of enabling a shell
+  // around repository-controlled arguments.
+  const pnpmEntrypoint = process.env.npm_execpath;
+  if (
+    pnpmEntrypoint === undefined ||
+    !/\.(?:cjs|mjs|js)$/iu.test(pnpmEntrypoint)
+  ) {
+    throw new Error(
+      "pnpm license metadata collection on Windows must run through the locked pnpm script; use pnpm licenses:report or provide --npm.",
+    );
+  }
+  return collect(
+    process.execPath,
+    [pnpmEntrypoint, ...args],
+    "pnpm license metadata",
+    pnpmChildEnvironment(),
+  );
 }
 
 function selfTest() {

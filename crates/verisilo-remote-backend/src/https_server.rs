@@ -9,15 +9,22 @@
 use std::{
     collections::HashSet,
     fs::{self, File},
-    io::{BufReader, Cursor, Read, Write},
+    io::{BufReader, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::{Component, Path, PathBuf},
-    sync::Arc,
-    thread,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc::{self, SyncSender},
+        Arc,
+    },
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
-use rustls::{ServerConfig, ServerConnection, StreamOwned};
+use rustls::{
+    pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
+    ServerConfig, ServerConnection, StreamOwned,
+};
 use serde::Deserialize;
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
@@ -36,6 +43,7 @@ const MAX_PATH_BYTES: usize = 4_096;
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(15);
 const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
 const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const MAX_IN_FLIGHT_CONNECTIONS: usize = 32;
 
 /// Local-only provider selection. `Unavailable` is the honest deployable mode
 /// when the operator has not installed a real fixed provider artifact.
@@ -189,15 +197,14 @@ pub fn load_tls_configuration(
         return Err(ServerError::InvalidTlsMaterial);
     }
 
-    let certificates = rustls_pemfile::certs(&mut Cursor::new(&certificate_bytes))
+    let certificates = CertificateDer::pem_slice_iter(&certificate_bytes)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| ServerError::InvalidTlsMaterial)?;
     if certificates.len() != certificate_labels.len() {
         return Err(ServerError::InvalidTlsMaterial);
     }
-    let private_key = rustls_pemfile::private_key(&mut Cursor::new(private_key_bytes.as_slice()))
-        .map_err(|_| ServerError::InvalidTlsMaterial)?
-        .ok_or(ServerError::InvalidTlsMaterial)?;
+    let private_key = PrivateKeyDer::from_pem_slice(private_key_bytes.as_slice())
+        .map_err(|_| ServerError::InvalidTlsMaterial)?;
     let mut tls = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certificates, private_key)
@@ -236,14 +243,15 @@ impl Drop for ApplicationResponse {
     }
 }
 
-/// Runs the TLS listener. Accept is polled with a finite interval so TTL
-/// maintenance runs when there is no traffic; a slow client is bounded by the
-/// 15-second connection timeout and cannot starve maintenance indefinitely.
+/// Runs the TLS listener. TLS and bounded HTTP reads use a bounded set of
+/// connection workers, so a slow unauthenticated peer cannot block accept,
+/// maintenance, or an already-ready request for the full connection timeout.
 ///
-/// Requests and provider calls are intentionally serialized to preserve the
-/// single-writer ordering of auth and Agent stores. A deployment exposed to an
-/// untrusted WAN still needs an outer connection/rate-limiting layer; this V0.9
-/// listener is not a general-purpose high-concurrency edge proxy.
+/// Only validated requests cross back to this thread. Handler and provider
+/// calls remain serialized here to preserve the single-writer ordering of auth
+/// and Agent stores. A deployment exposed to an untrusted WAN still needs an
+/// outer connection/rate-limiting layer; this V0.9 listener is not a
+/// general-purpose high-concurrency edge proxy.
 pub fn serve_https(
     configuration: &RemoteAgentServerConfiguration,
     tls: Arc<ServerConfig>,
@@ -255,8 +263,24 @@ pub fn serve_https(
     listener
         .set_nonblocking(true)
         .map_err(|_| ServerError::ListenerUnavailable)?;
+    serve_https_listener(listener, tls, handler, || false)
+}
+
+pub(crate) fn serve_https_listener(
+    listener: TcpListener,
+    tls: Arc<ServerConfig>,
+    handler: &mut impl JsonRequestHandler,
+    mut should_stop: impl FnMut() -> bool,
+) -> Result<(), ServerError> {
+    listener
+        .set_nonblocking(true)
+        .map_err(|_| ServerError::ListenerUnavailable)?;
+    let admission = Arc::new(ConnectionAdmission::new(MAX_IN_FLIGHT_CONNECTIONS));
+    let (request_sender, request_receiver) = mpsc::sync_channel(MAX_IN_FLIGHT_CONNECTIONS);
+    let mut workers = Vec::with_capacity(MAX_IN_FLIGHT_CONNECTIONS);
     let mut next_maintenance = Instant::now();
-    loop {
+    while !should_stop() {
+        reap_finished_workers(&mut workers);
         let now = Instant::now();
         if now >= next_maintenance {
             handler.maintenance_tick();
@@ -265,53 +289,182 @@ pub fn serve_https(
             // catch-up loop.
             next_maintenance = Instant::now() + MAINTENANCE_INTERVAL;
         }
+
+        let mut made_progress = false;
+        if let Ok(request) = request_receiver.try_recv() {
+            dispatch_ready_request(request, handler);
+            made_progress = true;
+        }
+
         match listener.accept() {
             Ok((stream, _)) => {
+                made_progress = true;
                 if configure_stream(&stream).is_err() {
                     continue;
                 }
-                let connection = match ServerConnection::new(tls.clone()) {
-                    Ok(connection) => connection,
-                    Err(_) => return Err(ServerError::TlsUnavailable),
+                let Some(permit) = admission.try_acquire() else {
+                    // Admission is fail-closed and bounded. Dropping this
+                    // socket avoids creating an unbounded thread or queue.
+                    continue;
                 };
-                let mut stream = StreamOwned::new(connection, stream);
-                // Error details are deliberately not logged: they can contain
-                // parser context adjacent to bearer/token bytes.
-                let _ = serve_one_connection(&mut stream, handler);
+                let connection =
+                    ServerConnection::new(tls.clone()).map_err(|_| ServerError::TlsUnavailable)?;
+                let sender = request_sender.clone();
+                let worker = thread::Builder::new()
+                    .name("verisilo-agent-connection".to_owned())
+                    .spawn(move || {
+                        serve_connection_worker(stream, connection, sender, permit);
+                    })
+                    .map_err(|_| ServerError::WorkerUnavailable)?;
+                workers.push(worker);
             }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                let until_maintenance = next_maintenance.saturating_duration_since(Instant::now());
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(_) => {}
+        }
+
+        if !made_progress {
+            let until_maintenance = next_maintenance.saturating_duration_since(Instant::now());
+            if !until_maintenance.is_zero() {
+                // Polling also bounds shutdown latency in tests and future
+                // supervised deployments.
                 thread::sleep(ACCEPT_POLL_INTERVAL.min(until_maintenance));
             }
-            Err(_) => thread::sleep(ACCEPT_POLL_INTERVAL),
+        }
+    }
+
+    drop(request_receiver);
+    drop(request_sender);
+    for worker in workers {
+        let _ = worker.join();
+    }
+    Ok(())
+}
+
+struct ReadyRequest {
+    request: ParsedHttpRequest,
+    response_sender: SyncSender<ConnectionResponse>,
+}
+
+enum ConnectionResponse {
+    Application(ApplicationResponse),
+    FixedError(u16, &'static str),
+}
+
+fn dispatch_ready_request(request: ReadyRequest, handler: &mut impl JsonRequestHandler) {
+    let response = handler.handle_json(request.request.bearer.as_deref(), &request.request.body);
+    drop(request.request);
+    let response = if response.valid() {
+        ConnectionResponse::Application(response)
+    } else {
+        ConnectionResponse::FixedError(500, "internal_error")
+    };
+    let _ = request.response_sender.send(response);
+}
+
+fn serve_connection_worker(
+    stream: TcpStream,
+    connection: ServerConnection,
+    request_sender: SyncSender<ReadyRequest>,
+    _permit: ConnectionPermit,
+) {
+    let mut stream = StreamOwned::new(connection, stream);
+    match read_http_request(&mut stream) {
+        Ok(request) => {
+            let (response_sender, response_receiver) = mpsc::sync_channel(1);
+            if request_sender
+                .send(ReadyRequest {
+                    request,
+                    response_sender,
+                })
+                .is_err()
+            {
+                return;
+            }
+            match response_receiver.recv() {
+                Ok(ConnectionResponse::Application(response)) => {
+                    let _ = write_http_response(&mut stream, response.status_code, &response.body);
+                }
+                Ok(ConnectionResponse::FixedError(status_code, code)) => {
+                    let _ = write_fixed_error(&mut stream, status_code, code);
+                }
+                Err(_) => return,
+            }
+        }
+        Err(rejection) => {
+            let _ = write_fixed_error(
+                &mut stream,
+                rejection.status_code(),
+                rejection.public_code(),
+            );
+        }
+    }
+    // Error details are deliberately not logged: they can contain parser
+    // context adjacent to bearer/token bytes.
+    stream.conn.send_close_notify();
+    let _ = stream.flush();
+}
+
+fn reap_finished_workers(workers: &mut Vec<JoinHandle<()>>) {
+    let mut index = 0;
+    while index < workers.len() {
+        if workers[index].is_finished() {
+            let worker = workers.swap_remove(index);
+            let _ = worker.join();
+        } else {
+            index += 1;
         }
     }
 }
 
-fn serve_one_connection(
-    stream: &mut StreamOwned<ServerConnection, TcpStream>,
-    handler: &mut impl JsonRequestHandler,
-) -> Result<(), ServerError> {
-    match read_http_request(stream) {
-        Ok(request) => {
-            let response = handler.handle_json(request.bearer.as_deref(), &request.body);
-            drop(request);
-            if response.valid() {
-                write_http_response(stream, response.status_code, &response.body)?;
-            } else {
-                write_fixed_error(stream, 500, "internal_error")?;
-            }
-        }
-        Err(rejection) => {
-            write_fixed_error(stream, rejection.status_code(), rejection.public_code())?;
+pub(crate) struct ConnectionAdmission {
+    active: AtomicUsize,
+    limit: usize,
+}
+
+impl ConnectionAdmission {
+    pub(crate) fn new(limit: usize) -> Self {
+        assert!(limit > 0);
+        Self {
+            active: AtomicUsize::new(0),
+            limit,
         }
     }
-    stream.flush().map_err(|_| ServerError::ConnectionFailed)
+
+    pub(crate) fn try_acquire(self: &Arc<Self>) -> Option<ConnectionPermit> {
+        self.active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < self.limit).then_some(active + 1)
+            })
+            .ok()?;
+        Some(ConnectionPermit {
+            admission: self.clone(),
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active(&self) -> usize {
+        self.active.load(Ordering::Acquire)
+    }
+}
+
+pub(crate) struct ConnectionPermit {
+    admission: Arc<ConnectionAdmission>,
+}
+
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) {
+        let previous = self.admission.active.fetch_sub(1, Ordering::AcqRel);
+        debug_assert!(previous > 0);
+    }
 }
 
 fn configure_stream(stream: &TcpStream) -> Result<(), ServerError> {
     stream
-        .set_read_timeout(Some(CONNECTION_TIMEOUT))
+        // Accepted sockets do not inherit listener blocking mode uniformly
+        // across supported platforms. Workers require blocking I/O so the
+        // fixed deadline, rather than an immediate WouldBlock, bounds reads.
+        .set_nonblocking(false)
+        .and_then(|_| stream.set_read_timeout(Some(CONNECTION_TIMEOUT)))
         .and_then(|_| stream.set_write_timeout(Some(CONNECTION_TIMEOUT)))
         .and_then(|_| stream.set_nodelay(true))
         .map_err(|_| ServerError::ConnectionFailed)
@@ -850,6 +1003,8 @@ pub enum ServerError {
     ListenerUnavailable,
     #[error("TLS server state is unavailable")]
     TlsUnavailable,
+    #[error("TLS connection worker is unavailable")]
+    WorkerUnavailable,
     #[error("TLS connection failed")]
     ConnectionFailed,
 }

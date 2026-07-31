@@ -20,6 +20,25 @@ for (const guard of [
   "manifestTrusted",
   "cannot strand its test VM",
   "hyperv_confirmed_cleanup",
+  "ExpectedSignerCertificateSha256",
+  "Initialize-VerifiedProviderStage",
+  "provider_signature_digest_stage",
+  "Get-VerifiedProviderPath",
+  "Open-VerifiedProviderLease",
+  "Open-DirectoryChainLease",
+  "DirectoryLeaseNative",
+  "Open-HyperVImageLease",
+  "Locked Hyper-V image handle",
+  "[IO.FileShare]::Read",
+  "Get-StreamSha256",
+  "'-ExpectedSignerCertificateSha256', $ExpectedSignerCertificateSha256",
+  "hyperv-create-journal.json",
+  "rolled_back_from_journal",
+  "cleanupState",
+  "requestNonce",
+  "-ExpectedEnvironmentId",
+  "-ExpectedAction",
+  "-ExpectedRequestNonce",
 ]) {
   assert.match(
     harness,
@@ -29,7 +48,24 @@ for (const guard of [
 
 assert.match(
   harness,
+  /Initialize-VerifiedProviderStage[\s\S]*Invoke-ProviderSelfTests/u,
+);
+assert.match(
+  harness,
+  /if \(\$SelfTest\)[\s\S]*provider_source_self_tests' 'SKIP'[\s\S]*else \{[\s\S]*Initialize-VerifiedProviderStage/u,
+);
+assert.doesNotMatch(harness, /Invoke-FixedProcess[^\n]+Get-ProviderPath/u);
+assert.match(
+  harness,
   /@\('create', 'start', 'stop', 'pause', 'checkpoint', 'remove', 'health', 'logs'\)/u,
+);
+assert.match(
+  harness,
+  /Open-HyperVImageLease[\s\S]*Invoke-HyperVAction \$stateRoot \$environmentId 'create'[\s\S]*Close-HyperVImageLease/u,
+);
+assert.match(
+  harness,
+  /CreateFileW[\s\S]*0x00000001 -bor 0x00000002[\s\S]*0x02000000 -bor 0x00200000/u,
 );
 assert.doesNotMatch(
   harness,
