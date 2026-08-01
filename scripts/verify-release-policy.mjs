@@ -298,6 +298,31 @@ function verifyPromotionWorkflow(content) {
   }
 }
 
+async function verifyDesktopReleaseModeGuard() {
+  const [cargoManifest, desktopMain] = await Promise.all([
+    readFile(path.join(root, "apps/desktop/src-tauri/Cargo.toml"), "utf8"),
+    readFile(path.join(root, "apps/desktop/src-tauri/src/main.rs"), "utf8"),
+  ]);
+  if (
+    !cargoManifest
+      .split(/\r?\n/u)
+      .includes('custom-protocol = ["tauri/custom-protocol"]')
+  ) {
+    throw new Error(
+      "Desktop Cargo features must map custom-protocol to tauri/custom-protocol.",
+    );
+  }
+  if (
+    !/#\[cfg\(all\(not\(debug_assertions\), dev\)\)\]\s*compile_error!\(\s*"VeriSilo release builds must enable custom-protocol;/u.test(
+      desktopMain,
+    )
+  ) {
+    throw new Error(
+      "Desktop release builds must fail closed when Tauri is still configured for its development URL.",
+    );
+  }
+}
+
 async function verifyWorkflowPolicies() {
   const requiredWorkflows = Object.fromEntries(
     await Promise.all(
@@ -948,6 +973,7 @@ async function selfTest() {
     "- uses: example/action@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v1.2.3",
   );
   await verifyWorkflowPolicies();
+  await verifyDesktopReleaseModeGuard();
   process.stdout.write("Release policy self-test passed.\n");
 }
 
@@ -970,6 +996,7 @@ if (configValue === undefined) {
 }
 const versions = await readVersions();
 await verifyWorkflowPolicies();
+await verifyDesktopReleaseModeGuard();
 const config = await readReleaseConfig(path.resolve(root, configValue));
 const releaseIndex = process.argv.indexOf("--release");
 const releaseValue =
