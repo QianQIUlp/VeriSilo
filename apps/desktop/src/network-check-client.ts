@@ -42,7 +42,7 @@ async function probeJson(
   } catch (error) {
     return {
       value: null,
-      error: `${label}：${errorMessage(error)}`.slice(0, 300),
+      error: `${label}：${networkCheckErrorMessage(error)}`.slice(0, 300),
     };
   }
 }
@@ -79,9 +79,12 @@ async function fetchBoundedJson(
   }
 }
 
-function errorMessage(error: unknown): string {
+export function networkCheckErrorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === "AbortError") {
     return "请求超时";
   }
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof SyntaxError) {
+    return "返回内容无法识别";
+  }
+  return "请求失败";
 }

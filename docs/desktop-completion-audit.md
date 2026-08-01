@@ -51,7 +51,7 @@ git diff --stat 5910cd9..9abe37e
 - 桌面端现可在用户明确选择一个 Silo、勾选确认并点击后，把该 Silo 的非秘密元数据、启动状态和 Vault 网络证据导出为本地脱敏 JSON/HTML Blob；真实 Windows 的“另存为”对话框行为尚未验证。
 - 自动证据现覆盖模型校验、Vault 改口令/备份/恢复与 schema 迁移、Silo CRUD/受管目录边界、代理中继、Mihomo Controller、Native Host/证据 inbox、前端命令契约、SBOM/发布策略生成器和扩展构建审计。
 - 当前仍没有真实 Windows 浏览器 E2E、EngineAdapter、受控浏览器制品、EnvironmentBackend、远程 Agent、真实 NSIS 安装升级卸载结果或 Authenticode 签名产物。
-- `apps/desktop/src/capabilities.ts` 和 `docs/environment-roadmap.md` 中的 V0.7–V0.9 内容是产品承诺和 UI 路线，不能作为实现证据。
+- `docs/environment-roadmap.md` 中的 V0.7–V0.9 内容是开发路线，不能作为实现证据，也不在面向用户的桌面界面中展示。
 
 ## 2026-07-28：核心闭环第一批复核
 
