@@ -2955,8 +2955,16 @@ process.stdin.on('end', () => {
         protocol_fixture_with_behavior("complete")
     }
 
+    fn reserve_fake_controlled_engine_test() -> std::sync::MutexGuard<'static, ()> {
+        static RESERVATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        RESERVATION
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     #[test]
     fn fake_controlled_command_completes_bound_bootstrap_ack_e2e() {
+        let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) = protocol_fixture();
         let mut spawned = super::spawn_engine_child(&plan, &arguments, Some(&envelope))
             .expect("fake controlled process ACK");
@@ -3033,6 +3041,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_controlled_engine_rejects_out_of_order_duplicate_missing_and_wrong_bound_receipts() {
+        let _reservation = reserve_fake_controlled_engine_test();
         for behavior in [
             "out_of_order",
             "duplicate_sequence",
@@ -3056,6 +3065,7 @@ process.stdin.on('end', () => {
     #[cfg(unix)]
     #[test]
     fn initial_receipt_exit_with_inherited_stdout_is_bounded() {
+        let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) =
             protocol_fixture_with_behavior("inherit_stdout_after_ack");
         let started = std::time::Instant::now();
@@ -3076,6 +3086,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn runtime_accepts_bound_fallback_and_restore_before_normal_exit() {
+        let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) = protocol_fixture_with_behavior("fallback_restore_exit");
         let spawned = super::spawn_engine_child(&plan, &arguments, Some(&envelope))
             .expect("verified initial runtime receipts");
@@ -3096,6 +3107,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn forged_runtime_fallback_is_transactionally_rejected() {
+        let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) = protocol_fixture_with_behavior("forged_fallback");
         let spawned = super::spawn_engine_child(&plan, &arguments, Some(&envelope))
             .expect("verified initial runtime receipts");
@@ -3114,6 +3126,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn normal_exit_without_restore_never_claims_restoration() {
+        let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) = protocol_fixture_with_behavior("no_restore_exit");
         let spawned = super::spawn_engine_child(&plan, &arguments, Some(&envelope))
             .expect("verified initial runtime receipts");
