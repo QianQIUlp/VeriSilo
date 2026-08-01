@@ -1085,6 +1085,22 @@ mod tests {
         EnvironmentManager::new(root, resources).expect("construct fail-closed manager")
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn manager_accepts_the_verbatim_resource_path_returned_by_tauri() {
+        let root = std::env::temp_dir().join(format!("verisilo-environment-{}", Uuid::new_v4()));
+        let resources = std::env::temp_dir().join(format!("verisilo-resources-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create environment test root");
+        fs::create_dir_all(&resources).expect("create resource test root");
+        let verbatim_resources = fs::canonicalize(&resources).expect("canonicalize resource root");
+
+        EnvironmentManager::new(root.clone(), verbatim_resources)
+            .expect("construct manager from Tauri-style resource root");
+
+        fs::remove_dir_all(&root).expect("remove environment test root");
+        fs::remove_dir_all(&resources).expect("remove resource test root");
+    }
+
     #[test]
     fn manager_reports_every_operation_once_without_inventing_availability() {
         let manager = manager();

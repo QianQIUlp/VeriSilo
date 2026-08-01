@@ -678,6 +678,15 @@ fn reject_existing_reparse_components(
     let mut current = PathBuf::new();
     for component in path.components() {
         current.push(component.as_os_str());
+        // A Windows verbatim path starts with a non-openable prefix such as
+        // `\\?\C:`. The prefix only becomes a filesystem path after the root
+        // component is appended (`\\?\C:\`). Tauri returns resource paths in
+        // this form, so querying the bare prefix makes desktop startup fail
+        // with ERROR_INVALID_FUNCTION before any provider is used.
+        #[cfg(target_os = "windows")]
+        if matches!(component, Component::Prefix(_)) {
+            continue;
+        }
         match fs::symlink_metadata(&current) {
             Ok(metadata) if metadata_is_reparse_point(&metadata) => {
                 return Err(EnvironmentBackendError::InvalidRequest(format!(
@@ -3517,6 +3526,23 @@ mod tests {
 
     fn temporary_root(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("verisilo-environment-{label}-{}", Uuid::new_v4()))
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn absolute_verbatim_path_skips_the_non_openable_windows_prefix() {
+        let root = temporary_root("verbatim-path");
+        fs::create_dir_all(&root).expect("create verbatim path fixture");
+        let verbatim_root = fs::canonicalize(&root).expect("canonicalize fixture");
+
+        assert!(matches!(
+            verbatim_root.components().next(),
+            Some(Component::Prefix(_))
+        ));
+        require_absolute_clean_path(&verbatim_root, "Verbatim resource root")
+            .expect("accept an absolute normalized verbatim path");
+
+        fs::remove_dir_all(&root).expect("remove verbatim path fixture");
     }
 
     fn assert_fixed_system_tool(program: &Path, basename: &str) {
