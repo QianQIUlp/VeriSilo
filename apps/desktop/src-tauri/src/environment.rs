@@ -175,7 +175,7 @@ pub enum EnvironmentOperationRequest {
 }
 
 impl EnvironmentOperationRequest {
-    fn backend(&self) -> EnvironmentBackendId {
+    pub fn backend(&self) -> EnvironmentBackendId {
         match self {
             Self::Create { backend, .. }
             | Self::Start { backend, .. }
@@ -189,7 +189,7 @@ impl EnvironmentOperationRequest {
         }
     }
 
-    fn operation(&self) -> EnvironmentOperation {
+    pub fn operation(&self) -> EnvironmentOperation {
         match self {
             Self::Create { .. } => EnvironmentOperation::Create,
             Self::Start { .. } => EnvironmentOperation::Start,
@@ -327,16 +327,11 @@ impl EnvironmentManager {
         &mut self,
         distribution: String,
     ) -> Result<EnvironmentBackendStatus, EnvironmentBackendError> {
-        if self
-            .selected_wsl_distribution
-            .as_ref()
-            .is_some_and(|selected| selected != &distribution)
-        {
-            return Err(EnvironmentBackendError::InvalidRequest(
-                "Restart VeriSilo before changing the selected WSL distribution; in-memory environment state is never silently moved between guests."
-                    .to_owned(),
-            ));
-        }
+        // The selected distribution is a provider handle, not Silo identity.
+        // The authoritative distribution now lives on each Silo. The caller
+        // serializes lifecycle operations and refuses to switch while another
+        // Silo is active, so rebuilding this in-memory handle is safe and lets
+        // persisted Silo targets survive an application restart.
         let detected = detect_wsl();
         if !detected.available
             || !detected

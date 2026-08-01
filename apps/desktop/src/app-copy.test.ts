@@ -10,6 +10,10 @@ const stylesSource = readFileSync(
   new URL("./styles.css", import.meta.url),
   "utf8",
 );
+const createPanelSource = appSource.slice(
+  appSource.indexOf("function CreateSiloPanel"),
+  appSource.indexOf("function NetworkOption"),
+);
 
 describe("desktop product copy", () => {
   it("uses the shared website mark and extension primary color", () => {
@@ -30,10 +34,10 @@ describe("desktop product copy", () => {
   });
 
   it("uses task-oriented navigation without exposing roadmap versions", () => {
-    expect(appSource).toContain('label="运行环境"');
-    expect(appSource).toContain("浏览器");
-    expect(appSource).toContain("本机隔离");
-    expect(appSource).toContain("远程环境");
+    expect(appSource).toContain('label="运行位置设置"');
+    expect(appSource).toContain("浏览器准备");
+    expect(appSource).toContain("Linux 环境");
+    expect(appSource).not.toContain('setEnvironmentSection("remote")');
     expect(appSource).not.toContain('label="能力路线"');
     expect(appSource).not.toContain('label="实验室"');
     expect(appSource).not.toMatch(/V0\.[0-9]/u);
@@ -48,6 +52,37 @@ describe("desktop product copy", () => {
     expect(appSource.indexOf("<SiloList")).toBeLessThan(
       appSource.indexOf("<NetworkCheckCard"),
     );
+  });
+
+  it("creates a Silo through identity, location, network, and visibility confirmation", () => {
+    const headings = [
+      "给这个 Silo 一个名字",
+      "浏览器身份与运行位置",
+      "选择网络方式",
+      "确认网站将看到什么",
+    ];
+    const headingIndexes = headings.map((heading) =>
+      createPanelSource.indexOf(heading),
+    );
+    expect(headingIndexes.every((index) => index >= 0)).toBe(true);
+    expect(headingIndexes).toEqual(
+      [...headingIndexes].sort((left, right) => left - right),
+    );
+    expect(createPanelSource).toContain("readyWslOptions.map");
+    expect(createPanelSource).toContain("Linux 环境当前仅支持直连");
+    expect(createPanelSource).not.toContain(
+      'className="execution-card unavailable"',
+    );
+    expect(createPanelSource).toContain("websiteBoundaryConfirmed");
+    expect(createPanelSource).not.toContain("Windows Sandbox");
+    expect(createPanelSource).not.toContain("Hyper-V");
+  });
+
+  it("keeps a launched identity read-only and stops WSL from the Silo card", () => {
+    expect(appSource).toContain("silo.identityLockedAt !== null");
+    expect(appSource).toContain("请创建新的 Silo");
+    expect(appSource).toContain("desktopApi.stopSilo(silo.id)");
+    expect(appSource).toContain('silo.executionTarget.kind === "wsl"');
   });
 
   it("keeps remote setup in user language and does not forward backend status copy", () => {

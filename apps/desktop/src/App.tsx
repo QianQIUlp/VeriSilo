@@ -4,6 +4,7 @@ import type {
   BrowserKind,
   EngineAdapterId,
   EnvironmentBackendStatus,
+  EnvironmentBackendId,
   EnvironmentNetworkProfile,
   EnvironmentOperation,
   EnvironmentOperationRequest,
@@ -12,6 +13,7 @@ import type {
   RemoteEndpoint,
   RemoteNetworkPolicy,
   Silo,
+  SiloExecutionTarget,
 } from "@verisilo/contracts";
 import { networkProfileSchema } from "@verisilo/contracts";
 import { isTauri } from "@tauri-apps/api/core";
@@ -24,6 +26,7 @@ import {
   type CreateSiloInput,
   type DesktopStatus,
   type EngineAdapterStatus,
+  type LegacyEnvironmentArtifact,
   type MihomoSnapshot,
   type RemoteEnvironmentStatus,
   type RemoteInteractivePrincipal,
@@ -67,9 +70,38 @@ const defaultMihomoControllerUrl = "http://127.0.0.1:9090/";
 
 type Notice = { tone: "error" | "success" | "info"; message: string } | null;
 type View = "overview" | "create" | "edit" | "settings" | "environments";
+type WslCreationOption = {
+  distribution: string;
+  ready: boolean;
+};
+
+const requiredWslCreationOperations = [
+  "configureNetwork",
+  "start",
+  "stop",
+  "health",
+] satisfies EnvironmentOperation[];
 
 function emptyNetwork(): NetworkProfile {
   return { mode: "direct", proxyRequired: false };
+}
+
+// Sandbox, Hyper-V and remote lifecycle controls are intentionally kept out
+// of the product UI until they are bound to Silo.executionTarget and can
+// launch the same verified browser identity shown during creation.
+function unboundEnvironmentControlsAvailable(): boolean {
+  return false;
+}
+
+function legacyEnvironmentLabel(backend: EnvironmentBackendId): string {
+  switch (backend) {
+    case "wsl-chromium":
+      return "Linux 环境";
+    case "windows-sandbox":
+      return "Windows 临时环境";
+    case "hyper-v":
+      return "虚拟机环境";
+  }
 }
 
 function errorMessage(
@@ -89,6 +121,9 @@ export function App() {
   );
   const [silos, setSilos] = useState<Silo[]>([]);
   const [archivedSilos, setArchivedSilos] = useState<Silo[]>([]);
+  const [legacyEnvironmentArtifacts, setLegacyEnvironmentArtifacts] = useState<
+    LegacyEnvironmentArtifact[]
+  >([]);
   const [storageUsage, setStorageUsage] = useState<
     Record<string, number | null>
   >({});
@@ -103,6 +138,16 @@ export function App() {
   const [color, setColor] = useState(defaultColor);
   const [browserPath, setBrowserPath] = useState("");
   const [browserKind, setBrowserKind] = useState<BrowserKind>("chrome");
+  const [executionTarget, setExecutionTarget] = useState<SiloExecutionTarget>({
+    kind: "local",
+  });
+  const [createWslStatus, setCreateWslStatus] = useState<WslStatus | null>(
+    null,
+  );
+  const [createWslOptions, setCreateWslOptions] = useState<WslCreationOption[]>(
+    [],
+  );
+  const [createWslBusy, setCreateWslBusy] = useState(false);
   const [networkProfile, setNetworkProfile] =
     useState<NetworkProfile>(emptyNetwork);
   const [proxyImport, setProxyImport] = useState("");
@@ -127,6 +172,7 @@ export function App() {
   const vaultOperationRef = useRef(0);
   const networkRequestRef = useRef(0);
   const mihomoRequestRef = useRef(0);
+  const createWslRequestRef = useRef(0);
   const vaultUiSessionRef = useRef(new VaultUiSession());
 
   useEffect(() => {
@@ -160,6 +206,7 @@ export function App() {
   const scrubSensitiveUi = useCallback(() => {
     setSilos([]);
     setArchivedSilos([]);
+    setLegacyEnvironmentArtifacts([]);
     setStorageUsage({});
     setEditingSilo(null);
     setNetworkEvidenceHistory([]);
@@ -169,6 +216,11 @@ export function App() {
     setColor(defaultColor);
     setBrowserPath("");
     setBrowserKind("chrome");
+    setExecutionTarget({ kind: "local" });
+    setCreateWslStatus(null);
+    setCreateWslOptions([]);
+    setCreateWslBusy(false);
+    createWslRequestRef.current += 1;
     setNetworkProfile(emptyNetwork());
     setProxyImport("");
     setProxyUsername("");
@@ -244,15 +296,18 @@ export function App() {
         let active: Silo[];
         let archived: Silo[];
         let evidence: SiloNetworkEvidence[];
+        let legacyArtifacts: LegacyEnvironmentArtifact[];
         try {
-          [browserResult, [active, archived, evidence]] = await Promise.all([
-            browsersPromise,
-            Promise.all([
-              desktopApi.listActiveSilos(),
-              desktopApi.listArchivedSilos(),
-              desktopApi.listNetworkEvidence(),
-            ]),
-          ]);
+          [browserResult, [active, archived, evidence, legacyArtifacts]] =
+            await Promise.all([
+              browsersPromise,
+              Promise.all([
+                desktopApi.listActiveSilos(),
+                desktopApi.listArchivedSilos(),
+                desktopApi.listNetworkEvidence(),
+                desktopApi.listLegacyEnvironmentArtifacts(),
+              ]),
+            ]);
         } catch (error) {
           if (
             requestId !== refreshRequestRef.current ||
@@ -272,6 +327,7 @@ export function App() {
         setSilos(active);
         setArchivedSilos(archived);
         setNetworkEvidenceHistory(evidence);
+        setLegacyEnvironmentArtifacts(legacyArtifacts);
 
         if (includeStorageUsage) {
           const usageEntries = await Promise.all(
@@ -358,6 +414,98 @@ export function App() {
       setBrowserPath(candidateOptions[0].executablePath);
     }
   }, [browserPath, candidateOptions, status?.vault.state, uiVaultLocked]);
+
+  const detectCreateWsl = useCallback(async () => {
+    const requestId = ++createWslRequestRef.current;
+    setCreateWslBusy(true);
+    try {
+      const nextStatus = await desktopApi.detectWsl();
+      if (requestId !== createWslRequestRef.current) {
+        return;
+      }
+      const nextOptions: WslCreationOption[] = [];
+      if (nextStatus.available) {
+        for (const distribution of nextStatus.distributions) {
+          try {
+            const backendStatus =
+              await desktopApi.selectWslEnvironmentDistribution(distribution);
+            if (requestId !== createWslRequestRef.current) {
+              return;
+            }
+            const unavailableOperations = requiredWslCreationOperations.filter(
+              (operation) =>
+                !backendStatus.capabilities.some(
+                  (capability) =>
+                    capability.operation === operation &&
+                    capability.availability.availability === "available",
+                ),
+            );
+            nextOptions.push({
+              distribution,
+              ready:
+                backendStatus.backend === "wsl-chromium" &&
+                unavailableOperations.length === 0,
+            });
+          } catch {
+            if (requestId !== createWslRequestRef.current) {
+              return;
+            }
+            nextOptions.push({
+              distribution,
+              ready: false,
+            });
+          }
+        }
+      }
+      setCreateWslStatus(nextStatus);
+      setCreateWslOptions(nextOptions);
+      const readyDistributions = new Set(
+        nextOptions
+          .filter((option) => option.ready)
+          .map((option) => option.distribution),
+      );
+      setExecutionTarget((currentTarget) =>
+        currentTarget.kind === "wsl" &&
+        !readyDistributions.has(currentTarget.distribution)
+          ? { kind: "local" }
+          : currentTarget,
+      );
+    } catch (error) {
+      if (requestId !== createWslRequestRef.current) {
+        return;
+      }
+      setCreateWslStatus({
+        supportedPlatform: false,
+        available: false,
+        distributions: [],
+        message: errorMessage(error, "暂时无法检查这台电脑上的 Linux 环境。"),
+      });
+      setCreateWslOptions([]);
+      setExecutionTarget((currentTarget) =>
+        currentTarget.kind === "wsl" ? { kind: "local" } : currentTarget,
+      );
+    } finally {
+      if (requestId === createWslRequestRef.current) {
+        setCreateWslBusy(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!uiVaultLocked && status?.vault.state === "unlocked") {
+      void detectCreateWsl();
+    }
+  }, [detectCreateWsl, status?.vault.state, uiVaultLocked]);
+
+  useEffect(() => {
+    if (
+      view === "create" &&
+      !uiVaultLocked &&
+      status?.vault.state === "unlocked"
+    ) {
+      void detectCreateWsl();
+    }
+  }, [detectCreateWsl, status?.vault.state, uiVaultLocked, view]);
 
   const activeSilos = silos;
 
@@ -492,6 +640,19 @@ export function App() {
 
   const createSilo = () =>
     withBusy(async (isCurrent) => {
+      if (executionTarget.kind === "remote") {
+        throw new UserFacingError(
+          "远程运行位置尚未完成网站可见身份核对，当前不能用于创建 Silo。",
+        );
+      }
+      if (executionTarget.kind === "wsl" && networkProfile.mode !== "direct") {
+        throw new UserFacingError(
+          "Linux 环境当前仅支持直连。请改为本机运行，或将网络出口恢复为直连。",
+        );
+      }
+      if (executionTarget.kind === "local" && browserPath.trim().length === 0) {
+        throw new UserFacingError("请选择这台电脑上要使用的浏览器。");
+      }
       if (!networkProfileSchema.safeParse(networkProfile).success) {
         throw new UserFacingError(
           "网络设置尚未填写完整。请检查代理地址、端口或自动代理配置。",
@@ -513,12 +674,16 @@ export function App() {
           "需要登录信息时，请使用 HTTP、SOCKS5，或交给本机 Mihomo / Clash 应用处理。",
         );
       }
-      const input: CreateSiloInput = {
+      const input: CreateSiloInput & {
+        executionTarget: SiloExecutionTarget;
+      } = {
         name,
         color,
-        browserKind,
-        executablePath: browserPath,
+        browserKind: executionTarget.kind === "wsl" ? "chrome" : browserKind,
+        executablePath:
+          executionTarget.kind === "wsl" ? "/usr/bin/chromium" : browserPath,
         networkProfile,
+        executionTarget,
         ...(networkProfile.mode === "fixed_proxy" && hasUsername
           ? {
               proxyCredentials: {
@@ -540,6 +705,7 @@ export function App() {
         return;
       }
       setName("");
+      setExecutionTarget({ kind: "local" });
       setNetworkProfile(emptyNetwork());
       setProxyImport("");
       setProxyUsername("");
@@ -557,6 +723,19 @@ export function App() {
   const launchSilo = (silo: Silo) =>
     withBusy(async (isCurrent) => {
       const activation = await desktopApi.launchSilo(silo.id);
+      if (!isCurrent()) {
+        return;
+      }
+      setNotice({
+        tone: activationNoticeTone(activation),
+        message: describeActivation(activation),
+      });
+      await refresh();
+    });
+
+  const stopSilo = (silo: Silo) =>
+    withBusy(async (isCurrent) => {
+      const activation = await desktopApi.stopSilo(silo.id);
       if (!isCurrent()) {
         return;
       }
@@ -618,6 +797,36 @@ export function App() {
       });
       await refresh();
     });
+
+  const cleanupLegacyEnvironment = async (
+    artifact: LegacyEnvironmentArtifact,
+  ) => {
+    const silo = [...silos, ...archivedSilos].find(
+      (candidate) => candidate.id === artifact.siloId,
+    );
+    if (
+      silo === undefined ||
+      !window.confirm(
+        `清理「${silo.name}」保留的旧${legacyEnvironmentLabel(artifact.backend)}？VeriSilo 会先核对它确实属于这个 Silo，再删除该旧环境；当前浏览器数据和运行位置不会改变。`,
+      )
+    ) {
+      return;
+    }
+    await withBusy(async (isCurrent) => {
+      await desktopApi.cleanupLegacyEnvironmentArtifact(
+        artifact.siloId,
+        artifact.backend,
+      );
+      if (!isCurrent()) {
+        return;
+      }
+      setNotice({
+        tone: "success",
+        message: `已清理「${silo.name}」不再使用的旧${legacyEnvironmentLabel(artifact.backend)}。`,
+      });
+      await refresh();
+    });
+  };
 
   const updateSilo = (
     silo: Silo,
@@ -909,7 +1118,7 @@ export function App() {
       <header className="topbar">
         <Brand />
         <div className="topbar-status">
-          <span className="local-pill">仅本机</span>
+          <span className="local-pill">本地控制</span>
           <span className={`vault-pill${vaultLocked ? " locked" : ""}`}>
             {vaultTransition === "restoring"
               ? vaultBusy
@@ -941,7 +1150,7 @@ export function App() {
           />
           <TabButton
             active={view === "environments"}
-            label="运行环境"
+            label="运行位置设置"
             onClick={() => setView("environments")}
           />
         </nav>
@@ -968,7 +1177,7 @@ export function App() {
             <h1>{vaultBusy ? "正在恢复安全状态…" : "恢复尚未完成"}</h1>
             <p>
               VeriSilo
-              已清除旧会话中的表单和授权信息。完成保险库与运行环境核对前，
+              已清除旧会话中的表单和授权信息。完成保险库与运行状态核对前，
               相关操作会保持锁定。
             </p>
             <button
@@ -1030,9 +1239,17 @@ export function App() {
               onRebindMihomo={rebindSiloMihomo}
               onRecheckBrowser={recheckSiloBrowser}
               onRecheckRuntime={recheckSiloRuntime}
+              onStop={stopSilo}
               runtimeState={status.activation.state}
               silos={activeSilos}
               storageUsage={storageUsage}
+            />
+
+            <LegacyEnvironmentRecoveryPanel
+              artifacts={legacyEnvironmentArtifacts}
+              busy={busy}
+              onCleanup={cleanupLegacyEnvironment}
+              silos={[...activeSilos, ...archivedSilos]}
             />
 
             <ArchivedSiloList
@@ -1120,6 +1337,7 @@ export function App() {
             candidateOptions={candidateOptions}
             chooseBrowser={chooseBrowser}
             color={color}
+            executionTarget={executionTarget}
             createSilo={createSilo}
             name={name}
             importProxy={importProxy}
@@ -1132,6 +1350,7 @@ export function App() {
             proxyImport={proxyImport}
             proxyPassword={proxyPassword}
             proxyUsername={proxyUsername}
+            refreshWsl={detectCreateWsl}
             resetMihomoSnapshot={() => setMihomoSnapshot(null)}
             selectMihomoGroup={selectMihomoGroup}
             selectMihomoNode={selectMihomoNode}
@@ -1141,6 +1360,17 @@ export function App() {
             }}
             setBrowserPath={setBrowserPath}
             setColor={setColor}
+            setExecutionTarget={(target) => {
+              setExecutionTarget(target);
+              if (target.kind === "wsl") {
+                setNetworkProfile(emptyNetwork());
+                setProxyImport("");
+                setProxyUsername("");
+                setProxyPassword("");
+                setMihomoControllerSecret("");
+                setMihomoSnapshot(null);
+              }
+            }}
             setMihomoControllerSecret={setMihomoControllerSecret}
             setMihomoControllerUrl={(value) => {
               setMihomoControllerUrl(value);
@@ -1159,6 +1389,9 @@ export function App() {
             setProxyImport={setProxyImport}
             setProxyPassword={setProxyPassword}
             setProxyUsername={setProxyUsername}
+            wslBusy={createWslBusy}
+            wslOptions={createWslOptions}
+            wslStatus={createWslStatus}
           />
         )
       ) : null}
@@ -1309,9 +1542,6 @@ function VaultAccess({
 function LockedRoute({ onUnlock }: { onUnlock: () => void }) {
   return (
     <section className="panel locked-route">
-      <div className="locked-icon" aria-hidden="true">
-        ◇
-      </div>
       <h1>先解锁保险库</h1>
       <p>解锁后才能读取并管理你的 Silo 配置。</p>
       <button onClick={onUnlock} type="button">
@@ -1683,6 +1913,7 @@ function SiloList({
   onRebindMihomo,
   onRecheckBrowser,
   onRecheckRuntime,
+  onStop,
   runtimeState,
   silos,
   storageUsage,
@@ -1696,6 +1927,7 @@ function SiloList({
   onRebindMihomo: (silo: Silo) => Promise<void>;
   onRecheckBrowser: (silo: Silo) => Promise<void>;
   onRecheckRuntime: (silo: Silo) => Promise<void>;
+  onStop: (silo: Silo) => Promise<void>;
   runtimeState: DesktopStatus["activation"]["state"];
   silos: Silo[];
   storageUsage: Record<string, number | null>;
@@ -1714,7 +1946,6 @@ function SiloList({
       </div>
       {silos.length === 0 ? (
         <div className="empty-silos">
-          <span aria-hidden="true">◎</span>
           <strong>还没有 Silo</strong>
           <p>创建一个工作、个人或临时用途的独立浏览器环境。</p>
           <button onClick={onCreate} type="button">
@@ -1755,8 +1986,30 @@ function SiloList({
                   </dd>
                 </div>
                 <div>
+                  <dt>运行位置</dt>
+                  <dd>{siloExecutionTargetLabel(silo)}</dd>
+                </div>
+                <div>
+                  <dt>网站可见身份</dt>
+                  <dd>{siloWebsiteIdentityBoundary(silo)}</dd>
+                </div>
+                <div>
                   <dt>网络</dt>
                   <dd>{describeNetwork(silo.networkProfile)}</dd>
+                </div>
+                <div>
+                  <dt>身份状态</dt>
+                  <dd>
+                    <span
+                      className={`identity-lock-state${
+                        silo.identityLockedAt === null ? " pending" : " locked"
+                      }`}
+                    >
+                      {silo.identityLockedAt === null
+                        ? "首次成功启动时锁定浏览器与运行位置"
+                        : "浏览器与运行位置已锁定"}
+                    </span>
+                  </dd>
                 </div>
                 {silo.networkProfile.mode === "fixed_proxy" &&
                 silo.networkProfile.credentialRef !== undefined ? (
@@ -1772,11 +2025,29 @@ function SiloList({
               </dl>
               <div className="card-actions">
                 <button
-                  disabled={busy || activation !== null}
-                  onClick={() => void onLaunch(silo)}
+                  disabled={
+                    busy ||
+                    (activation !== null &&
+                      !(
+                        activation === silo.id &&
+                        runtimeState === "running" &&
+                        silo.executionTarget.kind === "wsl"
+                      ))
+                  }
+                  onClick={() =>
+                    void (activation === silo.id &&
+                    runtimeState === "running" &&
+                    silo.executionTarget.kind === "wsl"
+                      ? onStop(silo)
+                      : onLaunch(silo))
+                  }
                   type="button"
                 >
-                  启动 Silo
+                  {activation === silo.id &&
+                  runtimeState === "running" &&
+                  silo.executionTarget.kind === "wsl"
+                    ? "停止 Silo"
+                    : "启动 Silo"}
                 </button>
                 <button
                   className="button-secondary"
@@ -1836,6 +2107,74 @@ function SiloList({
           ))}
         </div>
       )}
+    </section>
+  );
+}
+
+function LegacyEnvironmentRecoveryPanel({
+  artifacts,
+  busy,
+  onCleanup,
+  silos,
+}: {
+  artifacts: LegacyEnvironmentArtifact[];
+  busy: boolean;
+  onCleanup: (artifact: LegacyEnvironmentArtifact) => Promise<void>;
+  silos: Silo[];
+}) {
+  if (artifacts.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="panel legacy-environment-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">需要处理一次</p>
+          <h2>清理不再使用的旧运行环境</h2>
+          <p>
+            这些环境来自较早的设置，不属于 Silo
+            当前选择的运行位置。清理后才能正常归档、删除或恢复保险库。
+          </p>
+        </div>
+      </div>
+      <div className="legacy-environment-list">
+        {artifacts.map((artifact) => {
+          const silo = silos.find(
+            (candidate) => candidate.id === artifact.siloId,
+          );
+          return (
+            <div
+              className={`legacy-environment-row${
+                artifact.cleanupAvailable ? "" : " blocked"
+              }`}
+              key={`${artifact.siloId}-${artifact.backend}`}
+            >
+              <div>
+                <strong>{silo?.name ?? "未知 Silo"}</strong>
+                <span>{legacyEnvironmentLabel(artifact.backend)}</span>
+                <p>
+                  {artifact.cleanupAvailable
+                    ? "归属信息已核对，可以安全清理，不会改变当前运行位置。"
+                    : "归属信息不完整或与当前运行位置不一致，VeriSilo 已阻止自动删除。"}
+                </p>
+              </div>
+              {artifact.cleanupAvailable ? (
+                <button
+                  className="button-danger"
+                  disabled={busy}
+                  onClick={() => void onCleanup(artifact)}
+                  type="button"
+                >
+                  核对并清理
+                </button>
+              ) : (
+                <span className="provider-badge warning">需要人工核对</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -1939,6 +2278,8 @@ function EditSiloPanel({
   const [proxyImportError, setProxyImportError] = useState<string | null>(null);
   const [proxyUsername, setProxyUsername] = useState("");
   const [proxyPassword, setProxyPassword] = useState("");
+  const localExecution = silo.executionTarget.kind === "local";
+  const identityLocked = silo.identityLockedAt !== null;
   const candidates = browsers.filter(
     (candidate) => candidate.kind === browserKind,
   );
@@ -1979,7 +2320,7 @@ function EditSiloPanel({
           <p>保存后会继续使用原有浏览器数据。运行中的 Silo 不能编辑。</p>
         </div>
       </div>
-      <div className="form-grid">
+      <div className="form-grid identity-grid">
         <label>
           名称
           <input
@@ -1998,40 +2339,71 @@ function EditSiloPanel({
             value={color}
           />
         </label>
-        <label>
-          浏览器
-          <select
-            disabled={
-              busy || (silo.engine.adapter !== "stock" && !useSystemBrowser)
-            }
-            onChange={(event) => {
-              const nextKind = event.target.value as BrowserKind;
-              setBrowserKind(nextKind);
-              const next = browsers.find(
-                (candidate) => candidate.kind === nextKind,
-              );
-              if (next !== undefined) {
-                setExecutablePath(next.executablePath);
-              }
-            }}
-            value={browserKind}
-          >
-            <option value="chrome">Google Chrome</option>
-            <option value="edge">Microsoft Edge</option>
-          </select>
-        </label>
-        <label>
-          浏览器可执行文件
-          <input
-            disabled={
-              busy || (silo.engine.adapter !== "stock" && !useSystemBrowser)
-            }
-            onChange={(event) => setExecutablePath(event.target.value)}
-            value={executablePath}
-          />
-        </label>
       </div>
-      {candidates.length > 0 ? (
+
+      {!localExecution ? (
+        <div className="identity-readonly-card">
+          <div>
+            <span className="readonly-kicker">浏览器与运行位置</span>
+            <strong>
+              {silo.executionTarget.kind === "wsl"
+                ? "Linux Chromium"
+                : "远程浏览器"}
+            </strong>
+            <p>{siloExecutionTargetLabel(silo)}</p>
+          </div>
+          <p>
+            {silo.executionTarget.kind === "wsl"
+              ? "这个 Silo 使用所选 Linux 环境内的 Chromium，不读取 Windows 浏览器路径。运行位置和浏览器身份不能在这里更换。"
+              : "这个 Silo 使用已连接位置中的浏览器，不读取本机浏览器路径。运行位置和浏览器身份不能在这里更换。"}
+          </p>
+        </div>
+      ) : identityLocked ? (
+        <div className="identity-readonly-card">
+          <div>
+            <span className="readonly-kicker">已锁定的身份配置</span>
+            <strong>{siloBrowserLabel(silo)}</strong>
+            <p>{siloExecutionTargetLabel(silo)}</p>
+          </div>
+          <p>{siloWebsiteIdentityBoundary(silo)}</p>
+        </div>
+      ) : (
+        <div className="form-grid">
+          <label>
+            浏览器
+            <select
+              disabled={
+                busy || (silo.engine.adapter !== "stock" && !useSystemBrowser)
+              }
+              onChange={(event) => {
+                const nextKind = event.target.value as BrowserKind;
+                setBrowserKind(nextKind);
+                const next = browsers.find(
+                  (candidate) => candidate.kind === nextKind,
+                );
+                if (next !== undefined) {
+                  setExecutablePath(next.executablePath);
+                }
+              }}
+              value={browserKind}
+            >
+              <option value="chrome">Google Chrome</option>
+              <option value="edge">Microsoft Edge</option>
+            </select>
+          </label>
+          <label>
+            浏览器可执行文件
+            <input
+              disabled={
+                busy || (silo.engine.adapter !== "stock" && !useSystemBrowser)
+              }
+              onChange={(event) => setExecutablePath(event.target.value)}
+              value={executablePath}
+            />
+          </label>
+        </div>
+      )}
+      {localExecution && !identityLocked && candidates.length > 0 ? (
         <div className="candidate-row">
           {candidates.map((candidate) => (
             <button
@@ -2051,9 +2423,20 @@ function EditSiloPanel({
       ) : null}
       <div className="boundary-note">
         <strong>当前浏览器方式</strong>
-        <span>{siloBrowserLabel(silo)}</span>
+        <span>
+          {siloBrowserLabel(silo)} · {siloExecutionTargetLabel(silo)}
+        </span>
       </div>
-      {silo.engine.adapter !== "stock" ? (
+      {identityLocked ? (
+        <div className="identity-clone-note">
+          <strong>浏览器身份配置与运行位置已锁定</strong>
+          <p>
+            要更换浏览器家族、受控身份或运行位置，请创建新的 Silo。名称、颜色和
+            停止运行后的网络设置仍可在这里调整。
+          </p>
+        </div>
+      ) : null}
+      {localExecution && !identityLocked && silo.engine.adapter !== "stock" ? (
         <label className="check-field network-replace-toggle">
           <input
             checked={useSystemBrowser}
@@ -2128,10 +2511,19 @@ function EditSiloPanel({
               value={replacementNetwork.mode}
             >
               <option value="direct">直连</option>
-              <option value="fixed_proxy">固定 HTTP / SOCKS5 代理</option>
-              <option value="pac">自动代理规则（PAC）</option>
+              {localExecution ? (
+                <>
+                  <option value="fixed_proxy">固定 HTTP / SOCKS5 代理</option>
+                  <option value="pac">自动代理规则（PAC）</option>
+                </>
+              ) : null}
             </select>
           </label>
+          {!localExecution ? (
+            <p className="field-warning">
+              Linux 运行位置当前仅支持直连，暂无其他网络方式可选。
+            </p>
+          ) : null}
           {replacementNetwork.mode === "fixed_proxy" ? (
             <>
               <div className="proxy-import-row edit-proxy-import">
@@ -2540,6 +2932,7 @@ function CreateSiloPanel({
   chooseBrowser,
   color,
   createSilo,
+  executionTarget,
   importProxy,
   inspectMihomoController,
   mihomoBusy,
@@ -2551,12 +2944,14 @@ function CreateSiloPanel({
   proxyImport,
   proxyPassword,
   proxyUsername,
+  refreshWsl,
   resetMihomoSnapshot,
   selectMihomoGroup,
   selectMihomoNode,
   setBrowserKind,
   setBrowserPath,
   setColor,
+  setExecutionTarget,
   setMihomoControllerSecret,
   setMihomoControllerUrl,
   setName,
@@ -2564,6 +2959,9 @@ function CreateSiloPanel({
   setProxyImport,
   setProxyPassword,
   setProxyUsername,
+  wslBusy,
+  wslOptions,
+  wslStatus,
 }: {
   browserKind: BrowserKind;
   browserPath: string;
@@ -2572,6 +2970,7 @@ function CreateSiloPanel({
   chooseBrowser: (candidate: BrowserCandidate) => void;
   color: string;
   createSilo: () => Promise<void>;
+  executionTarget: SiloExecutionTarget;
   importProxy: () => void;
   inspectMihomoController: () => Promise<void>;
   mihomoBusy: boolean;
@@ -2583,12 +2982,14 @@ function CreateSiloPanel({
   proxyImport: string;
   proxyPassword: string;
   proxyUsername: string;
+  refreshWsl: () => Promise<void>;
   resetMihomoSnapshot: () => void;
   selectMihomoGroup: (groupName: string) => void;
   selectMihomoNode: (nodeName: string) => void;
   setBrowserKind: (kind: BrowserKind) => void;
   setBrowserPath: (path: string) => void;
   setColor: (color: string) => void;
+  setExecutionTarget: (target: SiloExecutionTarget) => void;
   setMihomoControllerSecret: (secret: string) => void;
   setMihomoControllerUrl: (url: string) => void;
   setName: (name: string) => void;
@@ -2596,7 +2997,12 @@ function CreateSiloPanel({
   setProxyImport: (value: string) => void;
   setProxyPassword: (value: string) => void;
   setProxyUsername: (value: string) => void;
+  wslBusy: boolean;
+  wslOptions: WslCreationOption[];
+  wslStatus: WslStatus | null;
 }) {
+  const [websiteBoundaryConfirmed, setWebsiteBoundaryConfirmed] =
+    useState(false);
   const localProxySelected = isLoopbackProxyProfile(networkProfile);
   const mihomoBinding =
     networkProfile.mode === "fixed_proxy"
@@ -2605,6 +3011,13 @@ function CreateSiloPanel({
   const selectedMihomoGroup = mihomoSnapshot?.groups.find(
     (group) => group.name === mihomoBinding?.selectorGroup,
   );
+  useEffect(() => {
+    setWebsiteBoundaryConfirmed(false);
+  }, [browserKind, browserPath, executionTarget, networkProfile]);
+
+  const localExecution = executionTarget.kind === "local";
+  const readyWslOptions = wslOptions.filter((option) => option.ready);
+  const unavailableWslCount = wslOptions.length - readyWslOptions.length;
   return (
     <>
       <section className="create-hero panel">
@@ -2615,8 +3028,8 @@ function CreateSiloPanel({
           不会读取或修改默认浏览器的数据。
         </p>
         <div className="assurance-row">
-          <span>✓ Cookie 与站点数据独立</span>
-          <span>✓ 浏览器同步已关闭</span>
+          <span>Cookie 与站点数据独立</span>
+          <span>浏览器同步已关闭</span>
           <span>硬件特征跟随本机</span>
         </div>
       </section>
@@ -2657,68 +3070,158 @@ function CreateSiloPanel({
         <div className="step-heading">
           <span>2</span>
           <div>
-            <h2>选择浏览器</h2>
-            <p>支持 Windows 版 Google Chrome 和 Microsoft Edge。</p>
+            <h2>浏览器身份与运行位置</h2>
+            <p>
+              先决定浏览器在哪里运行。网站可见的系统和硬件边界会随运行位置变化。
+            </p>
           </div>
         </div>
-        <div className="browser-switch" role="group" aria-label="浏览器类型">
-          {(["chrome", "edge"] as const).map((kind) => (
-            <button
-              aria-pressed={browserKind === kind}
-              className={browserKind === kind ? "selected" : ""}
-              disabled={busy}
-              key={kind}
-              onClick={() => setBrowserKind(kind)}
-              type="button"
-            >
-              <strong>
-                {kind === "chrome" ? "Google Chrome" : "Microsoft Edge"}
-              </strong>
-              <span>{kind === "chrome" ? "Chrome Stable" : "Edge Stable"}</span>
-            </button>
-          ))}
-        </div>
-        {candidateOptions.length > 0 ? (
-          <div className="candidate-list" aria-label="已检测到的浏览器">
-            {candidateOptions.map((candidate) => (
+        <div className="execution-target-grid" aria-label="运行位置">
+          <button
+            aria-pressed={executionTarget.kind === "local"}
+            className={`execution-card${
+              executionTarget.kind === "local" ? " selected" : ""
+            }`}
+            disabled={busy}
+            onClick={() => setExecutionTarget({ kind: "local" })}
+            type="button"
+          >
+            <span className="execution-card-kicker">这台电脑</span>
+            <strong>Windows 本机</strong>
+            <small>使用已安装的 Chrome 或 Edge，网站数据单独保存。</small>
+            <span className="execution-card-state">可用</span>
+          </button>
+          {readyWslOptions.map(({ distribution }) => {
+            const selected =
+              executionTarget.kind === "wsl" &&
+              executionTarget.distribution === distribution;
+            return (
               <button
-                aria-pressed={browserPath === candidate.executablePath}
-                className={
-                  browserPath === candidate.executablePath ? "selected" : ""
+                aria-pressed={selected}
+                className={`execution-card${selected ? " selected" : ""}`}
+                disabled={busy || wslBusy}
+                key={distribution}
+                onClick={() =>
+                  setExecutionTarget({ kind: "wsl", distribution })
                 }
-                key={candidate.executablePath}
-                onClick={() => chooseBrowser(candidate)}
                 type="button"
               >
-                <span className="candidate-check" aria-hidden="true">
-                  {browserPath === candidate.executablePath ? "✓" : ""}
-                </span>
-                <span>
-                  <strong>{candidate.displayName}</strong>
-                  <small>{candidate.version ?? "版本未知"}</small>
-                </span>
+                <span className="execution-card-kicker">Linux 环境</span>
+                <strong>{distribution}</strong>
+                <small>使用环境内的 Chromium；当前只允许直连网络。</small>
+                <span className="execution-card-state">已就绪</span>
               </button>
-            ))}
+            );
+          })}
+        </div>
+        <div className="wsl-discovery-row" role="status">
+          <span>
+            {wslBusy
+              ? "正在检查这台电脑上的 Linux 环境…"
+              : wslStatus === null
+                ? "尚未检查 Linux 环境。"
+                : readyWslOptions.length > 0
+                  ? `已确认 ${readyWslOptions.length} 个可创建的 Linux 环境。`
+                  : wslStatus.distributions.length > 0
+                    ? "已发现 Linux 环境，但尚未通过完整运行检查。"
+                    : wslStatus.message || "没有发现已就绪的 Linux 环境。"}
+          </span>
+          <button
+            className="button-secondary button-quiet"
+            disabled={busy || wslBusy}
+            onClick={() => void refreshWsl()}
+            type="button"
+          >
+            {wslBusy ? "检查中…" : "重新检查"}
+          </button>
+        </div>
+        {unavailableWslCount > 0 ? (
+          <p className="wsl-unavailable-note">
+            另有 {unavailableWslCount} 个 Linux
+            环境未通过启动、停止、网络和状态检查。请在“运行位置设置”中修复后重新检查。
+          </p>
+        ) : null}
+
+        {localExecution ? (
+          <div className="local-browser-choice">
+            <div className="subsection-heading">
+              <strong>选择本机浏览器</strong>
+              <span>支持 Windows 版 Google Chrome 和 Microsoft Edge。</span>
+            </div>
+            <div
+              className="browser-switch"
+              role="group"
+              aria-label="浏览器类型"
+            >
+              {(["chrome", "edge"] as const).map((kind) => (
+                <button
+                  aria-pressed={browserKind === kind}
+                  className={browserKind === kind ? "selected" : ""}
+                  disabled={busy}
+                  key={kind}
+                  onClick={() => setBrowserKind(kind)}
+                  type="button"
+                >
+                  <strong>
+                    {kind === "chrome" ? "Google Chrome" : "Microsoft Edge"}
+                  </strong>
+                  <span>
+                    {kind === "chrome" ? "Chrome Stable" : "Edge Stable"}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {candidateOptions.length > 0 ? (
+              <div className="candidate-list" aria-label="已检测到的浏览器">
+                {candidateOptions.map((candidate) => (
+                  <button
+                    aria-pressed={browserPath === candidate.executablePath}
+                    className={
+                      browserPath === candidate.executablePath ? "selected" : ""
+                    }
+                    key={candidate.executablePath}
+                    onClick={() => chooseBrowser(candidate)}
+                    type="button"
+                  >
+                    <span>
+                      <strong>{candidate.displayName}</strong>
+                      <small>{candidate.version ?? "版本未知"}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="form-hint">
+                尚未在常见 Windows
+                安装位置找到该浏览器，请填写可执行文件绝对路径。
+              </p>
+            )}
+            <label>
+              浏览器可执行文件路径
+              <input
+                disabled={busy}
+                onChange={(event) => setBrowserPath(event.target.value)}
+                placeholder="C:\\Program Files\\...\\browser.exe"
+                value={browserPath}
+              />
+            </label>
+            {browserKind === "edge" ? (
+              <p className="form-hint">
+                Edge 仍可能显示 Windows 已登录的微软账户，但不会复用默认浏览器的
+                Cookie。微软或企业网站仍可能通过 Windows 单点登录识别该账户。
+              </p>
+            ) : null}
           </div>
-        ) : (
-          <p className="form-hint">
-            尚未在常见 Windows 安装位置找到该浏览器，请填写可执行文件绝对路径。
-          </p>
-        )}
-        <label>
-          浏览器可执行文件路径
-          <input
-            disabled={busy}
-            onChange={(event) => setBrowserPath(event.target.value)}
-            placeholder="C:\\Program Files\\...\\browser.exe"
-            value={browserPath}
-          />
-        </label>
-        {browserKind === "edge" ? (
-          <p className="form-hint">
-            Edge 仍可能显示 Windows 已登录的微软账户，但不会复用默认浏览器的
-            Cookie。微软或企业网站仍可能通过 Windows 单点登录识别该账户。
-          </p>
+        ) : executionTarget.kind === "wsl" ? (
+          <div className="wsl-browser-summary">
+            <div>
+              <strong>使用 {executionTarget.distribution} 中的 Chromium</strong>
+              <p>
+                不需要选择 Windows 浏览器路径。网站会看到 Linux 浏览器环境；
+                CPU、内存和图形特征仍跟随该环境与本机硬件。
+              </p>
+            </div>
+          </div>
         ) : null}
 
         <div className="step-heading">
@@ -2730,275 +3233,352 @@ function CreateSiloPanel({
             </p>
           </div>
         </div>
-        <fieldset disabled={busy || mihomoBusy}>
-          <legend className="sr-only">网络配置</legend>
-          <div className="proxy-import-card">
-            <div>
-              <strong>有现成代理？粘贴一行即可</strong>
-              <span>
-                支持 host:port、host:port:user:password 或带协议的代理 URL。
-              </span>
+        {localExecution ? (
+          <fieldset disabled={busy || mihomoBusy}>
+            <legend className="sr-only">网络配置</legend>
+            <div className="proxy-import-card">
+              <div>
+                <strong>有现成代理？粘贴一行即可</strong>
+                <span>
+                  支持 host:port、host:port:user:password 或带协议的代理 URL。
+                </span>
+              </div>
+              <div className="proxy-import-row">
+                <input
+                  aria-label="一行代理配置"
+                  autoComplete="off"
+                  onChange={(event) => setProxyImport(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      importProxy();
+                    }
+                  }}
+                  placeholder="socks5://user:password@host:port"
+                  spellCheck={false}
+                  type="password"
+                  value={proxyImport}
+                />
+                <button
+                  className="button-secondary"
+                  disabled={proxyImport.trim() === ""}
+                  onClick={importProxy}
+                  type="button"
+                >
+                  解析并填入
+                </button>
+              </div>
             </div>
-            <div className="proxy-import-row">
-              <input
-                aria-label="一行代理配置"
-                autoComplete="off"
-                onChange={(event) => setProxyImport(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    importProxy();
-                  }
+            <div className="network-options">
+              <NetworkOption
+                checked={networkProfile.mode === "direct"}
+                description="不使用系统代理"
+                label="直连"
+                onChange={() => {
+                  setNetworkProfile(emptyNetwork());
+                  setProxyUsername("");
+                  setProxyPassword("");
+                  resetMihomoSnapshot();
                 }}
-                placeholder="socks5://user:password@host:port"
-                spellCheck={false}
-                type="password"
-                value={proxyImport}
               />
-              <button
-                className="button-secondary"
-                disabled={proxyImport.trim() === ""}
-                onClick={importProxy}
-                type="button"
-              >
-                解析并填入
-              </button>
+              <NetworkOption
+                checked={localProxySelected}
+                description="连接本机 SOCKS/Mixed 端口"
+                label="Mihomo / Clash"
+                onChange={() => {
+                  setNetworkProfile(localMihomoProfile());
+                  resetMihomoSnapshot();
+                }}
+              />
+              <NetworkOption
+                checked={
+                  networkProfile.mode === "fixed_proxy" && !localProxySelected
+                }
+                description="HTTP、HTTPS 或 SOCKS"
+                label="远程固定代理"
+                onChange={() => {
+                  setNetworkProfile({
+                    mode: "fixed_proxy",
+                    proxyRequired: true,
+                    scheme: "socks5",
+                    host: "",
+                    port: 1080,
+                    bypassList: [],
+                  });
+                  resetMihomoSnapshot();
+                }}
+              />
+              <NetworkOption
+                checked={networkProfile.mode === "pac"}
+                description="按照自动代理配置决定路由"
+                label="自动代理规则"
+                onChange={() => {
+                  setNetworkProfile({
+                    mode: "pac",
+                    proxyRequired: false,
+                    pacUrl: "",
+                  });
+                  setProxyUsername("");
+                  setProxyPassword("");
+                  resetMihomoSnapshot();
+                }}
+              />
             </div>
-          </div>
-          <div className="network-options">
-            <NetworkOption
-              checked={networkProfile.mode === "direct"}
-              description="不使用系统代理"
-              label="直连"
-              onChange={() => {
-                setNetworkProfile(emptyNetwork());
-                setProxyUsername("");
-                setProxyPassword("");
-                resetMihomoSnapshot();
-              }}
-            />
-            <NetworkOption
-              checked={localProxySelected}
-              description="连接本机 SOCKS/Mixed 端口"
-              label="Mihomo / Clash"
-              onChange={() => {
-                setNetworkProfile(localMihomoProfile());
-                resetMihomoSnapshot();
-              }}
-            />
-            <NetworkOption
-              checked={
-                networkProfile.mode === "fixed_proxy" && !localProxySelected
-              }
-              description="HTTP、HTTPS 或 SOCKS"
-              label="远程固定代理"
-              onChange={() => {
-                setNetworkProfile({
-                  mode: "fixed_proxy",
-                  proxyRequired: true,
-                  scheme: "socks5",
-                  host: "",
-                  port: 1080,
-                  bypassList: [],
-                });
-                resetMihomoSnapshot();
-              }}
-            />
-            <NetworkOption
-              checked={networkProfile.mode === "pac"}
-              description="按照自动代理配置决定路由"
-              label="自动代理规则"
-              onChange={() => {
-                setNetworkProfile({
-                  mode: "pac",
-                  proxyRequired: false,
-                  pacUrl: "",
-                });
-                setProxyUsername("");
-                setProxyPassword("");
-                resetMihomoSnapshot();
-              }}
-            />
-          </div>
-          {networkProfile.mode === "fixed_proxy" ? (
-            <>
-              {localProxySelected ? (
-                <div className="mihomo-stack">
-                  <div className="proxy-bridge-note">
-                    <span className="bridge-badge">使用本机代理应用</span>
-                    <div>
-                      <strong>
-                        订阅仍由你自己的 Mihomo / Clash 客户端管理
-                      </strong>
-                      <p>
-                        只填监听端口时，VeriSilo
-                        固定的是端口；连接本机代理应用后， 还会为这个 Silo
-                        记住选择组和节点，并在每次启动前重新确认。
-                      </p>
-                    </div>
-                  </div>
-                  <div className="controller-card">
-                    <div className="controller-heading">
+            {networkProfile.mode === "fixed_proxy" ? (
+              <>
+                {localProxySelected ? (
+                  <div className="mihomo-stack">
+                    <div className="proxy-bridge-note">
+                      <span className="bridge-badge">使用本机代理应用</span>
                       <div>
-                        <strong>连接本机代理应用（推荐）</strong>
-                        <span>
-                          只允许这台电脑上的管理地址，不接受远程管理地址。
-                        </span>
-                      </div>
-                      <button
-                        className="button-secondary"
-                        disabled={
-                          mihomoBusy || mihomoControllerUrl.trim() === ""
-                        }
-                        onClick={() => void inspectMihomoController()}
-                        type="button"
-                      >
-                        {mihomoBusy ? "正在读取…" : "连接并读取节点"}
-                      </button>
-                    </div>
-                    <div className="form-grid controller-grid">
-                      <label>
-                        本机管理地址
-                        <input
-                          autoComplete="off"
-                          onChange={(event) =>
-                            setMihomoControllerUrl(event.target.value)
-                          }
-                          placeholder="http://127.0.0.1:9090/"
-                          spellCheck={false}
-                          value={mihomoControllerUrl}
-                        />
-                      </label>
-                      <label>
-                        访问密钥（可空）
-                        <input
-                          autoComplete="off"
-                          onChange={(event) =>
-                            setMihomoControllerSecret(event.target.value)
-                          }
-                          placeholder="只进入加密保险库"
-                          type="password"
-                          value={mihomoControllerSecret}
-                        />
-                      </label>
-                    </div>
-                    {mihomoSnapshot !== null ? (
-                      <div className="form-grid controller-selection">
-                        <label>
-                          选择组
-                          <select
-                            onChange={(event) =>
-                              selectMihomoGroup(event.target.value)
-                            }
-                            value={
-                              mihomoBinding?.selectorGroup ??
-                              mihomoSnapshot.groups[0]?.name ??
-                              ""
-                            }
-                          >
-                            {mihomoSnapshot.groups.map((group) => (
-                              <option key={group.name} value={group.name}>
-                                {group.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          固定节点
-                          <select
-                            onChange={(event) =>
-                              selectMihomoNode(event.target.value)
-                            }
-                            value={mihomoBinding?.nodeName ?? ""}
-                          >
-                            {(selectedMihomoGroup?.nodes ?? []).map((node) => (
-                              <option key={node.name} value={node.name}>
-                                {node.name}
-                                {node.delayMs === null
-                                  ? ""
-                                  : ` · ${node.delayMs} ms`}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <p className="controller-proof">
-                          已于 {formatDate(mihomoSnapshot.checkedAt)}
-                          读取控制器。延迟是 Mihomo
-                          返回的最近记录，不等于实际出口已经验证。
-                          {mihomoSnapshot.providers.length > 0
-                            ? ` 订阅：${mihomoSnapshot.providers
-                                .map(
-                                  (provider) =>
-                                    `${provider.name}（${provider.nodeCount} 节点${
-                                      provider.updatedAt === null
-                                        ? ""
-                                        : `，更新于 ${formatDate(provider.updatedAt)}`
-                                    }）`,
-                                )
-                                .join("、")}。`
-                            : " 当前代理应用未提供可读的订阅更新时间。"}
+                        <strong>
+                          订阅仍由你自己的 Mihomo / Clash 客户端管理
+                        </strong>
+                        <p>
+                          只填监听端口时，VeriSilo
+                          固定的是端口；连接本机代理应用后， 还会为这个 Silo
+                          记住选择组和节点，并在每次启动前重新确认。
                         </p>
                       </div>
-                    ) : (
-                      <p className="controller-proof">
-                        尚未绑定节点。仍可按固定端口使用，但外部客户端切换节点时，Silo
-                        的出口也会随之变化。
-                      </p>
-                    )}
+                    </div>
+                    <div className="controller-card">
+                      <div className="controller-heading">
+                        <div>
+                          <strong>连接本机代理应用（推荐）</strong>
+                          <span>
+                            只允许这台电脑上的管理地址，不接受远程管理地址。
+                          </span>
+                        </div>
+                        <button
+                          className="button-secondary"
+                          disabled={
+                            mihomoBusy || mihomoControllerUrl.trim() === ""
+                          }
+                          onClick={() => void inspectMihomoController()}
+                          type="button"
+                        >
+                          {mihomoBusy ? "正在读取…" : "连接并读取节点"}
+                        </button>
+                      </div>
+                      <div className="form-grid controller-grid">
+                        <label>
+                          本机管理地址
+                          <input
+                            autoComplete="off"
+                            onChange={(event) =>
+                              setMihomoControllerUrl(event.target.value)
+                            }
+                            placeholder="http://127.0.0.1:9090/"
+                            spellCheck={false}
+                            value={mihomoControllerUrl}
+                          />
+                        </label>
+                        <label>
+                          访问密钥（可空）
+                          <input
+                            autoComplete="off"
+                            onChange={(event) =>
+                              setMihomoControllerSecret(event.target.value)
+                            }
+                            placeholder="只进入加密保险库"
+                            type="password"
+                            value={mihomoControllerSecret}
+                          />
+                        </label>
+                      </div>
+                      {mihomoSnapshot !== null ? (
+                        <div className="form-grid controller-selection">
+                          <label>
+                            选择组
+                            <select
+                              onChange={(event) =>
+                                selectMihomoGroup(event.target.value)
+                              }
+                              value={
+                                mihomoBinding?.selectorGroup ??
+                                mihomoSnapshot.groups[0]?.name ??
+                                ""
+                              }
+                            >
+                              {mihomoSnapshot.groups.map((group) => (
+                                <option key={group.name} value={group.name}>
+                                  {group.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            固定节点
+                            <select
+                              onChange={(event) =>
+                                selectMihomoNode(event.target.value)
+                              }
+                              value={mihomoBinding?.nodeName ?? ""}
+                            >
+                              {(selectedMihomoGroup?.nodes ?? []).map(
+                                (node) => (
+                                  <option key={node.name} value={node.name}>
+                                    {node.name}
+                                    {node.delayMs === null
+                                      ? ""
+                                      : ` · ${node.delayMs} ms`}
+                                  </option>
+                                ),
+                              )}
+                            </select>
+                          </label>
+                          <p className="controller-proof">
+                            已于 {formatDate(mihomoSnapshot.checkedAt)}
+                            读取控制器。延迟是 Mihomo
+                            返回的最近记录，不等于实际出口已经验证。
+                            {mihomoSnapshot.providers.length > 0
+                              ? ` 订阅：${mihomoSnapshot.providers
+                                  .map(
+                                    (provider) =>
+                                      `${provider.name}（${provider.nodeCount} 节点${
+                                        provider.updatedAt === null
+                                          ? ""
+                                          : `，更新于 ${formatDate(provider.updatedAt)}`
+                                      }）`,
+                                  )
+                                  .join("、")}。`
+                              : " 当前代理应用未提供可读的订阅更新时间。"}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="controller-proof">
+                          尚未绑定节点。仍可按固定端口使用，但外部客户端切换节点时，Silo
+                          的出口也会随之变化。
+                        </p>
+                      )}
+                    </div>
                   </div>
+                ) : null}
+                <div className="form-grid proxy-grid">
+                  <label>
+                    协议
+                    <select
+                      disabled={mihomoBinding !== undefined}
+                      onChange={(event) =>
+                        setNetworkProfile({
+                          ...networkProfile,
+                          scheme: event.target.value as
+                            "http" | "https" | "socks4" | "socks5",
+                        })
+                      }
+                      value={networkProfile.scheme}
+                    >
+                      <option value="http">HTTP</option>
+                      <option value="https">HTTPS</option>
+                      <option value="socks4">SOCKS4</option>
+                      <option value="socks5">SOCKS5</option>
+                    </select>
+                  </label>
+                  <label>
+                    {localProxySelected ? "本机监听地址" : "代理主机"}
+                    <input
+                      onChange={(event) =>
+                        setNetworkProfile({
+                          ...networkProfile,
+                          host: event.target.value,
+                        })
+                      }
+                      placeholder="127.0.0.1"
+                      value={networkProfile.host}
+                    />
+                  </label>
+                  <label>
+                    {localProxySelected ? "本机端口" : "代理端口"}
+                    <input
+                      max="65535"
+                      min="1"
+                      onChange={(event) =>
+                        setNetworkProfile({
+                          ...networkProfile,
+                          port: Number(event.target.value),
+                        })
+                      }
+                      type="number"
+                      value={networkProfile.port}
+                    />
+                  </label>
+                  <label className="check-field">
+                    <input
+                      disabled={mihomoBinding !== undefined}
+                      checked={networkProfile.proxyRequired}
+                      onChange={(event) =>
+                        setNetworkProfile({
+                          ...networkProfile,
+                          proxyRequired: event.target.checked,
+                        })
+                      }
+                      type="checkbox"
+                    />
+                    {localProxySelected
+                      ? "本机代理端口不可连接就拒绝启动，不回退真实出口"
+                      : "代理不可连接就拒绝启动，不回退真实出口"}
+                  </label>
                 </div>
-              ) : null}
-              <div className="form-grid proxy-grid">
+                <div className="proxy-auth-card">
+                  <div>
+                    <strong>代理认证（可空）</strong>
+                    <span>
+                      支持 HTTP Basic 与 SOCKS5
+                      用户名/密码。凭据只进入加密保险库，浏览器只看到随机本机
+                      SOCKS5
+                      端口；这不是按浏览器进程授权，同一用户下其他本机进程若发现端口仍可能借用。
+                    </span>
+                  </div>
+                  <div className="form-grid auth-grid">
+                    <label>
+                      用户名
+                      <input
+                        autoComplete="off"
+                        onChange={(event) =>
+                          setProxyUsername(event.target.value)
+                        }
+                        value={proxyUsername}
+                      />
+                    </label>
+                    <label>
+                      密码
+                      <input
+                        autoComplete="new-password"
+                        onChange={(event) =>
+                          setProxyPassword(event.target.value)
+                        }
+                        type="password"
+                        value={proxyPassword}
+                      />
+                    </label>
+                  </div>
+                  {proxyUsername !== "" &&
+                  !["http", "socks5"].includes(networkProfile.scheme) ? (
+                    <p className="field-warning">
+                      当前方式无法安全保存这类代理的登录信息；请改用
+                      HTTP/SOCKS5， 或让 Mihomo / Clash 应用自行处理。
+                    </p>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
+            {networkProfile.mode === "pac" ? (
+              <div className="form-grid pac-grid">
                 <label>
-                  协议
-                  <select
-                    disabled={mihomoBinding !== undefined}
-                    onChange={(event) =>
-                      setNetworkProfile({
-                        ...networkProfile,
-                        scheme: event.target.value as
-                          "http" | "https" | "socks4" | "socks5",
-                      })
-                    }
-                    value={networkProfile.scheme}
-                  >
-                    <option value="http">HTTP</option>
-                    <option value="https">HTTPS</option>
-                    <option value="socks4">SOCKS4</option>
-                    <option value="socks5">SOCKS5</option>
-                  </select>
-                </label>
-                <label>
-                  {localProxySelected ? "本机监听地址" : "代理主机"}
+                  自动代理配置地址（PAC）
                   <input
                     onChange={(event) =>
                       setNetworkProfile({
                         ...networkProfile,
-                        host: event.target.value,
+                        pacUrl: event.target.value,
                       })
                     }
-                    placeholder="127.0.0.1"
-                    value={networkProfile.host}
-                  />
-                </label>
-                <label>
-                  {localProxySelected ? "本机端口" : "代理端口"}
-                  <input
-                    max="65535"
-                    min="1"
-                    onChange={(event) =>
-                      setNetworkProfile({
-                        ...networkProfile,
-                        port: Number(event.target.value),
-                      })
-                    }
-                    type="number"
-                    value={networkProfile.port}
+                    placeholder="https://example.test/proxy.pac"
+                    value={networkProfile.pacUrl}
                   />
                 </label>
                 <label className="check-field">
                   <input
-                    disabled={mihomoBinding !== undefined}
                     checked={networkProfile.proxyRequired}
                     onChange={(event) =>
                       setNetworkProfile({
@@ -3008,97 +3588,136 @@ function CreateSiloPanel({
                     }
                     type="checkbox"
                   />
-                  {localProxySelected
-                    ? "本机代理端口不可连接就拒绝启动，不回退真实出口"
-                    : "代理不可连接就拒绝启动，不回退真实出口"}
+                  必须代理（如果规则可能直连，启动前阻止）
                 </label>
               </div>
-              <div className="proxy-auth-card">
-                <div>
-                  <strong>代理认证（可空）</strong>
-                  <span>
-                    支持 HTTP Basic 与 SOCKS5
-                    用户名/密码。凭据只进入加密保险库，浏览器只看到随机本机
-                    SOCKS5
-                    端口；这不是按浏览器进程授权，同一用户下其他本机进程若发现端口仍可能借用。
-                  </span>
-                </div>
-                <div className="form-grid auth-grid">
-                  <label>
-                    用户名
-                    <input
-                      autoComplete="off"
-                      onChange={(event) => setProxyUsername(event.target.value)}
-                      value={proxyUsername}
-                    />
-                  </label>
-                  <label>
-                    密码
-                    <input
-                      autoComplete="new-password"
-                      onChange={(event) => setProxyPassword(event.target.value)}
-                      type="password"
-                      value={proxyPassword}
-                    />
-                  </label>
-                </div>
-                {proxyUsername !== "" &&
-                !["http", "socks5"].includes(networkProfile.scheme) ? (
-                  <p className="field-warning">
-                    当前方式无法安全保存这类代理的登录信息；请改用 HTTP/SOCKS5，
-                    或让 Mihomo / Clash 应用自行处理。
-                  </p>
-                ) : null}
-              </div>
-            </>
-          ) : null}
-          {networkProfile.mode === "pac" ? (
-            <div className="form-grid pac-grid">
-              <label>
-                自动代理配置地址（PAC）
-                <input
-                  onChange={(event) =>
-                    setNetworkProfile({
-                      ...networkProfile,
-                      pacUrl: event.target.value,
-                    })
-                  }
-                  placeholder="https://example.test/proxy.pac"
-                  value={networkProfile.pacUrl}
-                />
-              </label>
-              <label className="check-field">
-                <input
-                  checked={networkProfile.proxyRequired}
-                  onChange={(event) =>
-                    setNetworkProfile({
-                      ...networkProfile,
-                      proxyRequired: event.target.checked,
-                    })
-                  }
-                  type="checkbox"
-                />
-                必须代理（如果规则可能直连，启动前阻止）
-              </label>
+            ) : null}
+          </fieldset>
+        ) : executionTarget.kind === "wsl" ? (
+          <div className="wsl-network-boundary">
+            <div>
+              <strong>Linux 环境当前仅支持直连</strong>
+              <p>
+                浏览器通过该 Linux 环境的默认网络访问网站。代理、自动代理规则和
+                本机 Mihomo 绑定暂不能用于这个运行位置。
+              </p>
             </div>
-          ) : null}
-        </fieldset>
+            <span className="boundary-status">直连</span>
+          </div>
+        ) : null}
+
+        <div className="step-heading">
+          <span>4</span>
+          <div>
+            <h2>确认网站将看到什么</h2>
+            <p>
+              这些是当前能够诚实说明的身份边界，不会把未控制的硬件特征标为已隐藏。
+            </p>
+          </div>
+        </div>
+        <section
+          className="website-visibility-card"
+          aria-label="网站可见信息确认"
+        >
+          <div className="visibility-heading">
+            <div>
+              <strong>网站可见身份摘要</strong>
+              <p>首次成功启动时，浏览器身份配置与运行位置会固定到这个 Silo。</p>
+            </div>
+          </div>
+          <dl className="visibility-facts">
+            <div>
+              <dt>运行位置</dt>
+              <dd>
+                {localExecution
+                  ? "这台 Windows 电脑"
+                  : executionTarget.kind === "wsl"
+                    ? `WSL · ${executionTarget.distribution}`
+                    : "远程运行"}
+              </dd>
+            </div>
+            <div>
+              <dt>浏览器身份</dt>
+              <dd>
+                {localExecution
+                  ? `${browserKind === "chrome" ? "Google Chrome" : "Microsoft Edge"} · Windows`
+                  : "Chromium · Linux"}
+              </dd>
+            </div>
+            <div>
+              <dt>硬件与渲染</dt>
+              <dd>
+                {localExecution
+                  ? "CPU、内存、Canvas、WebGL 与字体跟随本机，当前未做统一控制"
+                  : "CPU、内存与图形特征跟随 WSL 和本机，当前未做统一控制"}
+              </dd>
+            </div>
+            <div>
+              <dt>网络出口</dt>
+              <dd>
+                {localExecution
+                  ? describeNetwork(networkProfile)
+                  : "通过 Linux 环境直连；实际出口可在创建后主动检查"}
+              </dd>
+            </div>
+            <div>
+              <dt>语言与时区</dt>
+              <dd>
+                {localExecution
+                  ? "跟随所选浏览器与 Windows，当前未固定"
+                  : "跟随 Linux 环境，当前未固定"}
+              </dd>
+            </div>
+            <div>
+              <dt>屏幕</dt>
+              <dd>跟随当前显示设备，创建时不伪装为固定值</dd>
+            </div>
+            <div>
+              <dt>WebRTC 与 DNS</dt>
+              <dd>创建时尚未测量；启动后从浏览器侧边栏主动检查</dd>
+            </div>
+            {localExecution && browserKind === "edge" ? (
+              <div>
+                <dt>系统账户</dt>
+                <dd>微软或企业网站仍可能通过 Windows 单点登录识别设备账户</dd>
+              </div>
+            ) : null}
+          </dl>
+          <label className="visibility-confirmation">
+            <input
+              checked={websiteBoundaryConfirmed}
+              disabled={busy || mihomoBusy}
+              onChange={(event) =>
+                setWebsiteBoundaryConfirmed(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <span>
+              <strong>我已核对以上边界</strong>
+              <small>
+                按这些设置创建，并在首次启动时锁定浏览器身份配置与运行位置。
+              </small>
+            </span>
+          </label>
+        </section>
         <div className="submit-row">
           <div>
-            <strong>准备创建新的浏览器数据目录</strong>
+            <strong>准备创建新的 Silo</strong>
             <span>不会导入、复制或改写已有浏览器数据。</span>
           </div>
           <button
             disabled={
               busy ||
               mihomoBusy ||
+              !websiteBoundaryConfirmed ||
               name.trim().length === 0 ||
-              browserPath.trim().length === 0
+              executionTarget.kind === "remote" ||
+              (localExecution && browserPath.trim().length === 0)
             }
             onClick={() => void createSilo()}
             type="button"
           >
-            创建隔离 Silo
+            创建 Silo
           </button>
         </div>
       </section>
@@ -3295,7 +3914,7 @@ function EnvironmentWorkspace({
     ) {
       setEngineActionMessage({
         tone: "error",
-        text: "请填写浏览器组件文件夹和组件版本。",
+        text: "请填写浏览器安装文件夹和目标版本。",
       });
       return;
     }
@@ -4193,18 +4812,21 @@ function EnvironmentWorkspace({
     <>
       <section className="workspace-intro">
         <div>
-          <p className="eyebrow">运行环境</p>
-          <h1>管理 Silo 的浏览器和运行位置</h1>
-          <p>在浏览器、本机隔离和远程环境之间切换，并管理当前可用的操作。</p>
+          <p className="eyebrow">运行位置设置</p>
+          <h1>准备或修复可选运行位置</h1>
+          <p>
+            创建 Silo 时直接选择运行位置。这里只用于准备已安装浏览器，
+            以及检查可用于新 Silo 的 Linux 环境。
+          </p>
         </div>
-        <nav className="environment-switcher" aria-label="运行环境类别">
+        <nav className="environment-switcher" aria-label="运行位置设置类别">
           <button
             aria-pressed={environmentSection === "browser"}
             className="environment-switch"
             onClick={() => setEnvironmentSection("browser")}
             type="button"
           >
-            浏览器
+            浏览器准备
           </button>
           <button
             aria-pressed={environmentSection === "local"}
@@ -4212,15 +4834,7 @@ function EnvironmentWorkspace({
             onClick={() => setEnvironmentSection("local")}
             type="button"
           >
-            本机隔离
-          </button>
-          <button
-            aria-pressed={environmentSection === "remote"}
-            className="environment-switch"
-            onClick={() => setEnvironmentSection("remote")}
-            type="button"
-          >
-            远程环境
+            Linux 环境
           </button>
         </nav>
       </section>
@@ -4239,10 +4853,10 @@ function EnvironmentWorkspace({
           </div>
           {hasManagedBrowser ? (
             <details className="remote-advanced browser-component-advanced">
-              <summary>维护现有独立浏览器组件</summary>
+              <summary>维护现有独立浏览器</summary>
               <div className="form-grid">
                 <label>
-                  浏览器组件文件夹
+                  浏览器安装文件夹
                   <input
                     disabled={engineActionBusy}
                     onChange={(event) =>
@@ -4253,7 +4867,7 @@ function EnvironmentWorkspace({
                   />
                 </label>
                 <label>
-                  组件版本
+                  目标版本
                   <input
                     disabled={engineActionBusy}
                     onChange={(event) =>
@@ -4265,7 +4879,7 @@ function EnvironmentWorkspace({
                 </label>
               </div>
               <p className="field-help">
-                仅在你已经取得受信任的本地组件包时使用。VeriSilo
+                仅在你已经取得受信任的浏览器安装文件时使用。VeriSilo
                 会先检查完整性，再允许 Silo 使用。
               </p>
             </details>
@@ -4361,15 +4975,16 @@ function EnvironmentWorkspace({
         </section>
       ) : null}
 
-      {environmentSection === "local" ? (
+      {unboundEnvironmentControlsAvailable() &&
+      environmentSection === "local" ? (
         <section className="panel provider-catalog">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">本机隔离</p>
-              <h2>在这台电脑上运行更独立的环境</h2>
+              <p className="eyebrow">本机位置</p>
+              <h2>检查可选运行位置所需的 Windows 功能</h2>
               <p>
-                可以使用 Windows Sandbox、WSL 或 Hyper-V。VeriSilo 会根据
-                Windows 当前配置，只开放真正可执行的操作。
+                这里保留已有位置的检查和修复入口。新的 Silo 请回到创建页选择
+                Windows 本机或已发现的 Linux 环境。
               </p>
             </div>
           </div>
@@ -4546,7 +5161,8 @@ function EnvironmentWorkspace({
         </section>
       ) : null}
 
-      {environmentSection === "remote" ? (
+      {unboundEnvironmentControlsAvailable() &&
+      environmentSection === "remote" ? (
         <section className="panel provider-catalog remote-provider-panel">
           <div className="panel-heading">
             <div>
@@ -5696,6 +6312,48 @@ function siloBrowserLabel(silo: Silo): string {
   }
 }
 
+function siloExecutionTargetLabel(silo: Silo): string {
+  switch (silo.executionTarget.kind) {
+    case "local":
+      return "这台 Windows 电脑";
+    case "wsl":
+      return `WSL · ${silo.executionTarget.distribution}`;
+    case "remote":
+      try {
+        return `远程 · ${new URL(silo.executionTarget.endpointOrigin).host}`;
+      } catch {
+        return "远程运行";
+      }
+  }
+}
+
+function siloWebsiteIdentityBoundary(silo: Silo): string {
+  if (silo.engine.adapter !== "stock") {
+    const template = silo.engine.identityTemplate;
+    const browserFamily =
+      template.browser.family === "chromium" ? "Chromium" : "Firefox";
+    const renderBoundary =
+      template.render.canvas === "native" ? "原生渲染" : "模板渲染";
+    return [
+      `Windows ${template.os.version}`,
+      `${browserFamily} ${template.browser.majorVersion}`,
+      template.languages.primary,
+      template.timezone,
+      `${template.screen.width}×${template.screen.height}`,
+      renderBoundary,
+    ].join(" · ");
+  }
+
+  switch (silo.executionTarget.kind) {
+    case "local":
+      return "Windows 浏览器；CPU、内存、Canvas、WebGL 与字体跟随本机";
+    case "wsl":
+      return "Linux Chromium；CPU、内存与图形特征跟随 WSL 和本机";
+    case "remote":
+      return "远程浏览器；网站可见身份尚未取得完整核对结果";
+  }
+}
+
 function engineHealthLabel(
   state: EngineAdapterStatus["health"]["state"],
 ): string {
@@ -5777,7 +6435,7 @@ function environmentPrerequisiteLabel(id: string): string {
         virtualization: "虚拟化功能",
         reboot: "Windows 重启状态",
         "signed-host-probe": "系统检查组件",
-        "signed-provider-scripts": "系统组件完整性",
+        "signed-provider-scripts": "系统文件完整性",
         "base-image": "系统映像",
         "guest-agent-receipt": "环境服务",
         "concurrent-multi-silo": "同时运行多个 Silo",

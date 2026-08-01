@@ -26,15 +26,16 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::domain::{
     inspect_browser_executable, validate_silo_name, BrowserDescriptor, BrowserVerification,
     BrowserVerificationState, CreateSiloInput, ExternalMihomoBinding, NetworkProfile, ProxyScheme,
-    Silo, SiloStorageUsage, UpdateSiloEngineInput, UpdateSiloInput, UpdateSiloNetworkInput,
-    VaultLockState, VaultStatus, SCHEMA_VERSION,
+    Silo, SiloExecutionTarget, SiloStorageUsage, UpdateSiloEngineInput, UpdateSiloInput,
+    UpdateSiloNetworkInput, VaultLockState, VaultStatus, SCHEMA_VERSION,
 };
 use crate::native_host::{validate_network_evidence_inbox_entry, NativeNetworkEvidenceInboxEntry};
 
 const AUTO_LOCK_MINUTES: i64 = 15;
 const VAULT_FILE_NAME: &str = "vault.json";
 const VAULT_ENVELOPE_VERSION: u32 = 2;
-const VAULT_DATA_SCHEMA_VERSION: u32 = 7;
+const VAULT_DATA_SCHEMA_VERSION: u32 = 8;
+const REMOTE_ORPHAN_RECEIPTS_SCHEMA_VERSION: u32 = 7;
 const MAX_NETWORK_EVIDENCE_RECORDS: usize = 1_000;
 const MAX_NETWORK_EVIDENCE_PER_SILO: usize = 100;
 const MAX_REMOTE_BINDINGS: usize = 10_000;
@@ -102,11 +103,13 @@ struct VaultSiloRef<'a> {
     name: &'a str,
     color: &'a str,
     browser: &'a BrowserDescriptor,
+    execution_target: &'a SiloExecutionTarget,
     profile_directory: &'a str,
     network_profile: VaultNetworkProfileRef<'a>,
     engine: &'a crate::engine::SiloEngineConfig,
     seed_reference: Uuid,
     created_at: &'a chrono::DateTime<Utc>,
+    identity_locked_at: Option<&'a chrono::DateTime<Utc>>,
     archived_at: Option<&'a chrono::DateTime<Utc>>,
 }
 
@@ -118,11 +121,13 @@ impl<'a> From<&'a Silo> for VaultSiloRef<'a> {
             name: &silo.name,
             color: &silo.color,
             browser: &silo.browser,
+            execution_target: &silo.execution_target,
             profile_directory: &silo.profile_directory,
             network_profile: VaultNetworkProfileRef::from(&silo.network_profile),
             engine: &silo.engine,
             seed_reference: silo.seed_reference,
             created_at: &silo.created_at,
+            identity_locked_at: silo.identity_locked_at.as_ref(),
             archived_at: silo.archived_at.as_ref(),
         }
     }
@@ -136,12 +141,16 @@ struct VaultSiloRecord {
     name: String,
     color: String,
     browser: BrowserDescriptor,
+    #[serde(default)]
+    execution_target: SiloExecutionTarget,
     profile_directory: String,
     network_profile: VaultNetworkProfile,
     #[serde(default)]
     engine: crate::engine::SiloEngineConfig,
     seed_reference: Uuid,
     created_at: chrono::DateTime<Utc>,
+    #[serde(default)]
+    identity_locked_at: Option<chrono::DateTime<Utc>>,
     archived_at: Option<chrono::DateTime<Utc>>,
 }
 
@@ -153,11 +162,13 @@ impl From<VaultSiloRecord> for Silo {
             name: silo.name,
             color: silo.color,
             browser: silo.browser,
+            execution_target: silo.execution_target,
             profile_directory: silo.profile_directory,
             network_profile: silo.network_profile.into(),
             engine: silo.engine,
             seed_reference: silo.seed_reference,
             created_at: silo.created_at,
+            identity_locked_at: silo.identity_locked_at,
             archived_at: silo.archived_at,
         }
     }
@@ -434,6 +445,10 @@ pub enum VaultError {
     SiloProfileInUse,
     #[error("Browser verification failed: {0}")]
     BrowserVerification(String),
+    #[error(
+        "The Silo identity is locked when its first launch begins; its browser family and identity engine cannot be changed in place."
+    )]
+    SiloIdentityLocked,
     #[error("The stored Silo profile path is outside VeriSilo's managed directory.")]
     UnmanagedProfile,
     #[error("Permanent deletion requires explicit confirmation.")]
@@ -454,12 +469,65 @@ pub enum VaultError {
         "The backup conflicts with retained remote-orphan audit state and cannot be restored safely."
     )]
     RestoreRemoteOwnershipConflict,
+    #[error(
+        "The backup conflicts with a Silo identity that is already locked in the current Vault."
+    )]
+    RestoreIdentityConflict,
     #[error("The selected backup destination already exists.")]
     BackupDestinationExists,
     #[error("The selected Vault backup is too large.")]
     BackupTooLarge,
     #[error("Silo input is invalid: {0}")]
     InvalidSilo(String),
+}
+
+fn engine_identity_changed(
+    current: &crate::engine::SiloEngineConfig,
+    candidate: &crate::engine::SiloEngineConfig,
+    browser_kind: &crate::domain::BrowserKind,
+) -> Result<bool, VaultError> {
+    if current.adapter_id(browser_kind) != candidate.adapter_id(browser_kind) {
+        return Ok(true);
+    }
+    Ok(serde_json::to_value(current.identity_template())?
+        != serde_json::to_value(candidate.identity_template())?)
+}
+
+fn ensure_identity_update_allowed(
+    current: &Silo,
+    browser_kind: &crate::domain::BrowserKind,
+    engine: Option<&crate::engine::SiloEngineConfig>,
+) -> Result<(), VaultError> {
+    if current.identity_locked_at.is_none() {
+        return Ok(());
+    }
+    if &current.browser.kind != browser_kind
+        || engine
+            .map(|candidate| {
+                engine_identity_changed(&current.engine, candidate, &current.browser.kind)
+            })
+            .transpose()?
+            .unwrap_or(false)
+    {
+        return Err(VaultError::SiloIdentityLocked);
+    }
+    Ok(())
+}
+
+fn ensure_non_local_metadata_only(
+    current: &Silo,
+    input: &UpdateSiloInput,
+) -> Result<(), VaultError> {
+    if !current.execution_target.is_local()
+        && (current.browser.kind != input.browser_kind
+            || current.browser.executable_path != input.executable_path)
+    {
+        return Err(VaultError::InvalidSilo(
+            "A WSL or remote Silo may update only its name and color; its guest browser metadata is fixed."
+                .to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 impl VaultRuntime {
@@ -643,24 +711,36 @@ impl VaultRuntime {
 
         recover_interrupted_write(root)?;
         let destination_exists = vault_path(root).exists();
-        let current_remote = if destination_exists {
+        let (current_remote, current_silos, current_seed_material) = if destination_exists {
             if !confirm_overwrite {
                 return Err(VaultError::RestoreOverwriteNotConfirmed);
             }
-            let current = self
+            let current_data = &self
                 .unlocked_without_activity()
                 .map_err(|_| VaultError::RestoreCurrentVaultLocked)?
-                .data
+                .data;
+            if !current_data
                 .remote_control_plane
-                .clone();
-            if !current.backend.bindings.is_empty() {
+                .backend
+                .bindings
+                .is_empty()
+            {
                 return Err(VaultError::RestoreActiveRemoteBindings);
             }
-            current
+            (
+                current_data.remote_control_plane.clone(),
+                current_data.silos.clone(),
+                current_data.seed_material.clone(),
+            )
         } else {
-            RemoteVaultState::default()
+            (RemoteVaultState::default(), Vec::new(), HashMap::new())
         };
 
+        merge_preserved_silo_identity_state(
+            &mut opened.data,
+            &current_silos,
+            &current_seed_material,
+        )?;
         merge_preserved_remote_security_state(&mut opened.data, current_remote)?;
 
         // A backup contains metadata, not browser-owned Profile files. Always
@@ -858,14 +938,35 @@ impl VaultRuntime {
             color,
             browser_kind,
             executable_path,
+            execution_target,
             mut network_profile,
             engine,
             proxy_credentials,
             mihomo_controller_secret,
         } = input;
-        let browser_inspection =
-            inspect_browser_executable(&browser_kind, Path::new(&executable_path))
-                .map_err(|error| VaultError::BrowserVerification(error.to_string()))?;
+        let browser = match &execution_target {
+            SiloExecutionTarget::Local => {
+                let inspection =
+                    inspect_browser_executable(&browser_kind, Path::new(&executable_path))
+                        .map_err(|error| VaultError::BrowserVerification(error.to_string()))?;
+                BrowserDescriptor {
+                    kind: browser_kind,
+                    executable_path: inspection.resolved_path,
+                    version: Some(inspection.version),
+                }
+            }
+            SiloExecutionTarget::Wsl { .. } => BrowserDescriptor {
+                kind: crate::domain::BrowserKind::Chrome,
+                executable_path: "/usr/bin/chromium".to_owned(),
+                version: None,
+            },
+            SiloExecutionTarget::Remote { .. } => {
+                return Err(VaultError::InvalidSilo(
+                    "Remote Silo creation is unavailable until the paired guest can return browser identity receipts."
+                        .to_owned(),
+                ));
+            }
+        };
         let silo_id = Uuid::new_v4();
         let seed_reference = Uuid::new_v4();
         let profile_directory = root
@@ -905,16 +1006,14 @@ impl VaultRuntime {
             schema_version: SCHEMA_VERSION,
             name: name.trim().to_owned(),
             color,
-            browser: crate::domain::BrowserDescriptor {
-                kind: browser_kind,
-                executable_path: browser_inspection.resolved_path,
-                version: Some(browser_inspection.version),
-            },
+            browser,
+            execution_target,
             profile_directory: profile_directory.to_string_lossy().to_string(),
             network_profile,
             engine,
             seed_reference,
             created_at: Utc::now(),
+            identity_locked_at: None,
             archived_at: None,
         };
 
@@ -937,6 +1036,35 @@ impl VaultRuntime {
         Ok(silo)
     }
 
+    /// Permanently freezes the identity-bearing browser family and engine
+    /// template when the first launch begins. The first timestamp is
+    /// committed atomically with the encrypted Vault and subsequent calls are
+    /// idempotent so retries cannot rewrite identity history.
+    pub fn mark_silo_identity_locked(
+        &mut self,
+        root: &Path,
+        silo_id: Uuid,
+    ) -> Result<Silo, VaultError> {
+        let current = self.silo_by_id(silo_id)?;
+        if current.identity_locked_at.is_some() {
+            return Ok(current);
+        }
+        let locked_at = self.now();
+        let prospective_data = {
+            let unlocked = self.unlocked_mut_for_activity()?;
+            let mut data = unlocked.data.clone();
+            data.silos
+                .iter_mut()
+                .find(|silo| silo.id == silo_id)
+                .ok_or(VaultError::SiloNotFound)?
+                .identity_locked_at = Some(locked_at);
+            data
+        };
+        self.persist_data(root, &prospective_data)?;
+        self.unlocked_mut_without_activity()?.data = prospective_data;
+        self.silo_by_id(silo_id)
+    }
+
     pub fn update_silo(
         &mut self,
         root: &Path,
@@ -947,14 +1075,26 @@ impl VaultRuntime {
         if is_active {
             return Err(VaultError::SiloRunning);
         }
+        let current = self.silo_by_id(silo_id)?;
         input
-            .validate()
+            .validate_for_execution_target(&current.execution_target)
             .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
-        let profile_directories = self.silo_by_id(silo_id)?.all_engine_profile_directories();
+        ensure_non_local_metadata_only(&current, &input)?;
+        ensure_identity_update_allowed(&current, &input.browser_kind, None)?;
+        let profile_directories = current.all_engine_profile_directories();
         let _browser_profile_guard = BrowserProfileLease::acquire(&profile_directories)?;
-        let browser_inspection =
-            inspect_browser_executable(&input.browser_kind, Path::new(&input.executable_path))
-                .map_err(|error| VaultError::BrowserVerification(error.to_string()))?;
+        let browser = if current.execution_target.is_local() {
+            let inspection =
+                inspect_browser_executable(&input.browser_kind, Path::new(&input.executable_path))
+                    .map_err(|error| VaultError::BrowserVerification(error.to_string()))?;
+            BrowserDescriptor {
+                kind: input.browser_kind,
+                executable_path: inspection.resolved_path,
+                version: Some(inspection.version),
+            }
+        } else {
+            current.browser
+        };
         let prospective_data = {
             let unlocked = self.unlocked_mut_for_activity()?;
             let mut data = unlocked.data.clone();
@@ -965,9 +1105,7 @@ impl VaultRuntime {
                 .ok_or(VaultError::SiloNotFound)?;
             silo.name = input.name.trim().to_owned();
             silo.color = input.color;
-            silo.browser.kind = input.browser_kind;
-            silo.browser.executable_path = browser_inspection.resolved_path;
-            silo.browser.version = Some(browser_inspection.version);
+            silo.browser = browser;
             data
         };
         self.persist_data(root, &prospective_data)?;
@@ -991,15 +1129,27 @@ impl VaultRuntime {
         if is_active {
             return Err(VaultError::SiloRunning);
         }
+        let current = self.silo_by_id(silo_id)?;
         input
-            .validate()
+            .validate_for_execution_target(&current.execution_target)
             .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
+        ensure_non_local_metadata_only(&current, &input)?;
+        if !current.execution_target.is_local() && engine_input.is_some() {
+            return Err(VaultError::InvalidSilo(
+                "A WSL or remote Silo cannot replace its browser identity engine in place."
+                    .to_owned(),
+            ));
+        }
+        ensure_identity_update_allowed(
+            &current,
+            &input.browser_kind,
+            engine_input.as_ref().map(|engine| &engine.engine),
+        )?;
         if let Some(network) = network_input.as_ref() {
             network
-                .validate()
+                .validate_for_execution_target(&current.execution_target)
                 .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
         }
-        let current = self.silo_by_id(silo_id)?;
         let effective_network = network_input
             .as_ref()
             .map(|network| &network.network_profile)
@@ -1010,15 +1160,24 @@ impl VaultRuntime {
                 .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
         } else if network_input.is_some() {
             UpdateSiloEngineInput {
-                engine: current.engine,
+                engine: current.engine.clone(),
             }
             .validate(effective_network)
             .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
         }
         let _browser_profile_guard = self.acquire_silo_profile_lease(silo_id)?;
-        let browser_inspection =
-            inspect_browser_executable(&input.browser_kind, Path::new(&input.executable_path))
-                .map_err(|error| VaultError::BrowserVerification(error.to_string()))?;
+        let browser = if current.execution_target.is_local() {
+            let inspection =
+                inspect_browser_executable(&input.browser_kind, Path::new(&input.executable_path))
+                    .map_err(|error| VaultError::BrowserVerification(error.to_string()))?;
+            BrowserDescriptor {
+                kind: input.browser_kind,
+                executable_path: inspection.resolved_path,
+                version: Some(inspection.version),
+            }
+        } else {
+            current.browser.clone()
+        };
 
         let prepared_network = network_input.map(|network_input| {
             let UpdateSiloNetworkInput {
@@ -1064,9 +1223,7 @@ impl VaultRuntime {
                 .ok_or(VaultError::SiloNotFound)?;
             silo.name = input.name.trim().to_owned();
             silo.color = input.color;
-            silo.browser.kind = input.browser_kind;
-            silo.browser.executable_path = browser_inspection.resolved_path;
-            silo.browser.version = Some(browser_inspection.version);
+            silo.browser = browser;
             if let Some(engine) = engine_input {
                 silo.engine = engine.engine;
             }
@@ -1103,8 +1260,15 @@ impl VaultRuntime {
         if is_active {
             return Err(VaultError::SiloRunning);
         }
+        let current = self.silo_by_id(silo_id)?;
+        if !current.execution_target.is_local() {
+            return Err(VaultError::InvalidSilo(
+                "WSL and remote browser versions must be verified by their guest runtime, not by the local executable checker."
+                    .to_owned(),
+            ));
+        }
         let _browser_profile_guard = self.acquire_silo_profile_lease(silo_id)?;
-        let descriptor = self.silo_by_id(silo_id)?.browser;
+        let descriptor = current.browser;
         let inspection =
             inspect_browser_executable(&descriptor.kind, Path::new(&descriptor.executable_path))
                 .map_err(|error| VaultError::BrowserVerification(error.to_string()))?;
@@ -1177,11 +1341,18 @@ impl VaultRuntime {
         if is_active {
             return Err(VaultError::SiloRunning);
         }
+        let current = self.silo_by_id(silo_id)?;
+        if matches!(current.execution_target, SiloExecutionTarget::Remote { .. }) {
+            return Err(VaultError::InvalidSilo(
+                "Remote network policy cannot be changed until the bound browser runtime is verified."
+                    .to_owned(),
+            ));
+        }
         input
-            .validate()
+            .validate_for_execution_target(&current.execution_target)
             .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
         UpdateSiloEngineInput {
-            engine: self.silo_by_id(silo_id)?.engine,
+            engine: current.engine,
         }
         .validate(&input.network_profile)
         .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
@@ -1254,7 +1425,15 @@ impl VaultRuntime {
         if is_active {
             return Err(VaultError::SiloRunning);
         }
-        let network_profile = self.silo_by_id(silo_id)?.network_profile;
+        let current = self.silo_by_id(silo_id)?;
+        if !current.execution_target.is_local() {
+            return Err(VaultError::InvalidSilo(
+                "WSL and remote browser engines are fixed by their managed runtime target."
+                    .to_owned(),
+            ));
+        }
+        ensure_identity_update_allowed(&current, &current.browser.kind, Some(&input.engine))?;
+        let network_profile = current.network_profile;
         input
             .validate(&network_profile)
             .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
@@ -2011,7 +2190,7 @@ const VAULT_DATA_FIELDS_V4: &[&str] = &[
     "mihomoControllerSecrets",
     "networkEvidence",
 ];
-const VAULT_DATA_FIELDS_V5_TO_V7: &[&str] = &[
+const VAULT_DATA_FIELDS_V5_TO_V8: &[&str] = &[
     "schemaVersion",
     "silos",
     "seedMaterial",
@@ -2027,7 +2206,7 @@ fn expected_vault_data_fields(schema_version: u32) -> Option<&'static [&'static 
         2 => Some(VAULT_DATA_FIELDS_V2),
         3 => Some(VAULT_DATA_FIELDS_V3),
         4 => Some(VAULT_DATA_FIELDS_V4),
-        5 | 6 | VAULT_DATA_SCHEMA_VERSION => Some(VAULT_DATA_FIELDS_V5_TO_V7),
+        5..=VAULT_DATA_SCHEMA_VERSION => Some(VAULT_DATA_FIELDS_V5_TO_V8),
         _ => None,
     }
 }
@@ -2048,8 +2227,11 @@ fn object_with_known_fields<'a>(
     Ok(object)
 }
 
-fn validate_silo_json_shape(value: &serde_json::Value) -> Result<(), VaultError> {
-    const SILO_FIELDS: &[&str] = &[
+fn validate_silo_json_shape(
+    value: &serde_json::Value,
+    vault_schema_version: u32,
+) -> Result<(), VaultError> {
+    const LEGACY_SILO_FIELDS: &[&str] = &[
         "id",
         "schemaVersion",
         "name",
@@ -2062,7 +2244,7 @@ fn validate_silo_json_shape(value: &serde_json::Value) -> Result<(), VaultError>
         "createdAt",
         "archivedAt",
     ];
-    const SILO_REQUIRED_FIELDS: &[&str] = &[
+    const LEGACY_SILO_REQUIRED_FIELDS: &[&str] = &[
         "id",
         "schemaVersion",
         "name",
@@ -2074,7 +2256,39 @@ fn validate_silo_json_shape(value: &serde_json::Value) -> Result<(), VaultError>
         "createdAt",
         "archivedAt",
     ];
+    const CURRENT_SILO_FIELDS: &[&str] = &[
+        "id",
+        "schemaVersion",
+        "name",
+        "color",
+        "browser",
+        "executionTarget",
+        "profileDirectory",
+        "networkProfile",
+        "engine",
+        "seedReference",
+        "createdAt",
+        "identityLockedAt",
+        "archivedAt",
+    ];
+    const CURRENT_SILO_REQUIRED_FIELDS: &[&str] = &[
+        "id",
+        "schemaVersion",
+        "name",
+        "color",
+        "browser",
+        "executionTarget",
+        "profileDirectory",
+        "networkProfile",
+        "seedReference",
+        "createdAt",
+        "identityLockedAt",
+        "archivedAt",
+    ];
     const BROWSER_FIELDS: &[&str] = &["kind", "executablePath", "version"];
+    const LOCAL_TARGET_FIELDS: &[&str] = &["kind"];
+    const WSL_TARGET_FIELDS: &[&str] = &["kind", "distribution"];
+    const REMOTE_TARGET_FIELDS: &[&str] = &["kind", "endpointOrigin"];
     // `NetworkProfile` is an internally tagged enum whose historical Vault
     // representation used Rust field names. Keep that exact shape for stored
     // data even though surrounding Silo fields are camelCase.
@@ -2106,12 +2320,52 @@ fn validate_silo_json_shape(value: &serde_json::Value) -> Result<(), VaultError>
     ];
     const MIHOMO_REQUIRED_FIELDS: &[&str] = &["controllerUrl", "selectorGroup", "nodeName"];
 
-    let silo = object_with_known_fields(value, SILO_FIELDS, SILO_REQUIRED_FIELDS)?;
+    let current = vault_schema_version == VAULT_DATA_SCHEMA_VERSION;
+    let silo = object_with_known_fields(
+        value,
+        if current {
+            CURRENT_SILO_FIELDS
+        } else {
+            LEGACY_SILO_FIELDS
+        },
+        if current {
+            CURRENT_SILO_REQUIRED_FIELDS
+        } else {
+            LEGACY_SILO_REQUIRED_FIELDS
+        },
+    )?;
+    let expected_silo_schema = if current { SCHEMA_VERSION } else { 1 };
+    if silo
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        != Some(u64::from(expected_silo_schema))
+    {
+        return Err(VaultError::InvalidData);
+    }
     object_with_known_fields(
         silo.get("browser").ok_or(VaultError::InvalidData)?,
         BROWSER_FIELDS,
         BROWSER_FIELDS,
     )?;
+    if current {
+        let target = silo.get("executionTarget").ok_or(VaultError::InvalidData)?;
+        let kind = target
+            .as_object()
+            .and_then(|target| target.get("kind"))
+            .and_then(serde_json::Value::as_str);
+        match kind {
+            Some("local") => {
+                object_with_known_fields(target, LOCAL_TARGET_FIELDS, LOCAL_TARGET_FIELDS)?;
+            }
+            Some("wsl") => {
+                object_with_known_fields(target, WSL_TARGET_FIELDS, WSL_TARGET_FIELDS)?;
+            }
+            Some("remote") => {
+                object_with_known_fields(target, REMOTE_TARGET_FIELDS, REMOTE_TARGET_FIELDS)?;
+            }
+            _ => return Err(VaultError::InvalidData),
+        }
+    }
     let network_value = silo.get("networkProfile").ok_or(VaultError::InvalidData)?;
     let network = network_value.as_object().ok_or(VaultError::InvalidData)?;
     match network.get("mode").and_then(serde_json::Value::as_str) {
@@ -2154,7 +2408,7 @@ fn deserialize_vault_data(plaintext: &[u8]) -> Result<(VaultData, u32), VaultErr
         .and_then(serde_json::Value::as_array)
         .ok_or(VaultError::InvalidData)?;
     for silo in silos {
-        validate_silo_json_shape(silo)?;
+        validate_silo_json_shape(silo, schema_version)?;
     }
 
     if schema_version >= 5 {
@@ -2173,7 +2427,7 @@ fn deserialize_vault_data(plaintext: &[u8]) -> Result<(VaultData, u32), VaultErr
         let remote = object
             .get("remoteControlPlane")
             .ok_or(VaultError::InvalidData)?;
-        let remote = if schema_version < VAULT_DATA_SCHEMA_VERSION {
+        let remote = if schema_version < REMOTE_ORPHAN_RECEIPTS_SCHEMA_VERSION {
             object_with_known_fields(remote, REMOTE_FIELDS_BEFORE_ORPHANS, REMOTE_REQUIRED_FIELDS)?
         } else {
             object_with_known_fields(
@@ -2255,8 +2509,17 @@ fn open_envelope(raw: &[u8], passphrase: &str) -> Result<OpenedEnvelope, VaultEr
     );
     let (mut data, source_schema_version) = deserialize_vault_data(plaintext.as_ref())?;
     let migrated_data_schema = match source_schema_version {
-        1..=6 => {
+        1..VAULT_DATA_SCHEMA_VERSION => {
             data.schema_version = VAULT_DATA_SCHEMA_VERSION;
+            for silo in &mut data.silos {
+                silo.schema_version = SCHEMA_VERSION;
+                silo.execution_target = SiloExecutionTarget::Local;
+                // Legacy Vaults predate the durable identity-lock field, but
+                // their profiles may already have launched. Conservatively
+                // treating creation as the lock boundary prevents migration
+                // from reopening identity-bearing fields in place.
+                silo.identity_locked_at = Some(silo.created_at);
+            }
             true
         }
         VAULT_DATA_SCHEMA_VERSION => false,
@@ -2320,6 +2583,15 @@ fn validate_vault_data(data: &VaultData) -> Result<(), VaultError> {
                 .is_some_and(|version| version.is_empty() || version.len() > 512)
             || silo.profile_directory.is_empty()
             || silo.profile_directory.len() > 32_768
+            || silo.execution_target.validate().is_err()
+            || (!silo.execution_target.is_local() && !silo.engine.is_stock())
+            || matches!(
+                &silo.execution_target,
+                SiloExecutionTarget::Wsl { .. }
+                    if silo.browser.kind != crate::domain::BrowserKind::Chrome
+                        || silo.browser.executable_path != "/usr/bin/chromium"
+                        || silo.browser.version.is_some()
+            )
             || silo.network_profile.validate().is_err()
             || silo.validate_engine().is_err()
         {
@@ -2363,6 +2635,47 @@ fn validate_vault_data(data: &VaultData) -> Result<(), VaultError> {
         }
     }
     validate_remote_control_plane(data)
+}
+
+fn merge_preserved_silo_identity_state(
+    restored: &mut VaultData,
+    current_silos: &[Silo],
+    current_seed_material: &HashMap<Uuid, String>,
+) -> Result<(), VaultError> {
+    for current in current_silos {
+        let Some(current_locked_at) = current.identity_locked_at else {
+            continue;
+        };
+        let Some(restored_index) = restored
+            .silos
+            .iter()
+            .position(|candidate| candidate.id == current.id)
+        else {
+            // Restore does not delete browser-owned profile directories. If a
+            // locked UUID disappeared from the Vault, a later restore could
+            // reintroduce an older unlocked record onto that same profile.
+            // Require explicit permanent deletion instead of leaving a
+            // reusable identity directory without its monotonic lock state.
+            return Err(VaultError::RestoreIdentityConflict);
+        };
+        let candidate = &restored.silos[restored_index];
+        let engine_conflicts = current.browser.kind != candidate.browser.kind
+            || engine_identity_changed(&current.engine, &candidate.engine, &current.browser.kind)?;
+        let seed_conflicts = current.seed_reference != candidate.seed_reference
+            || current_seed_material.get(&current.seed_reference)
+                != restored.seed_material.get(&candidate.seed_reference);
+        if current.execution_target != candidate.execution_target
+            || engine_conflicts
+            || seed_conflicts
+        {
+            return Err(VaultError::RestoreIdentityConflict);
+        }
+
+        // Lock existence and its first durable timestamp are monotonic. An
+        // older backup may not clear or rewrite the current lock boundary.
+        restored.silos[restored_index].identity_locked_at = Some(current_locked_at);
+    }
+    Ok(())
 }
 
 fn merge_preserved_remote_security_state(
@@ -2816,11 +3129,12 @@ mod tests {
     use super::{
         atomic_write, atomic_write_with_directory_sync, derive_key, open_envelope,
         RemoteVaultState, VaultData, VaultEnvelope, VaultError, VaultRuntime,
-        VAULT_DATA_SCHEMA_VERSION,
+        REMOTE_ORPHAN_RECEIPTS_SCHEMA_VERSION, VAULT_DATA_SCHEMA_VERSION,
     };
     use crate::domain::{
         BrowserKind, CreateSiloInput, NetworkProfile, ProxyCredentialsInput, ProxyScheme,
-        UpdateSiloInput, UpdateSiloNetworkInput, VaultLockState, SCHEMA_VERSION,
+        SiloExecutionTarget, UpdateSiloInput, UpdateSiloNetworkInput, VaultLockState,
+        SCHEMA_VERSION,
     };
     use crate::native_host::{
         NativeDnsObservation, NativeDnsState, NativeDnssecState, NativeNetworkCheckResult,
@@ -2939,6 +3253,7 @@ mod tests {
                     color: "#4f46e5".to_owned(),
                     browser_kind: BrowserKind::Chrome,
                     executable_path: browser.to_string_lossy().to_string(),
+                    execution_target: Default::default(),
                     network_profile: NetworkProfile::Direct {
                         proxy_required: false,
                     },
@@ -3166,11 +3481,16 @@ mod tests {
             .join("browser-data")
             .to_string_lossy()
             .to_string();
+        let silo_schema_version = if schema_version == VAULT_DATA_SCHEMA_VERSION {
+            SCHEMA_VERSION
+        } else {
+            1
+        };
         let mut payload = serde_json::json!({
             "schemaVersion": schema_version,
             "silos": [{
                 "id": silo_id,
-                "schemaVersion": SCHEMA_VERSION,
+                "schemaVersion": silo_schema_version,
                 "name": format!("schema {schema_version} fixture"),
                 "color": "#2457d6",
                 "browser": {
@@ -3189,6 +3509,19 @@ mod tests {
             }
         });
         let object = payload.as_object_mut().expect("fixture payload object");
+        if schema_version == VAULT_DATA_SCHEMA_VERSION {
+            let silo = object
+                .get_mut("silos")
+                .and_then(serde_json::Value::as_array_mut)
+                .and_then(|silos| silos.first_mut())
+                .and_then(serde_json::Value::as_object_mut)
+                .expect("current Silo fixture object");
+            silo.insert(
+                "executionTarget".to_owned(),
+                serde_json::json!({ "kind": "local" }),
+            );
+            silo.insert("identityLockedAt".to_owned(), serde_json::Value::Null);
+        }
         if schema_version >= 2 {
             object.insert(
                 "proxyCredentials".to_owned(),
@@ -3229,7 +3562,7 @@ mod tests {
         if schema_version >= 5 {
             let mut remote = serde_json::to_value(remote_state_for_schema(silo_id, schema_version))
                 .expect("serialize remote fixture");
-            if schema_version < VAULT_DATA_SCHEMA_VERSION {
+            if schema_version < REMOTE_ORPHAN_RECEIPTS_SCHEMA_VERSION {
                 remote
                     .as_object_mut()
                     .expect("remote fixture object")
@@ -3287,7 +3620,25 @@ mod tests {
         let silo = &silos[0];
         assert_eq!(silo.id, silo_id, "schema {schema_version}");
         assert_eq!(silo.name, format!("schema {schema_version} fixture"));
+        assert_eq!(
+            silo.schema_version, SCHEMA_VERSION,
+            "schema {schema_version}"
+        );
         assert!(silo.engine.is_stock(), "schema {schema_version}");
+        assert_eq!(
+            silo.execution_target,
+            SiloExecutionTarget::Local,
+            "schema {schema_version}"
+        );
+        if schema_version < VAULT_DATA_SCHEMA_VERSION {
+            assert_eq!(
+                silo.identity_locked_at,
+                Some(silo.created_at),
+                "legacy schema {schema_version} must migrate as already locked"
+            );
+        } else {
+            assert!(silo.identity_locked_at.is_none(), "schema {schema_version}");
+        }
         assert_eq!(
             silo.profile_directory,
             expected_root
@@ -3316,7 +3667,7 @@ mod tests {
                     external_mihomo,
                     ..
                 },
-                3..=6,
+                3..=VAULT_DATA_SCHEMA_VERSION,
             ) => {
                 assert_eq!(*credential_reference, Some(fixture_proxy_reference()));
                 assert_eq!(
@@ -3627,7 +3978,7 @@ mod tests {
 
     #[test]
     fn every_supported_data_schema_migrates_atomically_and_reopens_without_semantic_loss() {
-        for schema_version in 1..=6 {
+        for schema_version in 1..VAULT_DATA_SCHEMA_VERSION {
             let root = temporary_root().join(format!("schema-{schema_version}"));
             fs::create_dir_all(&root).expect("create schema fixture root");
             let payload = schema_fixture_payload(schema_version, &root);
@@ -3637,7 +3988,7 @@ mod tests {
                 FIXTURE_PROXY_USERNAME,
                 FIXTURE_PROXY_PASSWORD,
                 FIXTURE_MIHOMO_SECRET,
-                "schema 6 fixture",
+                "schema 7 fixture",
                 "remote_credential_abcdefghijklmnopqrstuvwxyz0123456789",
             ] {
                 assert!(!raw_text.contains(sensitive), "schema {schema_version}");
@@ -3691,7 +4042,7 @@ mod tests {
 
     #[test]
     fn encrypted_backup_restore_migrates_every_supported_schema_and_rotation_remains_stable() {
-        for schema_version in 1..=6 {
+        for schema_version in 1..VAULT_DATA_SCHEMA_VERSION {
             let source_root = temporary_root().join(format!("backup-source-{schema_version}"));
             let destination_root =
                 temporary_root().join(format!("backup-destination-{schema_version}"));
@@ -3726,7 +4077,7 @@ mod tests {
                 VAULT_DATA_SCHEMA_VERSION
             );
 
-            if schema_version == 6 {
+            if schema_version == VAULT_DATA_SCHEMA_VERSION - 1 {
                 restored
                     .change_passphrase(
                         &destination_root,
@@ -3800,7 +4151,7 @@ mod tests {
     #[test]
     fn schema_field_matrix_rejects_omissions_unknowns_and_downgrades() {
         let root = temporary_root();
-        for schema_version in 1..=6 {
+        for schema_version in 1..=VAULT_DATA_SCHEMA_VERSION {
             let payload = schema_fixture_payload(schema_version, &root);
             let expected_fields = super::expected_vault_data_fields(schema_version)
                 .expect("supported schema field set");
@@ -3842,9 +4193,41 @@ mod tests {
             .is_err());
         }
 
-        let mut downgraded = schema_fixture_payload(6, &root);
+        let current = schema_fixture_payload(VAULT_DATA_SCHEMA_VERSION, &root);
+        for field in ["executionTarget", "identityLockedAt"] {
+            let mut missing = current.clone();
+            missing["silos"][0]
+                .as_object_mut()
+                .expect("current Silo object")
+                .remove(field);
+            assert!(super::deserialize_vault_data(
+                &serde_json::to_vec(&missing).expect("serialize missing current Silo field")
+            )
+            .is_err());
+        }
+        let mut unknown_target_field = current.clone();
+        unknown_target_field["silos"][0]["executionTarget"]["futureRuntimeState"] =
+            serde_json::json!(true);
+        assert!(super::deserialize_vault_data(
+            &serde_json::to_vec(&unknown_target_field)
+                .expect("serialize unknown execution target field")
+        )
+        .is_err());
+        let mut incomplete_wsl_target = current.clone();
+        incomplete_wsl_target["silos"][0]["executionTarget"] = serde_json::json!({ "kind": "wsl" });
+        assert!(super::deserialize_vault_data(
+            &serde_json::to_vec(&incomplete_wsl_target)
+                .expect("serialize incomplete WSL execution target")
+        )
+        .is_err());
+
+        let mut downgraded = schema_fixture_payload(VAULT_DATA_SCHEMA_VERSION, &root);
         downgraded["schemaVersion"] = serde_json::json!(1);
-        let downgraded = encrypted_schema_fixture(6, &downgraded, SCHEMA_FIXTURE_PASSPHRASE);
+        let downgraded = encrypted_schema_fixture(
+            VAULT_DATA_SCHEMA_VERSION,
+            &downgraded,
+            SCHEMA_FIXTURE_PASSPHRASE,
+        );
         assert!(matches!(
             assert_open_rejected(&downgraded, SCHEMA_FIXTURE_PASSPHRASE),
             VaultError::InvalidData
@@ -3862,10 +4245,14 @@ mod tests {
             VaultError::InvalidData
         ));
 
-        for unsupported_version in [0, 8, u32::MAX] {
-            let mut payload = schema_fixture_payload(6, &root);
+        for unsupported_version in [0, VAULT_DATA_SCHEMA_VERSION + 1, u32::MAX] {
+            let mut payload = schema_fixture_payload(VAULT_DATA_SCHEMA_VERSION, &root);
             payload["schemaVersion"] = serde_json::json!(unsupported_version);
-            let raw = encrypted_schema_fixture(6, &payload, SCHEMA_FIXTURE_PASSPHRASE);
+            let raw = encrypted_schema_fixture(
+                VAULT_DATA_SCHEMA_VERSION,
+                &payload,
+                SCHEMA_FIXTURE_PASSPHRASE,
+            );
             assert!(matches!(
                 assert_open_rejected(&raw, SCHEMA_FIXTURE_PASSPHRASE),
                 VaultError::InvalidData
@@ -3905,6 +4292,11 @@ mod tests {
                 serde_json::to_value(&data.proxy_credentials).expect("credential snapshot");
             let evidence = serde_json::to_value(&data.network_evidence).expect("evidence snapshot");
             data.schema_version = VAULT_DATA_SCHEMA_VERSION;
+            for silo in &mut data.silos {
+                silo.schema_version = SCHEMA_VERSION;
+                silo.execution_target = SiloExecutionTarget::Local;
+                silo.identity_locked_at = None;
+            }
             let persisted = serde_json::to_value(&data).expect("serialize current Vault wire");
             let persisted_profile = persisted["silos"][0]["networkProfile"]
                 .as_object()
@@ -4047,6 +4439,7 @@ mod tests {
             color: "#4f46e5".to_owned(),
             browser_kind: BrowserKind::Chrome,
             executable_path: browser.to_string_lossy().to_string(),
+            execution_target: Default::default(),
             network_profile: NetworkProfile::Direct {
                 proxy_required: false,
             },
@@ -4057,6 +4450,222 @@ mod tests {
 
         assert!(vault.create_silo(&root, input).is_err());
         assert!(!root.join("silos").exists());
+
+        fs::remove_dir_all(root).expect("remove test vault directory");
+    }
+
+    #[test]
+    fn wsl_silo_uses_fixed_guest_browser_and_allows_only_metadata_updates() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create test vault directory");
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, "a passphrase that is long enough")
+            .expect("initialize vault");
+
+        let silo = vault
+            .create_silo(
+                &root,
+                CreateSiloInput {
+                    name: "WSL identity".to_owned(),
+                    color: "#4f46e5".to_owned(),
+                    browser_kind: BrowserKind::Edge,
+                    executable_path: "C:/definitely/missing/msedge.exe".to_owned(),
+                    execution_target: SiloExecutionTarget::Wsl {
+                        distribution: "Ubuntu-24.04".to_owned(),
+                    },
+                    network_profile: NetworkProfile::Direct {
+                        proxy_required: false,
+                    },
+                    engine: Default::default(),
+                    proxy_credentials: None,
+                    mihomo_controller_secret: None,
+                },
+            )
+            .expect("create WSL Silo without inspecting a host browser");
+        assert_eq!(silo.browser.kind, BrowserKind::Chrome);
+        assert_eq!(silo.browser.executable_path, "/usr/bin/chromium");
+        assert!(silo.browser.version.is_none());
+        assert_eq!(
+            silo.execution_target,
+            SiloExecutionTarget::Wsl {
+                distribution: "Ubuntu-24.04".to_owned()
+            }
+        );
+
+        let updated = vault
+            .update_silo(
+                &root,
+                silo.id,
+                UpdateSiloInput {
+                    name: "Renamed WSL identity".to_owned(),
+                    color: "#2457d6".to_owned(),
+                    browser_kind: BrowserKind::Chrome,
+                    executable_path: "/usr/bin/chromium".to_owned(),
+                },
+                false,
+            )
+            .expect("update WSL metadata without host browser inspection");
+        assert_eq!(updated.name, "Renamed WSL identity");
+        assert_eq!(updated.color, "#2457d6");
+        assert_eq!(updated.execution_target, silo.execution_target);
+
+        assert!(matches!(
+            vault.update_silo(
+                &root,
+                silo.id,
+                UpdateSiloInput {
+                    name: updated.name.clone(),
+                    color: updated.color.clone(),
+                    browser_kind: BrowserKind::Chrome,
+                    executable_path: "/usr/bin/google-chrome".to_owned(),
+                },
+                false,
+            ),
+            Err(VaultError::InvalidSilo(_))
+        ));
+        assert!(matches!(
+            vault.recheck_silo_browser(&root, silo.id, false),
+            Err(VaultError::InvalidSilo(_))
+        ));
+        let network_updated = vault
+            .update_silo_network(
+                &root,
+                silo.id,
+                UpdateSiloNetworkInput {
+                    network_profile: NetworkProfile::Direct {
+                        proxy_required: false,
+                    },
+                    proxy_credentials: None,
+                    mihomo_controller_secret: None,
+                },
+                false,
+            )
+            .expect("update a stopped WSL Silo to another supported network profile");
+        assert!(matches!(
+            network_updated.network_profile,
+            NetworkProfile::Direct {
+                proxy_required: false
+            }
+        ));
+
+        fs::remove_dir_all(root).expect("remove test vault directory");
+    }
+
+    #[test]
+    fn remote_target_is_deserializable_but_native_creation_fails_closed() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create test vault directory");
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, "a passphrase that is long enough")
+            .expect("initialize vault");
+
+        assert!(matches!(
+            vault.create_silo(
+                &root,
+                CreateSiloInput {
+                    name: "remote identity".to_owned(),
+                    color: "#4f46e5".to_owned(),
+                    browser_kind: BrowserKind::Chrome,
+                    executable_path: String::new(),
+                    execution_target: SiloExecutionTarget::Remote {
+                        endpoint_origin: "https://remote.example.test:8443".to_owned(),
+                    },
+                    network_profile: NetworkProfile::Direct {
+                        proxy_required: false,
+                    },
+                    engine: Default::default(),
+                    proxy_credentials: None,
+                    mihomo_controller_secret: None,
+                },
+            ),
+            Err(VaultError::InvalidSilo(_))
+        ));
+        assert!(vault.list_silos().expect("list Silos").is_empty());
+
+        fs::remove_dir_all(root).expect("remove test vault directory");
+    }
+
+    #[test]
+    fn first_identity_lock_is_atomic_durable_and_idempotent() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create test vault directory");
+        let passphrase = "a passphrase that is long enough";
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, passphrase)
+            .expect("initialize vault");
+        let silo = create_direct_silo(&root, &mut vault, "identity lock");
+        let locked_at = chrono::DateTime::parse_from_rfc3339("2026-07-20T12:05:00Z")
+            .expect("identity lock timestamp")
+            .with_timezone(&Utc);
+        vault.set_test_now(locked_at);
+
+        let moved_root = root.with_extension("identity-lock-persist-test");
+        fs::rename(&root, &moved_root).expect("temporarily move Vault root");
+        fs::write(&root, b"not a directory").expect("block Vault root path");
+        let failed = vault.mark_silo_identity_locked(&root, silo.id);
+        fs::remove_file(&root).expect("remove blocking file");
+        fs::rename(&moved_root, &root).expect("restore Vault root");
+        assert!(failed.is_err());
+        assert!(vault
+            .get_silo(silo.id)
+            .expect("read Silo after failed lock")
+            .identity_locked_at
+            .is_none());
+
+        let first = vault
+            .mark_silo_identity_locked(&root, silo.id)
+            .expect("persist first identity lock");
+        assert_eq!(first.identity_locked_at, Some(locked_at));
+        vault.set_test_now(locked_at + Duration::minutes(1));
+        let second = vault
+            .mark_silo_identity_locked(&root, silo.id)
+            .expect("repeat identity lock");
+        assert_eq!(second.identity_locked_at, Some(locked_at));
+
+        vault.lock();
+        vault.unlock(&root, passphrase).expect("reopen Vault");
+        assert_eq!(
+            vault
+                .get_silo(silo.id)
+                .expect("read durable identity lock")
+                .identity_locked_at,
+            Some(locked_at)
+        );
+
+        let replacement_root = root.join("replacement-browser");
+        fs::create_dir_all(&replacement_root).expect("create replacement browser root");
+        let replacement = create_test_browser(&replacement_root);
+        let updated = vault
+            .update_silo(
+                &root,
+                silo.id,
+                UpdateSiloInput {
+                    name: "identity lock renamed".to_owned(),
+                    color: "#2457d6".to_owned(),
+                    browser_kind: BrowserKind::Chrome,
+                    executable_path: replacement.to_string_lossy().to_string(),
+                },
+                false,
+            )
+            .expect("same-family executable update remains allowed");
+        assert_eq!(updated.identity_locked_at, Some(locked_at));
+        assert!(matches!(
+            vault.update_silo(
+                &root,
+                silo.id,
+                UpdateSiloInput {
+                    name: updated.name,
+                    color: updated.color,
+                    browser_kind: BrowserKind::Edge,
+                    executable_path: replacement.to_string_lossy().to_string(),
+                },
+                false,
+            ),
+            Err(VaultError::SiloIdentityLocked)
+        ));
 
         fs::remove_dir_all(root).expect("remove test vault directory");
     }
@@ -4081,6 +4690,7 @@ mod tests {
                     color: "#4f46e5".to_owned(),
                     browser_kind: BrowserKind::Chrome,
                     executable_path: browser.to_string_lossy().to_string(),
+                    execution_target: Default::default(),
                     network_profile: NetworkProfile::FixedProxy {
                         proxy_required: true,
                         scheme: ProxyScheme::Socks5,
@@ -4163,6 +4773,7 @@ mod tests {
                     color: "#4f46e5".to_owned(),
                     browser_kind: BrowserKind::Chrome,
                     executable_path: browser.to_string_lossy().to_string(),
+                    execution_target: Default::default(),
                     network_profile: NetworkProfile::FixedProxy {
                         proxy_required: true,
                         scheme: ProxyScheme::Socks5,
@@ -4700,6 +5311,152 @@ mod tests {
 
         fs::remove_dir_all(source_root).expect("remove source root");
         fs::remove_dir_all(destination_root).expect("remove destination root");
+    }
+
+    #[test]
+    fn restore_cannot_clear_an_existing_silo_identity_lock() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create restore identity root");
+        let passphrase = "a restore identity passphrase that is long enough";
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, passphrase)
+            .expect("initialize identity Vault");
+        let silo = create_direct_silo(&root, &mut vault, "identity rollback");
+        let backup_path = root.join("before-first-launch.json");
+        vault
+            .backup(&root, &backup_path)
+            .expect("backup unlocked identity");
+
+        let locked_at = chrono::DateTime::parse_from_rfc3339("2026-07-24T09:30:00Z")
+            .expect("lock timestamp")
+            .with_timezone(&Utc);
+        vault.set_test_now(locked_at);
+        vault
+            .mark_silo_identity_locked(&root, silo.id)
+            .expect("lock current identity");
+        vault
+            .restore(&root, &backup_path, passphrase, true)
+            .expect("restore matching identity without clearing lock");
+
+        assert_eq!(
+            vault
+                .get_silo(silo.id)
+                .expect("read restored identity")
+                .identity_locked_at,
+            Some(locked_at)
+        );
+        fs::remove_dir_all(root).expect("remove restore identity root");
+    }
+
+    #[test]
+    fn restore_rejects_a_different_runtime_for_an_already_locked_silo() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create restore conflict root");
+        let passphrase = "a restore conflict passphrase that is long enough";
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, passphrase)
+            .expect("initialize conflict Vault");
+        let silo = create_direct_silo(&root, &mut vault, "runtime conflict");
+        let backup_path = root.join("local-runtime.json");
+        vault
+            .backup(&root, &backup_path)
+            .expect("backup local runtime");
+
+        let prospective_data = {
+            let unlocked = vault
+                .unlocked_mut_without_activity()
+                .expect("read current Vault data");
+            let mut data = unlocked.data.clone();
+            let current = data
+                .silos
+                .iter_mut()
+                .find(|candidate| candidate.id == silo.id)
+                .expect("find current Silo");
+            current.execution_target = SiloExecutionTarget::Wsl {
+                distribution: "Ubuntu".to_owned(),
+            };
+            current.browser.executable_path = "/usr/bin/chromium".to_owned();
+            current.browser.version = None;
+            current.identity_locked_at = Some(current.created_at);
+            data
+        };
+        vault
+            .persist_data(&root, &prospective_data)
+            .expect("persist locked WSL identity");
+        vault
+            .unlocked_mut_without_activity()
+            .expect("replace current Vault data")
+            .data = prospective_data;
+        let before = fs::read(root.join("vault.json")).expect("read current conflict Vault");
+
+        assert!(matches!(
+            vault.restore(&root, &backup_path, passphrase, true),
+            Err(VaultError::RestoreIdentityConflict)
+        ));
+        assert_eq!(
+            fs::read(root.join("vault.json")).expect("read unchanged conflict Vault"),
+            before
+        );
+        assert!(matches!(
+            vault
+                .get_silo(silo.id)
+                .expect("read retained runtime")
+                .execution_target,
+            SiloExecutionTarget::Wsl { .. }
+        ));
+
+        fs::remove_dir_all(root).expect("remove restore conflict root");
+    }
+
+    #[test]
+    fn restore_cannot_omit_a_locked_silo_and_reopen_its_profile_later() {
+        let source_root = temporary_root();
+        let destination_root = temporary_root();
+        fs::create_dir_all(&source_root).expect("create empty backup root");
+        fs::create_dir_all(&destination_root).expect("create locked destination root");
+        let source_passphrase = "an empty source passphrase that is long enough";
+        let destination_passphrase = "a locked destination passphrase that is long enough";
+
+        let mut source = VaultRuntime::default();
+        source
+            .initialize(&source_root, source_passphrase)
+            .expect("initialize empty source Vault");
+        let backup_path = source_root.join("empty-backup.json");
+        source
+            .backup(&source_root, &backup_path)
+            .expect("backup empty Vault");
+
+        let mut destination = VaultRuntime::default();
+        destination
+            .initialize(&destination_root, destination_passphrase)
+            .expect("initialize locked destination Vault");
+        let silo = create_direct_silo(&destination_root, &mut destination, "must remain locked");
+        destination
+            .mark_silo_identity_locked(&destination_root, silo.id)
+            .expect("lock destination identity");
+        let before =
+            fs::read(destination_root.join("vault.json")).expect("read locked destination Vault");
+
+        assert!(matches!(
+            destination.restore(&destination_root, &backup_path, source_passphrase, true,),
+            Err(VaultError::RestoreIdentityConflict)
+        ));
+        assert_eq!(
+            fs::read(destination_root.join("vault.json"))
+                .expect("read unchanged locked destination Vault"),
+            before
+        );
+        assert!(std::path::Path::new(&silo.profile_directory).is_dir());
+        assert!(destination
+            .get_silo(silo.id)
+            .expect("locked Silo remains tracked")
+            .identity_locked_at
+            .is_some());
+
+        fs::remove_dir_all(source_root).expect("remove empty source root");
+        fs::remove_dir_all(destination_root).expect("remove locked destination root");
     }
 
     #[test]
