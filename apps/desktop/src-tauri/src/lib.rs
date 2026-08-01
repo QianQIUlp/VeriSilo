@@ -5,7 +5,11 @@ use std::{
 
 use chrono::Utc;
 use serde::Serialize;
-use tauri::{Manager, State};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Manager, Runtime, State, WindowEvent,
+};
 use uuid::Uuid;
 use verisilo_remote_backend::transport::PinnedHttpsTransport;
 use verisilo_remote_backend::{
@@ -27,6 +31,21 @@ pub mod native_host;
 pub mod proxy_relay;
 mod runtime_watchdog;
 pub mod vault;
+
+const TRAY_OPEN_ID: &str = "tray-open";
+const TRAY_EXIT_ID: &str = "tray-exit";
+
+fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn is_tray_primary_activation(button: MouseButton, button_state: MouseButtonState) -> bool {
+    button == MouseButton::Left && button_state == MouseButtonState::Up
+}
 
 use domain::{
     app_data_root, discover_browsers as discover_installed_browsers, BrowserCandidate,
@@ -1621,10 +1640,7 @@ fn launch_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActiv
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            show_main_window(app);
         }))
         .setup(|app| {
             let resource_root = app
@@ -1632,6 +1648,50 @@ pub fn run() {
                 .resource_dir()
                 .map_err(|error| format!("VeriSilo resource directory is unavailable: {error}"))?;
             app.manage(AppState::new(resource_root));
+
+            let open_item =
+                MenuItem::with_id(app, TRAY_OPEN_ID, "打开 VeriSilo", true, None::<&str>)?;
+            let exit_item =
+                MenuItem::with_id(app, TRAY_EXIT_ID, "退出 VeriSilo", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&open_item, &exit_item])?;
+            let tray_icon = app
+                .default_window_icon()
+                .cloned()
+                .ok_or("VeriSilo tray icon is unavailable")?;
+            let main_window = app
+                .get_webview_window("main")
+                .ok_or("VeriSilo main window is unavailable")?;
+            let window_to_hide = main_window.clone();
+            main_window.on_window_event(move |event| {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window_to_hide.hide();
+                }
+            });
+
+            TrayIconBuilder::with_id("main")
+                .icon(tray_icon)
+                .tooltip("VeriSilo")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    TRAY_OPEN_ID => show_main_window(app),
+                    TRAY_EXIT_ID => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button,
+                        button_state,
+                        ..
+                    } = event
+                    {
+                        if is_tray_primary_activation(button, button_state) {
+                            show_main_window(tray.app_handle());
+                        }
+                    }
+                })
+                .build(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1702,7 +1762,24 @@ pub fn run() {
 mod local_lifecycle_tests {
     use std::sync::TryLockError;
 
-    use super::LocalEnvironmentControl;
+    use super::{is_tray_primary_activation, LocalEnvironmentControl};
+    use tauri::tray::{MouseButton, MouseButtonState};
+
+    #[test]
+    fn tray_primary_activation_is_a_completed_left_click() {
+        assert!(is_tray_primary_activation(
+            MouseButton::Left,
+            MouseButtonState::Up
+        ));
+        assert!(!is_tray_primary_activation(
+            MouseButton::Left,
+            MouseButtonState::Down
+        ));
+        assert!(!is_tray_primary_activation(
+            MouseButton::Right,
+            MouseButtonState::Up
+        ));
+    }
 
     #[test]
     fn provider_reservation_blocks_launch_update_archive_and_delete_until_completion() {

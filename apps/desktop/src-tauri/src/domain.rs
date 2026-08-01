@@ -741,6 +741,10 @@ impl Silo {
             OsString::from(format!("--user-data-dir={}", self.profile_directory)),
             OsString::from("--no-first-run"),
             OsString::from("--no-default-browser-check"),
+            // A dedicated profile keeps site storage separate. Disabling browser
+            // sync additionally prevents that isolated profile from importing or
+            // exporting browser data through a signed-in Chrome/Edge account.
+            OsString::from("--disable-sync"),
         ];
         arguments.extend(
             self.network_profile
@@ -1549,6 +1553,37 @@ mod tests {
         }))
         .expect("legacy Silo");
         assert!(silo.engine.is_stock());
+    }
+
+    #[test]
+    fn silo_launch_keeps_site_data_local_and_disables_account_sync() {
+        let silo: Silo = serde_json::from_value(serde_json::json!({
+            "id": Uuid::new_v4(),
+            "schemaVersion": 1,
+            "name": "isolated",
+            "color": "#4f46e5",
+            "browser": {
+                "kind": "edge",
+                "executablePath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+                "version": "150.0.0.0"
+            },
+            "profileDirectory": "C:/VeriSilo/silos/isolated/browser-data",
+            "networkProfile": { "mode": "direct", "proxyRequired": false },
+            "seedReference": Uuid::new_v4(),
+            "createdAt": "2026-07-28T00:00:00Z",
+            "archivedAt": null
+        }))
+        .expect("isolated Silo");
+
+        let arguments = silo
+            .launch_arguments()
+            .into_iter()
+            .map(|argument| argument.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(arguments
+            .contains(&"--user-data-dir=C:/VeriSilo/silos/isolated/browser-data".to_owned()));
+        assert!(arguments.contains(&"--disable-sync".to_owned()));
     }
 
     #[test]

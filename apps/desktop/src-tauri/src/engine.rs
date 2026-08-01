@@ -2145,6 +2145,10 @@ impl EngineAdapter for StockChromiumAdapter {
                 profile_argument,
                 "--no-first-run".to_owned(),
                 "--no-default-browser-check".to_owned(),
+                // Keep cloud account data from crossing otherwise-independent
+                // stock Chrome/Edge profiles. OS-level SSO remains outside this
+                // process-level boundary and is reported separately in the UI.
+                "--disable-sync".to_owned(),
             ],
             profile_directory,
             shell: false,
@@ -4292,6 +4296,7 @@ mod tests {
             .expect("stock plan");
         assert!(!plan.shell);
         assert!(plan.arguments[0].starts_with("--user-data-dir="));
+        assert!(plan.arguments.contains(&"--disable-sync".to_owned()));
         assert!(plan.control.is_none());
         assert_capability(
             &plan.capabilities,

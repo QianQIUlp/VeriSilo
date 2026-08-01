@@ -10,7 +10,7 @@ const desktopMarkPath = resolve(desktopPublicDirectory, "verisilo-mark.svg");
 const tauriIconDirectory = resolve(root, "apps/desktop/src-tauri/icons");
 const icoPath = resolve(tauriIconDirectory, "icon.ico");
 const pngPath = resolve(tauriIconDirectory, "icon.png");
-const iconSizes = [16, 32, 48, 128];
+const iconSizes = [16, 32, 48, 128, 256];
 
 const websiteFavicon = await readFile(websiteFaviconPath);
 const extensionIcons = await Promise.all(
@@ -50,10 +50,10 @@ function buildIco(images) {
 }
 
 const ico = buildIco(extensionIcons);
-const png = extensionIcons.find(({ size }) => size === 128)?.bytes;
+const png = extensionIcons.find(({ size }) => size === 256)?.bytes;
 
 if (png === undefined) {
-  throw new Error("The 128px extension icon is required for the Tauri PNG.");
+  throw new Error("The 256px extension icon is required for the Tauri PNG.");
 }
 
 if (process.argv.includes("--check")) {

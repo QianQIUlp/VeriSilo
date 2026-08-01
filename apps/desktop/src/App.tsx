@@ -14,6 +14,8 @@ import type {
   Silo,
 } from "@verisilo/contracts";
 import { networkProfileSchema } from "@verisilo/contracts";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import {
   desktopApi,
@@ -126,6 +128,34 @@ export function App() {
   const networkRequestRef = useRef(0);
   const mihomoRequestRef = useRef(0);
   const vaultUiSessionRef = useRef(new VaultUiSession());
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
+    const appWindow = getCurrentWindow();
+    let disposed = false;
+    let removeCloseListener: (() => void) | undefined;
+
+    void appWindow
+      .onCloseRequested(async (event) => {
+        event.preventDefault();
+        await appWindow.hide();
+      })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          removeCloseListener = unlisten;
+        }
+      });
+
+    return () => {
+      disposed = true;
+      removeCloseListener?.();
+    };
+  }, []);
 
   const scrubSensitiveUi = useCallback(() => {
     setSilos([]);
@@ -2581,13 +2611,13 @@ function CreateSiloPanel({
         <p className="eyebrow">新环境</p>
         <h1>创建一个独立的浏览器空间</h1>
         <p>
-          VeriSilo 会为每个 Silo 保存独立浏览数据，不会导入现有账号，
-          也不会修改默认浏览器的数据。
+          VeriSilo 会为每个 Silo 保存独立的网站数据，并关闭浏览器同步；
+          不会读取或修改默认浏览器的数据。
         </p>
         <div className="assurance-row">
           <span>✓ Cookie 与站点数据独立</span>
-          <span>✓ 关闭后可继续使用</span>
-          <span>✓ 单 Silo 安全启动</span>
+          <span>✓ 浏览器同步已关闭</span>
+          <span>硬件特征跟随本机</span>
         </div>
       </section>
 
@@ -2684,6 +2714,12 @@ function CreateSiloPanel({
             value={browserPath}
           />
         </label>
+        {browserKind === "edge" ? (
+          <p className="form-hint">
+            Edge 仍可能显示 Windows 已登录的微软账户，但不会复用默认浏览器的
+            Cookie。微软或企业网站仍可能通过 Windows 单点登录识别该账户。
+          </p>
+        ) : null}
 
         <div className="step-heading">
           <span>3</span>
