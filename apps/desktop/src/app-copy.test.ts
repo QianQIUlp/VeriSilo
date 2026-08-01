@@ -12,6 +12,23 @@ const stylesSource = readFileSync(
 );
 
 describe("desktop product copy", () => {
+  it("uses the shared website mark and extension primary color", () => {
+    expect(appSource).toContain('const defaultColor = "#5b5ce2";');
+    expect(appSource).toContain('src="/verisilo-mark.svg"');
+    expect(appSource).toContain('className="brand-mark"');
+    expect(appSource).toContain('alt=""');
+    expect(appSource).toContain('aria-hidden="true"');
+    expect(appSource).not.toMatch(
+      /<div className="brand-mark"[^>]*>\s*VS\s*<\/div>/u,
+    );
+    expect(appSource).not.toContain('const defaultColor = "#0f766e";');
+    expect(stylesSource).toContain("--primary: #5b5ce2;");
+    expect(stylesSource).toContain("--primary-dark: #4344c5;");
+    expect(stylesSource).toContain("--primary-soft: #eeeeff;");
+    expect(stylesSource).toContain("--good: #067647;");
+    expect(stylesSource).not.toContain("--primary: #0f766e;");
+  });
+
   it("uses task-oriented navigation without exposing roadmap versions", () => {
     expect(appSource).toContain('label="运行环境"');
     expect(appSource).toContain("浏览器");

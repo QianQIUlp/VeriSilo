@@ -60,7 +60,7 @@ import {
   requiresExplicitWslSelection,
 } from "./wsl-selection.js";
 
-const defaultColor = "#0f766e";
+const defaultColor = "#5b5ce2";
 const defaultMihomoControllerUrl = "http://127.0.0.1:9090/";
 
 type Notice = { tone: "error" | "success" | "info"; message: string } | null;
@@ -1185,9 +1185,12 @@ export function App() {
 function Brand() {
   return (
     <div className="brand">
-      <div className="brand-mark" aria-hidden="true">
-        VS
-      </div>
+      <img
+        alt=""
+        aria-hidden="true"
+        className="brand-mark"
+        src="/verisilo-mark.svg"
+      />
       <div>
         <strong>VeriSilo</strong>
         <span>让不同用途的浏览数据各自分开</span>
