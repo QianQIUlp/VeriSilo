@@ -1960,6 +1960,7 @@ fn ensure_tree_has_no_links_or_reparse_points(path: &Path) -> Result<(), VaultEr
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 fn ensure_path_ancestors_have_no_links_or_reparse_points(path: &Path) -> Result<(), VaultError> {
     for ancestor in path.ancestors() {
         match fs::symlink_metadata(ancestor) {

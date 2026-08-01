@@ -23,6 +23,8 @@ use crate::domain::{
     RuntimeEngineEvidence, RuntimeEvidenceState, RuntimeNetworkEvidence,
     RuntimeNetworkEvidenceProvenance, RuntimeState, Silo,
 };
+#[cfg(target_os = "windows")]
+use crate::vault::chromium_profile_sentinel_exists;
 use crate::{
     engine::{
         production_engine_adapter, read_engine_bootstrap_ack_frame,
@@ -39,8 +41,8 @@ use crate::{
     },
     proxy_relay::{ProxyRelay, RelayAuthenticationEvidence},
     vault::{
-        chromium_profile_sentinel_exists, profile_has_browser_lock, BrowserProfileLease,
-        MihomoControllerAuthentication, ProxyAuthentication,
+        profile_has_browser_lock, BrowserProfileLease, MihomoControllerAuthentication,
+        ProxyAuthentication,
     },
 };
 

@@ -247,6 +247,7 @@ struct WslAgentIdentity {
 
 #[derive(Debug, Clone)]
 struct ProviderTrustPolicy {
+    #[cfg(target_os = "windows")]
     expected_signer_sha256: String,
 }
 
