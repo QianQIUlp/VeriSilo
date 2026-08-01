@@ -2957,9 +2957,20 @@ process.stdin.on('end', () => {
 
     fn reserve_fake_controlled_engine_test() -> std::sync::MutexGuard<'static, ()> {
         static RESERVATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        RESERVATION
+        static NODE_WARMUP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        let reservation = RESERVATION
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        NODE_WARMUP.get_or_init(|| {
+            let status = std::process::Command::new("node")
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .expect("start Node protocol fixture warmup");
+            assert!(status.success(), "Node protocol fixture warmup failed");
+        });
+        reservation
     }
 
     #[test]
