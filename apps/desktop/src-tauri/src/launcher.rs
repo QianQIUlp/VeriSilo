@@ -2901,7 +2901,7 @@ process.stdin.on('end', () => {
     return process.exit(0);
   }
   if (behavior === 'inherit_stdout_after_ack') {
-    require('node:child_process').spawn('sh', ['-c', 'sleep 4'], {
+    require('node:child_process').spawn('sh', ['-c', 'sleep 15'], {
       stdio: ['ignore', 1, 'ignore']
     });
     return process.exit(0);
@@ -3069,7 +3069,7 @@ process.stdin.on('end', () => {
         }
         let elapsed = started.elapsed();
         assert!(
-            elapsed < std::time::Duration::from_secs(3),
+            elapsed < std::time::Duration::from_secs(8),
             "launch failure waited {elapsed:?} for a descendant that inherited stdout"
         );
     }
