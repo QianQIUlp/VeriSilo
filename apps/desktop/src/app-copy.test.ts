@@ -37,7 +37,8 @@ describe("desktop product copy", () => {
     expect(appSource).toContain('label="运行位置设置"');
     expect(appSource).toContain("浏览器准备");
     expect(appSource).toContain("Linux 环境");
-    expect(appSource).not.toContain('setEnvironmentSection("remote")');
+    expect(appSource).toContain('setEnvironmentSection("remote")');
+    expect(appSource).toContain("旧远程环境");
     expect(appSource).not.toContain('label="能力路线"');
     expect(appSource).not.toContain('label="实验室"');
     expect(appSource).not.toMatch(/V0\.[0-9]/u);
@@ -98,15 +99,38 @@ describe("desktop product copy", () => {
     expect(appSource).not.toContain("此设备已配对");
   });
 
-  it("keeps implemented remote operations available without exposing internal receipts", () => {
-    expect(appSource).toContain("desktopApi.openRemoteHumanSession");
-    expect(appSource).toContain("desktopApi.closeRemoteHumanSession");
-    expect(appSource).toContain("desktopApi.grantRemoteAutomation");
-    expect(appSource).toContain("desktopApi.revokeRemoteAutomation");
-    expect(appSource).toContain("desktopApi.openRemoteScreen");
-    expect(appSource).toContain("desktopApi.sendRemoteInput");
-    expect(appSource).toContain("desktopApi.recoverRemoteDeletionProof");
-    expect(appSource).toContain("desktopApi.forceDetachRemoteEnvironment");
+  it("exposes only cleanup actions for legacy remote bindings", () => {
+    const recoveryStart = appSource.indexOf(
+      'className="remote-recovery-warning"',
+    );
+    const recoveryEnd = appSource.indexOf(
+      'environmentSection === "local"',
+      recoveryStart,
+    );
+    const recoverySource = appSource.slice(recoveryStart, recoveryEnd);
+    expect(recoveryStart).toBeGreaterThan(-1);
+    expect(recoveryEnd).toBeGreaterThan(recoveryStart);
+    for (const action of [
+      'runRemoteCleanupOperation("stop")',
+      'runRemoteCleanupOperation("health")',
+      'runRemoteCleanupOperation("logs")',
+      'runRemoteCleanupOperation("destroy")',
+      "checkRemoteDeletionStatus()",
+      "removeLocalRemoteConnection()",
+    ]) {
+      expect(recoverySource).toContain(action);
+    }
+    for (const forbidden of [
+      "desktopApi.createRemoteEnvironment",
+      "desktopApi.startRemoteEnvironment",
+      "desktopApi.pauseRemoteEnvironment",
+      "desktopApi.snapshotRemoteEnvironment",
+      "desktopApi.configureRemoteEnvironmentNetwork",
+      "pairRemoteEndpoint()",
+      "runRemoteInteraction(",
+    ]) {
+      expect(recoverySource).not.toContain(forbidden);
+    }
   });
 
   it("labels managed browsers accurately and only offers the safe system-browser switch", () => {

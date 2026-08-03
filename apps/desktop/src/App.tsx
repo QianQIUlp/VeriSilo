@@ -3987,16 +3987,21 @@ function EnvironmentWorkspace({
     const selectionHasBinding = remoteStatus?.bindings.some(
       (binding) => binding.siloId === selectedRemoteSilo,
     );
-    if (
-      firstBinding !== undefined &&
-      remoteStatus?.pairing === null &&
-      !selectionHasBinding
-    ) {
+    if (firstBinding !== undefined && !selectionHasBinding) {
       setSelectedRemoteSilo(firstBinding.siloId);
     } else if (selectedRemoteSilo === "" && silos[0] !== undefined) {
       setSelectedRemoteSilo(firstBinding?.siloId ?? silos[0].id);
     }
   }, [remoteStatus, selectedRemoteSilo, silos, vaultLocked]);
+
+  useEffect(() => {
+    if (
+      environmentSection === "remote" &&
+      (remoteStatus?.bindings.length ?? 0) === 0
+    ) {
+      setEnvironmentSection("browser");
+    }
+  }, [environmentSection, remoteStatus?.bindings.length]);
 
   const runEnvironmentOperation = async (operation: EnvironmentOperation) => {
     const silo = silos.find(
@@ -4312,7 +4317,7 @@ function EnvironmentWorkspace({
     );
     if (
       !window.confirm(
-        `仅从这台电脑移除「${selectedSilo?.name ?? "所选 Silo"}」的远程连接记录？这不会删除远程环境；它可能仍在运行并继续产生费用。`,
+        `Force Detach「${selectedSilo?.name ?? "所选 Silo"}」？这只会移除本机连接记录，不会删除远程环境；它可能仍在运行并继续产生费用。请确认你已阅读此风险。`,
       )
     ) {
       return;
@@ -4734,6 +4739,63 @@ function EnvironmentWorkspace({
     }
   };
 
+  const runRemoteCleanupOperation = async (
+    operation: "stop" | "health" | "logs" | "destroy",
+  ) => {
+    const binding = remoteStatus?.bindings.find(
+      (candidate) => candidate.siloId === selectedRemoteSilo,
+    );
+    if (binding === undefined || vaultLocked) {
+      setRemoteActionMessage({
+        tone: "error",
+        text: "请先解锁保险库并选择一个仍保留连接记录的远程环境。",
+      });
+      return;
+    }
+    const silo = silos.find((candidate) => candidate.id === binding.siloId);
+    if (silo === undefined) {
+      setRemoteActionMessage({
+        tone: "error",
+        text: "找不到这个远程环境对应的本地 Silo，不能安全执行清理。",
+      });
+      return;
+    }
+    if (
+      operation === "destroy" &&
+      !window.confirm(
+        `确认删除「${silo.name}」的远程环境？这会联系远程服务；成功后本机连接记录也会移除。`,
+      )
+    ) {
+      return;
+    }
+
+    setRemoteBusy(true);
+    setRemoteActionMessage(null);
+    try {
+      const result =
+        operation === "stop"
+          ? await desktopApi.stopRemoteEnvironment(silo.id)
+          : operation === "health"
+            ? await desktopApi.healthRemoteEnvironment(silo.id)
+            : operation === "logs"
+              ? await desktopApi.logsRemoteEnvironment(silo.id, null, 50)
+              : await desktopApi.destroyRemoteEnvironment(silo.id);
+      await refreshRemoteStatus();
+      setRemoteActionMessage({
+        tone: "success",
+        text: `${environmentOperationLabel(operation)}完成：${remoteResultStateLabel(result.state)}。`,
+      });
+    } catch (error) {
+      await refreshRemoteStatus().catch(() => undefined);
+      setRemoteActionMessage({
+        tone: "error",
+        text: errorMessage(error, "远程清理操作没有完成，请检查连接后重试。"),
+      });
+    } finally {
+      setRemoteBusy(false);
+    }
+  };
+
   const selectedBackendStatus = environmentStatuses.find(
     (environment) => environment.backend === selectedEnvironmentBackend,
   );
@@ -4836,6 +4898,16 @@ function EnvironmentWorkspace({
           >
             Linux 环境
           </button>
+          {(remoteStatus?.bindings.length ?? 0) > 0 ? (
+            <button
+              aria-pressed={environmentSection === "remote"}
+              className="environment-switch"
+              onClick={() => setEnvironmentSection("remote")}
+              type="button"
+            >
+              旧远程环境
+            </button>
+          ) : null}
         </nav>
       </section>
 
@@ -5162,7 +5234,8 @@ function EnvironmentWorkspace({
       ) : null}
 
       {unboundEnvironmentControlsAvailable() &&
-      environmentSection === "remote" ? (
+      environmentSection === "remote" &&
+      (remoteStatus?.bindings.length ?? 0) === 0 ? (
         <section className="panel provider-catalog remote-provider-panel">
           <div className="panel-heading">
             <div>
@@ -6059,101 +6132,6 @@ function EnvironmentWorkspace({
                 </p>
               ) : null}
             </div>
-          ) : (remoteStatus?.bindings.length ?? 0) > 0 ? (
-            <div className="remote-lifecycle-console remote-recovery-console">
-              <div className="environment-console-heading">
-                <div>
-                  <strong>处理未连接的远程环境</strong>
-                  <span>
-                    远程连接已经失效，但这台电脑仍保留以下 Silo 的连接记录。
-                  </span>
-                </div>
-              </div>
-              <label>
-                Silo
-                <select
-                  disabled={remoteBusy || vaultLocked}
-                  onChange={(event) => {
-                    setSelectedRemoteSilo(event.target.value);
-                    setRemoteActionMessage(null);
-                  }}
-                  value={selectedRemoteSilo}
-                >
-                  {remoteStatus?.bindings.map((binding) => {
-                    const silo = silos.find(
-                      (candidate) => candidate.id === binding.siloId,
-                    );
-                    return (
-                      <option key={binding.siloId} value={binding.siloId}>
-                        {silo?.name ?? "已移除的本地 Silo"}
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
-              {selectedRemoteBinding !== undefined ? (
-                <div className="remote-selected-state">
-                  <dl className="remote-binding-facts">
-                    <div>
-                      <dt>服务地址</dt>
-                      <dd>{selectedRemoteBinding.endpoint.origin}</dd>
-                    </div>
-                    <div>
-                      <dt>网络</dt>
-                      <dd>
-                        {selectedRemoteBinding.network.mode === "direct"
-                          ? "直连"
-                          : "使用远程代理"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>存储</dt>
-                      <dd>已加密</dd>
-                    </div>
-                    <div>
-                      <dt>最近活动</dt>
-                      <dd>
-                        {new Date(
-                          selectedRemoteBinding.lastActivityAtUnixMs,
-                        ).toLocaleString("zh-CN")}
-                      </dd>
-                    </div>
-                  </dl>
-                  <p className="remote-interaction-note">
-                    建议先恢复与远程服务的连接并正常删除环境。如果服务已确认删除，
-                    可以检查删除状态；只有在连接无法恢复时，才仅移除这台电脑上的记录。
-                  </p>
-                  <div className="card-actions">
-                    <button
-                      className="button-secondary"
-                      disabled={remoteBusy || vaultLocked}
-                      onClick={() => void checkRemoteDeletionStatus()}
-                      type="button"
-                    >
-                      检查是否已删除
-                    </button>
-                    <button
-                      className="button-danger"
-                      disabled={remoteBusy || vaultLocked}
-                      onClick={() => void removeLocalRemoteConnection()}
-                      type="button"
-                    >
-                      仅从这台电脑移除
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-              {remoteActionMessage !== null ? (
-                <p
-                  className={`environment-action-message ${remoteActionMessage.tone}`}
-                  role={
-                    remoteActionMessage.tone === "error" ? "alert" : "status"
-                  }
-                >
-                  {remoteActionMessage.text}
-                </p>
-              ) : null}
-            </div>
           ) : (
             <div className="remote-selected-state remote-connection-empty">
               <strong>连接后即可管理远程环境</strong>
@@ -6163,6 +6141,179 @@ function EnvironmentWorkspace({
               </p>
             </div>
           )}
+        </section>
+      ) : null}
+
+      {environmentSection === "remote" &&
+      (remoteStatus?.bindings.length ?? 0) > 0 ? (
+        <section className="panel provider-catalog remote-provider-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">旧远程环境</p>
+              <h2>只处理已经存在的远程环境</h2>
+              <p>
+                这台电脑仍保留远程环境连接记录。此处只提供停止、检查、日志和删除，
+                不会创建新环境，也不会打开远程浏览器控制。
+              </p>
+            </div>
+            <span
+              className={`provider-health ${remoteStatus?.state === "paired" ? "healthy" : "unavailable"}`}
+            >
+              {remoteStatus === null
+                ? "状态未知"
+                : remoteStateLabel(remoteStatus.state)}
+            </span>
+          </div>
+          <p className="remote-recovery-warning">
+            连接状态不会改变这个界面的权限。配对有效、过期或已取消时，都只能清理旧环境；
+            不能在这里重新配对、启动或交互。
+          </p>
+          <label>
+            Silo
+            <select
+              disabled={remoteBusy || vaultLocked}
+              onChange={(event) => {
+                setSelectedRemoteSilo(event.target.value);
+                setRemoteActionMessage(null);
+              }}
+              value={selectedRemoteSilo}
+            >
+              {remoteStatus?.bindings.map((binding) => {
+                const silo = silos.find(
+                  (candidate) => candidate.id === binding.siloId,
+                );
+                return (
+                  <option key={binding.siloId} value={binding.siloId}>
+                    {silo?.name ?? "已移除的本地 Silo"}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          {selectedRemoteBinding !== undefined ? (
+            <div className="remote-selected-state">
+              <dl className="remote-binding-facts">
+                <div>
+                  <dt>服务地址</dt>
+                  <dd>{selectedRemoteBinding.endpoint.origin}</dd>
+                </div>
+                <div>
+                  <dt>网络</dt>
+                  <dd>
+                    {selectedRemoteBinding.network.mode === "direct"
+                      ? "直连"
+                      : "使用远程代理"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>存储</dt>
+                  <dd>已加密</dd>
+                </div>
+                <div>
+                  <dt>最近活动</dt>
+                  <dd>
+                    {new Date(
+                      selectedRemoteBinding.lastActivityAtUnixMs,
+                    ).toLocaleString("zh-CN")}
+                  </dd>
+                </div>
+              </dl>
+              <div className="environment-operation-grid remote-operation-grid">
+                <button
+                  className="button-secondary"
+                  disabled={remoteBusy || vaultLocked}
+                  onClick={() => void runRemoteCleanupOperation("stop")}
+                  type="button"
+                >
+                  停止远程环境
+                </button>
+                <button
+                  className="button-secondary"
+                  disabled={remoteBusy || vaultLocked}
+                  onClick={() => void runRemoteCleanupOperation("health")}
+                  type="button"
+                >
+                  检查状态
+                </button>
+                <button
+                  className="button-secondary"
+                  disabled={remoteBusy || vaultLocked}
+                  onClick={() => void runRemoteCleanupOperation("logs")}
+                  type="button"
+                >
+                  查看日志
+                </button>
+                <button
+                  className="button-danger"
+                  disabled={remoteBusy || vaultLocked}
+                  onClick={() => void runRemoteCleanupOperation("destroy")}
+                  type="button"
+                >
+                  删除远程环境
+                </button>
+              </div>
+              {selectedRemoteResult !== undefined ? (
+                <div className="remote-result-card">
+                  <div>
+                    <span>最近一次清理结果</span>
+                    <strong>
+                      {environmentOperationLabel(
+                        selectedRemoteResult.operation,
+                      )}
+                      ：{remoteResultStateLabel(selectedRemoteResult.state)}
+                    </strong>
+                  </div>
+                  {selectedRemoteResult.logs !== undefined ? (
+                    <ul className="remote-log-list">
+                      {selectedRemoteResult.logs.map((log) => (
+                        <li key={log.sequence}>
+                          <span>{log.level}</span>
+                          <code>{log.message}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="remote-proof-recovery">
+                <strong>远程服务已确认删除时</strong>
+                <p>
+                  只验证远程服务提供的删除证明，并移除本机连接记录；不会重新创建或启动环境。
+                </p>
+                <button
+                  className="button-secondary"
+                  disabled={remoteBusy || vaultLocked}
+                  onClick={() => void checkRemoteDeletionStatus()}
+                  type="button"
+                >
+                  验证远程删除证明
+                </button>
+              </div>
+              <div className="remote-force-detach">
+                <strong>无法连接时的最后手段</strong>
+                <p>
+                  Force Detach 只移除这台电脑上的连接记录，不会删除远程环境。
+                  远程环境可能继续运行并产生费用，请先联系远程服务运营者。
+                </p>
+                <button
+                  className="button-danger"
+                  disabled={remoteBusy || vaultLocked}
+                  onClick={() => void removeLocalRemoteConnection()}
+                  type="button"
+                >
+                  Force Detach：仅移除本机记录
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {remoteActionMessage !== null ? (
+            <p
+              className={`environment-action-message ${remoteActionMessage.tone}`}
+              role={remoteActionMessage.tone === "error" ? "alert" : "status"}
+            >
+              {remoteActionMessage.text}
+            </p>
+          ) : null}
         </section>
       ) : null}
 
