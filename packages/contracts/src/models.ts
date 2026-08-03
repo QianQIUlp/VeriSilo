@@ -7,7 +7,8 @@ import {
   siloEngineConfigSchema,
 } from "./engine";
 
-export const SCHEMA_VERSION = 1 as const;
+export const SCHEMA_VERSION = 2 as const;
+export const OBSERVATION_REPORT_SCHEMA_VERSION = 1 as const;
 export const PROTOCOL_VERSION = 2 as const;
 
 export const browserKindSchema = z.enum(["chrome", "edge"]);
@@ -163,6 +164,49 @@ export const networkProfileSchema = z
   });
 export type NetworkProfile = z.infer<typeof networkProfileSchema>;
 
+const httpsOriginSchema = z
+  .string()
+  .url()
+  .max(2_048)
+  .superRefine((value, context) => {
+    let origin: URL;
+    try {
+      origin = new URL(value);
+    } catch {
+      return;
+    }
+    if (
+      origin.protocol !== "https:" ||
+      origin.username !== "" ||
+      origin.password !== "" ||
+      origin.pathname !== "/" ||
+      origin.search !== "" ||
+      origin.hash !== ""
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A remote execution endpoint must be an HTTPS origin.",
+      });
+    }
+  });
+
+export const siloExecutionTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local") }).strict(),
+  z
+    .object({
+      kind: z.literal("wsl"),
+      distribution: z.string().trim().min(1).max(128),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("remote"),
+      endpointOrigin: httpsOriginSchema,
+    })
+    .strict(),
+]);
+export type SiloExecutionTarget = z.infer<typeof siloExecutionTargetSchema>;
+
 export const proxyCredentialsInputSchema = z
   .object({
     username: z.string().trim().min(1).max(512),
@@ -226,7 +270,7 @@ export type RuntimeNetworkEvidence = z.infer<
   typeof runtimeNetworkEvidenceSchema
 >;
 
-export const siloSchema = z
+const currentSiloSchema = z
   .object({
     id: z.string().uuid(),
     schemaVersion: z.literal(SCHEMA_VERSION),
@@ -240,6 +284,8 @@ export const siloSchema = z
     profileDirectory: z.string().min(1).max(4_096),
     networkProfile: networkProfileSchema,
     engine: siloEngineConfigSchema.default({ adapter: "stock" }),
+    executionTarget: siloExecutionTargetSchema.default({ kind: "local" }),
+    identityLockedAt: z.string().datetime().nullable().default(null),
     seedReference: z.string().uuid(),
     createdAt: z.string().datetime(),
     archivedAt: z.string().datetime().nullable(),
@@ -259,6 +305,24 @@ export const siloSchema = z
       });
     }
   });
+
+function migrateLegacySilo(input: unknown): unknown {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return input;
+  }
+  const legacy = input as Record<string, unknown>;
+  if (legacy.schemaVersion !== 1) {
+    return input;
+  }
+  return {
+    ...legacy,
+    schemaVersion: SCHEMA_VERSION,
+    executionTarget: { kind: "local" },
+    identityLockedAt: null,
+  };
+}
+
+export const siloSchema = z.preprocess(migrateLegacySilo, currentSiloSchema);
 export type Silo = z.infer<typeof siloSchema>;
 
 export const browserVerificationSchema = z
@@ -436,7 +500,7 @@ export type ObservedSignal = z.infer<typeof observedSignalSchema>;
 
 export const observationReportSchema = z
   .object({
-    schemaVersion: z.literal(SCHEMA_VERSION),
+    schemaVersion: z.literal(OBSERVATION_REPORT_SCHEMA_VERSION),
     reportId: z.string().uuid(),
     origin: z.string().url(),
     collectedAt: z.string().datetime(),

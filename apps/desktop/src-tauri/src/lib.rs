@@ -1,10 +1,12 @@
 use std::{
+    fs::{self, OpenOptions},
+    io::Write,
     path::PathBuf,
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use chrono::Utc;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -34,6 +36,8 @@ pub mod vault;
 
 const TRAY_OPEN_ID: &str = "tray-open";
 const TRAY_EXIT_ID: &str = "tray-exit";
+const ENVIRONMENT_RUNTIME_RECORD_FILE: &str = "environment-runtime.json";
+const ENVIRONMENT_RUNTIME_RECORD_SCHEMA_VERSION: u32 = 1;
 
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
@@ -49,7 +53,8 @@ fn is_tray_primary_activation(button: MouseButton, button_state: MouseButtonStat
 
 use domain::{
     app_data_root, discover_browsers as discover_installed_browsers, BrowserCandidate,
-    BrowserVerification, CreateSiloInput, RuntimeActivation, Silo, SiloStorageUsage,
+    BrowserVerification, CreateSiloInput, NetworkProfile, ProxyScheme as SiloProxyScheme,
+    RuntimeActivation, RuntimeState, Silo, SiloExecutionTarget, SiloStorageUsage,
     UpdateSiloEngineInput, UpdateSiloInput, UpdateSiloNetworkInput, VaultLockState, VaultStatus,
 };
 use engine::{
@@ -57,12 +62,25 @@ use engine::{
     EngineMaintenanceReceipt, EngineNegotiation, EnginePackageRequest,
     ExternalPackageEngineAdapter, StockChromiumAdapter, VaultSeedIdentityTokenDeriver,
 };
-use environment::backend::{EnvironmentActionReceipt, EnvironmentBackendStatus};
+use environment::backend::{
+    EnvironmentActionReceipt, EnvironmentBackendId, EnvironmentBackendStatus,
+    EnvironmentNetworkProfile, EnvironmentOperation, OperationAvailability,
+    ProxyScheme as EnvironmentProxyScheme,
+};
 use environment::{EnvironmentManager, EnvironmentOperationRequest, WslStatus};
 use launcher::{managed_profiles_are_quiescent_for_vault_restore, profile_in_use, RuntimeManager};
 use mihomo::{MihomoControllerInput, MihomoSnapshot};
 use runtime_watchdog::RuntimeWatchdog;
 use vault::{RemoteVaultState, VaultBackupReceipt, VaultRuntime};
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyEnvironmentArtifact {
+    silo_id: Uuid,
+    backend: EnvironmentBackendId,
+    cleanup_available: bool,
+    message: String,
+}
 
 #[derive(Default)]
 struct LocalEnvironmentControl {
@@ -77,6 +95,288 @@ impl LocalEnvironmentControl {
     }
 }
 
+struct EnvironmentRuntimeState {
+    activation: RuntimeActivation,
+    wsl_distribution: Option<String>,
+    reconciled: bool,
+    recovery_blocked: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct EnvironmentRuntimeRecord {
+    schema_version: u32,
+    silo_id: Uuid,
+    distribution: String,
+}
+
+fn environment_runtime_record_is_valid(record: &EnvironmentRuntimeRecord) -> bool {
+    record.schema_version == ENVIRONMENT_RUNTIME_RECORD_SCHEMA_VERSION
+        && record.silo_id != Uuid::nil()
+        && !record.distribution.trim().is_empty()
+        && record.distribution.len() <= 128
+        && !record.distribution.chars().any(char::is_control)
+}
+
+impl Default for EnvironmentRuntimeState {
+    fn default() -> Self {
+        Self {
+            activation: RuntimeActivation::idle(),
+            wsl_distribution: None,
+            reconciled: false,
+            recovery_blocked: false,
+        }
+    }
+}
+
+impl EnvironmentRuntimeState {
+    fn load(root: &std::path::Path) -> Self {
+        let path = root.join(ENVIRONMENT_RUNTIME_RECORD_FILE);
+        match fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice::<EnvironmentRuntimeRecord>(&bytes) {
+                Ok(record) if environment_runtime_record_is_valid(&record) => {
+                    Self {
+                        activation: RuntimeActivation {
+                            active_silo_id: Some(record.silo_id),
+                            state: RuntimeState::RecoveryRequired,
+                            updated_at: Utc::now(),
+                            message: Some(
+                                "VeriSilo found an interrupted Linux browser session and will verify it after the Vault is unlocked."
+                                    .to_owned(),
+                            ),
+                            browser_verification: None,
+                            engine_evidence: None,
+                            network_evidence: None,
+                        },
+                        wsl_distribution: Some(record.distribution),
+                        reconciled: false,
+                        recovery_blocked: true,
+                    }
+                }
+                _ => Self {
+                    activation: RuntimeActivation {
+                        active_silo_id: None,
+                        state: RuntimeState::RecoveryRequired,
+                        updated_at: Utc::now(),
+                        message: Some(
+                            "The saved Linux runtime record is invalid. New launches are blocked until recovery is completed."
+                                .to_owned(),
+                        ),
+                        browser_verification: None,
+                        engine_evidence: None,
+                        network_evidence: None,
+                    },
+                    wsl_distribution: None,
+                    reconciled: false,
+                    recovery_blocked: true,
+                },
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Self::default(),
+            Err(_) => Self {
+                activation: RuntimeActivation {
+                    active_silo_id: None,
+                    state: RuntimeState::RecoveryRequired,
+                    updated_at: Utc::now(),
+                    message: Some(
+                        "The saved Linux runtime record cannot be read. New launches are blocked."
+                            .to_owned(),
+                    ),
+                    browser_verification: None,
+                    engine_evidence: None,
+                    network_evidence: None,
+                },
+                wsl_distribution: None,
+                reconciled: false,
+                recovery_blocked: true,
+            },
+        }
+    }
+
+    fn is_active(&self, silo_id: Uuid) -> bool {
+        self.activation.active_silo_id == Some(silo_id)
+            && matches!(
+                self.activation.state,
+                RuntimeState::Preflight
+                    | RuntimeState::Launching
+                    | RuntimeState::Running
+                    | RuntimeState::RecoveryRequired
+            )
+    }
+
+    fn has_active_silo(&self) -> bool {
+        self.recovery_blocked
+            || (self.activation.active_silo_id.is_some()
+                && matches!(
+                    self.activation.state,
+                    RuntimeState::Preflight
+                        | RuntimeState::Launching
+                        | RuntimeState::Running
+                        | RuntimeState::RecoveryRequired
+                ))
+    }
+}
+
+fn persist_environment_runtime_record(
+    root: &std::path::Path,
+    record: &EnvironmentRuntimeRecord,
+) -> Result<(), String> {
+    let path = root.join(ENVIRONMENT_RUNTIME_RECORD_FILE);
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err("The Linux runtime record path is not a regular file.".to_owned())
+        }
+        Ok(_) => {
+            return Err(
+                "A Linux runtime record already exists and must be reconciled before launch."
+                    .to_owned(),
+            )
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "Could not inspect the Linux runtime record path: {error}"
+            ))
+        }
+    }
+    let bytes = serde_json::to_vec(record)
+        .map_err(|error| format!("Could not serialize the Linux runtime record: {error}"))?;
+    let temporary_path = root.join(format!(".environment-runtime-{}.tmp", Uuid::new_v4()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary_path)
+        .map_err(|error| format!("Could not reserve the Linux runtime record: {error}"))?;
+    let persist_result = file
+        .write_all(&bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|error| format!("Could not persist the Linux runtime record: {error}"));
+    if persist_result.is_err() {
+        drop(file);
+        let _ = fs::remove_file(&temporary_path);
+        return persist_result;
+    }
+    drop(file);
+    let link_result = fs::hard_link(&temporary_path, &path)
+        .and_then(|_| OpenOptions::new().read(true).open(&path)?.sync_all())
+        .map_err(|error| format!("Could not commit the Linux runtime record: {error}"));
+    let _ = fs::remove_file(&temporary_path);
+    link_result
+}
+
+fn environment_runtime_record_exists(root: &std::path::Path) -> Result<bool, String> {
+    let path = root.join(ENVIRONMENT_RUNTIME_RECORD_FILE);
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!(
+            "Could not inspect the Linux runtime record path: {error}"
+        )),
+    }
+}
+
+fn clear_environment_runtime_record(
+    root: &std::path::Path,
+    expected: &EnvironmentRuntimeRecord,
+) -> Result<(), String> {
+    let path = root.join(ENVIRONMENT_RUNTIME_RECORD_FILE);
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("Could not read the Linux runtime record: {error}")),
+    };
+    let actual: EnvironmentRuntimeRecord = serde_json::from_slice(&bytes)
+        .map_err(|_| "The Linux runtime record is invalid; refusing to clear it.".to_owned())?;
+    if actual != *expected {
+        return Err(
+            "The Linux runtime record belongs to a different Silo; refusing to clear it."
+                .to_owned(),
+        );
+    }
+    fs::remove_file(path)
+        .map_err(|error| format!("Could not clear the Linux runtime record: {error}"))
+}
+
+fn quarantine_invalid_environment_runtime_record(root: &std::path::Path) -> Result<(), String> {
+    let path = root.join(ENVIRONMENT_RUNTIME_RECORD_FILE);
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|error| format!("Could not inspect the invalid Linux runtime record: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(
+            "The invalid Linux runtime record path is not a regular file; automatic recovery is unsafe."
+                .to_owned(),
+        );
+    }
+    let bytes = fs::read(&path)
+        .map_err(|error| format!("Could not read the invalid Linux runtime record: {error}"))?;
+    if serde_json::from_slice::<EnvironmentRuntimeRecord>(&bytes)
+        .is_ok_and(|record| environment_runtime_record_is_valid(&record))
+    {
+        return Err(
+            "The Linux runtime record became valid during recovery; refusing to quarantine it."
+                .to_owned(),
+        );
+    }
+    let quarantine = root.join(format!(
+        "environment-runtime.invalid-{}.json",
+        Uuid::new_v4()
+    ));
+    fs::rename(&path, quarantine)
+        .map_err(|error| format!("Could not quarantine the invalid Linux runtime record: {error}"))
+}
+
+fn recover_invalid_environment_runtime_record(
+    state: &AppState,
+    silos: &[Silo],
+) -> Result<(), String> {
+    for silo in silos {
+        let SiloExecutionTarget::Wsl { distribution } = &silo.execution_target else {
+            continue;
+        };
+        let artifacts = environment::backend::local_environment_artifacts(
+            &state.root.join("environments"),
+            silo.id,
+        )
+        .map_err(|error| {
+            format!(
+                "Could not verify Linux environment ownership for Silo {}: {error}",
+                silo.id
+            )
+        })?;
+        if !artifacts.contains(&EnvironmentBackendId::WslChromium) {
+            // A Silo that was never configured, or was already detached, has
+            // no host binding and therefore cannot own a guest process that
+            // VeriSilo started. Do not let it block recovery of later bound
+            // Silos. Any partial WSL artifact still reaches exact Stop below,
+            // whose binding check fails closed.
+            continue;
+        }
+        let mut environments = state
+            .environments
+            .lock()
+            .map_err(|_| "VeriSilo environment provider state is unavailable.".to_owned())?;
+        let status = environments
+            .select_wsl_distribution(distribution.clone())
+            .map_err(|error| error.to_string())?;
+        if !environment_operation_available(&status, EnvironmentOperation::Stop) {
+            return Err(format!(
+                "The Linux environment {distribution} is not ready to stop an interrupted Silo."
+            ));
+        }
+        environments
+            .execute(EnvironmentOperationRequest::Stop {
+                backend: EnvironmentBackendId::WslChromium,
+                environment_id: silo.id,
+            })
+            .map_err(|error| {
+                format!(
+                    "Could not stop Silo {} in Linux environment {distribution}: {error}",
+                    silo.id
+                )
+            })?;
+    }
+    quarantine_invalid_environment_runtime_record(&state.root)
+}
+
 pub struct AppState {
     root: PathBuf,
     // Local stock/provider lifecycle operations first reserve local_control,
@@ -88,6 +388,7 @@ pub struct AppState {
     runtime: Arc<Mutex<RuntimeManager>>,
     runtime_watchdog: RuntimeWatchdog,
     environments: Mutex<EnvironmentManager>,
+    environment_runtime: Mutex<EnvironmentRuntimeState>,
     // Remote lifecycle exchanges are serialized. Commands hold this guard
     // before Vault so a user lock/revocation linearizes after any in-flight
     // request and no later request can reuse the dropped credential.
@@ -103,6 +404,7 @@ impl AppState {
             RuntimeWatchdog::start(&runtime).expect("VeriSilo needs a native runtime watchdog");
         let environments = EnvironmentManager::new(root.clone(), resource_root.clone())
             .expect("VeriSilo needs valid fixed environment provider roots");
+        let environment_runtime = EnvironmentRuntimeState::load(&root);
         Self {
             root,
             local_control: LocalEnvironmentControl::default(),
@@ -110,6 +412,7 @@ impl AppState {
             runtime,
             runtime_watchdog,
             environments: Mutex::new(environments),
+            environment_runtime: Mutex::new(environment_runtime),
             remote_control: Mutex::new(()),
         }
     }
@@ -142,6 +445,384 @@ fn reconcile_runtime_if_possible(
         }
     }
     runtime.activation()
+}
+
+fn environment_operation_available(
+    status: &EnvironmentBackendStatus,
+    operation: EnvironmentOperation,
+) -> bool {
+    status.capabilities.iter().any(|capability| {
+        capability.operation == operation
+            && matches!(&capability.availability, OperationAvailability::Available)
+    })
+}
+
+fn prepare_wsl_distribution(
+    state: &AppState,
+    distribution: &str,
+    required_operations: &[EnvironmentOperation],
+) -> Result<EnvironmentBackendStatus, String> {
+    {
+        let environment_runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        if environment_runtime.has_active_silo()
+            && environment_runtime.wsl_distribution.as_deref() != Some(distribution)
+        {
+            return Err(
+                "Stop or recover the active Linux Silo before selecting a different distribution."
+                    .to_owned(),
+            );
+        }
+    }
+    let mut environments = state
+        .environments
+        .lock()
+        .map_err(|_| "VeriSilo environment provider state is unavailable.".to_owned())?;
+    let status = environments
+        .select_wsl_distribution(distribution.to_owned())
+        .map_err(|error| error.to_string())?;
+    for &operation in required_operations {
+        if !environment_operation_available(&status, operation) {
+            return Err(format!(
+                "The selected Linux environment is not ready for {operation:?}. Complete its setup in Runtime components first."
+            ));
+        }
+    }
+    Ok(status)
+}
+
+fn wsl_network_profile(silo: &Silo) -> Result<EnvironmentNetworkProfile, String> {
+    match &silo.network_profile {
+        NetworkProfile::Direct { proxy_required } if !*proxy_required => {
+            Ok(EnvironmentNetworkProfile::Direct)
+        }
+        NetworkProfile::FixedProxy {
+            proxy_required,
+            scheme: SiloProxyScheme::Socks5,
+            host,
+            port,
+            bypass_list,
+            credential_reference,
+            external_mihomo,
+            ..
+        } if host == "127.0.0.1"
+            && bypass_list.is_empty()
+            && credential_reference.is_none()
+            && external_mihomo.is_none() =>
+        {
+            Ok(EnvironmentNetworkProfile::FixedProxy {
+                proxy_required: *proxy_required,
+                scheme: EnvironmentProxyScheme::Socks5,
+                host: host.clone(),
+                port: *port,
+            })
+        }
+        _ => Err(
+            "This Linux environment currently accepts direct access or a credential-free SOCKS5 proxy running inside that Linux environment. Change the Silo network before launching; VeriSilo will not fall back to the Windows connection."
+                .to_owned(),
+        ),
+    }
+}
+
+fn environment_runtime_is_active(state: &AppState, silo_id: Uuid) -> Result<bool, String> {
+    state
+        .environment_runtime
+        .lock()
+        .map(|runtime| runtime.is_active(silo_id))
+        .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())
+}
+
+fn environment_runtime_has_active_silo(state: &AppState) -> Result<bool, String> {
+    state
+        .environment_runtime
+        .lock()
+        .map(|runtime| runtime.has_active_silo())
+        .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())
+}
+
+fn effective_runtime_activation(
+    state: &AppState,
+    vault_status: &VaultStatus,
+    local_activation: RuntimeActivation,
+) -> Result<RuntimeActivation, String> {
+    if !matches!(vault_status.state, VaultLockState::Unlocked) {
+        return Ok(local_activation);
+    }
+    let environment = state
+        .environment_runtime
+        .lock()
+        .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+    if environment.has_active_silo() {
+        Ok(environment.activation.clone())
+    } else {
+        Ok(local_activation)
+    }
+}
+
+fn reconcile_environment_runtime_if_needed(state: &AppState, silos: &[Silo]) -> Result<(), String> {
+    let (needs_reconciliation, recovery_blocked, silo_id, distribution) = {
+        let runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        (
+            !runtime.reconciled || runtime.has_active_silo(),
+            runtime.recovery_blocked,
+            runtime.activation.active_silo_id,
+            runtime.wsl_distribution.clone(),
+        )
+    };
+    if !needs_reconciliation {
+        return Ok(());
+    }
+    let (Some(silo_id), Some(distribution)) = (silo_id, distribution) else {
+        if recovery_blocked {
+            let recovery = recover_invalid_environment_runtime_record(state, silos);
+            let mut runtime = state
+                .environment_runtime
+                .lock()
+                .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+            runtime.reconciled = true;
+            match recovery {
+                Ok(()) => {
+                    runtime.activation = RuntimeActivation {
+                        active_silo_id: None,
+                        state: RuntimeState::Stopped,
+                        updated_at: Utc::now(),
+                        message: Some(
+                            "Stopped every known Linux Silo and quarantined an invalid recovery record."
+                                .to_owned(),
+                        ),
+                        browser_verification: None,
+                        engine_evidence: None,
+                        network_evidence: None,
+                    };
+                    runtime.wsl_distribution = None;
+                    runtime.recovery_blocked = false;
+                }
+                Err(error) => {
+                    runtime.activation.state = RuntimeState::RecoveryRequired;
+                    runtime.activation.updated_at = Utc::now();
+                    runtime.activation.message = Some(format!(
+                        "The invalid Linux runtime record could not be recovered safely: {error}"
+                    ));
+                    runtime.recovery_blocked = true;
+                }
+            }
+            return Ok(());
+        }
+        let mut runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        runtime.reconciled = true;
+        if !recovery_blocked {
+            runtime.activation = RuntimeActivation::idle();
+        }
+        return Ok(());
+    };
+    let Some(silo) = silos.iter().find(|silo| silo.id == silo_id) else {
+        let mut runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        runtime.reconciled = true;
+        runtime.recovery_blocked = true;
+        runtime.activation.state = RuntimeState::RecoveryRequired;
+        runtime.activation.message = Some(
+            "The interrupted Linux runtime record no longer matches an active Silo. New launches remain blocked."
+                .to_owned(),
+        );
+        return Ok(());
+    };
+    if !matches!(
+        &silo.execution_target,
+        SiloExecutionTarget::Wsl {
+            distribution: saved
+        } if saved == &distribution
+    ) {
+        let mut runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        runtime.reconciled = true;
+        runtime.recovery_blocked = true;
+        runtime.activation.state = RuntimeState::RecoveryRequired;
+        runtime.activation.message = Some(
+            "The interrupted Linux runtime does not match the Silo's saved run location. New launches remain blocked."
+                .to_owned(),
+        );
+        return Ok(());
+    }
+
+    let health_result = (|| -> Result<(), String> {
+        prepare_wsl_distribution(state, &distribution, &[EnvironmentOperation::Health])?;
+        let mut environments = state
+            .environments
+            .lock()
+            .map_err(|_| "VeriSilo environment provider state is unavailable.".to_owned())?;
+        environments
+            .execute(EnvironmentOperationRequest::Health {
+                backend: EnvironmentBackendId::WslChromium,
+                environment_id: silo_id,
+            })
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    })();
+
+    if health_result.is_ok() {
+        if silo.identity_locked_at.is_none() {
+            let mut vault = state
+                .vault
+                .lock()
+                .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+            if let Err(error) = vault.mark_silo_identity_locked(&state.root, silo_id) {
+                let mut runtime = state
+                    .environment_runtime
+                    .lock()
+                    .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+                runtime.reconciled = true;
+                runtime.recovery_blocked = true;
+                runtime.activation.state = RuntimeState::RecoveryRequired;
+                runtime.activation.message = Some(format!(
+                    "The Linux browser is running, but the Silo identity lock could not be persisted: {error}"
+                ));
+                return Ok(());
+            }
+        }
+        let mut runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        runtime.activation = RuntimeActivation {
+            active_silo_id: Some(silo_id),
+            state: RuntimeState::Running,
+            updated_at: Utc::now(),
+            message: Some(format!(
+                "Recovered the isolated Linux browser in {distribution}."
+            )),
+            browser_verification: None,
+            engine_evidence: None,
+            network_evidence: None,
+        };
+        runtime.wsl_distribution = Some(distribution);
+        runtime.reconciled = true;
+        runtime.recovery_blocked = false;
+        return Ok(());
+    }
+
+    let stop_result = (|| -> Result<(), String> {
+        prepare_wsl_distribution(state, &distribution, &[EnvironmentOperation::Stop])?;
+        let mut environments = state
+            .environments
+            .lock()
+            .map_err(|_| "VeriSilo environment provider state is unavailable.".to_owned())?;
+        environments
+            .execute(EnvironmentOperationRequest::Stop {
+                backend: EnvironmentBackendId::WslChromium,
+                environment_id: silo_id,
+            })
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    })();
+    let record = EnvironmentRuntimeRecord {
+        schema_version: ENVIRONMENT_RUNTIME_RECORD_SCHEMA_VERSION,
+        silo_id,
+        distribution: distribution.clone(),
+    };
+    if stop_result.is_ok() && clear_environment_runtime_record(&state.root, &record).is_ok() {
+        let mut runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        runtime.activation = RuntimeActivation {
+            active_silo_id: None,
+            state: RuntimeState::Stopped,
+            updated_at: Utc::now(),
+            message: Some(
+                "Cleared an interrupted Linux runtime that was no longer running.".to_owned(),
+            ),
+            browser_verification: None,
+            engine_evidence: None,
+            network_evidence: None,
+        };
+        runtime.wsl_distribution = None;
+        runtime.reconciled = true;
+        runtime.recovery_blocked = false;
+    } else {
+        let mut runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        runtime.reconciled = true;
+        runtime.recovery_blocked = true;
+        runtime.activation.state = RuntimeState::RecoveryRequired;
+        runtime.activation.message = Some(format!(
+            "The interrupted Linux browser could not be verified or stopped safely: {}",
+            health_result.expect_err("failed health result")
+        ));
+    }
+    Ok(())
+}
+
+fn stop_environment_runtime_for_vault_lock(state: &AppState) {
+    let (silo_id, distribution) = match state.environment_runtime.lock() {
+        Ok(runtime) if runtime.has_active_silo() => (
+            runtime.activation.active_silo_id,
+            runtime.wsl_distribution.clone(),
+        ),
+        _ => return,
+    };
+    let (Some(silo_id), Some(distribution)) = (silo_id, distribution) else {
+        return;
+    };
+    let stop_result = (|| -> Result<(), String> {
+        prepare_wsl_distribution(state, &distribution, &[EnvironmentOperation::Stop])?;
+        let mut environments = state
+            .environments
+            .lock()
+            .map_err(|_| "VeriSilo environment provider state is unavailable.".to_owned())?;
+        environments
+            .execute(EnvironmentOperationRequest::Stop {
+                backend: EnvironmentBackendId::WslChromium,
+                environment_id: silo_id,
+            })
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    })();
+    let record = EnvironmentRuntimeRecord {
+        schema_version: ENVIRONMENT_RUNTIME_RECORD_SCHEMA_VERSION,
+        silo_id,
+        distribution,
+    };
+    let mut runtime = match state.environment_runtime.lock() {
+        Ok(runtime) => runtime,
+        Err(_) => return,
+    };
+    if stop_result.is_ok() && clear_environment_runtime_record(&state.root, &record).is_ok() {
+        runtime.activation = RuntimeActivation {
+            active_silo_id: None,
+            state: RuntimeState::Stopped,
+            updated_at: Utc::now(),
+            message: Some("Stopped the Linux browser before locking the Vault.".to_owned()),
+            browser_verification: None,
+            engine_evidence: None,
+            network_evidence: None,
+        };
+        runtime.wsl_distribution = None;
+        runtime.recovery_blocked = false;
+    } else {
+        runtime.activation.state = RuntimeState::RecoveryRequired;
+        runtime.activation.updated_at = Utc::now();
+        runtime.activation.message = Some(
+            "The Vault was locked, but the Linux browser could not be confirmed stopped. New launches remain blocked after unlock."
+                .to_owned(),
+        );
+        runtime.recovery_blocked = true;
+    }
+    runtime.reconciled = false;
 }
 
 #[derive(Debug, Serialize)]
@@ -706,42 +1387,23 @@ fn execute_remote_operation(
     result.map_err(|error| error.to_string())
 }
 
-fn execute_remote_interaction(
-    state: &AppState,
-    silo_id: Uuid,
-    interaction: impl FnOnce(
-        &mut ProductionRemoteBackend,
-    ) -> Result<
-        RemoteInteractionReceipt,
-        verisilo_remote_backend::RemoteBackendError,
-    >,
-) -> Result<RemoteInteractionReceipt, String> {
-    let _remote_guard = state
-        .remote_control
-        .lock()
-        .map_err(|_| "VeriSilo remote control state is unavailable.".to_owned())?;
+fn reject_unavailable_remote_runtime<T>(state: &AppState, silo_id: Uuid) -> Result<T, String> {
     let mut vault = state
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
     vault.record_activity().map_err(|error| error.to_string())?;
-    // Resolve the local Silo and keep the Vault locked through the bounded
-    // HTTPS exchange. No authorization or bearer credential escapes this
-    // native command boundary.
-    vault.get_silo(silo_id).map_err(|error| error.to_string())?;
-    let mut remote = vault
-        .remote_control_plane()
-        .map_err(|error| error.to_string())?;
-    let mut backend = production_remote_backend(&remote)?;
-    let result = interaction(&mut backend);
-    remote.backend = backend.export_snapshot();
-    // Persist consumed client sequence numbers and any accepted authorization,
-    // channel metadata or interaction receipt even if a later local policy
-    // check fails closed.
-    vault
-        .persist_remote_control_plane(&state.root, remote)
-        .map_err(|error| error.to_string())?;
-    result.map_err(|error| error.to_string())
+    let silo = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+    let location = match silo.execution_target {
+        SiloExecutionTarget::Local => "this Windows computer".to_owned(),
+        SiloExecutionTarget::Wsl { distribution } => {
+            format!("the Linux environment {distribution}")
+        }
+        SiloExecutionTarget::Remote { endpoint_origin } => endpoint_origin,
+    };
+    Err(format!(
+        "This Silo is bound to {location}. Remote activation and interaction are unavailable until a remote-bound browser identity, global lifecycle lock, and durable identity journal are verified end to end."
+    ))
 }
 
 #[tauri::command]
@@ -752,9 +1414,8 @@ fn remote_environment_create(
     ttl_seconds: u64,
     cost_acknowledged: bool,
 ) -> Result<RemoteOperationResult, String> {
-    execute_remote_operation(&state, silo_id, |backend| {
-        backend.create(silo_id, network, ttl_seconds, cost_acknowledged)
-    })
+    let _ = (network, ttl_seconds, cost_acknowledged);
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
@@ -762,7 +1423,7 @@ fn remote_environment_start(
     state: State<'_, AppState>,
     silo_id: Uuid,
 ) -> Result<RemoteOperationResult, String> {
-    execute_remote_operation(&state, silo_id, |backend| backend.start(silo_id))
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
@@ -778,7 +1439,7 @@ fn remote_environment_pause(
     state: State<'_, AppState>,
     silo_id: Uuid,
 ) -> Result<RemoteOperationResult, String> {
-    execute_remote_operation(&state, silo_id, |backend| backend.pause(silo_id))
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
@@ -786,7 +1447,7 @@ fn remote_environment_snapshot(
     state: State<'_, AppState>,
     silo_id: Uuid,
 ) -> Result<RemoteOperationResult, String> {
-    execute_remote_operation(&state, silo_id, |backend| backend.snapshot(silo_id))
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
@@ -806,9 +1467,8 @@ fn remote_environment_configure_network(
     silo_id: Uuid,
     network: RemoteNetworkPolicy,
 ) -> Result<RemoteOperationResult, String> {
-    execute_remote_operation(&state, silo_id, |backend| {
-        backend.configure_network(silo_id, network)
-    })
+    let _ = network;
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
@@ -837,9 +1497,8 @@ fn remote_environment_open_human_session(
     silo_id: Uuid,
     lifetime_seconds: u64,
 ) -> Result<RemoteInteractionReceipt, String> {
-    execute_remote_interaction(&state, silo_id, |backend| {
-        backend.open_human_session(silo_id, lifetime_seconds)
-    })
+    let _ = lifetime_seconds;
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
@@ -847,9 +1506,7 @@ fn remote_environment_close_human_session(
     state: State<'_, AppState>,
     silo_id: Uuid,
 ) -> Result<RemoteInteractionReceipt, String> {
-    execute_remote_interaction(&state, silo_id, |backend| {
-        backend.close_human_session(silo_id)
-    })
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
@@ -860,9 +1517,8 @@ fn remote_environment_grant_automation(
     scopes: Vec<RemoteAutomationScope>,
     approved_by_user: bool,
 ) -> Result<RemoteInteractionReceipt, String> {
-    execute_remote_interaction(&state, silo_id, |backend| {
-        backend.grant_automation(silo_id, lifetime_seconds, scopes, approved_by_user)
-    })
+    let _ = (lifetime_seconds, scopes, approved_by_user);
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
@@ -871,9 +1527,8 @@ fn remote_environment_revoke_automation(
     silo_id: Uuid,
     authorization_id: Uuid,
 ) -> Result<RemoteInteractionReceipt, String> {
-    execute_remote_interaction(&state, silo_id, |backend| {
-        backend.revoke_automation(silo_id, authorization_id)
-    })
+    let _ = authorization_id;
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
@@ -882,9 +1537,8 @@ fn remote_environment_open_screen(
     silo_id: Uuid,
     principal: InteractivePrincipal,
 ) -> Result<RemoteInteractionReceipt, String> {
-    execute_remote_interaction(&state, silo_id, |backend| {
-        backend.open_screen(silo_id, principal)
-    })
+    let _ = principal;
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
@@ -894,13 +1548,13 @@ fn remote_environment_send_input(
     principal: InteractivePrincipal,
     events: Vec<RemoteInputEvent>,
 ) -> Result<RemoteInteractionReceipt, String> {
-    execute_remote_interaction(&state, silo_id, |backend| {
-        backend.send_input(silo_id, principal, events)
-    })
+    let _ = (principal, events);
+    reject_unavailable_remote_runtime(&state, silo_id)
 }
 
 #[tauri::command]
 fn desktop_status(state: State<'_, AppState>) -> Result<DesktopStatus, String> {
+    let _local_reservation = state.local_control.reserve()?;
     let mut vault = state
         .vault
         .lock()
@@ -922,8 +1576,26 @@ fn desktop_status(state: State<'_, AppState>) -> Result<DesktopStatus, String> {
     } else {
         activation = runtime.revoke_secrets_for_vault_lock();
     }
+    let environment_silos = if matches!(vault_status.state, VaultLockState::Unlocked) {
+        vault
+            .list_active_silos()
+            .map_err(|error| error.to_string())?
+    } else {
+        Vec::new()
+    };
     drop(runtime);
     drop(vault);
+    if matches!(vault_status.state, VaultLockState::Unlocked) {
+        reconcile_environment_runtime_if_needed(&state, &environment_silos)?;
+    } else {
+        stop_environment_runtime_for_vault_lock(&state);
+        let mut environment_runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        environment_runtime.reconciled = false;
+    }
+    activation = effective_runtime_activation(&state, &vault_status, activation)?;
     publish_runtime_status(&state, &activation, &vault_status);
 
     // Companion is optional. An unreadable inbox must not prevent the desktop
@@ -974,6 +1646,16 @@ fn desktop_status(state: State<'_, AppState>) -> Result<DesktopStatus, String> {
             }
         }
     }
+    if !matches!(vault_status.state, VaultLockState::Unlocked) {
+        stop_environment_runtime_for_vault_lock(&state);
+        let mut environment_runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        environment_runtime.reconciled = false;
+    }
+    activation = effective_runtime_activation(&state, &vault_status, activation)?;
+    publish_runtime_status(&state, &activation, &vault_status);
     Ok(DesktopStatus {
         vault: vault_status,
         activation,
@@ -1024,10 +1706,12 @@ fn unlock_vault(state: State<'_, AppState>, passphrase: String) -> Result<VaultS
 
 #[tauri::command]
 fn lock_vault(state: State<'_, AppState>) -> Result<VaultStatus, String> {
+    let _local_reservation = state.local_control.reserve()?;
     let _remote_guard = state
         .remote_control
         .lock()
         .map_err(|_| "VeriSilo remote control state is unavailable.".to_owned())?;
+    stop_environment_runtime_for_vault_lock(&state);
     let mut vault = state
         .vault
         .lock()
@@ -1090,14 +1774,14 @@ fn restore_vault(
     passphrase: String,
     confirm_overwrite: bool,
 ) -> Result<VaultStatus, String> {
-    // Restore is a global ownership transition. Reserve remote and local
+    // Restore is a global ownership transition. Reserve local and remote
     // lifecycle planes before Vault → Runtime → Environments so all in-flight
     // provider work finishes and no new work can race the replacement.
+    let _local_reservation = state.local_control.reserve()?;
     let _remote_guard = state
         .remote_control
         .lock()
         .map_err(|_| "VeriSilo remote control state is unavailable.".to_owned())?;
-    let _local_reservation = state.local_control.reserve()?;
     let mut vault = state
         .vault
         .lock()
@@ -1177,6 +1861,20 @@ fn select_wsl_environment_distribution(
     state: State<'_, AppState>,
     distribution: String,
 ) -> Result<EnvironmentBackendStatus, String> {
+    let _local_reservation = state.local_control.reserve()?;
+    {
+        let environment_runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        if environment_runtime.has_active_silo()
+            && environment_runtime.wsl_distribution.as_deref() != Some(distribution.as_str())
+        {
+            return Err(
+                "Stop the active Linux Silo before checking a different distribution.".to_owned(),
+            );
+        }
+    }
     let mut environments = state
         .environments
         .lock()
@@ -1186,9 +1884,8 @@ fn select_wsl_environment_distribution(
         .map_err(|error| error.to_string())
 }
 
-#[tauri::command]
-fn environment_backend_execute(
-    state: State<'_, AppState>,
+fn execute_environment_backend(
+    state: &AppState,
     request: EnvironmentOperationRequest,
 ) -> Result<EnvironmentActionReceipt, String> {
     let environment_id = request.environment_id();
@@ -1201,9 +1898,48 @@ fn environment_backend_execute(
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
     vault.record_activity().map_err(|error| error.to_string())?;
-    vault
+    let silo = vault
         .get_silo(environment_id)
         .map_err(|error| error.to_string())?;
+    let saved_target_distribution = match (&silo.execution_target, request.backend()) {
+        (SiloExecutionTarget::Wsl { distribution }, EnvironmentBackendId::WslChromium) => {
+            Some(distribution.clone())
+        }
+        _ => None,
+    };
+    let legacy_cleanup_provider = if saved_target_distribution.is_none()
+        && matches!(
+            &request,
+            EnvironmentOperationRequest::Destroy {
+                confirm_destroy: true,
+                ..
+            }
+        ) {
+        environment::backend::local_environment_binding_provider(
+            &state.root.join("environments"),
+            environment_id,
+            request.backend(),
+        )
+        .map_err(|error| error.to_string())?
+    } else {
+        None
+    };
+    let target_matches = saved_target_distribution.is_some() || legacy_cleanup_provider.is_some();
+    if !target_matches {
+        return Err(
+            "This environment is not the Silo's saved run location. Choose the run location when creating the Silo; component tools cannot silently move an identity."
+                .to_owned(),
+        );
+    }
+    if matches!(
+        request.operation(),
+        EnvironmentOperation::Start | EnvironmentOperation::Stop
+    ) {
+        return Err(
+            "Start or stop this Silo from Overview so VeriSilo can keep its identity, network, run location, and recovery record together."
+                .to_owned(),
+        );
+    }
     let mut runtime = state
         .runtime
         .lock()
@@ -1214,15 +1950,181 @@ fn environment_backend_execute(
                 .to_owned(),
         );
     }
+    if environment_runtime_has_active_silo(&state)?
+        && !matches!(
+            request.operation(),
+            EnvironmentOperation::Stop | EnvironmentOperation::Health | EnvironmentOperation::Logs
+        )
+    {
+        return Err("Stop the active Silo before changing a runtime component.".to_owned());
+    }
     drop(runtime);
     drop(vault);
+    let target_distribution = saved_target_distribution.or_else(|| {
+        (request.backend() == EnvironmentBackendId::WslChromium)
+            .then_some(legacy_cleanup_provider)
+            .flatten()
+    });
+    if let Some(distribution) = target_distribution {
+        prepare_wsl_distribution(&state, &distribution, &[request.operation()])?;
+    }
     let mut environments = state
         .environments
         .lock()
         .map_err(|_| "VeriSilo environment provider state is unavailable.".to_owned())?;
-    environments
+    let receipt = environments
         .execute(request)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    if receipt.operation == EnvironmentOperation::Destroy {
+        let mut environment_runtime = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        if environment_runtime.activation.active_silo_id == Some(environment_id) {
+            environment_runtime.activation = RuntimeActivation {
+                active_silo_id: None,
+                state: RuntimeState::Stopped,
+                updated_at: Utc::now(),
+                message: Some("The isolated Linux browser was stopped.".to_owned()),
+                browser_verification: None,
+                engine_evidence: None,
+                network_evidence: None,
+            };
+            environment_runtime.wsl_distribution = None;
+        }
+    }
+    Ok(receipt)
+}
+
+#[tauri::command]
+fn environment_backend_execute(
+    state: State<'_, AppState>,
+    request: EnvironmentOperationRequest,
+) -> Result<EnvironmentActionReceipt, String> {
+    execute_environment_backend(&state, request)
+}
+
+fn legacy_environment_artifacts(
+    root: &std::path::Path,
+    silos: &[Silo],
+) -> Result<Vec<LegacyEnvironmentArtifact>, String> {
+    let environment_root = root.join("environments");
+    let mut result = Vec::new();
+    for silo in silos {
+        let artifacts =
+            environment::backend::local_environment_artifacts(&environment_root, silo.id)
+                .map_err(|error| error.to_string())?;
+        for backend in artifacts {
+            let provider = environment::backend::local_environment_binding_provider(
+                &environment_root,
+                silo.id,
+                backend,
+            );
+            let saved_wsl_distribution = match (&silo.execution_target, backend) {
+                (SiloExecutionTarget::Wsl { distribution }, EnvironmentBackendId::WslChromium) => {
+                    Some(distribution)
+                }
+                _ => None,
+            };
+            match (saved_wsl_distribution, provider) {
+                (Some(saved), Ok(Some(bound))) if saved == &bound => {
+                    // This is the Silo's current, expected Linux owner rather
+                    // than an orphan left by a schema without run locations.
+                }
+                (Some(_), _) => result.push(LegacyEnvironmentArtifact {
+                    silo_id: silo.id,
+                    backend,
+                    cleanup_available: false,
+                    message: "The saved Linux run location and its ownership record disagree. VeriSilo will not delete either side automatically."
+                        .to_owned(),
+                }),
+                (None, Ok(Some(_))) => result.push(LegacyEnvironmentArtifact {
+                    silo_id: silo.id,
+                    backend,
+                    cleanup_available: true,
+                    message: "An older run environment is still bound to this Silo but is not its current run location."
+                        .to_owned(),
+                }),
+                (None, Ok(None)) => result.push(LegacyEnvironmentArtifact {
+                    silo_id: silo.id,
+                    backend,
+                    cleanup_available: false,
+                    message: "An older run environment path exists without a complete ownership record. VeriSilo will not delete it automatically."
+                        .to_owned(),
+                }),
+                (None, Err(_)) => result.push(LegacyEnvironmentArtifact {
+                    silo_id: silo.id,
+                    backend,
+                    cleanup_available: false,
+                    message: "An older run environment has incomplete ownership information. VeriSilo will not delete it automatically."
+                        .to_owned(),
+                }),
+            }
+        }
+    }
+    result.sort_by_key(|artifact| {
+        (
+            artifact.silo_id,
+            match artifact.backend {
+                EnvironmentBackendId::WslChromium => 0_u8,
+                EnvironmentBackendId::WindowsSandbox => 1,
+                EnvironmentBackendId::HyperV => 2,
+            },
+        )
+    });
+    Ok(result)
+}
+
+#[tauri::command]
+fn list_legacy_environment_artifacts(
+    state: State<'_, AppState>,
+) -> Result<Vec<LegacyEnvironmentArtifact>, String> {
+    let _local_reservation = state.local_control.reserve()?;
+    let mut vault = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    let silos = vault.list_silos().map_err(|error| error.to_string())?;
+    legacy_environment_artifacts(&state.root, &silos)
+}
+
+#[tauri::command]
+fn cleanup_legacy_environment_artifact(
+    state: State<'_, AppState>,
+    silo_id: Uuid,
+    backend: EnvironmentBackendId,
+    confirm_cleanup: bool,
+) -> Result<EnvironmentActionReceipt, String> {
+    if !confirm_cleanup {
+        return Err("Cleaning an older run environment requires explicit confirmation.".to_owned());
+    }
+    {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        let silo = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+        if matches!(
+            (&silo.execution_target, backend),
+            (
+                SiloExecutionTarget::Wsl { .. },
+                EnvironmentBackendId::WslChromium
+            )
+        ) {
+            return Err(
+                "The Linux environment is this Silo's current run location and cannot be removed as an older component."
+                    .to_owned(),
+            );
+        }
+    }
+    execute_environment_backend(
+        &state,
+        EnvironmentOperationRequest::Destroy {
+            backend,
+            environment_id: silo_id,
+            confirm_destroy: true,
+        },
+    )
 }
 
 #[tauri::command]
@@ -1261,6 +2163,28 @@ fn list_archived_silos(state: State<'_, AppState>) -> Result<Vec<Silo>, String> 
 
 #[tauri::command]
 fn create_silo(state: State<'_, AppState>, input: CreateSiloInput) -> Result<Silo, String> {
+    let _local_reservation = state.local_control.reserve()?;
+    match &input.execution_target {
+        SiloExecutionTarget::Local => {}
+        SiloExecutionTarget::Wsl { distribution } => {
+            prepare_wsl_distribution(
+                &state,
+                distribution,
+                &[
+                    EnvironmentOperation::ConfigureNetwork,
+                    EnvironmentOperation::Start,
+                    EnvironmentOperation::Stop,
+                    EnvironmentOperation::Health,
+                ],
+            )?;
+        }
+        SiloExecutionTarget::Remote { .. } => {
+            return Err(
+                "Remote nodes are not yet selectable for a Silo because this build cannot verify that a browser and its device identity were applied there. Pairing a server alone is not enough, and VeriSilo will not pretend it is."
+                    .to_owned(),
+            );
+        }
+    }
     let mut vault = state
         .vault
         .lock()
@@ -1285,7 +2209,7 @@ fn update_silo(
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id);
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
     vault
         .update_silo(&state.root, silo_id, input, is_active)
         .map_err(|error| error.to_string())
@@ -1308,7 +2232,7 @@ fn update_silo_configuration(
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id);
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
     vault
         .update_silo_configuration(
             &state.root,
@@ -1331,7 +2255,7 @@ fn rename_silo(state: State<'_, AppState>, silo_id: Uuid, name: String) -> Resul
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id);
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
     vault
         .rename_silo(&state.root, silo_id, &name, is_active)
         .map_err(|error| error.to_string())
@@ -1352,7 +2276,7 @@ fn update_silo_network(
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id);
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
     vault
         .update_silo_network(&state.root, silo_id, input, is_active)
         .map_err(|error| error.to_string())
@@ -1373,10 +2297,60 @@ fn update_silo_engine(
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id);
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
     vault
         .update_silo_engine(&state.root, silo_id, input, is_active)
         .map_err(|error| error.to_string())
+}
+
+fn verified_current_wsl_artifact(
+    root: &std::path::Path,
+    silo: &Silo,
+) -> Result<Option<String>, String> {
+    let environment_root = root.join("environments");
+    let artifacts = environment::backend::local_environment_artifacts(
+        &environment_root,
+        silo.id,
+    )
+    .map_err(|_| {
+        "VeriSilo could not verify the saved run environment. It will not change or delete it automatically."
+            .to_owned()
+    })?;
+    if artifacts.is_empty() {
+        return Ok(None);
+    }
+    let SiloExecutionTarget::Wsl { distribution } = &silo.execution_target else {
+        return Err(
+            "Clean the older run environment shown in Overview before archiving or deleting this Silo."
+                .to_owned(),
+        );
+    };
+    if artifacts.as_slice() != [EnvironmentBackendId::WslChromium] {
+        return Err(
+            "This Silo has an additional older run environment. Clean it from Overview before continuing."
+                .to_owned(),
+        );
+    }
+    let bound_distribution = environment::backend::local_environment_binding_provider(
+        &environment_root,
+        silo.id,
+        EnvironmentBackendId::WslChromium,
+    )
+    .map_err(|_| {
+        "The Linux run environment ownership record is incomplete. VeriSilo will not change or delete it automatically."
+            .to_owned()
+    })?
+    .ok_or_else(|| {
+        "The Linux run environment ownership record is missing. VeriSilo will not change or delete it automatically."
+            .to_owned()
+    })?;
+    if &bound_distribution != distribution {
+        return Err(
+            "The saved Linux run location and its ownership record disagree. VeriSilo will not change either side automatically."
+                .to_owned(),
+        );
+    }
+    Ok(Some(bound_distribution))
 }
 
 #[tauri::command]
@@ -1390,15 +2364,9 @@ fn archive_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<(), String>
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id);
-    let environments = state
-        .environments
-        .lock()
-        .map_err(|_| "VeriSilo environment provider state is unavailable.".to_owned())?;
-    environments
-        .ensure_no_local_environment_artifacts(silo_id)
-        .map_err(|error| error.to_string())?;
-    drop(environments);
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+    let silo = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+    verified_current_wsl_artifact(&state.root, &silo)?;
     let profile_directory = vault
         .silo_profile_directory(silo_id)
         .map_err(|error| error.to_string())?;
@@ -1428,6 +2396,9 @@ fn delete_silo(
     silo_id: Uuid,
     confirm_permanent: bool,
 ) -> Result<(), String> {
+    if !confirm_permanent {
+        return Err("Permanent deletion requires explicit confirmation.".to_owned());
+    }
     let _local_reservation = state.local_control.reserve()?;
     let mut vault = state
         .vault
@@ -1437,15 +2408,58 @@ fn delete_silo(
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id);
-    let environments = state
-        .environments
-        .lock()
-        .map_err(|_| "VeriSilo environment provider state is unavailable.".to_owned())?;
-    environments
-        .ensure_no_local_environment_artifacts(silo_id)
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+    if is_active {
+        return Err("Stop this Silo before permanently deleting it.".to_owned());
+    }
+    let silo = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+    if vault
+        .remote_control_plane()
+        .map_err(|error| error.to_string())?
+        .backend
+        .bindings
+        .iter()
+        .any(|binding| binding.silo_id == silo_id)
+    {
+        return Err(
+            "Destroy or force-detach the remote environment before permanently deleting this Silo."
+                .to_owned(),
+        );
+    }
+    let profile_directory = vault
+        .silo_profile_directory(silo_id)
         .map_err(|error| error.to_string())?;
-    drop(environments);
+    if profile_in_use(&profile_directory) {
+        return Err("The Silo browser profile is still in use.".to_owned());
+    }
+    let wsl_distribution = verified_current_wsl_artifact(&state.root, &silo)?;
+    drop(runtime);
+    drop(vault);
+
+    if let Some(distribution) = wsl_distribution {
+        prepare_wsl_distribution(&state, &distribution, &[EnvironmentOperation::Destroy])?;
+        let mut environments = state
+            .environments
+            .lock()
+            .map_err(|_| "VeriSilo environment provider state is unavailable.".to_owned())?;
+        environments
+            .execute(EnvironmentOperationRequest::Destroy {
+                backend: EnvironmentBackendId::WslChromium,
+                environment_id: silo_id,
+                confirm_destroy: true,
+            })
+            .map_err(|error| error.to_string())?;
+    }
+
+    let mut vault = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
     vault
         .delete_silo(&state.root, silo_id, is_active, confirm_permanent)
         .map_err(|error| error.to_string())
@@ -1507,7 +2521,7 @@ fn recheck_silo_browser(
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id);
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
     vault
         .recheck_silo_browser(&state.root, silo_id, is_active)
         .map_err(|error| error.to_string())
@@ -1518,33 +2532,255 @@ fn recheck_silo_runtime(
     state: State<'_, AppState>,
     silo_id: Uuid,
 ) -> Result<RuntimeActivation, String> {
+    let _local_reservation = state.local_control.reserve()?;
     let mut vault = state
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
     vault.record_activity().map_err(|error| error.to_string())?;
     let silo = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
-    let proxy_authentication = vault
-        .proxy_authentication_for_silo(silo_id)
-        .map_err(|error| error.to_string())?;
-    let mihomo_authentication = vault
-        .mihomo_controller_authentication_for_silo(silo_id)
-        .map_err(|error| error.to_string())?;
     let vault_status = vault.status(&state.root);
-    let mut runtime = state
-        .runtime
+    match &silo.execution_target {
+        SiloExecutionTarget::Local => {
+            let proxy_authentication = vault
+                .proxy_authentication_for_silo(silo_id)
+                .map_err(|error| error.to_string())?;
+            let mihomo_authentication = vault
+                .mihomo_controller_authentication_for_silo(silo_id)
+                .map_err(|error| error.to_string())?;
+            let mut runtime = state
+                .runtime
+                .lock()
+                .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+            drop(vault);
+            let activation = runtime
+                .recheck_active(
+                    &silo,
+                    proxy_authentication.as_ref(),
+                    mihomo_authentication.as_ref(),
+                )
+                .map_err(|error| error.to_string())?;
+            publish_runtime_status(&state, &activation, &vault_status);
+            Ok(activation)
+        }
+        SiloExecutionTarget::Wsl { distribution } => {
+            let distribution = distribution.clone();
+            {
+                let environment_runtime = state.environment_runtime.lock().map_err(|_| {
+                    "VeriSilo environment runtime state is unavailable.".to_owned()
+                })?;
+                if environment_runtime.has_active_silo()
+                    && environment_runtime.activation.active_silo_id != Some(silo_id)
+                {
+                    return Err(
+                        "A different Silo is active; its runtime state cannot be replaced by this health check."
+                            .to_owned(),
+                    );
+                }
+                if !environment_runtime.is_active(silo_id) {
+                    return Ok(environment_runtime.activation.clone());
+                }
+            }
+            drop(vault);
+            let health = (|| -> Result<(), String> {
+                prepare_wsl_distribution(
+                    &state,
+                    &distribution,
+                    &[EnvironmentOperation::Health],
+                )?;
+                let mut environments = state.environments.lock().map_err(|_| {
+                    "VeriSilo environment provider state is unavailable.".to_owned()
+                })?;
+                environments
+                    .execute(EnvironmentOperationRequest::Health {
+                        backend: EnvironmentBackendId::WslChromium,
+                        environment_id: silo_id,
+                    })
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            })();
+            let record = EnvironmentRuntimeRecord {
+                schema_version: ENVIRONMENT_RUNTIME_RECORD_SCHEMA_VERSION,
+                silo_id,
+                distribution: distribution.clone(),
+            };
+            let activation = match health {
+                Ok(()) => RuntimeActivation {
+                    active_silo_id: Some(silo_id),
+                    state: RuntimeState::Running,
+                    updated_at: Utc::now(),
+                    message: Some(format!(
+                        "The isolated Linux browser is healthy in {distribution}."
+                    )),
+                    browser_verification: None,
+                    engine_evidence: None,
+                    network_evidence: None,
+                },
+                Err(error) => {
+                    let stopped = (|| -> Result<(), String> {
+                        prepare_wsl_distribution(
+                            &state,
+                            &distribution,
+                            &[EnvironmentOperation::Stop],
+                        )?;
+                        let mut environments = state.environments.lock().map_err(|_| {
+                            "VeriSilo environment provider state is unavailable.".to_owned()
+                        })?;
+                        environments
+                            .execute(EnvironmentOperationRequest::Stop {
+                                backend: EnvironmentBackendId::WslChromium,
+                                environment_id: silo_id,
+                            })
+                            .map(|_| ())
+                            .map_err(|stop_error| stop_error.to_string())
+                    })();
+                    if stopped.is_ok()
+                        && clear_environment_runtime_record(&state.root, &record).is_ok()
+                    {
+                        RuntimeActivation {
+                            active_silo_id: None,
+                            state: RuntimeState::Stopped,
+                            updated_at: Utc::now(),
+                            message: Some(format!(
+                                "The Linux browser was no longer healthy and has been stopped safely: {error}"
+                            )),
+                            browser_verification: None,
+                            engine_evidence: None,
+                            network_evidence: None,
+                        }
+                    } else {
+                        RuntimeActivation {
+                            active_silo_id: Some(silo_id),
+                            state: RuntimeState::RecoveryRequired,
+                            updated_at: Utc::now(),
+                            message: Some(format!(
+                                "The Linux browser could not be verified or stopped safely: {error}"
+                            )),
+                            browser_verification: None,
+                            engine_evidence: None,
+                            network_evidence: None,
+                        }
+                    }
+                }
+            };
+            let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
+                "VeriSilo environment runtime state is unavailable.".to_owned()
+            })?;
+            environment_runtime.activation = activation.clone();
+            environment_runtime.wsl_distribution = activation.active_silo_id.map(|_| distribution);
+            environment_runtime.reconciled = true;
+            environment_runtime.recovery_blocked = matches!(
+                activation.state,
+                RuntimeState::RecoveryRequired
+            );
+            publish_runtime_status(&state, &activation, &vault_status);
+            Ok(activation)
+        }
+        SiloExecutionTarget::Remote { .. } => Err(
+            "Remote browser health is unavailable because this build cannot verify a remote identity runtime."
+                .to_owned(),
+        ),
+    }
+}
+
+#[tauri::command]
+fn stop_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActivation, String> {
+    let _local_reservation = state.local_control.reserve()?;
+    let mut vault = state
+        .vault
         .lock()
-        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    drop(vault);
-    let activation = runtime
-        .recheck_active(
-            &silo,
-            proxy_authentication.as_ref(),
-            mihomo_authentication.as_ref(),
-        )
-        .map_err(|error| error.to_string())?;
-    publish_runtime_status(&state, &activation, &vault_status);
-    Ok(activation)
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    vault.record_activity().map_err(|error| error.to_string())?;
+    let silo = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+    let vault_status = vault.status(&state.root);
+    match silo.execution_target {
+        SiloExecutionTarget::Wsl { distribution } => {
+            {
+                let environment_runtime = state.environment_runtime.lock().map_err(|_| {
+                    "VeriSilo environment runtime state is unavailable.".to_owned()
+                })?;
+                if !environment_runtime.is_active(silo_id) {
+                    return Err(
+                        "This Silo is not the active Linux runtime; refusing to stop another environment."
+                            .to_owned(),
+                    );
+                }
+            }
+            drop(vault);
+            let stop_result = (|| -> Result<(), String> {
+                prepare_wsl_distribution(
+                    &state,
+                    &distribution,
+                    &[EnvironmentOperation::Stop],
+                )?;
+                let mut environments = state.environments.lock().map_err(|_| {
+                    "VeriSilo environment provider state is unavailable.".to_owned()
+                })?;
+                environments
+                    .execute(EnvironmentOperationRequest::Stop {
+                        backend: EnvironmentBackendId::WslChromium,
+                        environment_id: silo_id,
+                    })
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            })();
+            let record = EnvironmentRuntimeRecord {
+                schema_version: ENVIRONMENT_RUNTIME_RECORD_SCHEMA_VERSION,
+                silo_id,
+                distribution: distribution.clone(),
+            };
+            if let Err(error) = stop_result {
+                let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
+                    "VeriSilo environment runtime state is unavailable.".to_owned()
+                })?;
+                environment_runtime.activation.state = RuntimeState::RecoveryRequired;
+                environment_runtime.activation.updated_at = Utc::now();
+                environment_runtime.activation.message = Some(format!(
+                    "The Linux browser could not be stopped safely: {error}"
+                ));
+                environment_runtime.reconciled = true;
+                environment_runtime.recovery_blocked = true;
+                return Err(error);
+            }
+            if let Err(error) = clear_environment_runtime_record(&state.root, &record) {
+                let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
+                    "VeriSilo environment runtime state is unavailable.".to_owned()
+                })?;
+                environment_runtime.activation.state = RuntimeState::RecoveryRequired;
+                environment_runtime.activation.updated_at = Utc::now();
+                environment_runtime.activation.message = Some(error.clone());
+                environment_runtime.reconciled = true;
+                environment_runtime.recovery_blocked = true;
+                return Err(error);
+            }
+            let activation = RuntimeActivation {
+                active_silo_id: None,
+                state: RuntimeState::Stopped,
+                updated_at: Utc::now(),
+                message: Some("The isolated Linux browser was stopped.".to_owned()),
+                browser_verification: None,
+                engine_evidence: None,
+                network_evidence: None,
+            };
+            let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
+                "VeriSilo environment runtime state is unavailable.".to_owned()
+            })?;
+            environment_runtime.activation = activation.clone();
+            environment_runtime.wsl_distribution = None;
+            environment_runtime.reconciled = true;
+            environment_runtime.recovery_blocked = false;
+            publish_runtime_status(&state, &activation, &vault_status);
+            Ok(activation)
+        }
+        SiloExecutionTarget::Local => Err(
+            "Close the Silo browser window to stop a browser running on this computer. VeriSilo will not terminate unrelated browser processes."
+                .to_owned(),
+        ),
+        SiloExecutionTarget::Remote { .. } => Err(
+            "Remote stop is unavailable because this build has no verified remote browser runtime."
+                .to_owned(),
+        ),
+    }
 }
 
 #[tauri::command]
@@ -1558,6 +2794,12 @@ fn rebind_silo_mihomo(
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
     vault.record_activity().map_err(|error| error.to_string())?;
     let silo = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+    if !matches!(silo.execution_target, SiloExecutionTarget::Local) {
+        return Err(
+            "This network reconnection action is available only for a Silo running on this computer."
+                .to_owned(),
+        );
+    }
     let proxy_authentication = vault
         .proxy_authentication_for_silo(silo_id)
         .map_err(|error| error.to_string())?;
@@ -1590,50 +2832,292 @@ fn launch_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActiv
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
     vault.record_activity().map_err(|error| error.to_string())?;
     let silo = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
-    let managed_profile_directories = vault
-        .managed_profile_directories()
-        .map_err(|error| error.to_string())?;
-    let proxy_authentication = vault
-        .proxy_authentication_for_silo(silo_id)
-        .map_err(|error| error.to_string())?;
-    let mihomo_authentication = vault
-        .mihomo_controller_authentication_for_silo(silo_id)
-        .map_err(|error| error.to_string())?;
-    let identity_seed = (!silo.engine.is_stock())
-        .then(|| vault.identity_seed_for_silo(silo_id))
-        .transpose()
-        .map_err(|error| error.to_string())?;
-    let identity_deriver = identity_seed
-        .as_ref()
-        .map(|seed| VaultSeedIdentityTokenDeriver::new(seed.as_ref()))
-        .transpose()
-        .map_err(|error| error.to_string())?;
-    let vault_status = vault.status(&state.root);
-    let mut runtime = state
-        .runtime
-        .lock()
-        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    // Runtime is now reserved, so no edit command can pass its active check
-    // between reading Vault metadata and starting this exact configuration.
-    drop(vault);
-    match runtime.launch_with_identity_deriver(
-        &silo,
-        &managed_profile_directories,
-        proxy_authentication,
-        mihomo_authentication,
-        identity_deriver
-            .as_ref()
-            .map(|deriver| deriver as &dyn engine::IdentityTokenDeriver),
-    ) {
-        Ok(activation) => {
-            publish_runtime_status(&state, &activation, &vault_status);
-            Ok(activation)
+    let mut vault_status = vault.status(&state.root);
+    match silo.execution_target.clone() {
+        SiloExecutionTarget::Local => {
+            let managed_profile_directories = vault
+                .managed_profile_directories()
+                .map_err(|error| error.to_string())?;
+            let proxy_authentication = vault
+                .proxy_authentication_for_silo(silo_id)
+                .map_err(|error| error.to_string())?;
+            let mihomo_authentication = vault
+                .mihomo_controller_authentication_for_silo(silo_id)
+                .map_err(|error| error.to_string())?;
+            let identity_seed = (!silo.engine.is_stock())
+                .then(|| vault.identity_seed_for_silo(silo_id))
+                .transpose()
+                .map_err(|error| error.to_string())?;
+            let identity_deriver = identity_seed
+                .as_ref()
+                .map(|seed| VaultSeedIdentityTokenDeriver::new(seed.as_ref()))
+                .transpose()
+                .map_err(|error| error.to_string())?;
+            let mut runtime = state
+                .runtime
+                .lock()
+                .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+            if runtime.activation().active_silo_id.is_some() {
+                return Err(
+                    "Close the active browser Silo before starting another Silo.".to_owned(),
+                );
+            }
+            {
+                let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
+                    "VeriSilo environment runtime state is unavailable.".to_owned()
+                })?;
+                if environment_runtime.has_active_silo() {
+                    return Err(
+                        "Stop the active Silo before starting another run location.".to_owned(),
+                    );
+                }
+                environment_runtime.activation = RuntimeActivation::idle();
+                environment_runtime.wsl_distribution = None;
+                environment_runtime.reconciled = true;
+                environment_runtime.recovery_blocked = false;
+            }
+            // Runtime is now reserved, so no edit command can pass its active
+            // check between reading Vault metadata and starting this exact
+            // configuration.
+            let silo = vault
+                .mark_silo_identity_locked(&state.root, silo_id)
+                .map_err(|error| error.to_string())?;
+            vault_status = vault.status(&state.root);
+            drop(vault);
+            match runtime.launch_with_identity_deriver(
+                &silo,
+                &managed_profile_directories,
+                proxy_authentication,
+                mihomo_authentication,
+                identity_deriver
+                    .as_ref()
+                    .map(|deriver| deriver as &dyn engine::IdentityTokenDeriver),
+            ) {
+                Ok(activation) => {
+                    drop(runtime);
+                    publish_runtime_status(&state, &activation, &vault_status);
+                    Ok(activation)
+                }
+                Err(error) => {
+                    let activation = runtime.activation();
+                    publish_runtime_status(&state, &activation, &vault_status);
+                    Err(error.to_string())
+                }
+            }
         }
-        Err(error) => {
-            let activation = runtime.activation();
-            publish_runtime_status(&state, &activation, &vault_status);
-            Err(error.to_string())
+        SiloExecutionTarget::Wsl { distribution } => {
+            let network = wsl_network_profile(&silo)?;
+            let mut runtime = state
+                .runtime
+                .lock()
+                .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+            if runtime.activation().active_silo_id.is_some() {
+                return Err(
+                    "Close the browser Silo already running on this computer before starting the Linux environment."
+                        .to_owned(),
+                );
+            }
+            drop(runtime);
+            {
+                let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
+                    "VeriSilo environment runtime state is unavailable.".to_owned()
+                })?;
+                if environment_runtime.has_active_silo() {
+                    return Err(
+                        "Stop the active Silo before starting another run location.".to_owned(),
+                    );
+                }
+                environment_runtime.activation = RuntimeActivation {
+                    active_silo_id: Some(silo_id),
+                    state: RuntimeState::Preflight,
+                    updated_at: Utc::now(),
+                    message: Some(format!(
+                        "Checking the saved Linux environment {distribution}."
+                    )),
+                    browser_verification: None,
+                    engine_evidence: None,
+                    network_evidence: None,
+                };
+                environment_runtime.wsl_distribution = Some(distribution.clone());
+                environment_runtime.reconciled = true;
+                environment_runtime.recovery_blocked = false;
+            }
+            drop(vault);
+
+            let record = EnvironmentRuntimeRecord {
+                schema_version: ENVIRONMENT_RUNTIME_RECORD_SCHEMA_VERSION,
+                silo_id,
+                distribution: distribution.clone(),
+            };
+            let mut record_persisted = false;
+            let mut start_attempted = false;
+            let launch_result = (|| -> Result<RuntimeActivation, String> {
+                prepare_wsl_distribution(
+                    &state,
+                    &distribution,
+                    &[
+                        EnvironmentOperation::ConfigureNetwork,
+                        EnvironmentOperation::Start,
+                        EnvironmentOperation::Stop,
+                    ],
+                )?;
+                let mut environments = state.environments.lock().map_err(|_| {
+                    "VeriSilo environment provider state is unavailable.".to_owned()
+                })?;
+                if environments
+                    .execute(EnvironmentOperationRequest::Health {
+                        backend: EnvironmentBackendId::WslChromium,
+                        environment_id: silo_id,
+                    })
+                    .is_ok()
+                {
+                    environments
+                        .execute(EnvironmentOperationRequest::Stop {
+                            backend: EnvironmentBackendId::WslChromium,
+                            environment_id: silo_id,
+                        })
+                        .map_err(|error| {
+                            format!(
+                                "A previous browser process is still bound to this Silo and could not be stopped safely: {error}"
+                            )
+                        })?;
+                }
+                environments
+                    .execute(EnvironmentOperationRequest::ConfigureNetwork {
+                        backend: EnvironmentBackendId::WslChromium,
+                        environment_id: silo_id,
+                        network,
+                    })
+                    .map_err(|error| error.to_string())?;
+                drop(environments);
+
+                persist_environment_runtime_record(&state.root, &record)?;
+                record_persisted = true;
+                {
+                    let mut vault = state
+                        .vault
+                        .lock()
+                        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+                    vault
+                        .mark_silo_identity_locked(&state.root, silo_id)
+                        .map_err(|error| error.to_string())?;
+                    vault_status = vault.status(&state.root);
+                }
+                start_attempted = true;
+                let mut environments = state.environments.lock().map_err(|_| {
+                    "VeriSilo environment provider state is unavailable.".to_owned()
+                })?;
+                environments
+                    .execute(EnvironmentOperationRequest::Start {
+                        backend: EnvironmentBackendId::WslChromium,
+                        environment_id: silo_id,
+                    })
+                    .map_err(|error| error.to_string())?;
+                Ok(RuntimeActivation {
+                    active_silo_id: Some(silo_id),
+                    state: RuntimeState::Running,
+                    updated_at: Utc::now(),
+                    message: Some(format!(
+                        "Silo is running in the saved Linux environment {distribution}."
+                    )),
+                    browser_verification: None,
+                    engine_evidence: None,
+                    network_evidence: None,
+                })
+            })();
+
+            match launch_result {
+                Ok(activation) => {
+                    let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
+                        "VeriSilo environment runtime state is unavailable.".to_owned()
+                    })?;
+                    environment_runtime.activation = activation.clone();
+                    environment_runtime.wsl_distribution = Some(distribution);
+                    environment_runtime.reconciled = true;
+                    environment_runtime.recovery_blocked = false;
+                    publish_runtime_status(&state, &activation, &vault_status);
+                    Ok(activation)
+                }
+                Err(error) => {
+                    let cleanup_result = if !record_persisted {
+                        match environment_runtime_record_exists(&state.root) {
+                            Ok(false) => Ok(()),
+                            Ok(true) => Err(
+                                "A Linux runtime record exists after the failed launch; recovery is required before another Silo can start."
+                                    .to_owned(),
+                            ),
+                            Err(inspect_error) => Err(inspect_error),
+                        }
+                    } else if start_attempted {
+                        (|| -> Result<(), String> {
+                            prepare_wsl_distribution(
+                                &state,
+                                &distribution,
+                                &[EnvironmentOperation::Stop],
+                            )?;
+                            let mut environments = state.environments.lock().map_err(|_| {
+                                "VeriSilo environment provider state is unavailable.".to_owned()
+                            })?;
+                            environments
+                                .execute(EnvironmentOperationRequest::Stop {
+                                    backend: EnvironmentBackendId::WslChromium,
+                                    environment_id: silo_id,
+                                })
+                                .map_err(|stop_error| stop_error.to_string())?;
+                            clear_environment_runtime_record(&state.root, &record)
+                        })()
+                    } else {
+                        clear_environment_runtime_record(&state.root, &record)
+                    };
+                    let cleanup_failed = cleanup_result.is_err();
+                    let activation = if cleanup_failed {
+                        RuntimeActivation {
+                            active_silo_id: Some(silo_id),
+                            state: RuntimeState::RecoveryRequired,
+                            updated_at: Utc::now(),
+                            message: Some(format!(
+                                "The Linux browser did not start cleanly and its exact runtime could not be confirmed stopped: {error}. Cleanup also failed: {}",
+                                cleanup_result.expect_err("checked cleanup failure")
+                            )),
+                            browser_verification: None,
+                            engine_evidence: None,
+                            network_evidence: None,
+                        }
+                    } else {
+                        RuntimeActivation {
+                            active_silo_id: None,
+                            state: RuntimeState::Failed,
+                            updated_at: Utc::now(),
+                            message: Some(error.clone()),
+                            browser_verification: None,
+                            engine_evidence: None,
+                            network_evidence: None,
+                        }
+                    };
+                    let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
+                        "VeriSilo environment runtime state is unavailable.".to_owned()
+                    })?;
+                    environment_runtime.activation = activation.clone();
+                    environment_runtime.wsl_distribution =
+                        cleanup_failed.then(|| distribution.clone());
+                    environment_runtime.reconciled = true;
+                    environment_runtime.recovery_blocked = cleanup_failed;
+                    publish_runtime_status(&state, &activation, &vault_status);
+                    if cleanup_failed {
+                        Err(activation
+                            .message
+                            .clone()
+                            .unwrap_or(error))
+                    } else {
+                        Err(error)
+                    }
+                }
+            }
         }
+        SiloExecutionTarget::Remote { .. } => Err(
+            "This Silo targets a remote node, but this build has no verified remote browser identity runtime. VeriSilo will not fall back to the local computer."
+                .to_owned(),
+        ),
     }
 }
 
@@ -1733,6 +3217,8 @@ pub fn run() {
             environment_backend_statuses,
             select_wsl_environment_distribution,
             environment_backend_execute,
+            list_legacy_environment_artifacts,
+            cleanup_legacy_environment_artifact,
             inspect_mihomo_controller,
             list_silos,
             list_active_silos,
@@ -1751,6 +3237,7 @@ pub fn run() {
             clear_network_evidence,
             recheck_silo_browser,
             recheck_silo_runtime,
+            stop_silo,
             rebind_silo_mihomo,
             launch_silo,
         ])
@@ -1761,9 +3248,198 @@ pub fn run() {
 #[cfg(test)]
 mod local_lifecycle_tests {
     use std::sync::TryLockError;
+    use std::{fs, path::PathBuf};
 
-    use super::{is_tray_primary_activation, LocalEnvironmentControl};
+    use chrono::Utc;
     use tauri::tray::{MouseButton, MouseButtonState};
+    use uuid::Uuid;
+
+    use super::{
+        is_tray_primary_activation, verified_current_wsl_artifact, LocalEnvironmentControl,
+    };
+    use crate::domain::{
+        BrowserDescriptor, BrowserKind, CreateSiloInput, NetworkProfile, Silo, SiloExecutionTarget,
+        SCHEMA_VERSION,
+    };
+    use crate::vault::VaultRuntime;
+
+    fn temporary_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("verisilo-lib-{label}-{}", Uuid::new_v4()))
+    }
+
+    fn wsl_silo(id: Uuid, distribution: &str) -> Silo {
+        Silo {
+            id,
+            schema_version: SCHEMA_VERSION,
+            name: "WSL artifact test".to_owned(),
+            color: "#5b5ce2".to_owned(),
+            browser: BrowserDescriptor {
+                kind: BrowserKind::Chrome,
+                executable_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+                    .to_owned(),
+                version: Some("126.0.0.0".to_owned()),
+            },
+            execution_target: SiloExecutionTarget::Wsl {
+                distribution: distribution.to_owned(),
+            },
+            profile_directory: "C:\\Users\\Test\\AppData\\Local\\VeriSilo\\silo".to_owned(),
+            network_profile: NetworkProfile::Direct {
+                proxy_required: false,
+            },
+            engine: Default::default(),
+            seed_reference: Uuid::new_v4(),
+            created_at: Utc::now(),
+            identity_locked_at: None,
+            archived_at: None,
+        }
+    }
+
+    fn wsl_artifact_directory(root: &std::path::Path, silo_id: Uuid) -> PathBuf {
+        root.join("environments")
+            .join("wsl")
+            .join(silo_id.to_string())
+    }
+
+    fn write_wsl_binding(root: &std::path::Path, silo_id: Uuid, distribution: &str) -> PathBuf {
+        let directory = wsl_artifact_directory(root, silo_id);
+        fs::create_dir_all(&directory).expect("create WSL artifact directory");
+        fs::write(
+            directory.join("binding.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "schemaVersion": crate::environment::backend::ENVIRONMENT_CONTRACT_VERSION,
+                "environmentId": silo_id,
+                "backend": "wsl-chromium",
+                "providerKey": distribution,
+            }))
+            .expect("serialize WSL binding"),
+        )
+        .expect("write WSL binding");
+        directory
+    }
+
+    #[test]
+    fn verified_current_wsl_artifact_accepts_only_one_matching_wsl_binding() {
+        let root = temporary_root("verified-wsl-binding");
+        let silo_id = Uuid::new_v4();
+        let silo = wsl_silo(silo_id, "Ubuntu-24.04");
+        write_wsl_binding(&root, silo_id, "Ubuntu-24.04");
+
+        assert_eq!(
+            verified_current_wsl_artifact(&root, &silo).expect("verify matching WSL artifact"),
+            Some("Ubuntu-24.04".to_owned())
+        );
+
+        fs::remove_dir_all(root).expect("remove matching WSL fixture");
+    }
+
+    #[test]
+    fn verified_current_wsl_artifact_returns_none_without_an_artifact() {
+        let root = temporary_root("verified-wsl-none");
+        fs::create_dir_all(&root).expect("create empty WSL fixture");
+        let silo = wsl_silo(Uuid::new_v4(), "Ubuntu-24.04");
+
+        assert_eq!(
+            verified_current_wsl_artifact(&root, &silo).expect("verify missing WSL artifact"),
+            None
+        );
+
+        fs::remove_dir_all(root).expect("remove empty WSL fixture");
+    }
+
+    #[test]
+    fn verified_current_wsl_artifact_rejects_extra_backend_artifacts() {
+        let root = temporary_root("verified-wsl-extra-backend");
+        let silo_id = Uuid::new_v4();
+        let silo = wsl_silo(silo_id, "Ubuntu-24.04");
+        write_wsl_binding(&root, silo_id, "Ubuntu-24.04");
+        fs::create_dir_all(
+            root.join("environments")
+                .join("sandbox")
+                .join(silo_id.to_string()),
+        )
+        .expect("create extra backend artifact");
+
+        assert!(verified_current_wsl_artifact(&root, &silo).is_err());
+
+        fs::remove_dir_all(root).expect("remove extra backend fixture");
+    }
+
+    #[test]
+    fn verified_current_wsl_artifact_rejects_missing_or_incomplete_binding() {
+        let missing_root = temporary_root("verified-wsl-missing-binding");
+        let missing_id = Uuid::new_v4();
+        let missing_silo = wsl_silo(missing_id, "Ubuntu-24.04");
+        fs::create_dir_all(wsl_artifact_directory(&missing_root, missing_id))
+            .expect("create missing binding artifact");
+        assert!(verified_current_wsl_artifact(&missing_root, &missing_silo).is_err());
+        fs::remove_dir_all(missing_root).expect("remove missing binding fixture");
+
+        let incomplete_root = temporary_root("verified-wsl-incomplete-binding");
+        let incomplete_id = Uuid::new_v4();
+        let incomplete_silo = wsl_silo(incomplete_id, "Ubuntu-24.04");
+        let directory = wsl_artifact_directory(&incomplete_root, incomplete_id);
+        fs::create_dir_all(&directory).expect("create incomplete binding artifact");
+        fs::write(directory.join("binding.json"), b"{}").expect("write incomplete binding");
+        assert!(verified_current_wsl_artifact(&incomplete_root, &incomplete_silo).is_err());
+        fs::remove_dir_all(incomplete_root).expect("remove incomplete binding fixture");
+    }
+
+    #[test]
+    fn verified_current_wsl_artifact_rejects_distribution_mismatch() {
+        let root = temporary_root("verified-wsl-distribution-mismatch");
+        let silo_id = Uuid::new_v4();
+        let silo = wsl_silo(silo_id, "Ubuntu-24.04");
+        write_wsl_binding(&root, silo_id, "Debian");
+
+        assert!(verified_current_wsl_artifact(&root, &silo).is_err());
+
+        fs::remove_dir_all(root).expect("remove distribution mismatch fixture");
+    }
+
+    #[test]
+    fn wsl_destroy_then_transient_vault_failure_can_be_retried_safely() {
+        let root = temporary_root("wsl-delete-retry");
+        fs::create_dir_all(&root).expect("create WSL delete fixture");
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, "a WSL deletion retry passphrase")
+            .expect("initialize retry Vault");
+        let silo = vault
+            .create_silo(
+                &root,
+                CreateSiloInput {
+                    name: "WSL delete retry".to_owned(),
+                    color: "#5b5ce2".to_owned(),
+                    browser_kind: BrowserKind::Chrome,
+                    executable_path: "/usr/bin/chromium".to_owned(),
+                    execution_target: SiloExecutionTarget::Wsl {
+                        distribution: "Ubuntu-24.04".to_owned(),
+                    },
+                    network_profile: NetworkProfile::Direct {
+                        proxy_required: false,
+                    },
+                    engine: Default::default(),
+                    proxy_credentials: None,
+                    mihomo_controller_secret: None,
+                },
+            )
+            .expect("create WSL Silo");
+        let artifact = write_wsl_binding(&root, silo.id, "Ubuntu-24.04");
+        assert!(verified_current_wsl_artifact(&root, &silo)
+            .expect("verify WSL artifact before destroy")
+            .is_some());
+
+        fs::remove_dir_all(artifact).expect("simulate successful WSL destroy");
+        assert!(vault.delete_silo(&root, silo.id, true, true).is_err());
+        assert_eq!(vault.list_silos().expect("list retained Silo").len(), 1);
+
+        vault
+            .delete_silo(&root, silo.id, false, true)
+            .expect("retry Vault deletion after transient failure");
+        assert!(vault.list_silos().expect("list deleted Silos").is_empty());
+
+        fs::remove_dir_all(root).expect("remove WSL delete fixture");
+    }
 
     #[test]
     fn tray_primary_activation_is_a_completed_left_click() {

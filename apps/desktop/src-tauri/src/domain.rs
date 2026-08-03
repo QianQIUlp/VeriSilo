@@ -18,7 +18,7 @@ use crate::engine::{
     SiloEngineConfig, SiteFallbackReceipt,
 };
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -52,6 +52,134 @@ pub struct BrowserDescriptor {
     pub kind: BrowserKind,
     pub executable_path: String,
     pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum SiloExecutionTarget {
+    Local,
+    Wsl { distribution: String },
+    Remote { endpoint_origin: String },
+}
+
+impl Default for SiloExecutionTarget {
+    fn default() -> Self {
+        Self::Local
+    }
+}
+
+impl SiloExecutionTarget {
+    pub fn is_local(&self) -> bool {
+        matches!(self, Self::Local)
+    }
+
+    pub fn validate(&self) -> Result<(), DomainError> {
+        match self {
+            Self::Local => Ok(()),
+            Self::Wsl { distribution } => {
+                if distribution.trim().is_empty()
+                    || distribution.len() > 128
+                    || distribution.chars().any(char::is_control)
+                {
+                    return Err(DomainError::InvalidSilo(
+                        "The WSL distribution must be non-empty, at most 128 bytes, and contain no control characters."
+                            .to_owned(),
+                    ));
+                }
+                Ok(())
+            }
+            Self::Remote { endpoint_origin } => {
+                if endpoint_origin.trim() != endpoint_origin
+                    || endpoint_origin.is_empty()
+                    || endpoint_origin.len() > 2_048
+                    || endpoint_origin.chars().any(char::is_control)
+                {
+                    return Err(DomainError::InvalidSilo(
+                        "The remote endpoint origin is empty, too long, or contains unsafe characters."
+                            .to_owned(),
+                    ));
+                }
+                let parsed = Url::parse(endpoint_origin).map_err(|_| {
+                    DomainError::InvalidSilo(
+                        "The remote endpoint must be a valid HTTPS origin.".to_owned(),
+                    )
+                })?;
+                let authority_and_suffix = endpoint_origin
+                    .find("://")
+                    .and_then(|separator| endpoint_origin.get(separator + 3..))
+                    .ok_or_else(|| {
+                        DomainError::InvalidSilo(
+                            "The remote endpoint must be a valid HTTPS origin.".to_owned(),
+                        )
+                    })?;
+                let suffix_start = authority_and_suffix
+                    .find(['/', '?', '#'])
+                    .unwrap_or(authority_and_suffix.len());
+                let (raw_authority, raw_suffix) = authority_and_suffix.split_at(suffix_start);
+                if parsed.scheme() != "https"
+                    || parsed.host_str().is_none()
+                    || !parsed.username().is_empty()
+                    || parsed.password().is_some()
+                    || parsed.path() != "/"
+                    || parsed.query().is_some()
+                    || parsed.fragment().is_some()
+                    || raw_authority.contains('@')
+                    || !matches!(raw_suffix, "" | "/")
+                {
+                    return Err(DomainError::InvalidSilo(
+                        "The remote endpoint must be an HTTPS origin without credentials, a path, query, or fragment."
+                            .to_owned(),
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    pub fn validate_network_input(
+        &self,
+        network_profile: &NetworkProfile,
+        proxy_credentials: Option<&ProxyCredentialsInput>,
+        mihomo_controller_secret: Option<&MihomoControllerSecretInput>,
+    ) -> Result<(), DomainError> {
+        validate_network_replacement(network_profile, proxy_credentials, mihomo_controller_secret)?;
+        let wsl_network_supported = match network_profile {
+            NetworkProfile::Direct { proxy_required } => !proxy_required,
+            NetworkProfile::FixedProxy {
+                scheme: ProxyScheme::Socks5,
+                host,
+                port,
+                bypass_list,
+                credential_reference: None,
+                external_mihomo: None,
+                ..
+            } => host == "127.0.0.1" && *port > 0 && bypass_list.is_empty(),
+            _ => false,
+        };
+        match self {
+            Self::Local => Ok(()),
+            Self::Wsl { .. }
+                if proxy_credentials.is_none()
+                    && mihomo_controller_secret.is_none()
+                    && wsl_network_supported =>
+            {
+                Ok(())
+            }
+            Self::Wsl { .. } => Err(DomainError::InvalidNetwork(
+                "A WSL Silo currently accepts direct access or a credential-free loopback SOCKS5 endpoint inside that Linux environment."
+                    .to_owned(),
+            )),
+            Self::Remote { .. } => Err(DomainError::InvalidNetwork(
+                "Remote Silo network changes are unavailable until the remote browser identity runtime is verified."
+                    .to_owned(),
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -438,12 +566,16 @@ pub struct Silo {
     pub name: String,
     pub color: String,
     pub browser: BrowserDescriptor,
+    #[serde(default)]
+    pub execution_target: SiloExecutionTarget,
     pub profile_directory: String,
     pub network_profile: NetworkProfile,
     #[serde(default)]
     pub engine: SiloEngineConfig,
     pub seed_reference: Uuid,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub identity_locked_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
 }
 
@@ -454,6 +586,8 @@ pub struct CreateSiloInput {
     pub color: String,
     pub browser_kind: BrowserKind,
     pub executable_path: String,
+    #[serde(default)]
+    pub execution_target: SiloExecutionTarget,
     pub network_profile: NetworkProfile,
     #[serde(default)]
     pub engine: SiloEngineConfig,
@@ -517,8 +651,17 @@ pub struct MihomoControllerSecretInput {
 
 impl CreateSiloInput {
     pub fn validate(&self) -> Result<(), DomainError> {
-        validate_silo_metadata(&self.name, &self.color, &self.executable_path)?;
-        validate_network_replacement(
+        validate_silo_appearance(&self.name, &self.color)?;
+        self.execution_target.validate()?;
+        if self.execution_target.is_local() {
+            validate_browser_executable(&self.executable_path)?;
+        } else if !self.engine.is_stock() {
+            return Err(DomainError::InvalidEngine(
+                "WSL and remote execution currently accept only the fixed stock guest engine."
+                    .to_owned(),
+            ));
+        }
+        self.execution_target.validate_network_input(
             &self.network_profile,
             self.proxy_credentials.as_ref(),
             self.mihomo_controller_secret.as_ref(),
@@ -531,11 +674,33 @@ impl UpdateSiloInput {
     pub fn validate(&self) -> Result<(), DomainError> {
         validate_silo_metadata(&self.name, &self.color, &self.executable_path)
     }
+
+    pub fn validate_for_execution_target(
+        &self,
+        execution_target: &SiloExecutionTarget,
+    ) -> Result<(), DomainError> {
+        validate_silo_appearance(&self.name, &self.color)?;
+        if execution_target.is_local() {
+            validate_browser_executable(&self.executable_path)?;
+        }
+        Ok(())
+    }
 }
 
 impl UpdateSiloNetworkInput {
     pub fn validate(&self) -> Result<(), DomainError> {
         validate_network_replacement(
+            &self.network_profile,
+            self.proxy_credentials.as_ref(),
+            self.mihomo_controller_secret.as_ref(),
+        )
+    }
+
+    pub fn validate_for_execution_target(
+        &self,
+        execution_target: &SiloExecutionTarget,
+    ) -> Result<(), DomainError> {
+        execution_target.validate_network_input(
             &self.network_profile,
             self.proxy_credentials.as_ref(),
             self.mihomo_controller_secret.as_ref(),
@@ -572,12 +737,21 @@ fn validate_silo_metadata(
     color: &str,
     executable_path: &str,
 ) -> Result<(), DomainError> {
+    validate_silo_appearance(name, color)?;
+    validate_browser_executable(executable_path)
+}
+
+fn validate_silo_appearance(name: &str, color: &str) -> Result<(), DomainError> {
     validate_silo_name(name)?;
     if !is_hex_color(color) {
         return Err(DomainError::InvalidSilo(
             "Silo color must be a six-digit hex color.".to_owned(),
         ));
     }
+    Ok(())
+}
+
+fn validate_browser_executable(executable_path: &str) -> Result<(), DomainError> {
     if !Path::new(executable_path).is_file() {
         return Err(DomainError::InvalidSilo(
             "The selected browser executable does not exist.".to_owned(),
@@ -1449,7 +1623,7 @@ mod tests {
     };
     use super::{
         verify_browser_descriptor, BrowserDescriptor, BrowserKind, BrowserVerificationState,
-        NetworkProfile, ProxyScheme, Silo,
+        NetworkProfile, ProxyScheme, Silo, SiloExecutionTarget,
     };
 
     fn browser_fixture(output: &str) -> std::path::PathBuf {
@@ -1553,6 +1727,82 @@ mod tests {
         }))
         .expect("legacy Silo");
         assert!(silo.engine.is_stock());
+        assert_eq!(silo.execution_target, SiloExecutionTarget::Local);
+        assert!(silo.identity_locked_at.is_none());
+    }
+
+    #[test]
+    fn execution_target_wire_shape_is_strict_and_explicit() {
+        assert_eq!(
+            serde_json::to_value(SiloExecutionTarget::Local).expect("serialize local target"),
+            serde_json::json!({ "kind": "local" })
+        );
+        assert_eq!(
+            serde_json::to_value(SiloExecutionTarget::Wsl {
+                distribution: "Ubuntu-24.04".to_owned(),
+            })
+            .expect("serialize WSL target"),
+            serde_json::json!({
+                "kind": "wsl",
+                "distribution": "Ubuntu-24.04"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(SiloExecutionTarget::Remote {
+                endpoint_origin: "https://remote.example.test:8443".to_owned(),
+            })
+            .expect("serialize remote target"),
+            serde_json::json!({
+                "kind": "remote",
+                "endpointOrigin": "https://remote.example.test:8443"
+            })
+        );
+        assert!(
+            serde_json::from_value::<SiloExecutionTarget>(serde_json::json!({
+                "kind": "wsl",
+                "distribution": "Ubuntu",
+                "futureField": true
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn execution_target_validation_rejects_ambiguous_runtime_addresses() {
+        assert!(SiloExecutionTarget::Wsl {
+            distribution: "Ubuntu-24.04".to_owned(),
+        }
+        .validate()
+        .is_ok());
+        for distribution in [
+            "".to_owned(),
+            "   ".to_owned(),
+            "Ubuntu\n".to_owned(),
+            "x".repeat(129),
+        ] {
+            assert!(SiloExecutionTarget::Wsl { distribution }
+                .validate()
+                .is_err());
+        }
+
+        assert!(SiloExecutionTarget::Remote {
+            endpoint_origin: "https://remote.example.test:8443".to_owned(),
+        }
+        .validate()
+        .is_ok());
+        for endpoint_origin in [
+            "http://remote.example.test".to_owned(),
+            "https://user:password@remote.example.test".to_owned(),
+            "https://@remote.example.test".to_owned(),
+            "https://remote.example.test/runtime".to_owned(),
+            "https://remote.example.test/.".to_owned(),
+            "https://remote.example.test?tenant=one".to_owned(),
+            "https://remote.example.test/#fragment".to_owned(),
+        ] {
+            assert!(SiloExecutionTarget::Remote { endpoint_origin }
+                .validate()
+                .is_err());
+        }
     }
 
     #[test]

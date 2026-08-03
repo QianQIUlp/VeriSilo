@@ -12,7 +12,7 @@ import {
 
 const silo: Silo = {
   id: "11111111-1111-4111-8111-111111111111",
-  schemaVersion: 1,
+  schemaVersion: 2,
   name: "<img src=x onerror=alert('name')>",
   color: "#5b5ce2",
   browser: {
@@ -21,6 +21,8 @@ const silo: Silo = {
     version: "127.0.6533.89",
   },
   engine: { adapter: "stock" },
+  executionTarget: { kind: "local" },
+  identityLockedAt: null,
   profileDirectory: "C:\\Users\\alice\\AppData\\VeriSilo\\browser-data\\work",
   networkProfile: {
     mode: "fixed_proxy",

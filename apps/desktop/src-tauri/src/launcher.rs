@@ -2363,7 +2363,7 @@ mod tests {
     use crate::domain::{
         BrowserDescriptor, BrowserKind, NetworkProfile, RuntimeActivation, RuntimeEngineEvidence,
         RuntimeEvidenceState, RuntimeNetworkEvidence, RuntimeNetworkEvidenceProvenance,
-        RuntimeState, Silo, SCHEMA_VERSION,
+        RuntimeState, Silo, SiloExecutionTarget, SCHEMA_VERSION,
     };
     #[cfg(unix)]
     use crate::domain::{ExternalMihomoBinding, ProxyScheme};
@@ -2410,11 +2410,13 @@ mod tests {
                     .to_string(),
                 version: Some("126.0.6478.127".to_owned()),
             },
+            execution_target: SiloExecutionTarget::Local,
             profile_directory: profile_directory.to_string_lossy().to_string(),
             network_profile,
             engine: Default::default(),
             seed_reference: Uuid::new_v4(),
             created_at: Utc::now(),
+            identity_locked_at: None,
             archived_at: None,
         }
     }

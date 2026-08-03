@@ -10,10 +10,13 @@ import {
 } from "./protocol.js";
 import {
   networkProfileSchema,
+  OBSERVATION_REPORT_SCHEMA_VERSION,
   PROTOCOL_VERSION,
   runtimeActivationSchema,
   runtimeCapabilitySchema,
   runtimeEngineEvidenceSchema,
+  SCHEMA_VERSION,
+  siloExecutionTargetSchema,
   siloSchema,
 } from "./models.js";
 
@@ -35,7 +38,84 @@ describe("VeriSilo contracts", () => {
       createdAt: "2026-07-28T00:00:00.000Z",
       archivedAt: null,
     });
+    expect(silo.schemaVersion).toBe(SCHEMA_VERSION);
     expect(silo.engine).toEqual({ adapter: "stock" });
+    expect(silo.executionTarget).toEqual({ kind: "local" });
+    expect(silo.identityLockedAt).toBeNull();
+  });
+
+  it("accepts local, WSL, and remote Silo execution targets", () => {
+    expect(siloExecutionTargetSchema.parse({ kind: "local" })).toEqual({
+      kind: "local",
+    });
+    expect(
+      siloExecutionTargetSchema.parse({
+        kind: "wsl",
+        distribution: "Ubuntu-24.04",
+      }),
+    ).toEqual({ kind: "wsl", distribution: "Ubuntu-24.04" });
+    expect(
+      siloExecutionTargetSchema.parse({
+        kind: "remote",
+        endpointOrigin: "https://runtime.example.test:8443",
+      }),
+    ).toEqual({
+      kind: "remote",
+      endpointOrigin: "https://runtime.example.test:8443",
+    });
+  });
+
+  it.each([
+    "http://runtime.example.test",
+    "https://runtime.example.test/agent",
+    "https://runtime.example.test?region=sg",
+    "https://user:secret@runtime.example.test",
+  ])("rejects a non-HTTPS-origin remote endpoint: %s", (endpointOrigin) => {
+    expect(() =>
+      siloExecutionTargetSchema.parse({ kind: "remote", endpointOrigin }),
+    ).toThrow(/HTTPS origin/);
+  });
+
+  it("defaults a current Silo to local execution with an unlocked identity", () => {
+    const silo = siloSchema.parse({
+      id: "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
+      schemaVersion: SCHEMA_VERSION,
+      name: "Current",
+      color: "#4f46e5",
+      browser: {
+        kind: "chrome",
+        executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
+      },
+      profileDirectory: "C:/VeriSilo/silos/current/browser-data",
+      networkProfile: { mode: "direct", proxyRequired: false },
+      seedReference: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      createdAt: "2026-07-28T00:00:00.000Z",
+      archivedAt: null,
+    });
+    expect(silo.executionTarget).toEqual({ kind: "local" });
+    expect(silo.identityLockedAt).toBeNull();
+  });
+
+  it("keeps the current Silo contract strict", () => {
+    expect(() =>
+      siloSchema.parse({
+        id: "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
+        schemaVersion: SCHEMA_VERSION,
+        name: "Current",
+        color: "#4f46e5",
+        browser: {
+          kind: "chrome",
+          executablePath:
+            "C:/Program Files/Google/Chrome/Application/chrome.exe",
+        },
+        profileDirectory: "C:/VeriSilo/silos/current/browser-data",
+        networkProfile: { mode: "direct", proxyRequired: false },
+        seedReference: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        createdAt: "2026-07-28T00:00:00.000Z",
+        archivedAt: null,
+        unexpected: true,
+      }),
+    ).toThrow();
   });
 
   it("accepts an explicit direct network profile", () => {
@@ -339,7 +419,7 @@ describe("VeriSilo contracts", () => {
 
   it("explains a mobile declaration without touch capability without claiming fraud", () => {
     const findings = analyzeConsistency({
-      schemaVersion: 1,
+      schemaVersion: OBSERVATION_REPORT_SCHEMA_VERSION,
       reportId: "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
       origin: "https://example.test",
       collectedAt: new Date().toISOString(),

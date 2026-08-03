@@ -848,6 +848,72 @@ pub fn local_environment_artifacts(
     Ok(artifacts)
 }
 
+/// Reads a UUID-derived provider binding without trusting a caller-selected
+/// provider handle. This is used only to clean up environment state created by
+/// older Vault schemas that did not persist a Silo run location.
+pub fn local_environment_binding_provider(
+    environment_root: &Path,
+    environment_id: Uuid,
+    backend: EnvironmentBackendId,
+) -> Result<Option<String>, EnvironmentBackendError> {
+    require_absolute_clean_path(environment_root, "Local environment binding root")?;
+    let provider_directory = match backend {
+        EnvironmentBackendId::WslChromium => "wsl",
+        EnvironmentBackendId::WindowsSandbox => "sandbox",
+        EnvironmentBackendId::HyperV => "hyperv",
+    };
+    let state_root = environment_root.join(provider_directory);
+    let environment_path = environment_directory(&state_root, environment_id);
+    match fs::symlink_metadata(&environment_path) {
+        Ok(metadata) if !metadata_is_reparse_point(&metadata) && metadata.is_dir() => {}
+        Ok(_) => {
+            return Err(EnvironmentBackendError::Protocol(
+                "The legacy environment owner path is not a real directory.".to_owned(),
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(EnvironmentBackendError::Io(error)),
+    }
+
+    let bytes = read_bounded_regular_file(
+        &binding_path(&state_root, environment_id),
+        MAX_BINDING_BYTES,
+    )?;
+    let actual: EnvironmentBinding = serde_json::from_slice(&bytes)?;
+    if actual.schema_version != ENVIRONMENT_CONTRACT_VERSION
+        || actual.environment_id != environment_id
+        || actual.backend != backend
+    {
+        return Err(EnvironmentBackendError::Protocol(
+            "The legacy environment binding does not match its UUID and provider namespace."
+                .to_owned(),
+        ));
+    }
+    match backend {
+        EnvironmentBackendId::WslChromium => validate_distribution_name(&actual.provider_key)?,
+        EnvironmentBackendId::WindowsSandbox
+            if actual.provider_key != "windows-sandbox-v0.8-ephemeral" =>
+        {
+            return Err(EnvironmentBackendError::Protocol(
+                "The legacy Windows Sandbox binding uses an unknown provider identity.".to_owned(),
+            ));
+        }
+        EnvironmentBackendId::HyperV
+            if actual.provider_key != format!("VeriSilo-{environment_id}") =>
+        {
+            return Err(EnvironmentBackendError::Protocol(
+                "The legacy Hyper-V binding uses an unknown provider identity.".to_owned(),
+            ));
+        }
+        _ => {}
+    }
+    require_binding(
+        &state_root,
+        &EnvironmentBinding::new(environment_id, backend, actual.provider_key.clone()),
+    )?;
+    Ok(Some(actual.provider_key))
+}
+
 fn local_environment_provider_directories() -> [(&'static str, EnvironmentBackendId); 3] {
     [
         ("wsl", EnvironmentBackendId::WslChromium),
@@ -4194,6 +4260,70 @@ mod tests {
                 .expect("strict detach JSON");
         assert_eq!(request["environmentId"], serde_json::json!(environment_id));
         assert_eq!(request["confirmDestroy"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn legacy_cleanup_discovers_only_exact_uuid_bound_provider_owners() {
+        let environment_root = temporary_root("legacy-binding-owner");
+        let unbound_id = Uuid::new_v4();
+        assert_eq!(
+            local_environment_binding_provider(
+                &environment_root,
+                unbound_id,
+                EnvironmentBackendId::WslChromium,
+            )
+            .expect("missing legacy owner"),
+            None
+        );
+
+        let bound_id = Uuid::new_v4();
+        ensure_binding(
+            &environment_root.join("wsl"),
+            &EnvironmentBinding::new(
+                bound_id,
+                EnvironmentBackendId::WslChromium,
+                "Ubuntu-24.04".to_owned(),
+            ),
+        )
+        .expect("write exact WSL owner");
+        assert_eq!(
+            local_environment_binding_provider(
+                &environment_root,
+                bound_id,
+                EnvironmentBackendId::WslChromium,
+            )
+            .expect("read exact WSL owner"),
+            Some("Ubuntu-24.04".to_owned())
+        );
+
+        let partial_id = Uuid::new_v4();
+        fs::create_dir_all(environment_root.join("wsl").join(partial_id.to_string()))
+            .expect("create partial legacy owner");
+        assert!(local_environment_binding_provider(
+            &environment_root,
+            partial_id,
+            EnvironmentBackendId::WslChromium,
+        )
+        .is_err());
+
+        let wrong_backend_id = Uuid::new_v4();
+        ensure_binding(
+            &environment_root.join("wsl"),
+            &EnvironmentBinding::new(
+                wrong_backend_id,
+                EnvironmentBackendId::WindowsSandbox,
+                "windows-sandbox-v0.8-ephemeral".to_owned(),
+            ),
+        )
+        .expect("write mismatched provider owner");
+        assert!(local_environment_binding_provider(
+            &environment_root,
+            wrong_backend_id,
+            EnvironmentBackendId::WslChromium,
+        )
+        .is_err());
+
+        fs::remove_dir_all(environment_root).expect("remove legacy owner root");
     }
 
     #[test]
