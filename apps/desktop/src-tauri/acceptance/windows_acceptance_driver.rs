@@ -568,8 +568,7 @@ fn validate_acceptance_root(root: &Path, sentinel: &str) -> Result<PathBuf, Stri
         .map_err(|error| format!("acceptance root is unreadable: {error}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("acceptance root enumeration failed: {error}"))?;
-    if entries.len() != 1 || entries[0].file_name() != std::ffi::OsString::from(ROOT_SENTINEL_FILE)
-    {
+    if entries.len() != 1 || entries[0].file_name() != ROOT_SENTINEL_FILE {
         return Err("acceptance root must contain only its random sentinel".to_owned());
     }
     let actual = fs::read_to_string(&sentinel_path)

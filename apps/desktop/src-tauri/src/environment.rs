@@ -1,7 +1,13 @@
 use std::path::PathBuf;
 
 #[cfg(target_os = "windows")]
-use std::ffi::OsString;
+use std::{
+    ffi::OsString,
+    fs::{File, OpenOptions},
+    io::Read,
+    os::windows::fs::{MetadataExt, OpenOptionsExt},
+    path::Path,
+};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -31,8 +37,41 @@ use backend::{
 const MAX_PROBE_OUTPUT_BYTES: usize = 16 * 1024;
 
 #[cfg(target_os = "windows")]
+const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+#[cfg(target_os = "windows")]
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+#[cfg(target_os = "windows")]
+const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+#[cfg(target_os = "windows")]
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+#[cfg(target_os = "windows")]
+const FILE_SHARE_READ: u32 = 0x0000_0001;
+#[cfg(target_os = "windows")]
+const MAX_AUTHENTICODE_SIGNATURE_BYTES: usize = 128 * 1024;
+
+#[cfg(target_os = "windows")]
 const EMBEDDED_WSL_GUEST_AGENT: &[u8] =
     include_bytes!("../../../../scripts/verisilo-wsl-guest-agent.sh");
+
+#[cfg(target_os = "windows")]
+const PROVIDER_SCRIPTS: [(&str, &[u8]); 4] = [
+    (
+        "verisilo-environment-probe.ps1",
+        include_bytes!("../../../../scripts/verisilo-environment-probe.ps1"),
+    ),
+    (
+        "verisilo-hyperv.ps1",
+        include_bytes!("../../../../scripts/verisilo-hyperv.ps1"),
+    ),
+    (
+        "verisilo-sandbox.ps1",
+        include_bytes!("../../../../scripts/verisilo-sandbox.ps1"),
+    ),
+    (
+        "verisilo-sandbox-bootstrap.ps1",
+        include_bytes!("../../../../scripts/verisilo-sandbox-bootstrap.ps1"),
+    ),
+];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,7 +175,7 @@ pub enum EnvironmentOperationRequest {
 }
 
 impl EnvironmentOperationRequest {
-    fn backend(&self) -> EnvironmentBackendId {
+    pub fn backend(&self) -> EnvironmentBackendId {
         match self {
             Self::Create { backend, .. }
             | Self::Start { backend, .. }
@@ -150,7 +189,7 @@ impl EnvironmentOperationRequest {
         }
     }
 
-    fn operation(&self) -> EnvironmentOperation {
+    pub fn operation(&self) -> EnvironmentOperation {
         match self {
             Self::Create { .. } => EnvironmentOperation::Create,
             Self::Start { .. } => EnvironmentOperation::Start,
@@ -206,11 +245,46 @@ struct WslAgentIdentity {
     browser_uid: u32,
 }
 
+#[derive(Debug, Clone)]
+struct ProviderTrustPolicy {
+    #[cfg(target_os = "windows")]
+    expected_signer_sha256: String,
+}
+
+impl ProviderTrustPolicy {
+    fn from_build() -> Option<Self> {
+        #[cfg(target_os = "windows")]
+        {
+            option_env!("VERISILO_AUTHENTICODE_SIGNER_SHA256")
+                .filter(|value| valid_lowercase_sha256(value))
+                .map(|value| Self {
+                    expected_signer_sha256: value.to_owned(),
+                })
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct ProviderScriptTrustGuard {
+    _resource_directory: File,
+    _environment_directory: File,
+    _scripts: Vec<File>,
+}
+
+#[cfg(not(target_os = "windows"))]
+struct ProviderScriptTrustGuard;
+
 /// Owns only fixed provider implementations. No caller-controlled executable,
 /// shell text, PowerShell fragment, or filesystem path crosses this boundary.
 pub struct EnvironmentManager {
     root: PathBuf,
     resource_root: PathBuf,
+    provider_trust: Option<ProviderTrustPolicy>,
     probe: WindowsEnvironmentProbe,
     wsl: Option<WslChromiumBackend<SystemProcessRunner>>,
     selected_wsl_distribution: Option<String>,
@@ -220,7 +294,8 @@ pub struct EnvironmentManager {
 
 impl EnvironmentManager {
     pub fn new(root: PathBuf, resource_root: PathBuf) -> Result<Self, EnvironmentBackendError> {
-        let probe = probe_windows_environment(&resource_root);
+        let provider_trust = ProviderTrustPolicy::from_build();
+        let probe = probe_windows_environment(&resource_root, provider_trust.as_ref());
         let environment_root = root.join("environments");
         let scripts_root = resource_root.join("environment");
         let sandbox_bootstrap = scripts_root.join("verisilo-sandbox-bootstrap.ps1");
@@ -239,6 +314,7 @@ impl EnvironmentManager {
         Ok(Self {
             root,
             resource_root,
+            provider_trust,
             probe,
             wsl: None,
             selected_wsl_distribution: None,
@@ -251,16 +327,11 @@ impl EnvironmentManager {
         &mut self,
         distribution: String,
     ) -> Result<EnvironmentBackendStatus, EnvironmentBackendError> {
-        if self
-            .selected_wsl_distribution
-            .as_ref()
-            .is_some_and(|selected| selected != &distribution)
-        {
-            return Err(EnvironmentBackendError::InvalidRequest(
-                "Restart VeriSilo before changing the selected WSL distribution; in-memory environment state is never silently moved between guests."
-                    .to_owned(),
-            ));
-        }
+        // The selected distribution is a provider handle, not Silo identity.
+        // The authoritative distribution now lives on each Silo. The caller
+        // serializes lifecycle operations and refuses to switch while another
+        // Silo is active, so rebuilding this in-memory handle is safe and lets
+        // persisted Silo targets survive an application restart.
         let detected = detect_wsl();
         if !detected.available
             || !detected
@@ -349,9 +420,11 @@ impl EnvironmentManager {
                 dispatch_environment_request(provider, request)
             }
             EnvironmentBackendId::WindowsSandbox => {
+                let _provider_guard = self.lock_verified_provider_scripts(backend, operation)?;
                 dispatch_environment_request(&mut self.sandbox, request)
             }
             EnvironmentBackendId::HyperV => {
+                let _provider_guard = self.lock_verified_provider_scripts(backend, operation)?;
                 let provider = self.hyperv.as_mut().ok_or_else(|| {
                     unavailable_environment(
                         backend,
@@ -390,6 +463,51 @@ impl EnvironmentManager {
 
     pub fn roots(&self) -> (&std::path::Path, &std::path::Path) {
         (&self.root, &self.resource_root)
+    }
+
+    fn lock_verified_provider_scripts(
+        &self,
+        backend: EnvironmentBackendId,
+        operation: EnvironmentOperation,
+    ) -> Result<ProviderScriptTrustGuard, EnvironmentBackendError> {
+        let unavailable = |reason: String| EnvironmentBackendError::Unavailable {
+            backend,
+            operation,
+            reason,
+        };
+        let policy = self.provider_trust.as_ref().ok_or_else(|| {
+            unavailable(
+                "This build has no canonical Authenticode signer pin for privileged provider scripts."
+                    .to_owned(),
+            )
+        })?;
+
+        #[cfg(target_os = "windows")]
+        {
+            let guard = lock_provider_scripts(&self.resource_root).map_err(|error| {
+                unavailable(format!(
+                    "Privileged provider resources failed their build-pinned content or exclusive file-identity check: {error}"
+                ))
+            })?;
+            let probe = probe_windows_environment_while_locked(&self.resource_root, policy);
+            if probe.schema_version != ENVIRONMENT_CONTRACT_VERSION
+                || !probe.release_scripts_trusted
+            {
+                return Err(unavailable(
+                    "Privileged provider scripts no longer have the exact build-pinned content, signer certificate, and timestamp required by this release."
+                        .to_owned(),
+                ));
+            }
+            Ok(guard)
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = policy;
+            Err(unavailable(
+                "Privileged Windows provider scripts are unavailable on this platform.".to_owned(),
+            ))
+        }
     }
 }
 
@@ -592,18 +710,27 @@ fn build_hyperv_backend(
 }
 
 #[cfg(target_os = "windows")]
-fn probe_windows_environment(resource_root: &std::path::Path) -> WindowsEnvironmentProbe {
-    let Some(expected_signer_sha256) = option_env!("VERISILO_AUTHENTICODE_SIGNER_SHA256")
-        .filter(|value| valid_lowercase_sha256(value))
-    else {
+fn probe_windows_environment(
+    resource_root: &std::path::Path,
+    policy: Option<&ProviderTrustPolicy>,
+) -> WindowsEnvironmentProbe {
+    let Some(policy) = policy else {
         return WindowsEnvironmentProbe::default();
     };
+    let Ok(_guard) = lock_provider_scripts(resource_root) else {
+        return WindowsEnvironmentProbe::default();
+    };
+    probe_windows_environment_while_locked(resource_root, policy)
+}
+
+#[cfg(target_os = "windows")]
+fn probe_windows_environment_while_locked(
+    resource_root: &std::path::Path,
+    policy: &ProviderTrustPolicy,
+) -> WindowsEnvironmentProbe {
     let script = resource_root
         .join("environment")
         .join("verisilo-environment-probe.ps1");
-    if !script.is_file() {
-        return WindowsEnvironmentProbe::default();
-    }
     let output = run_fixed_windows_process(
         WindowsSystemTool::PowerShell,
         &[
@@ -615,7 +742,10 @@ fn probe_windows_environment(resource_root: &std::path::Path) -> WindowsEnvironm
             "-File",
         ],
         Some(script.into_os_string()),
-        &["-ExpectedSignerCertificateSha256", expected_signer_sha256],
+        &[
+            "-ExpectedSignerCertificateSha256",
+            &policy.expected_signer_sha256,
+        ],
     );
     let Some(output) = output else {
         return WindowsEnvironmentProbe::default();
@@ -630,8 +760,140 @@ fn probe_windows_environment(resource_root: &std::path::Path) -> WindowsEnvironm
 }
 
 #[cfg(not(target_os = "windows"))]
-fn probe_windows_environment(_resource_root: &std::path::Path) -> WindowsEnvironmentProbe {
+fn probe_windows_environment(
+    _resource_root: &std::path::Path,
+    _policy: Option<&ProviderTrustPolicy>,
+) -> WindowsEnvironmentProbe {
     WindowsEnvironmentProbe::default()
+}
+
+#[cfg(target_os = "windows")]
+fn lock_provider_scripts(resource_root: &Path) -> std::io::Result<ProviderScriptTrustGuard> {
+    let resource_directory = open_locked_provider_path(resource_root, true)?;
+    let environment_root = resource_root.join("environment");
+    let environment_directory = open_locked_provider_path(&environment_root, true)?;
+    let mut scripts = Vec::with_capacity(PROVIDER_SCRIPTS.len());
+    for (file_name, embedded_source) in PROVIDER_SCRIPTS {
+        let mut file = open_locked_provider_path(&environment_root.join(file_name), false)?;
+        let metadata = file.metadata()?;
+        let maximum_length = embedded_source
+            .len()
+            .checked_add(MAX_AUTHENTICODE_SIGNATURE_BYTES)
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Provider script length overflowed its fixed bound.",
+                )
+            })?;
+        if metadata.len() < embedded_source.len() as u64 || metadata.len() > maximum_length as u64 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("{file_name} has an invalid signed-script length."),
+            ));
+        }
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        file.by_ref()
+            .take(maximum_length as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > maximum_length
+            || !signed_script_has_exact_embedded_source(&bytes, embedded_source)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "{file_name} does not contain the exact source bytes compiled into this executable followed by one canonical Authenticode signature block."
+                ),
+            ));
+        }
+        scripts.push(file);
+    }
+    Ok(ProviderScriptTrustGuard {
+        _resource_directory: resource_directory,
+        _environment_directory: environment_directory,
+        _scripts: scripts,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn open_locked_provider_path(path: &Path, expect_directory: bool) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true).share_mode(FILE_SHARE_READ).custom_flags(
+        FILE_FLAG_OPEN_REPARSE_POINT
+            | if expect_directory {
+                FILE_FLAG_BACKUP_SEMANTICS
+            } else {
+                0
+            },
+    );
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    let attributes = metadata.file_attributes();
+    let is_directory = attributes & FILE_ATTRIBUTE_DIRECTORY != 0;
+    if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 || is_directory != expect_directory {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "{} must be a real {} and not a reparse point.",
+                path.display(),
+                if expect_directory {
+                    "directory"
+                } else {
+                    "file"
+                }
+            ),
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn signed_script_has_exact_embedded_source(bytes: &[u8], embedded_source: &[u8]) -> bool {
+    const BEGIN: &[u8] = b"# SIG # Begin signature block";
+    const END: &[u8] = b"# SIG # End signature block";
+
+    if embedded_source.is_empty()
+        || embedded_source
+            .windows(BEGIN.len())
+            .any(|window| window == BEGIN)
+        || !bytes.starts_with(embedded_source)
+    {
+        return false;
+    }
+    let suffix = &bytes[embedded_source.len()..];
+    if suffix.is_empty()
+        || suffix
+            .iter()
+            .any(|byte| !matches!(byte, b'\r' | b'\n' | b' '..=b'~'))
+    {
+        return false;
+    }
+    let mut lines = suffix
+        .split(|byte| *byte == b'\n')
+        .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
+        .collect::<Vec<_>>();
+    if lines.last().is_some_and(|line| line.is_empty()) {
+        lines.pop();
+    }
+    if lines.first().is_some_and(|line| line.is_empty()) {
+        lines.remove(0);
+    }
+    if lines.len() < 3
+        || lines.first().copied() != Some(BEGIN)
+        || lines.last().copied() != Some(END)
+    {
+        return false;
+    }
+    if lines
+        .iter()
+        .any(|line| line.len() > 256 || !line.starts_with(b"# "))
+    {
+        return false;
+    }
+    lines
+        .iter()
+        .filter(|line| *line == &BEGIN || *line == &END)
+        .count()
+        == 2
 }
 
 #[cfg(target_os = "windows")]
@@ -819,6 +1081,22 @@ mod tests {
         EnvironmentManager::new(root, resources).expect("construct fail-closed manager")
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn manager_accepts_the_verbatim_resource_path_returned_by_tauri() {
+        let root = std::env::temp_dir().join(format!("verisilo-environment-{}", Uuid::new_v4()));
+        let resources = std::env::temp_dir().join(format!("verisilo-resources-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create environment test root");
+        fs::create_dir_all(&resources).expect("create resource test root");
+        let verbatim_resources = fs::canonicalize(&resources).expect("canonicalize resource root");
+
+        EnvironmentManager::new(root.clone(), verbatim_resources)
+            .expect("construct manager from Tauri-style resource root");
+
+        fs::remove_dir_all(&root).expect("remove environment test root");
+        fs::remove_dir_all(&resources).expect("remove resource test root");
+    }
+
     #[test]
     fn manager_reports_every_operation_once_without_inventing_availability() {
         let manager = manager();
@@ -930,5 +1208,95 @@ mod tests {
         assert!(!valid_lowercase_sha256(&"A".repeat(64)));
         assert!(!valid_lowercase_sha256(&"a".repeat(63)));
         assert!(!valid_lowercase_sha256(&format!("{}g", "a".repeat(63))));
+    }
+
+    #[test]
+    fn signed_provider_source_binding_rejects_prefix_suffix_and_post_signature_changes() {
+        let source: &[u8] = b"Write-Output 'fixed'\r\n";
+        let canonical = [
+            source,
+            &b"# SIG # Begin signature block\r\n"[..],
+            &b"# fixture\r\n"[..],
+            &b"# SIG # End signature block\r\n"[..],
+        ]
+        .concat();
+        assert!(signed_script_has_exact_embedded_source(&canonical, source));
+        let separated = [
+            source,
+            &b"\r\n# SIG # Begin signature block\r\n"[..],
+            &b"# fixture\r\n"[..],
+            &b"# SIG # End signature block\r\n"[..],
+        ]
+        .concat();
+        assert!(signed_script_has_exact_embedded_source(&separated, source));
+
+        let mut changed_source = canonical.clone();
+        changed_source[0] = b'w';
+        assert!(!signed_script_has_exact_embedded_source(
+            &changed_source,
+            source
+        ));
+
+        let mut extra_prefix = b"\r\n".to_vec();
+        extra_prefix.extend_from_slice(&canonical);
+        assert!(!signed_script_has_exact_embedded_source(
+            &extra_prefix,
+            source
+        ));
+
+        let mut post_signature_code = canonical.clone();
+        post_signature_code.extend_from_slice(b"Write-Output 'tampered'\r\n");
+        assert!(!signed_script_has_exact_embedded_source(
+            &post_signature_code,
+            source
+        ));
+
+        let duplicated_block = [canonical.as_slice(), &canonical[source.len()..]].concat();
+        assert!(!signed_script_has_exact_embedded_source(
+            &duplicated_block,
+            source
+        ));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn provider_guard_denies_in_place_write_and_rename_while_action_can_run() {
+        use std::io::Write;
+
+        let root = std::env::temp_dir().join(format!(
+            "verisilo-provider-identity-lock-{}",
+            Uuid::new_v4()
+        ));
+        let resource_root = root.join("resources");
+        let environment_root = resource_root.join("environment");
+        fs::create_dir_all(&environment_root).expect("create provider resource fixture");
+        for (file_name, source) in PROVIDER_SCRIPTS {
+            let mut bytes = source.to_vec();
+            bytes.extend_from_slice(
+                b"# SIG # Begin signature block\r\n# fixture\r\n# SIG # End signature block\r\n",
+            );
+            fs::write(environment_root.join(file_name), bytes)
+                .expect("write signed provider fixture");
+        }
+
+        let guard = lock_provider_scripts(&resource_root).expect("lock exact provider fixture");
+        let probe_path = environment_root.join("verisilo-environment-probe.ps1");
+        let _write_error = OpenOptions::new()
+            .write(true)
+            .open(&probe_path)
+            .expect_err("provider guard must deny a concurrent writer");
+        let _rename_error = fs::rename(&probe_path, environment_root.join("replaced-probe.ps1"))
+            .expect_err("provider guard must deny path replacement");
+
+        drop(guard);
+        let mut writable = OpenOptions::new()
+            .append(true)
+            .open(&probe_path)
+            .expect("writer succeeds after provider action releases the guard");
+        writable
+            .write_all(b"# released\r\n")
+            .expect("append after guard release");
+        drop(writable);
+        fs::remove_dir_all(&root).expect("remove provider lock fixture");
     }
 }

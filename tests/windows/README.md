@@ -81,7 +81,7 @@ For each available browser, the runner:
 - snapshots every default-profile file path, SHA-256, size, and UTC mtime before
   and after the temporary-profile cases, refusing to claim a result if another
   browser process could mutate it;
-- holds Chromium's real `SingletonLock` and checks that a second process does
+- holds Chromium's real Windows `lockfile` and checks that a second process does
   not expose another DevTools session for that profile;
 - configures an unreachable `127.0.0.1` proxy with
   `--proxy-bypass-list=<-loopback>`, requiring both
@@ -101,8 +101,9 @@ never promoted to desktop evidence.
 Use an actual Host built with the actual published Chrome and Edge extension
 IDs, an actual release configuration, and an existing HKCU registration. The
 runner invokes the repository's registration verifier, sends a length-prefixed
-allowlisted `handshake` for each formal browser ID, and sends an unknown message
-that the real Host must reject with `invalid_message`.
+allowlisted `handshake` for each formal browser ID, requires a syntactically
+valid but non-allowlisted origin to exit nonzero without emitting stdout, and
+sends an unknown message that the real Host must reject with `invalid_message`.
 
 ```powershell
 pwsh -NoProfile -File .\tests\windows\Invoke-VeriSiloWindowsE2E.ps1 `
@@ -181,7 +182,8 @@ For each real Chrome/Edge matrix cell it initializes, locks, and unlocks a real
 encrypted Vault; creates a real stock-browser Silo; confirms the managed
 user-data-dir remains under the sentinel root; verifies locked-Vault sensitive
 operations fail; launches the real browser through `RuntimeManager`; verifies a
-second desktop-core launch safely refuses the real `Singleton*` lock; and proves
+second desktop-core launch safely refuses both the real Windows Chromium
+`lockfile` and VeriSilo's `.verisilo-runtime.lock` cross-process lease; and proves
 the extension-absent run stays usable while its Companion evidence is explicitly
 empty/not requested. It then terminates only the exact PID tree recorded for
 that runtime, requires the core to recover to `stopped`, checks the Profile and

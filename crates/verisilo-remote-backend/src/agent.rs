@@ -56,6 +56,11 @@ pub struct NodeDisclosure {
 
 impl NodeDisclosure {
     pub fn validate(&self) -> Result<(), AgentError> {
+        if self.node_id == Uuid::nil() {
+            return Err(AgentError::InvalidRequest(
+                "Node identity must be a non-zero UUID.".to_owned(),
+            ));
+        }
         bounded_text("operator label", &self.operator_label, 1, 120)?;
         bounded_text("data region", &self.data_region, 2, 120)?;
         bounded_text("cost notice", &self.cost.notice, 1, 500)?;
@@ -77,6 +82,10 @@ impl NodeDisclosure {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EnvironmentState {
+    /// Durable create intent written before the provider is called. This state
+    /// is never returned as a successful create response; startup recovery
+    /// destroys it before serving requests.
+    Provisioning,
     Created,
     Running,
     Stopped,
@@ -463,6 +472,13 @@ pub struct LifecycleReceipt {
 }
 
 /// Concrete providers receive only UUID-bound typed operations.
+///
+/// `create` and `destroy` form one recovery boundary keyed by
+/// `remote_environment_id`. A provider must make `destroy` idempotent and able
+/// to remove (or confirm the absence of) a partially-created environment when
+/// the record is still [`EnvironmentState::Provisioning`]. In that state the
+/// volume and key IDs can be nil because the process may have stopped before a
+/// provisioning receipt was durably journaled.
 pub trait AgentProvider {
     fn capabilities(&self) -> Vec<RemoteCapability>;
     fn create(&mut self, record: &EnvironmentRecord) -> Result<ProvisionReceipt, AgentError>;
@@ -656,12 +672,14 @@ impl<P: AgentProvider, S: AgentStore, C: Clock> AgentCore<P, S, C> {
     pub fn new(node: NodeDisclosure, provider: P, store: S, clock: C) -> Result<Self, AgentError> {
         node.validate()?;
         validate_capabilities(&provider.capabilities())?;
-        Ok(Self {
+        let mut core = Self {
             node,
             provider,
             store,
             clock,
-        })
+        };
+        core.recover_incomplete_creates()?;
+        Ok(core)
     }
 
     pub fn node(&self) -> &NodeDisclosure {
@@ -925,6 +943,14 @@ impl<P: AgentProvider, S: AgentStore, C: Clock> AgentCore<P, S, C> {
         now: u64,
     ) -> Result<AgentResponse, AgentError> {
         require_control(principal)?;
+        if silo_id == Uuid::nil()
+            || binding_id == Uuid::nil()
+            || remote_environment_id == Uuid::nil()
+        {
+            return Err(AgentError::InvalidRequest(
+                "Create identifiers must be non-zero UUIDs.".to_owned(),
+            ));
+        }
         if !cost_acknowledged {
             return Err(AgentError::Unauthorized(
                 "The user must acknowledge the node cost disclosure.".to_owned(),
@@ -941,12 +967,15 @@ impl<P: AgentProvider, S: AgentStore, C: Clock> AgentCore<P, S, C> {
             ));
         }
         ensure_capability(&self.provider.capabilities(), RemoteOperation::Create)?;
+        // Provisioning is not safe unless the same fixed provider can
+        // compensate a partial create.
+        ensure_capability(&self.provider.capabilities(), RemoteOperation::Destroy)?;
         let mut record = EnvironmentRecord {
             silo_id,
             binding_id,
             remote_environment_id,
             node_id: self.node.node_id,
-            state: EnvironmentState::Created,
+            state: EnvironmentState::Provisioning,
             network,
             volume: VolumeAttestation {
                 encrypted: false,
@@ -959,19 +988,39 @@ impl<P: AgentProvider, S: AgentStore, C: Clock> AgentCore<P, S, C> {
             last_activity_at_unix_ms: now,
             deletion_proof_id: None,
         };
-        let receipt = self.provider.create(&record)?;
-        if !receipt.volume.encrypted
-            || receipt.volume.key_custody != KeyCustody::UserControlled
-            || receipt.volume.volume_id == Uuid::nil()
-            || receipt.volume.key_id == Uuid::nil()
-        {
-            return Err(AgentError::Provider(
-                "Provider did not attest a user-controlled encrypted volume.".to_owned(),
-            ));
-        }
-        validate_evidence(&receipt.evidence, &record, now)?;
-        record.volume = receipt.volume;
+        // Write intent before the external mutation. A crash from this point
+        // through activation leaves a durable, UUID-bound recovery record.
         self.store.insert_environment(record.clone())?;
+        let receipt = match self.provider.create(&record) {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                return Err(self.fail_create_with_compensation(record, error, now));
+            }
+        };
+
+        // Journal provider-assigned resource IDs while the state is still
+        // Provisioning. Invalid attestation is retained only long enough to
+        // drive and prove compensating deletion.
+        record.volume = receipt.volume.clone();
+        if let Err(error) = self.store.update_environment(record.clone()) {
+            return Err(self.fail_create_with_compensation(record, error, now));
+        }
+        if !provisioned_volume_is_valid(&receipt.volume) {
+            let error = AgentError::Provider(
+                "Provider did not attest a user-controlled encrypted volume.".to_owned(),
+            );
+            return Err(self.fail_create_with_compensation(record, error, now));
+        }
+        if let Err(error) = validate_evidence(&receipt.evidence, &record, now) {
+            return Err(self.fail_create_with_compensation(record, error, now));
+        }
+
+        // This is the activation commit. If its durability is uncertain we do
+        // not destroy: the disk contains either a recoverable Provisioning
+        // record or the complete Created record, so the resource is never
+        // untracked.
+        record.state = EnvironmentState::Created;
+        self.store.update_environment(record.clone())?;
         Ok(AgentResponse::Environment {
             record,
             evidence: Some(receipt.evidence),
@@ -1118,10 +1167,18 @@ impl<P: AgentProvider, S: AgentStore, C: Clock> AgentCore<P, S, C> {
             .store
             .environment(silo_id)
             .ok_or(AgentError::NotFound)?;
-        if record.state == EnvironmentState::Deleted {
-            return Err(AgentError::InvalidState(
-                "Environment has already been deleted.".to_owned(),
-            ));
+        match record.state {
+            EnvironmentState::Provisioning => {
+                return Err(AgentError::InvalidState(
+                    "Environment provisioning recovery is incomplete.".to_owned(),
+                ));
+            }
+            EnvironmentState::Deleted => {
+                return Err(AgentError::InvalidState(
+                    "Environment has already been deleted.".to_owned(),
+                ));
+            }
+            _ => {}
         }
         if !allow_expired && record.expires_at_unix_ms <= now {
             return Err(AgentError::Expired);
@@ -1137,6 +1194,7 @@ impl<P: AgentProvider, S: AgentStore, C: Clock> AgentCore<P, S, C> {
     ) -> Result<DeletionProof, AgentError> {
         ensure_capability(&self.provider.capabilities(), RemoteOperation::Destroy)?;
         let receipt = self.provider.destroy(&record)?;
+        hydrate_recovered_resource_ids(&mut record, &receipt);
         if receipt.receipt_id == Uuid::nil()
             || receipt.remote_environment_id != record.remote_environment_id
             || receipt.volume_id != record.volume.volume_id
@@ -1168,6 +1226,74 @@ impl<P: AgentProvider, S: AgentStore, C: Clock> AgentCore<P, S, C> {
         record.last_activity_at_unix_ms = now;
         self.store.commit_deletion(record, proof.clone())?;
         Ok(proof)
+    }
+
+    fn recover_incomplete_creates(&mut self) -> Result<(), AgentError> {
+        let now = self.clock.now_unix_ms();
+        let records = self
+            .store
+            .environment_ids()
+            .into_iter()
+            .filter_map(|silo_id| self.store.environment(silo_id))
+            .filter(|record| record.state == EnvironmentState::Provisioning)
+            .collect::<Vec<_>>();
+        for record in records {
+            if record.silo_id == Uuid::nil()
+                || record.binding_id == Uuid::nil()
+                || record.remote_environment_id == Uuid::nil()
+                || record.node_id != self.node.node_id
+            {
+                return Err(AgentError::InvalidState(
+                    "Provisioning recovery record is not bound to this Agent node.".to_owned(),
+                ));
+            }
+            self.destroy_record(record, DeletionReason::ProviderPolicy, now)?;
+        }
+        Ok(())
+    }
+
+    fn fail_create_with_compensation(
+        &mut self,
+        record: EnvironmentRecord,
+        original_error: AgentError,
+        now: u64,
+    ) -> AgentError {
+        match self.destroy_record(record, DeletionReason::ProviderPolicy, now) {
+            Ok(_) => original_error,
+            Err(_) => AgentError::Provider(
+                "Create failed and compensating deletion is still pending; restart is required."
+                    .to_owned(),
+            ),
+        }
+    }
+}
+
+fn provisioned_volume_is_valid(volume: &VolumeAttestation) -> bool {
+    volume.encrypted
+        && volume.key_custody == KeyCustody::UserControlled
+        && volume.volume_id != Uuid::nil()
+        && volume.key_id != Uuid::nil()
+}
+
+fn hydrate_recovered_resource_ids(
+    record: &mut EnvironmentRecord,
+    receipt: &ProviderDeletionReceipt,
+) {
+    if record.state != EnvironmentState::Provisioning {
+        return;
+    }
+    if record.volume.volume_id == Uuid::nil() {
+        record.volume.volume_id = receipt.volume_id;
+    }
+    if record.volume.key_id == Uuid::nil() {
+        if let Some(key_id) = receipt.resource_deletions.iter().find_map(|resource| {
+            (resource.kind == DeletionResourceKind::EphemeralKey
+                && resource.status == DeletionResourceStatus::Deleted)
+                .then_some(resource.resource_id)
+                .flatten()
+        }) {
+            record.volume.key_id = key_id;
+        }
     }
 }
 
@@ -1462,6 +1588,99 @@ mod tests {
         }
     }
 
+    struct FailingActivationStore {
+        inner: MemoryAgentStore,
+        update_calls: usize,
+        fail_on_update: usize,
+    }
+
+    impl FailingActivationStore {
+        fn new(fail_on_update: usize) -> Self {
+            Self {
+                inner: MemoryAgentStore::default(),
+                update_calls: 0,
+                fail_on_update,
+            }
+        }
+    }
+
+    impl AgentStore for FailingActivationStore {
+        fn claim_request(
+            &mut self,
+            principal_id: Uuid,
+            request_id: Uuid,
+            nonce: &str,
+            sequence: u64,
+        ) -> Result<(), AgentError> {
+            self.inner
+                .claim_request(principal_id, request_id, nonce, sequence)
+        }
+
+        fn environment_ids(&self) -> Vec<Uuid> {
+            self.inner.environment_ids()
+        }
+
+        fn environment(&self, silo_id: Uuid) -> Option<EnvironmentRecord> {
+            self.inner.environment(silo_id)
+        }
+
+        fn insert_environment(&mut self, record: EnvironmentRecord) -> Result<(), AgentError> {
+            self.inner.insert_environment(record)
+        }
+
+        fn update_environment(&mut self, record: EnvironmentRecord) -> Result<(), AgentError> {
+            self.update_calls += 1;
+            if self.update_calls == self.fail_on_update {
+                return Err(AgentError::Store(
+                    "Injected activation persistence failure.".to_owned(),
+                ));
+            }
+            self.inner.update_environment(record)
+        }
+
+        fn human_session(&self, silo_id: Uuid) -> Option<SessionAuthorization> {
+            self.inner.human_session(silo_id)
+        }
+
+        fn set_human_session(
+            &mut self,
+            authorization: SessionAuthorization,
+        ) -> Result<(), AgentError> {
+            self.inner.set_human_session(authorization)
+        }
+
+        fn automation(&self, authorization_id: Uuid) -> Option<AutomationAuthorization> {
+            self.inner.automation(authorization_id)
+        }
+
+        fn set_automation(
+            &mut self,
+            authorization: AutomationAuthorization,
+        ) -> Result<(), AgentError> {
+            self.inner.set_automation(authorization)
+        }
+
+        fn commit_deletion(
+            &mut self,
+            record: EnvironmentRecord,
+            proof: DeletionProof,
+        ) -> Result<(), AgentError> {
+            self.inner.commit_deletion(record, proof)
+        }
+
+        fn deletion_proof(&self, proof_id: Uuid) -> Option<DeletionProof> {
+            self.inner.deletion_proof(proof_id)
+        }
+
+        fn append_activity(&mut self, activity: ActivityEntry) -> Result<(), AgentError> {
+            self.inner.append_activity(activity)
+        }
+
+        fn activities(&self, silo_id: Uuid) -> Vec<ActivityEntry> {
+            self.inner.activities(silo_id)
+        }
+    }
+
     struct FakeProvider {
         omit_volume: bool,
         deletion_key_destroyed: bool,
@@ -1560,6 +1779,18 @@ mod tests {
             &mut self,
             record: &EnvironmentRecord,
         ) -> Result<ProviderDeletionReceipt, AgentError> {
+            // A real provider resolves these IDs from the stable remote
+            // environment ID when recovering a pre-receipt create intent.
+            let volume_id = if record.volume.volume_id == Uuid::nil() {
+                Uuid::from_u128(10)
+            } else {
+                record.volume.volume_id
+            };
+            let key_id = if record.volume.key_id == Uuid::nil() {
+                Uuid::from_u128(11)
+            } else {
+                record.volume.key_id
+            };
             let key_status = if self.deletion_key_destroyed {
                 DeletionResourceStatus::Deleted
             } else {
@@ -1568,7 +1799,7 @@ mod tests {
             Ok(ProviderDeletionReceipt {
                 receipt_id: Uuid::new_v4(),
                 remote_environment_id: record.remote_environment_id,
-                volume_id: record.volume.volume_id,
+                volume_id,
                 resource_deletions: vec![
                     ResourceDeletionItem {
                         kind: DeletionResourceKind::ComputeInstance,
@@ -1577,7 +1808,7 @@ mod tests {
                     },
                     ResourceDeletionItem {
                         kind: DeletionResourceKind::PersistentVolume,
-                        resource_id: Some(record.volume.volume_id),
+                        resource_id: Some(volume_id),
                         status: DeletionResourceStatus::Deleted,
                     },
                     ResourceDeletionItem {
@@ -1587,7 +1818,7 @@ mod tests {
                     },
                     ResourceDeletionItem {
                         kind: DeletionResourceKind::EphemeralKey,
-                        resource_id: self.deletion_key_destroyed.then_some(record.volume.key_id),
+                        resource_id: self.deletion_key_destroyed.then_some(key_id),
                         status: key_status,
                     },
                 ],
@@ -1806,7 +2037,142 @@ mod tests {
             )),
             Err(AgentError::Provider(_))
         ));
-        assert!(core.store().environment(silo_id).is_none());
+        let record = core.store().environment(silo_id).unwrap();
+        assert_eq!(record.state, EnvironmentState::Deleted);
+        assert!(record
+            .deletion_proof_id
+            .and_then(|proof_id| core.store().deletion_proof(proof_id))
+            .is_some());
+    }
+
+    #[test]
+    fn create_rejects_unbound_identifiers_before_writing_provisioning_intent() {
+        let provider = FakeProvider {
+            omit_volume: false,
+            deletion_key_destroyed: true,
+            screen_expiry_extension_ms: 0,
+        };
+        let mut core = AgentCore::new(
+            node(),
+            provider,
+            MemoryAgentStore::default(),
+            FixedClock(1_000_000),
+        )
+        .unwrap();
+        assert!(matches!(
+            core.execute(request(
+                control(),
+                1,
+                AgentCommand::Create {
+                    silo_id: Uuid::nil(),
+                    binding_id: Uuid::nil(),
+                    remote_environment_id: Uuid::nil(),
+                    ttl_seconds: 600,
+                    network: RemoteNetworkPolicy::Direct,
+                    cost_acknowledged: true,
+                },
+            )),
+            Err(AgentError::InvalidRequest(_))
+        ));
+        assert!(core.store().environment_ids().is_empty());
+    }
+
+    #[test]
+    fn startup_recovers_a_create_that_stopped_before_receipt_journaling() {
+        let node = node();
+        let silo_id = Uuid::new_v4();
+        let mut store = MemoryAgentStore::default();
+        store
+            .insert_environment(EnvironmentRecord {
+                silo_id,
+                binding_id: Uuid::new_v4(),
+                remote_environment_id: Uuid::new_v4(),
+                node_id: node.node_id,
+                state: EnvironmentState::Provisioning,
+                network: RemoteNetworkPolicy::Direct,
+                volume: VolumeAttestation {
+                    encrypted: false,
+                    key_custody: KeyCustody::UserControlled,
+                    volume_id: Uuid::nil(),
+                    key_id: Uuid::nil(),
+                },
+                created_at_unix_ms: 1_000_000,
+                expires_at_unix_ms: 1_600_000,
+                last_activity_at_unix_ms: 1_000_000,
+                deletion_proof_id: None,
+            })
+            .unwrap();
+        let provider = FakeProvider {
+            omit_volume: false,
+            deletion_key_destroyed: true,
+            screen_expiry_extension_ms: 0,
+        };
+
+        let core = AgentCore::new(node, provider, store, FixedClock(1_000_001)).unwrap();
+        let record = core.store().environment(silo_id).unwrap();
+        assert_eq!(record.state, EnvironmentState::Deleted);
+        let proof = core
+            .store()
+            .deletion_proof(record.deletion_proof_id.unwrap())
+            .unwrap();
+        assert_eq!(proof.reason, DeletionReason::ProviderPolicy);
+        assert_eq!(proof.volume_id, Uuid::from_u128(10));
+        assert!(deletion_resources_are_bound(
+            &proof.resource_deletions,
+            record.remote_environment_id,
+            Uuid::from_u128(10),
+            Uuid::from_u128(11),
+        ));
+    }
+
+    #[test]
+    fn activation_persistence_failure_remains_journaled_and_restart_compensates() {
+        let provider = FakeProvider {
+            omit_volume: false,
+            deletion_key_destroyed: true,
+            screen_expiry_extension_ms: 0,
+        };
+        // Update 1 journals provider IDs while still Provisioning. Update 2 is
+        // the final Created activation commit and is forced to fail.
+        let mut core = AgentCore::new(
+            node(),
+            provider,
+            FailingActivationStore::new(2),
+            FixedClock(1_000_000),
+        )
+        .unwrap();
+        let silo_id = Uuid::new_v4();
+        let result = core.execute(request(
+            control(),
+            1,
+            AgentCommand::Create {
+                silo_id,
+                binding_id: Uuid::new_v4(),
+                remote_environment_id: Uuid::new_v4(),
+                ttl_seconds: 600,
+                network: RemoteNetworkPolicy::Direct,
+                cost_acknowledged: true,
+            },
+        ));
+        assert!(matches!(result, Err(AgentError::Store(_))));
+        assert_eq!(
+            core.store().environment(silo_id).unwrap().state,
+            EnvironmentState::Provisioning
+        );
+
+        let AgentCore {
+            node,
+            provider,
+            store,
+            clock,
+        } = core;
+        let recovered = AgentCore::new(node, provider, store, clock).unwrap();
+        let record = recovered.store().environment(silo_id).unwrap();
+        assert_eq!(record.state, EnvironmentState::Deleted);
+        assert!(record
+            .deletion_proof_id
+            .and_then(|proof_id| recovered.store().deletion_proof(proof_id))
+            .is_some());
     }
 
     #[test]

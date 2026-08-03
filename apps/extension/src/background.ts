@@ -4,6 +4,7 @@ import {
   NETWORK_EVIDENCE_COVERAGE,
   nativeResponseSchema,
   observationReportSchema,
+  readBoundedUtf8Response,
   type RuntimeCapability,
   PROTOCOL_VERSION,
 } from "@verisilo/contracts";
@@ -613,10 +614,7 @@ async function fetchBoundedJson(
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    const text = await response.text();
-    if (text.length > 64 * 1_024) {
-      throw new Error("response exceeded 64 KiB");
-    }
+    const text = await readBoundedUtf8Response(response, 64 * 1_024);
     return JSON.parse(text) as unknown;
   } finally {
     clearTimeout(timeout);

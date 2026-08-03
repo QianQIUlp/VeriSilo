@@ -15,6 +15,10 @@ on:
         description: Published Edge Add-ons extension ID (public, 32 letters a-p)
         required: true
         type: string
+      authenticodeSignerSha256:
+        description: Public SHA-256 pin of the Windows Authenticode signing certificate
+        required: true
+        type: string
       controlledEngineSignerSha256:
         description: Public SHA-256 pin of the approved controlled-engine signing certificate
         required: true
@@ -42,29 +46,36 @@ permissions:
   actions: read
   contents: read
 
+concurrency:
+  group: windows-signed-release
+  cancel-in-progress: false
+
+env:
+  VERISILO_RELEASE_VERSION: ${{ inputs.releaseVersion }}
+  VERISILO_CHROME_EXTENSION_ID: ${{ inputs.chromeExtensionId }}
+  VERISILO_EDGE_EXTENSION_ID: ${{ inputs.edgeExtensionId }}
+  VERISILO_AUTHENTICODE_SIGNER_SHA256: ${{ inputs.authenticodeSignerSha256 }}
+  VERISILO_ENGINE_SIGNER_SHA256: ${{ inputs.controlledEngineSignerSha256 }}
+  VERISILO_HYPERV_ARTIFACT_ID: ${{ inputs.hyperVImageArtifactId }}
+  VERISILO_HYPERV_IMAGE_FILE: ${{ inputs.hyperVImageFile }}
+  VERISILO_HYPERV_IMAGE_SHA256: ${{ inputs.hyperVImageSha256 }}
+  VERISILO_HYPERV_REDISTRIBUTION_ACKNOWLEDGEMENT: ${{ inputs.hyperVImageRedistributionAcknowledgement }}
+  VERISILO_HYPERV_REDISTRIBUTION_ACKNOWLEDGED: "true"
+  VERISILO_BUILD_TARGET: x86_64-pc-windows-msvc
+  VERISILO_SIGNING_STATE: signed-and-verified
+  VERISILO_SOURCE_DIRTY: "false"
+  VERISILO_SOURCE_REVISION: ${{ github.sha }}
+
 jobs:
-  build-signed-windows-candidate:
-    name: Build, sign, and audit Windows candidate
+  build-unsigned-inner:
+    name: Build and test unsigned inner payload
     if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 75
-    environment: windows-signing
-    env:
-      VERISILO_RELEASE_VERSION: ${{ inputs.releaseVersion }}
-      VERISILO_CHROME_EXTENSION_ID: ${{ inputs.chromeExtensionId }}
-      VERISILO_EDGE_EXTENSION_ID: ${{ inputs.edgeExtensionId }}
-      VERISILO_ENGINE_SIGNER_SHA256: ${{ inputs.controlledEngineSignerSha256 }}
-      VERISILO_HYPERV_ARTIFACT_ID: ${{ inputs.hyperVImageArtifactId }}
-      VERISILO_HYPERV_IMAGE_FILE: ${{ inputs.hyperVImageFile }}
-      VERISILO_HYPERV_IMAGE_SHA256: ${{ inputs.hyperVImageSha256 }}
-      VERISILO_HYPERV_REDISTRIBUTION_ACKNOWLEDGEMENT: ${{ inputs.hyperVImageRedistributionAcknowledgement }}
-      VERISILO_BUILD_TARGET: x86_64-pc-windows-msvc
-      VERISILO_SIGNING_STATE: signed-and-verified
-      VERISILO_SOURCE_DIRTY: "false"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: refs/heads/main
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
@@ -80,7 +91,7 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Require protected main checkout before any secret access
+      - name: Require exact protected main source
         shell: pwsh
         run: |
           if ($env:GITHUB_REF -cne 'refs/heads/main') {
@@ -90,19 +101,34 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Could not refresh origin/main.' }
           $head = (git rev-parse HEAD).Trim()
           $originMain = (git rev-parse refs/remotes/origin/main).Trim()
-          if ($LASTEXITCODE -ne 0 -or $head -cne $originMain) {
-            throw 'The checked-out commit does not exactly match origin/main.'
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:GITHUB_SHA -or $head -cne $originMain) {
+            throw 'The checked-out commit must exactly match both GITHUB_SHA and origin/main.'
           }
           if (-not [string]::IsNullOrWhiteSpace((git status --porcelain=v1 --untracked-files=all | Out-String))) {
-            throw 'The signing checkout must be clean before secrets are materialized.'
+            throw 'The release checkout must be clean.'
           }
-          "VERISILO_SOURCE_REVISION=$head" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $epoch = git show -s --format=%ct HEAD
+          if ($epoch -cnotmatch '^[1-9][0-9]{8,11}$') { throw 'Invalid source timestamp.' }
+          "SOURCE_DATE_EPOCH=$epoch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Freeze source timestamp
+      - name: Validate public release inputs
         shell: pwsh
         run: |
-          $epoch = git show -s --format=%ct HEAD
-          "SOURCE_DATE_EPOCH=$epoch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if ($env:VERISILO_RELEASE_VERSION -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') {
+            throw 'releaseVersion is not canonical.'
+          }
+          foreach ($value in @(
+            $env:VERISILO_AUTHENTICODE_SIGNER_SHA256,
+            $env:VERISILO_ENGINE_SIGNER_SHA256,
+            $env:VERISILO_HYPERV_IMAGE_SHA256
+          )) {
+            if ($value -cnotmatch '^[0-9a-f]{64}$' -or $value -match '^0{64}$') {
+              throw 'Every public SHA-256 input must be lowercase, canonical, and non-zero.'
+            }
+          }
+
+      - name: Install locked JavaScript dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Download and stage the exact licensed Hyper-V image artifact
         shell: pwsh
@@ -113,55 +139,15 @@ jobs:
           ./scripts/stage-hyperv-image.ps1 -Check -Repository $env:GITHUB_REPOSITORY -ArtifactId ([long]$env:VERISILO_HYPERV_ARTIFACT_ID) -ImageFile $env:VERISILO_HYPERV_IMAGE_FILE -ImageSha256 $env:VERISILO_HYPERV_IMAGE_SHA256 -RedistributionAcknowledgement $env:VERISILO_HYPERV_REDISTRIBUTION_ACKNOWLEDGEMENT
           node scripts/verify-hyperv-image.mjs --check --manifest apps/desktop/src-tauri/target/verisilo-release-resources/environment/hyperv-image-manifest.json --images apps/desktop/src-tauri/target/verisilo-release-resources/environment/images --repository $env:GITHUB_REPOSITORY --artifact-id $env:VERISILO_HYPERV_ARTIFACT_ID --image-file $env:VERISILO_HYPERV_IMAGE_FILE --sha256 $env:VERISILO_HYPERV_IMAGE_SHA256 --require-redistribution-ack
 
-      - name: Require and materialize ephemeral signing certificate
-        shell: pwsh
-        env:
-          VERISILO_AUTHENTICODE_PFX_BASE64: ${{ secrets.VERISILO_AUTHENTICODE_PFX_BASE64 }}
-          VERISILO_AUTHENTICODE_PASSWORD: ${{ secrets.VERISILO_AUTHENTICODE_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:VERISILO_AUTHENTICODE_PFX_BASE64) -or
-              [string]::IsNullOrWhiteSpace($env:VERISILO_AUTHENTICODE_PASSWORD)) {
-            throw 'The windows-signing environment must provide the PFX and password secrets.'
-          }
-          $certificatePath = Join-Path $env:RUNNER_TEMP "verisilo-authenticode-$([Guid]::NewGuid().ToString('N')).pfx"
-          try {
-            $certificateBytes = [Convert]::FromBase64String($env:VERISILO_AUTHENTICODE_PFX_BASE64)
-            [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
-            $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
-            $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
-              $certificatePath,
-              $env:VERISILO_AUTHENTICODE_PASSWORD,
-              $flags
-            )
-            try {
-              if (-not $certificate.HasPrivateKey) {
-                throw 'The Authenticode PFX has no accessible private key.'
-              }
-              $signerSha256 = $certificate.GetCertHashString(
-                [Security.Cryptography.HashAlgorithmName]::SHA256
-              ).ToLowerInvariant()
-              if ($signerSha256 -cnotmatch '^[0-9a-f]{64}$' -or $signerSha256 -match '^0{64}$') {
-                throw 'The Authenticode signer certificate SHA-256 is invalid.'
-              }
-              "VERISILO_AUTHENTICODE_SIGNER_SHA256=$signerSha256" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            } finally {
-              $certificate.Dispose()
-            }
-          } catch {
-            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
-            throw 'The Authenticode PFX secret is not valid base64.'
-          }
-          "VERISILO_AUTHENTICODE_PFX_PATH=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Install locked JavaScript dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Self-test release tooling
+      - name: Self-test release tooling before any secret-bearing job
         shell: pwsh
         run: |
           pnpm release:self-test
           ./scripts/authenticode-gate.ps1 -SelfTest
           ./scripts/stage-hyperv-image.ps1 -SelfTest
+          ./scripts/verisilo-environment-probe.ps1 -SelfTest
+          ./scripts/verisilo-hyperv.ps1 -SelfTest
+          ./scripts/verisilo-sandbox.ps1 -SelfTest
 
       - name: Prepare and verify published extension IDs
         shell: pwsh
@@ -200,97 +186,675 @@ jobs:
         shell: pwsh
         run: pnpm --filter @verisilo/desktop exec tauri build --ci --no-bundle --no-sign --target x86_64-pc-windows-msvc --config src-tauri/tauri.release-reset.conf.json --config src-tauri/tauri.release.conf.json
 
-      - name: Sign and timestamp every inner executable and PowerShell resource
+      - name: Stage strict unsigned signing and bundle inputs
+        shell: pwsh
+        run: |
+          $target = Join-Path $PWD 'apps/desktop/src-tauri/target'
+          $innerRoot = Join-Path $PWD 'artifacts/inner-signing-input'
+          $payload = Join-Path $innerRoot 'payload'
+          $bundleRoot = Join-Path $PWD 'artifacts/bundle-input'
+          New-Item -ItemType Directory -Force -Path (Join-Path $payload 'desktop'), (Join-Path $payload 'native-host'), (Join-Path $payload 'resources/native-host'), (Join-Path $payload 'resources/environment'), (Join-Path $bundleRoot 'desktop-dist'), (Join-Path $bundleRoot 'extension-dist') | Out-Null
+
+          Copy-Item -LiteralPath (Join-Path $target 'x86_64-pc-windows-msvc/release/verisilo.exe') -Destination (Join-Path $payload 'desktop/verisilo.exe')
+          Copy-Item -LiteralPath (Join-Path $target 'verisilo-release-sidecars/verisilo-native-host-x86_64-pc-windows-msvc.exe') -Destination (Join-Path $payload 'native-host/verisilo-native-host.exe')
+          foreach ($name in @(
+            'install-native-host-release.ps1',
+            'install-native-host.ps1',
+            'verify-native-host-install.ps1',
+            'uninstall-native-host.ps1'
+          )) {
+            Copy-Item -LiteralPath (Join-Path $target "verisilo-release-resources/native-host/$name") -Destination (Join-Path $payload "resources/native-host/$name")
+          }
+          foreach ($name in @(
+            'verisilo-environment-probe.ps1',
+            'verisilo-hyperv.ps1',
+            'verisilo-sandbox.ps1',
+            'verisilo-sandbox-bootstrap.ps1'
+          )) {
+            Copy-Item -LiteralPath (Join-Path $target "verisilo-release-resources/environment/$name") -Destination (Join-Path $payload "resources/environment/$name")
+          }
+
+          Copy-Item -Path 'apps/desktop/dist/*' -Destination (Join-Path $bundleRoot 'desktop-dist') -Recurse
+          Copy-Item -Path 'apps/extension/dist/*' -Destination (Join-Path $bundleRoot 'extension-dist') -Recurse
+          Copy-Item -LiteralPath 'artifacts/native-host/native-host-release-config.json' -Destination $bundleRoot
+          Copy-Item -LiteralPath (Join-Path $target 'verisilo-release-resources') -Destination (Join-Path $bundleRoot 'release-resources') -Recurse
+
+          $innerInputs = @(
+            'desktop/verisilo.exe',
+            'native-host/verisilo-native-host.exe',
+            'resources/native-host/install-native-host-release.ps1',
+            'resources/native-host/install-native-host.ps1',
+            'resources/native-host/verify-native-host-install.ps1',
+            'resources/native-host/uninstall-native-host.ps1',
+            'resources/environment/verisilo-environment-probe.ps1',
+            'resources/environment/verisilo-hyperv.ps1',
+            'resources/environment/verisilo-sandbox.ps1',
+            'resources/environment/verisilo-sandbox-bootstrap.ps1'
+          )
+          ./scripts/authenticode-gate.ps1 -Check -Mode Unsigned -ReleaseDirectory $payload -IncludeRelativePath $innerInputs -ReportPath (Join-Path $env:RUNNER_TEMP 'unsigned-inner-authenticode-status.json')
+
+          function New-ContentManifest([string]$Root, [string]$Output, [string]$Schema) {
+            $rootPath = (Resolve-Path -LiteralPath $Root).Path
+            $files = @(
+              Get-ChildItem -LiteralPath $rootPath -File -Recurse |
+                Sort-Object { [IO.Path]::GetRelativePath($rootPath, $_.FullName).Replace('\', '/') } |
+                ForEach-Object {
+                  [ordered]@{
+                    path = [IO.Path]::GetRelativePath($rootPath, $_.FullName).Replace('\', '/')
+                    bytes = $_.Length
+                    sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                  }
+                }
+            )
+            $manifest = [ordered]@{
+              schema = $Schema
+              schemaVersion = 1
+              sourceRevision = $env:GITHUB_SHA
+              expectedSignerCertificateSha256 = $env:VERISILO_AUTHENTICODE_SIGNER_SHA256
+              files = $files
+            }
+            [IO.File]::WriteAllText($Output, (($manifest | ConvertTo-Json -Depth 6) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+          }
+          New-ContentManifest -Root $payload -Output (Join-Path $innerRoot 'unsigned-manifest.json') -Schema 'urn:verisilo:inner-signing-input:1'
+          New-ContentManifest -Root $bundleRoot -Output (Join-Path $bundleRoot 'bundle-input-manifest.json') -Schema 'urn:verisilo:bundle-input:1'
+
+      - name: Upload immutable unsigned inner payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-inner-signing-input
+          path: artifacts/inner-signing-input/
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Upload immutable non-secret bundle inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-bundle-input
+          path: artifacts/bundle-input/
+          if-no-files-found: error
+          retention-days: 2
+
+  sign-inner-isolated:
+    name: Sign inner payload in isolated job
+    needs: build-unsigned-inner
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    environment: windows-signing
+    steps:
+      - name: Download immutable inner payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: verisilo-inner-signing-input
+          path: ${{ runner.temp }}/verisilo-inner-signing-input
+
+      - name: Verify manifest, sign fixed files, and erase certificate
         shell: pwsh
         env:
+          VERISILO_AUTHENTICODE_PFX_BASE64: ${{ secrets.VERISILO_AUTHENTICODE_PFX_BASE64 }}
           VERISILO_AUTHENTICODE_PASSWORD: ${{ secrets.VERISILO_AUTHENTICODE_PASSWORD }}
         run: |
-          $innerInputs = @(
-            'x86_64-pc-windows-msvc/release/verisilo.exe',
-            'verisilo-release-sidecars/verisilo-native-host-x86_64-pc-windows-msvc.exe',
-            'verisilo-release-resources/native-host/install-native-host-release.ps1',
-            'verisilo-release-resources/native-host/install-native-host.ps1',
-            'verisilo-release-resources/native-host/verify-native-host-install.ps1',
-            'verisilo-release-resources/native-host/uninstall-native-host.ps1',
-            'verisilo-release-resources/environment/verisilo-environment-probe.ps1',
-            'verisilo-release-resources/environment/verisilo-hyperv.ps1',
-            'verisilo-release-resources/environment/verisilo-sandbox.ps1',
-            'verisilo-release-resources/environment/verisilo-sandbox-bootstrap.ps1'
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $root = Join-Path $env:RUNNER_TEMP 'verisilo-inner-signing-input'
+          $payload = Join-Path $root 'payload'
+          $manifestPath = Join-Path $root 'unsigned-manifest.json'
+          $allowed = @(
+            'desktop/verisilo.exe',
+            'native-host/verisilo-native-host.exe',
+            'resources/native-host/install-native-host-release.ps1',
+            'resources/native-host/install-native-host.ps1',
+            'resources/native-host/verify-native-host-install.ps1',
+            'resources/native-host/uninstall-native-host.ps1',
+            'resources/environment/verisilo-environment-probe.ps1',
+            'resources/environment/verisilo-hyperv.ps1',
+            'resources/environment/verisilo-sandbox.ps1',
+            'resources/environment/verisilo-sandbox-bootstrap.ps1'
           )
-          ./scripts/authenticode-gate.ps1 -Check -Mode SignAndVerify -ReleaseDirectory apps/desktop/src-tauri/target -IncludeRelativePath $innerInputs -CertificatePath $env:VERISILO_AUTHENTICODE_PFX_PATH -ExpectedSignerCertificateSha256 $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -ReportPath (Join-Path $env:RUNNER_TEMP 'inner-authenticode-status.json')
+          $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+          if ($manifest.schema -cne 'urn:verisilo:inner-signing-input:1' -or
+              $manifest.schemaVersion -ne 1 -or
+              $manifest.sourceRevision -cne $env:GITHUB_SHA -or
+              $manifest.expectedSignerCertificateSha256 -cne $env:VERISILO_AUTHENTICODE_SIGNER_SHA256) {
+            throw 'Unsigned inner manifest is not bound to this exact source and signer.'
+          }
+          $actualPaths = @(
+            Get-ChildItem -LiteralPath $payload -File -Recurse |
+              ForEach-Object { [IO.Path]::GetRelativePath($payload, $_.FullName).Replace('\', '/') } |
+              Sort-Object
+          )
+          if (($actualPaths -join "`n") -cne (($allowed | Sort-Object) -join "`n") -or
+              (($manifest.files.path | Sort-Object) -join "`n") -cne (($allowed | Sort-Object) -join "`n")) {
+            throw 'Inner signing payload does not contain the exact fixed allowlist.'
+          }
+          foreach ($entry in $manifest.files) {
+            $file = Join-Path $payload $entry.path
+            if ((Get-Item -LiteralPath $file).Length -ne $entry.bytes -or
+                (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256) {
+              throw "Inner signing input hash mismatch: $($entry.path)"
+            }
+          }
+          if ([string]::IsNullOrWhiteSpace($env:VERISILO_AUTHENTICODE_PFX_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:VERISILO_AUTHENTICODE_PASSWORD)) {
+            throw 'The signing environment must provide both Authenticode secrets.'
+          }
 
-      - name: Bundle only after inner signatures verify
+          function Get-SignTool {
+            $direct = Get-Command 'signtool.exe' -ErrorAction SilentlyContinue
+            if ($null -ne $direct) { return $direct.Source }
+            $kits = Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'Windows Kits\10\bin'
+            $found = @(
+              Get-ChildItem -LiteralPath $kits -Filter 'signtool.exe' -File -Recurse |
+                Where-Object { $_.FullName -match '[\\/]x64[\\/]signtool\.exe$' } |
+                Sort-Object FullName -Descending
+            ) | Select-Object -First 1
+            if ($null -eq $found) { throw 'signtool.exe is unavailable.' }
+            return $found.FullName
+          }
+
+          $pfxPath = Join-Path $env:RUNNER_TEMP "verisilo-authenticode-$([Guid]::NewGuid().ToString('N')).pfx"
+          $thumbprintReceipt = Join-Path $env:RUNNER_TEMP 'verisilo-imported-certificate-thumbprint.txt'
+          $importedThumbprint = $null
+          try {
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:VERISILO_AUTHENTICODE_PFX_BASE64))
+            $securePassword = ConvertTo-SecureString -String $env:VERISILO_AUTHENTICODE_PASSWORD -AsPlainText -Force
+            $imported = @(Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation 'Cert:\CurrentUser\My' -Password $securePassword -Exportable:$false)
+            $signingCertificate = @($imported | Where-Object HasPrivateKey)
+            if ($signingCertificate.Count -ne 1) { throw 'PFX must import exactly one private-key signing certificate.' }
+            $certificate = $signingCertificate[0]
+            $actualSigner = $certificate.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant()
+            if ($actualSigner -cne $env:VERISILO_AUTHENTICODE_SIGNER_SHA256) {
+              throw 'PFX certificate does not match the public build-pinned signer SHA-256.'
+            }
+            $importedThumbprint = $certificate.Thumbprint
+            [IO.File]::WriteAllText($thumbprintReceipt, $importedThumbprint, [Text.Encoding]::ASCII)
+            $signTool = Get-SignTool
+            foreach ($relativePath in $allowed) {
+              $file = Join-Path $payload $relativePath
+              if ([IO.Path]::GetExtension($file) -ieq '.ps1') {
+                $signature = Set-AuthenticodeSignature -LiteralPath $file -Certificate $certificate -HashAlgorithm SHA256 -TimestampServer 'https://timestamp.digicert.com'
+                if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+                  throw "PowerShell signing failed for $relativePath with status $($signature.Status)."
+                }
+              } else {
+                & $signTool sign /sha1 $certificate.Thumbprint /fd SHA256 /tr 'https://timestamp.digicert.com' /td SHA256 /v $file
+                if ($LASTEXITCODE -ne 0) { throw "signtool failed for $relativePath." }
+              }
+            }
+            foreach ($relativePath in $allowed) {
+              $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $payload $relativePath)
+              $signer = if ($null -eq $signature.SignerCertificate) { '' } else { $signature.SignerCertificate.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant() }
+              if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
+                  $signer -cne $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -or
+                  $null -eq $signature.TimeStamperCertificate) {
+                throw "Signed inner verification failed for $relativePath."
+              }
+            }
+          } finally {
+            if (-not [string]::IsNullOrWhiteSpace($importedThumbprint)) {
+              Remove-Item -LiteralPath "Cert:\CurrentUser\My\$importedThumbprint" -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue
+            $env:VERISILO_AUTHENTICODE_PFX_BASE64 = ''
+            $env:VERISILO_AUTHENTICODE_PASSWORD = ''
+          }
+
+          $signedFiles = @(
+            Get-ChildItem -LiteralPath $payload -File -Recurse |
+              Sort-Object { [IO.Path]::GetRelativePath($payload, $_.FullName).Replace('\', '/') } |
+              ForEach-Object {
+                [ordered]@{
+                  path = [IO.Path]::GetRelativePath($payload, $_.FullName).Replace('\', '/')
+                  bytes = $_.Length
+                  sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+              }
+          )
+          $signedManifest = [ordered]@{
+            schema = 'urn:verisilo:signed-inner-payload:1'
+            schemaVersion = 1
+            sourceRevision = $env:GITHUB_SHA
+            expectedSignerCertificateSha256 = $env:VERISILO_AUTHENTICODE_SIGNER_SHA256
+            files = $signedFiles
+          }
+          [IO.File]::WriteAllText((Join-Path $root 'signed-manifest.json'), (($signedManifest | ConvertTo-Json -Depth 6) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+
+      - name: Remove any residual signing material
+        if: always()
+        shell: pwsh
+        run: |
+          $receipt = Join-Path $env:RUNNER_TEMP 'verisilo-imported-certificate-thumbprint.txt'
+          if (Test-Path -LiteralPath $receipt -PathType Leaf) {
+            $thumbprint = (Get-Content -Raw -LiteralPath $receipt).Trim()
+            if ($thumbprint -cmatch '^[0-9A-F]{40}$') {
+              Remove-Item -LiteralPath "Cert:\CurrentUser\My\$thumbprint" -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item -LiteralPath $receipt -Force -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'verisilo-authenticode-*.pfx' -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+
+      - name: Upload signed inner payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-signed-inner
+          path: ${{ runner.temp }}/verisilo-inner-signing-input/
+          if-no-files-found: error
+          retention-days: 2
+
+  package-unsigned-outer:
+    name: Bundle signed inner payload without signing secrets
+    needs: sign-inner-isolated
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Download signed inner payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: verisilo-signed-inner
+          path: artifacts/signed-inner
+
+      - name: Download immutable bundle inputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: verisilo-bundle-input
+          path: artifacts/bundle-input
+
+      - name: Verify cross-job content manifests
+        shell: pwsh
+        run: |
+          function Assert-ContentManifest([string]$Root, [string]$ManifestPath, [string]$Schema) {
+            $manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+            if ($manifest.schema -cne $Schema -or $manifest.schemaVersion -ne 1 -or
+                $manifest.sourceRevision -cne $env:GITHUB_SHA -or
+                $manifest.expectedSignerCertificateSha256 -cne $env:VERISILO_AUTHENTICODE_SIGNER_SHA256) {
+              throw "Invalid content manifest: $ManifestPath"
+            }
+            $actual = @(
+              Get-ChildItem -LiteralPath $Root -File -Recurse |
+                Where-Object { $_.FullName -cne (Resolve-Path -LiteralPath $ManifestPath).Path } |
+                ForEach-Object { [IO.Path]::GetRelativePath((Resolve-Path -LiteralPath $Root).Path, $_.FullName).Replace('\', '/') } |
+                Sort-Object
+            )
+            if (($actual -join "`n") -cne (($manifest.files.path | Sort-Object) -join "`n")) {
+              throw "Manifest inventory mismatch: $ManifestPath"
+            }
+            foreach ($entry in $manifest.files) {
+              $file = Join-Path $Root $entry.path
+              if ((Get-Item -LiteralPath $file).Length -ne $entry.bytes -or
+                  (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256) {
+                throw "Manifest digest mismatch: $($entry.path)"
+              }
+            }
+          }
+          Assert-ContentManifest -Root 'artifacts/signed-inner/payload' -ManifestPath 'artifacts/signed-inner/signed-manifest.json' -Schema 'urn:verisilo:signed-inner-payload:1'
+          Assert-ContentManifest -Root 'artifacts/bundle-input' -ManifestPath 'artifacts/bundle-input/bundle-input-manifest.json' -Schema 'urn:verisilo:bundle-input:1'
+
+      - name: Install locked packaging dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Reconstruct exact signed bundle inputs
+        shell: pwsh
+        run: |
+          $epoch = git show -s --format=%ct HEAD
+          "SOURCE_DATE_EPOCH=$epoch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $target = Join-Path $PWD 'apps/desktop/src-tauri/target'
+          New-Item -ItemType Directory -Force -Path 'apps/desktop/dist', 'apps/extension/dist', (Join-Path $target 'x86_64-pc-windows-msvc/release'), (Join-Path $target 'verisilo-release-sidecars') | Out-Null
+          Copy-Item -Path 'artifacts/bundle-input/desktop-dist/*' -Destination 'apps/desktop/dist' -Recurse
+          Copy-Item -Path 'artifacts/bundle-input/extension-dist/*' -Destination 'apps/extension/dist' -Recurse
+          Copy-Item -LiteralPath 'artifacts/bundle-input/release-resources' -Destination (Join-Path $target 'verisilo-release-resources') -Recurse
+          Copy-Item -LiteralPath 'artifacts/signed-inner/payload/desktop/verisilo.exe' -Destination (Join-Path $target 'x86_64-pc-windows-msvc/release/verisilo.exe')
+          Copy-Item -LiteralPath 'artifacts/signed-inner/payload/native-host/verisilo-native-host.exe' -Destination (Join-Path $target 'verisilo-release-sidecars/verisilo-native-host-x86_64-pc-windows-msvc.exe')
+          Copy-Item -Path 'artifacts/signed-inner/payload/resources/native-host/*' -Destination (Join-Path $target 'verisilo-release-resources/native-host') -Force
+          Copy-Item -Path 'artifacts/signed-inner/payload/resources/environment/*' -Destination (Join-Path $target 'verisilo-release-resources/environment') -Force
+          ./scripts/authenticode-gate.ps1 -Check -Mode VerifySigned -ReleaseDirectory 'artifacts/signed-inner/payload' -ExpectedSignerCertificateSha256 $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -ReportPath (Join-Path $env:RUNNER_TEMP 'verified-inner-authenticode-status.json')
+
+      - name: Bundle only the verified signed inner payload
         shell: pwsh
         run: pnpm --filter @verisilo/desktop exec tauri bundle --ci --no-sign --target x86_64-pc-windows-msvc --config src-tauri/tauri.release-reset.conf.json --config src-tauri/tauri.release.conf.json
 
-      - name: Stage signed candidate and unsigned outer installer
+      - name: Stage signed candidate with one unsigned outer installer
         shell: pwsh
         run: |
-          $release = Join-Path $PWD 'artifacts/release'
-          New-Item -ItemType Directory -Force -Path $release | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $release 'extension') | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $release 'bundle-resources') | Out-Null
-          Copy-Item -LiteralPath 'apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/verisilo.exe' -Destination $release
-          Copy-Item -LiteralPath 'apps/desktop/src-tauri/target/verisilo-release-sidecars/verisilo-native-host-x86_64-pc-windows-msvc.exe' -Destination (Join-Path $release 'verisilo-native-host.exe')
-          Copy-Item -LiteralPath 'artifacts/native-host/native-host-release-config.json' -Destination $release
+          $release = Join-Path $PWD 'artifacts/outer-signing/candidate'
+          New-Item -ItemType Directory -Force -Path $release, (Join-Path $release 'extension'), (Join-Path $release 'bundle-resources') | Out-Null
+          Copy-Item -LiteralPath 'artifacts/signed-inner/payload/desktop/verisilo.exe' -Destination $release
+          Copy-Item -LiteralPath 'artifacts/signed-inner/payload/native-host/verisilo-native-host.exe' -Destination (Join-Path $release 'verisilo-native-host.exe')
+          Copy-Item -LiteralPath 'artifacts/bundle-input/native-host-release-config.json' -Destination $release
           Copy-Item -Path 'apps/desktop/src-tauri/target/verisilo-release-resources/*' -Destination (Join-Path $release 'bundle-resources') -Recurse
-          Copy-Item -Path 'apps/extension/dist/*' -Destination (Join-Path $release 'extension') -Recurse
+          Copy-Item -Path 'artifacts/bundle-input/extension-dist/*' -Destination (Join-Path $release 'extension') -Recurse
           Copy-Item -LiteralPath 'LICENSE' -Destination $release
           Copy-Item -LiteralPath 'THIRD_PARTY_NOTICES.md' -Destination $release
-          $installer = Get-ChildItem 'apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*.exe' -File
+          $installer = @(Get-ChildItem 'apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*.exe' -File)
           if ($installer.Count -ne 1) { throw "Expected one NSIS installer, found $($installer.Count)." }
-          Copy-Item -LiteralPath $installer.FullName -Destination (Join-Path $release "VeriSilo_$env:VERISILO_RELEASE_VERSION`_x64-setup.exe")
+          $installerName = "VeriSilo_$env:VERISILO_RELEASE_VERSION`_x64-setup.exe"
+          Copy-Item -LiteralPath $installer[0].FullName -Destination (Join-Path $release $installerName)
           $extensionManifest = Get-Content -Raw -LiteralPath 'apps/extension/manifest.json' | ConvertFrom-Json
           $extensionZip = Join-Path $release "VeriSilo-Companion-$($extensionManifest.version)-chrome-edge.zip"
-          node scripts/package-extension-zip.mjs --input apps/extension/dist --out $extensionZip --manifest (Join-Path $release 'extension-zip-manifest.json')
-          node scripts/package-extension-zip.mjs --input apps/extension/dist --out $extensionZip --manifest (Join-Path $release 'extension-zip-manifest.json') --check
-
-      - name: Sign and timestamp the NSIS installer
-        shell: pwsh
-        env:
-          VERISILO_AUTHENTICODE_PASSWORD: ${{ secrets.VERISILO_AUTHENTICODE_PASSWORD }}
-        run: |
-          $installerName = "VeriSilo_$env:VERISILO_RELEASE_VERSION`_x64-setup.exe"
-          ./scripts/authenticode-gate.ps1 -Check -Mode SignAndVerify -ReleaseDirectory artifacts/release -IncludeRelativePath @($installerName) -CertificatePath $env:VERISILO_AUTHENTICODE_PFX_PATH -ExpectedSignerCertificateSha256 $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -ReportPath (Join-Path $env:RUNNER_TEMP 'installer-authenticode-status.json')
-
-      - name: Verify all staged EXE and PS1 signatures and timestamps
-        shell: pwsh
-        run: ./scripts/authenticode-gate.ps1 -Check -Mode VerifySigned -ReleaseDirectory artifacts/release -ExpectedSignerCertificateSha256 $env:VERISILO_AUTHENTICODE_SIGNER_SHA256
-
-      - name: Generate and verify lockfile SBOMs
-        shell: pwsh
-        run: |
-          pnpm sbom:generate
-          pnpm sbom:check
-
-      - name: Generate dependency license evidence for human review
-        shell: pwsh
-        run: |
-          pnpm licenses:report
-          pnpm licenses:check
-
-      - name: Record explicit non-promotion state
-        shell: pwsh
-        run: |
+          node scripts/package-extension-zip.mjs --input artifacts/bundle-input/extension-dist --out $extensionZip --manifest (Join-Path $release 'extension-zip-manifest.json')
+          node scripts/package-extension-zip.mjs --input artifacts/bundle-input/extension-dist --out $extensionZip --manifest (Join-Path $release 'extension-zip-manifest.json') --check
           $status = [ordered]@{
             schema = 'urn:verisilo:windows-promotion-status:1'
             schemaVersion = 1
             state = 'NOT_PROMOTABLE'
-            sourceRevision = $env:VERISILO_SOURCE_REVISION
+            sourceRevision = $env:GITHUB_SHA
             requiredWorkflow = '.github/workflows/windows-e2e-real.yml'
             reason = 'No exact-candidate Windows 10/11 x64 Chrome/Edge RequireAll attestation has been attached.'
           }
-          [IO.File]::WriteAllText('artifacts/release/promotion-status.json', (($status | ConvertTo-Json -Depth 4) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText((Join-Path $release 'promotion-status.json'), (($status | ConvertTo-Json -Depth 4) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
 
-      - name: Verify staged artifacts and complete Authenticode coverage
+          $signable = @(Get-ChildItem -LiteralPath $release -File -Recurse | Where-Object { $_.Extension -in @('.exe', '.ps1') })
+          $unsigned = @($signable | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -eq 'NotSigned' })
+          if ($unsigned.Count -ne 1 -or $unsigned[0].Name -cne $installerName) {
+            throw 'The outer payload must contain exactly one unsigned file: the fixed NSIS installer.'
+          }
+          foreach ($file in @($signable | Where-Object { $_.FullName -cne $unsigned[0].FullName })) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            $signer = if ($null -eq $signature.SignerCertificate) { '' } else { $signature.SignerCertificate.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant() }
+            if ($signature.Status -ne 'Valid' -or $signer -cne $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -or $null -eq $signature.TimeStamperCertificate) {
+              throw "Inner signature was lost while packaging: $($file.FullName)"
+            }
+          }
+
+          $files = @(
+            Get-ChildItem -LiteralPath $release -File -Recurse |
+              Sort-Object { [IO.Path]::GetRelativePath($release, $_.FullName).Replace('\', '/') } |
+              ForEach-Object {
+                [ordered]@{
+                  path = [IO.Path]::GetRelativePath($release, $_.FullName).Replace('\', '/')
+                  bytes = $_.Length
+                  sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+              }
+          )
+          $manifest = [ordered]@{
+            schema = 'urn:verisilo:outer-signing-input:1'
+            schemaVersion = 1
+            sourceRevision = $env:GITHUB_SHA
+            expectedSignerCertificateSha256 = $env:VERISILO_AUTHENTICODE_SIGNER_SHA256
+            installer = $installerName
+            files = $files
+          }
+          [IO.File]::WriteAllText('artifacts/outer-signing/outer-manifest.json', (($manifest | ConvertTo-Json -Depth 6) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+
+      - name: Upload immutable outer signing input
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-outer-signing-input
+          path: artifacts/outer-signing/
+          if-no-files-found: error
+          retention-days: 2
+
+  sign-outer-isolated:
+    name: Sign installer in isolated job
+    needs: package-unsigned-outer
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    environment: windows-signing
+    steps:
+      - name: Download immutable outer payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: verisilo-outer-signing-input
+          path: ${{ runner.temp }}/verisilo-outer-signing
+
+      - name: Verify manifest, sign only installer, and erase certificate
         shell: pwsh
-        run: node scripts/verify-release-policy.mjs --check --config artifacts/release/native-host-release-config.json --release artifacts/release
+        env:
+          VERISILO_AUTHENTICODE_PFX_BASE64: ${{ secrets.VERISILO_AUTHENTICODE_PFX_BASE64 }}
+          VERISILO_AUTHENTICODE_PASSWORD: ${{ secrets.VERISILO_AUTHENTICODE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $root = Join-Path $env:RUNNER_TEMP 'verisilo-outer-signing'
+          $candidate = Join-Path $root 'candidate'
+          $manifest = Get-Content -Raw -LiteralPath (Join-Path $root 'outer-manifest.json') | ConvertFrom-Json
+          $expectedInstaller = "VeriSilo_$env:VERISILO_RELEASE_VERSION`_x64-setup.exe"
+          if ($manifest.schema -cne 'urn:verisilo:outer-signing-input:1' -or
+              $manifest.schemaVersion -ne 1 -or
+              $manifest.sourceRevision -cne $env:GITHUB_SHA -or
+              $manifest.expectedSignerCertificateSha256 -cne $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -or
+              $manifest.installer -cne $expectedInstaller) {
+            throw 'Outer signing manifest is not bound to this exact source, signer, and installer.'
+          }
+          $actual = @(
+            Get-ChildItem -LiteralPath $candidate -File -Recurse |
+              ForEach-Object { [IO.Path]::GetRelativePath($candidate, $_.FullName).Replace('\', '/') } |
+              Sort-Object
+          )
+          if (($actual -join "`n") -cne (($manifest.files.path | Sort-Object) -join "`n")) {
+            throw 'Outer signing inventory does not match its immutable manifest.'
+          }
+          foreach ($entry in $manifest.files) {
+            $file = Join-Path $candidate $entry.path
+            if ((Get-Item -LiteralPath $file).Length -ne $entry.bytes -or
+                (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256) {
+              throw "Outer signing input hash mismatch: $($entry.path)"
+            }
+          }
+          $installerPath = Join-Path $candidate $expectedInstaller
+          if ((Get-AuthenticodeSignature -LiteralPath $installerPath).Status -ne 'NotSigned') {
+            throw 'The fixed outer installer must be the only unsigned signing target.'
+          }
+          $otherSignables = @(
+            Get-ChildItem -LiteralPath $candidate -File -Recurse |
+              Where-Object { $_.Extension -in @('.exe', '.ps1') -and $_.FullName -cne $installerPath }
+          )
+          foreach ($file in $otherSignables) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            $signer = if ($null -eq $signature.SignerCertificate) { '' } else { $signature.SignerCertificate.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant() }
+            if ($signature.Status -ne 'Valid' -or $signer -cne $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -or $null -eq $signature.TimeStamperCertificate) {
+              throw "Outer signing job received an invalid inner signature: $($file.FullName)"
+            }
+          }
+          if ([string]::IsNullOrWhiteSpace($env:VERISILO_AUTHENTICODE_PFX_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:VERISILO_AUTHENTICODE_PASSWORD)) {
+            throw 'The signing environment must provide both Authenticode secrets.'
+          }
 
-      - name: Generate and verify SHA-256 manifest and provenance
+          $pfxPath = Join-Path $env:RUNNER_TEMP "verisilo-authenticode-$([Guid]::NewGuid().ToString('N')).pfx"
+          $thumbprintReceipt = Join-Path $env:RUNNER_TEMP 'verisilo-imported-certificate-thumbprint.txt'
+          $importedThumbprint = $null
+          try {
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:VERISILO_AUTHENTICODE_PFX_BASE64))
+            $securePassword = ConvertTo-SecureString -String $env:VERISILO_AUTHENTICODE_PASSWORD -AsPlainText -Force
+            $imported = @(Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation 'Cert:\CurrentUser\My' -Password $securePassword -Exportable:$false)
+            $signingCertificate = @($imported | Where-Object HasPrivateKey)
+            if ($signingCertificate.Count -ne 1) { throw 'PFX must import exactly one private-key signing certificate.' }
+            $certificate = $signingCertificate[0]
+            $actualSigner = $certificate.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant()
+            if ($actualSigner -cne $env:VERISILO_AUTHENTICODE_SIGNER_SHA256) {
+              throw 'PFX certificate does not match the public build-pinned signer SHA-256.'
+            }
+            $importedThumbprint = $certificate.Thumbprint
+            [IO.File]::WriteAllText($thumbprintReceipt, $importedThumbprint, [Text.Encoding]::ASCII)
+            $kits = Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'Windows Kits\10\bin'
+            $signTool = @(
+              Get-ChildItem -LiteralPath $kits -Filter 'signtool.exe' -File -Recurse |
+                Where-Object { $_.FullName -match '[\\/]x64[\\/]signtool\.exe$' } |
+                Sort-Object FullName -Descending
+            ) | Select-Object -First 1
+            if ($null -eq $signTool) { throw 'signtool.exe is unavailable.' }
+            & $signTool.FullName sign /sha1 $certificate.Thumbprint /fd SHA256 /tr 'https://timestamp.digicert.com' /td SHA256 /v $installerPath
+            if ($LASTEXITCODE -ne 0) { throw 'signtool failed for the fixed NSIS installer.' }
+            foreach ($file in @($otherSignables + (Get-Item -LiteralPath $installerPath))) {
+              $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+              $signer = if ($null -eq $signature.SignerCertificate) { '' } else { $signature.SignerCertificate.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant() }
+              if ($signature.Status -ne 'Valid' -or $signer -cne $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -or $null -eq $signature.TimeStamperCertificate) {
+                throw "Final Authenticode verification failed: $($file.FullName)"
+              }
+            }
+          } finally {
+            if (-not [string]::IsNullOrWhiteSpace($importedThumbprint)) {
+              Remove-Item -LiteralPath "Cert:\CurrentUser\My\$importedThumbprint" -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item -LiteralPath $pfxPath -Force -ErrorAction SilentlyContinue
+            $env:VERISILO_AUTHENTICODE_PFX_BASE64 = ''
+            $env:VERISILO_AUTHENTICODE_PASSWORD = ''
+          }
+
+          $files = @(
+            Get-ChildItem -LiteralPath $candidate -File -Recurse |
+              Sort-Object { [IO.Path]::GetRelativePath($candidate, $_.FullName).Replace('\', '/') } |
+              ForEach-Object {
+                [ordered]@{
+                  path = [IO.Path]::GetRelativePath($candidate, $_.FullName).Replace('\', '/')
+                  bytes = $_.Length
+                  sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+              }
+          )
+          $signedManifest = [ordered]@{
+            schema = 'urn:verisilo:signed-outer-payload:1'
+            schemaVersion = 1
+            sourceRevision = $env:GITHUB_SHA
+            expectedSignerCertificateSha256 = $env:VERISILO_AUTHENTICODE_SIGNER_SHA256
+            installer = $expectedInstaller
+            files = $files
+          }
+          [IO.File]::WriteAllText((Join-Path $root 'signed-outer-manifest.json'), (($signedManifest | ConvertTo-Json -Depth 6) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+
+      - name: Remove any residual signing material
+        if: always()
+        shell: pwsh
+        run: |
+          $receipt = Join-Path $env:RUNNER_TEMP 'verisilo-imported-certificate-thumbprint.txt'
+          if (Test-Path -LiteralPath $receipt -PathType Leaf) {
+            $thumbprint = (Get-Content -Raw -LiteralPath $receipt).Trim()
+            if ($thumbprint -cmatch '^[0-9A-F]{40}$') {
+              Remove-Item -LiteralPath "Cert:\CurrentUser\My\$thumbprint" -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item -LiteralPath $receipt -Force -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'verisilo-authenticode-*.pfx' -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+
+      - name: Upload signed outer payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-signed-outer
+          path: ${{ runner.temp }}/verisilo-outer-signing/
+          if-no-files-found: error
+          retention-days: 2
+
+  audit-signed-candidate:
+    name: Audit exact signed candidate without signing secrets
+    needs: sign-outer-isolated
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Download exact signed outer payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: verisilo-signed-outer
+          path: ${{ runner.temp }}/verisilo-signed-outer
+
+      - name: Verify signed cross-job manifest and stage candidate
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'verisilo-signed-outer'
+          $candidate = Join-Path $root 'candidate'
+          $manifest = Get-Content -Raw -LiteralPath (Join-Path $root 'signed-outer-manifest.json') | ConvertFrom-Json
+          if ($manifest.schema -cne 'urn:verisilo:signed-outer-payload:1' -or
+              $manifest.schemaVersion -ne 1 -or
+              $manifest.sourceRevision -cne $env:GITHUB_SHA -or
+              $manifest.expectedSignerCertificateSha256 -cne $env:VERISILO_AUTHENTICODE_SIGNER_SHA256) {
+            throw 'Signed candidate manifest is not bound to this exact source and signer.'
+          }
+          $actual = @(
+            Get-ChildItem -LiteralPath $candidate -File -Recurse |
+              ForEach-Object { [IO.Path]::GetRelativePath($candidate, $_.FullName).Replace('\', '/') } |
+              Sort-Object
+          )
+          if (($actual -join "`n") -cne (($manifest.files.path | Sort-Object) -join "`n")) {
+            throw 'Signed candidate inventory does not match its manifest.'
+          }
+          foreach ($entry in $manifest.files) {
+            $file = Join-Path $candidate $entry.path
+            if ((Get-Item -LiteralPath $file).Length -ne $entry.bytes -or
+                (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256) {
+              throw "Signed candidate digest mismatch: $($entry.path)"
+            }
+          }
+          New-Item -ItemType Directory -Force -Path 'artifacts/release' | Out-Null
+          Copy-Item -Path (Join-Path $candidate '*') -Destination 'artifacts/release' -Recurse
+          $epoch = git show -s --format=%ct HEAD
+          "SOURCE_DATE_EPOCH=$epoch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install locked audit dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify all signatures and run signed provider self-tests
+        shell: pwsh
+        run: |
+          ./scripts/authenticode-gate.ps1 -Check -Mode VerifySigned -ReleaseDirectory artifacts/release -ExpectedSignerCertificateSha256 $env:VERISILO_AUTHENTICODE_SIGNER_SHA256 -ReportPath artifacts/release/authenticode-status.json
+          $providerRoot = Join-Path $PWD 'artifacts/release/bundle-resources/environment'
+          & (Join-Path $providerRoot 'verisilo-environment-probe.ps1') -SelfTest
+          & (Join-Path $providerRoot 'verisilo-hyperv.ps1') -SelfTest
+          & (Join-Path $providerRoot 'verisilo-sandbox.ps1') -SelfTest
+
+      - name: Generate and verify SBOM and dependency license evidence
+        shell: pwsh
+        run: |
+          pnpm sbom:generate
+          pnpm sbom:check
+          pnpm licenses:report
+          pnpm licenses:check
+
+      - name: Verify staged release before provenance
+        shell: pwsh
+        run: |
+          node scripts/package-extension-zip.mjs --input artifacts/release/extension --out "artifacts/release/VeriSilo-Companion-$((Get-Content -Raw apps/extension/manifest.json | ConvertFrom-Json).version)-chrome-edge.zip" --manifest artifacts/release/extension-zip-manifest.json --check
+          node scripts/verify-release-policy.mjs --check --config artifacts/release/native-host-release-config.json --release artifacts/release
+
+      - name: Generate provenance and repeat every final content gate
         shell: pwsh
         run: |
           pnpm release:metadata
           pnpm release:metadata:check
+          pnpm sbom:check
+          pnpm licenses:check
+          node scripts/package-extension-zip.mjs --input artifacts/release/extension --out "artifacts/release/VeriSilo-Companion-$((Get-Content -Raw apps/extension/manifest.json | ConvertFrom-Json).version)-chrome-edge.zip" --manifest artifacts/release/extension-zip-manifest.json --check
+          node scripts/verify-release-policy.mjs --check --config artifacts/release/native-host-release-config.json --release artifacts/release
 
       - name: Upload audited signed candidate
         id: upload-candidate
@@ -308,7 +872,7 @@ jobs:
           VERISILO_UPLOADED_ARTIFACT_DIGEST: ${{ steps.upload-candidate.outputs.artifact-digest }}
         run: |
           if ($env:VERISILO_UPLOADED_ARTIFACT_ID -cnotmatch '^[1-9][0-9]{0,15}$' -or
-              $env:VERISILO_UPLOADED_ARTIFACT_DIGEST -cnotmatch '^[0-9a-f]{64}$') {
+              $env:VERISILO_UPLOADED_ARTIFACT_DIGEST -cnotmatch '^(?:sha256:)?[0-9a-f]{64}$') {
             throw 'upload-artifact did not return a strict artifact ID and SHA-256 digest.'
           }
           @(
@@ -316,17 +880,7 @@ jobs:
             '',
             "Artifact ID: $env:VERISILO_UPLOADED_ARTIFACT_ID",
             "Candidate digest: $env:VERISILO_UPLOADED_ARTIFACT_DIGEST",
-            "Source revision: $env:VERISILO_SOURCE_REVISION",
+            "Source revision: $env:GITHUB_SHA",
             '',
             'Run the independent Windows candidate promotion gate with these exact values. Upload alone is not Windows E2E evidence.'
           ) | Out-File -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-
-      - name: Remove ephemeral signing certificate
-        if: always()
-        shell: pwsh
-        run: |
-          if (-not [string]::IsNullOrWhiteSpace($env:VERISILO_AUTHENTICODE_PFX_PATH)) {
-            Remove-Item -LiteralPath $env:VERISILO_AUTHENTICODE_PFX_PATH -Force -ErrorAction SilentlyContinue
-          }
-          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'verisilo-authenticode-*.pfx' -File -ErrorAction SilentlyContinue |
-            Remove-Item -Force -ErrorAction SilentlyContinue

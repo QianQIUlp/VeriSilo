@@ -32,12 +32,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $script:Results = [System.Collections.Generic.List[object]]::new()
-$script:ProcessIds = [System.Collections.Generic.List[int]]::new()
 $script:FixtureProcess = $null
 $script:FixtureOutput = $null
-$script:FixturePort = 0
-$script:ArtifactDirectory = $null
+$script:ActiveFixturePort = 0
+$script:FixtureToken = $null
+$script:ResolvedArtifactDirectory = $null
 $script:ArtifactDirectoryWasProvided = $false
+$script:ArtifactSentinel = $null
+$script:RequestedFixturePort = $FixturePort
+$script:RequestedArtifactDirectory = $ArtifactDirectory
+$script:NativeHostProtocolVersion = 2
 
 function Add-Result {
   param(
@@ -79,19 +83,34 @@ function Test-IsAdministrator {
 }
 
 function Test-OperatingSystemEvidence {
-  $currentVersion = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
-  $productName = [string]$currentVersion.ProductName
-  $displayVersion = [string]$currentVersion.DisplayVersion
-  $build = [string]$currentVersion.CurrentBuild
+  $operatingSystem = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+  $build = 0
+  if (-not [int]::TryParse([string]$operatingSystem.BuildNumber, [ref]$build) -or $build -lt 10240) {
+    throw "Win32_OperatingSystem returned an unsupported BuildNumber '$($operatingSystem.BuildNumber)'."
+  }
+  if ([int]$operatingSystem.ProductType -ne 1) {
+    Add-Result -Name 'windows_matrix_target' -Status 'BLOCKED' -Detail "Win32_OperatingSystem reports ProductType $($operatingSystem.ProductType); the desktop acceptance matrix requires a Windows client workstation, not Windows Server."
+    return
+  }
+  $actualWindowsVersion = Get-WindowsFamilyFromBuild -Build $build
+  $caption = [string]$operatingSystem.Caption
+  $version = [string]$operatingSystem.Version
+  $detail = "$caption version $version (build $build; classified as $actualWindowsVersion)"
   if (-not $ExpectedWindowsVersion) {
-    Add-Result -Name 'windows_matrix_target' -Status 'SKIP' -Detail "Host is $productName $displayVersion (build $build), but no -ExpectedWindowsVersion was declared. Run once for Windows 10 and once for Windows 11 before claiming the matrix."
+    Add-Result -Name 'windows_matrix_target' -Status 'SKIP' -Detail "Host is $detail, but no -ExpectedWindowsVersion was declared. Run once for Windows 10 and once for Windows 11 before claiming the matrix."
     return
   }
-  if ($productName -notlike "*$ExpectedWindowsVersion*") {
-    Add-Result -Name 'windows_matrix_target' -Status 'BLOCKED' -Detail "Expected $ExpectedWindowsVersion but the host reports $productName $displayVersion (build $build)."
+  if ($actualWindowsVersion -cne $ExpectedWindowsVersion) {
+    Add-Result -Name 'windows_matrix_target' -Status 'BLOCKED' -Detail "Expected $ExpectedWindowsVersion but Win32_OperatingSystem reports $detail."
     return
   }
-  Add-Result -Name 'windows_matrix_target' -Status 'PASS' -Detail "Validated $productName $displayVersion (build $build) as the declared $ExpectedWindowsVersion target."
+  Add-Result -Name 'windows_matrix_target' -Status 'PASS' -Detail "Validated $detail as the declared $ExpectedWindowsVersion target."
+}
+
+function Get-WindowsFamilyFromBuild {
+  param([ValidateRange(10240, [int]::MaxValue)][int]$Build)
+  if ($Build -ge 22000) { return 'Windows 11' }
+  return 'Windows 10'
 }
 
 function Get-BrowserConfiguration {
@@ -131,9 +150,103 @@ function Get-NormalizedPath {
   return [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
 }
 
+function Test-StrictPathDescendant {
+  param(
+    [Parameter(Mandatory = $true)][string]$Candidate,
+    [Parameter(Mandatory = $true)][string]$Ancestor
+  )
+  $normalizedCandidate = Get-NormalizedPath $Candidate
+  $normalizedAncestor = Get-NormalizedPath $Ancestor
+  return -not [string]::Equals($normalizedCandidate, $normalizedAncestor, [StringComparison]::OrdinalIgnoreCase) -and
+    $normalizedCandidate.StartsWith(
+      "$normalizedAncestor$([IO.Path]::DirectorySeparatorChar)",
+      [StringComparison]::OrdinalIgnoreCase
+    )
+}
+
+function Assert-NoReparsePointPath {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$TrustedAncestor
+  )
+  $candidate = Get-NormalizedPath $Path
+  $ancestor = Get-NormalizedPath $TrustedAncestor
+  $ancestorItem = Get-Item -LiteralPath $ancestor -Force
+  if (($ancestorItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "Trusted temporary root must not be a reparse point: $ancestor"
+  }
+  if ([string]::Equals($candidate, $ancestor, [StringComparison]::OrdinalIgnoreCase)) {
+    return
+  }
+  if (-not (Test-StrictPathDescendant -Candidate $candidate -Ancestor $ancestor)) {
+    throw "Path is not a strict descendant of the trusted root: $candidate"
+  }
+  $relative = $candidate.Substring($ancestor.Length).TrimStart([char]'\', [char]'/')
+  $current = $ancestor
+  foreach ($segment in $relative -split '[\\/]') {
+    $current = Join-Path $current $segment
+    if (-not (Test-Path -LiteralPath $current)) { continue }
+    $item = Get-Item -LiteralPath $current -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Refusing a reparse-point path inside the acceptance root: $($item.FullName)"
+    }
+  }
+}
+
+function New-TemporaryArtifactDirectory {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $temporaryRoot = Get-NormalizedPath ([IO.Path]::GetTempPath())
+  $candidate = Get-NormalizedPath $Path
+  if (-not (Test-StrictPathDescendant -Candidate $candidate -Ancestor $temporaryRoot)) {
+    throw "ArtifactDirectory must be a strict descendant of the OS temporary root: $candidate"
+  }
+  if (Test-Path -LiteralPath $candidate) {
+    throw "Refusing to reuse an existing acceptance ArtifactDirectory: $candidate"
+  }
+  $parent = Split-Path -Parent $candidate
+  Assert-NoReparsePointPath -Path $parent -TrustedAncestor $temporaryRoot
+  [void](New-Item -ItemType Directory -Path $candidate)
+  Assert-NoReparsePointPath -Path $candidate -TrustedAncestor $temporaryRoot
+  $script:ArtifactSentinel = Get-RandomHex
+  [IO.File]::WriteAllText(
+    (Join-Path $candidate '.verisilo-e2e-sentinel'),
+    $script:ArtifactSentinel,
+    [Text.UTF8Encoding]::new($false)
+  )
+  return $candidate
+}
+
+function Remove-TemporaryArtifactDirectory {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $temporaryRoot = Get-NormalizedPath ([IO.Path]::GetTempPath())
+  $candidate = Get-NormalizedPath $Path
+  Assert-NoReparsePointPath -Path $candidate -TrustedAncestor $temporaryRoot
+  $sentinelPath = Join-Path $candidate '.verisilo-e2e-sentinel'
+  if (-not (Test-Path -LiteralPath $sentinelPath -PathType Leaf) -or
+      [IO.File]::ReadAllText($sentinelPath) -cne $script:ArtifactSentinel) {
+    throw "Refusing to remove an artifact directory without its exact run sentinel: $candidate"
+  }
+  Remove-Item -LiteralPath $candidate -Recurse -Force
+}
+
 function Get-RandomHex {
   param([ValidateRange(16, 128)][int]$Bytes = 32)
-  return [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes($Bytes)).ToLowerInvariant()
+  $buffer = New-Object byte[] $Bytes
+  $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try {
+    $generator.GetBytes($buffer)
+  } finally {
+    $generator.Dispose()
+  }
+  return [BitConverter]::ToString($buffer).Replace('-', '').ToLowerInvariant()
+}
+
+function New-ShortAcceptanceLeaf {
+  # The separate 256-bit sentinel authenticates the root. This 64-bit token
+  # only keeps concurrent local runs distinct while preserving Chromium's
+  # remaining path budget for deeply nested extension/cache entries.
+  $token = (Get-RandomHex -Bytes 16).Substring(0, 16)
+  return "vda-$token"
 }
 
 function Assert-TemporaryUserDataDirectory {
@@ -151,6 +264,7 @@ function Assert-TemporaryUserDataDirectory {
   if (-not $candidate.StartsWith("$temporaryRoot$([IO.Path]::DirectorySeparatorChar)", [StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing non-temporary user-data-dir: $candidate"
   }
+  Assert-NoReparsePointPath -Path $candidate -TrustedAncestor $temporaryRoot
 }
 
 function Start-ArrayProcess {
@@ -235,6 +349,7 @@ function Invoke-LoopbackRequest {
   $handler = [System.Net.Http.HttpClientHandler]::new()
   $handler.UseProxy = $false
   $client = [System.Net.Http.HttpClient]::new($handler)
+  $client.Timeout = [TimeSpan]::FromSeconds(2)
   try {
     $httpMethod = if ($Method -eq 'GET') { [System.Net.Http.HttpMethod]::Get } else { [System.Net.Http.HttpMethod]::Post }
     $request = [System.Net.Http.HttpRequestMessage]::new($httpMethod, [Uri]$Uri)
@@ -253,16 +368,35 @@ function Invoke-LoopbackRequest {
 function Start-LoopbackFixture {
   $node = Get-Command node -ErrorAction SilentlyContinue
   if ($null -eq $node) { throw 'node is required to start the real loopback fixture server.' }
-  $script:FixturePort = if ($FixturePort -gt 0) { $FixturePort } else { Get-FreeLoopbackPort }
+  $script:ActiveFixturePort = if ($FixturePort -gt 0) { $FixturePort } else { Get-FreeLoopbackPort }
+  if ($script:ActiveFixturePort -lt 1 -or $script:ActiveFixturePort -gt 65535) {
+    throw 'FixturePort must be a TCP port between 1 and 65535.'
+  }
+  $script:FixtureToken = Get-RandomHex
   $fixture = Join-Path $PSScriptRoot 'fixtures\loopback-server.mjs'
-  $stdout = Join-Path $script:ArtifactDirectory 'fixture.stdout.log'
-  $stderr = Join-Path $script:ArtifactDirectory 'fixture.stderr.log'
-  $started = Start-ProcessToFiles -FilePath $node.Source -Arguments @($fixture, '--host', '127.0.0.1', '--port', "$script:FixturePort") -StandardOutputPath $stdout -StandardErrorPath $stderr
+  $stdout = Join-Path $script:ResolvedArtifactDirectory 'fixture.stdout.log'
+  $stderr = Join-Path $script:ResolvedArtifactDirectory 'fixture.stderr.log'
+  $started = Start-ProcessToFiles -FilePath $node.Source -Arguments @(
+    $fixture,
+    '--host', '127.0.0.1',
+    '--port', "$script:ActiveFixturePort",
+    '--token', $script:FixtureToken
+  ) -StandardOutputPath $stdout -StandardErrorPath $stderr
   $script:FixtureProcess = $started.Process
   $script:FixtureOutput = $started
   for ($attempt = 0; $attempt -lt 40; $attempt++) {
     try {
-      Invoke-LoopbackRequest -Method GET -Uri "http://127.0.0.1:$script:FixturePort/__events" | Out-Null
+      if ($script:FixtureProcess.HasExited) {
+        throw "The loopback fixture exited with code $($script:FixtureProcess.ExitCode)."
+      }
+      $healthJson = Invoke-LoopbackRequest -Method GET -Uri (
+        "http://127.0.0.1:$script:ActiveFixturePort/__health?harnessToken=$script:FixtureToken"
+      )
+      $health = $healthJson | ConvertFrom-Json
+      if ($health.schema -cne 'urn:verisilo:windows-e2e-fixture-health:1' -or
+          $health.token -cne $script:FixtureToken) {
+        throw 'The loopback port answered without the exact per-run fixture identity.'
+      }
       return
     } catch {
       Start-Sleep -Milliseconds 125
@@ -272,12 +406,25 @@ function Start-LoopbackFixture {
 }
 
 function Get-LoopbackEvents {
-  $json = Invoke-LoopbackRequest -Method GET -Uri "http://127.0.0.1:$script:FixturePort/__events"
-  return @($json | ConvertFrom-Json)
+  $json = Invoke-LoopbackRequest -Method GET -Uri (
+    "http://127.0.0.1:$script:ActiveFixturePort/__events?harnessToken=$script:FixtureToken"
+  )
+  return ,(ConvertFrom-JsonArray -Json $json)
 }
 
 function Reset-LoopbackEvents {
-  Invoke-LoopbackRequest -Method POST -Uri "http://127.0.0.1:$script:FixturePort/__reset" | Out-Null
+  Invoke-LoopbackRequest -Method POST -Uri (
+    "http://127.0.0.1:$script:ActiveFixturePort/__reset?harnessToken=$script:FixtureToken"
+  ) | Out-Null
+}
+
+function ConvertFrom-JsonArray {
+  param([Parameter(Mandatory = $true)][string]$Json)
+  if ($Json -match '^\s*\[\s*\]\s*$') {
+    Write-Output -NoEnumerate ([object[]]@())
+    return
+  }
+  return ,@($Json | ConvertFrom-Json)
 }
 
 function Get-CdpEndpoint {
@@ -302,26 +449,57 @@ function Connect-Cdp {
   param([Parameter(Mandatory = $true)][string]$WebSocketDebuggerUrl)
   $socket = [System.Net.WebSockets.ClientWebSocket]::new()
   $socket.Options.KeepAliveInterval = [TimeSpan]::FromSeconds(10)
-  $socket.ConnectAsync([Uri]$WebSocketDebuggerUrl, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
-  return [pscustomobject]@{ Socket = $socket; NextId = 1 }
+  $cancellation = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(10))
+  try {
+    [void]$socket.ConnectAsync([Uri]$WebSocketDebuggerUrl, $cancellation.Token).GetAwaiter().GetResult()
+    return [pscustomobject]@{ Socket = $socket; NextId = 1 }
+  } catch {
+    $socket.Dispose()
+    throw
+  } finally {
+    $cancellation.Dispose()
+  }
 }
 
 function Receive-CdpText {
   param([Parameter(Mandatory = $true)]$Connection)
   $buffer = New-Object byte[] 65536
   $stream = [IO.MemoryStream]::new()
+  $cancellation = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(10))
   try {
     do {
-      $result = $Connection.Socket.ReceiveAsync([ArraySegment[byte]]::new($buffer), [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+      $result = $Connection.Socket.ReceiveAsync([ArraySegment[byte]]::new($buffer), $cancellation.Token).GetAwaiter().GetResult()
       if ($result.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
         throw 'DevTools closed the WebSocket before it returned a response.'
       }
       $stream.Write($buffer, 0, $result.Count)
+      if ($stream.Length -gt 1048576) {
+        throw 'DevTools emitted an oversized response.'
+      }
     } while (-not $result.EndOfMessage)
     return [Text.Encoding]::UTF8.GetString($stream.ToArray())
+  } catch [OperationCanceledException] {
+    throw 'DevTools did not return a response within ten seconds.'
   } finally {
+    $cancellation.Dispose()
     $stream.Dispose()
   }
+}
+
+function Get-CdpErrorMessage {
+  param([Parameter(Mandatory = $true)]$Message)
+  if ($null -eq $Message.PSObject.Properties['error']) { return $null }
+  if ($null -ne $Message.error -and $null -ne $Message.error.PSObject.Properties['message']) {
+    return [string]$Message.error.message
+  }
+  return ($Message.error | ConvertTo-Json -Compress -Depth 5)
+}
+
+function Get-NextCdpId {
+  param([Parameter(Mandatory = $true)]$Connection)
+  $id = $Connection.NextId
+  [void]($Connection.NextId++)
+  return $id
 }
 
 function Invoke-Cdp {
@@ -330,15 +508,28 @@ function Invoke-Cdp {
     [Parameter(Mandatory = $true)][string]$Method,
     [hashtable]$Params = @{}
   )
-  $id = $Connection.NextId
-  $Connection.NextId++
+  $id = Get-NextCdpId -Connection $Connection
   $payload = @{ id = $id; method = $Method; params = $Params } | ConvertTo-Json -Compress -Depth 20
   $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
-  $Connection.Socket.SendAsync([ArraySegment[byte]]::new($bytes), [System.Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+  $cancellation = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(10))
+  try {
+    [void]$Connection.Socket.SendAsync(
+      [ArraySegment[byte]]::new($bytes),
+      [System.Net.WebSockets.WebSocketMessageType]::Text,
+      $true,
+      $cancellation.Token
+    ).GetAwaiter().GetResult()
+  } catch [OperationCanceledException] {
+    throw "DevTools $Method could not be sent within ten seconds."
+  } finally {
+    $cancellation.Dispose()
+  }
   while ($true) {
     $message = Receive-CdpText -Connection $Connection | ConvertFrom-Json
-    if ($message.id -eq $id) {
-      if ($message.error) { throw "DevTools $Method failed: $($message.error.message)" }
+    $messageId = $message.PSObject.Properties['id']
+    if ($null -ne $messageId -and [long]$message.id -eq $id) {
+      $errorMessage = Get-CdpErrorMessage -Message $message
+      if ($null -ne $errorMessage) { throw "DevTools $Method failed: $errorMessage" }
       return $message
     }
   }
@@ -350,15 +541,31 @@ function Invoke-CdpNavigate {
 }
 
 function Wait-FixtureTitle {
-  param([Parameter(Mandatory = $true)]$Connection)
+  param(
+    [Parameter(Mandatory = $true)]$Connection,
+    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{32}$')][string]$ExpectedToken
+  )
+  $passPrefix = "VERISILO_E2E:PASS:$ExpectedToken`:"
+  $failPrefix = "VERISILO_E2E:FAIL:$ExpectedToken`:"
   for ($attempt = 0; $attempt -lt 80; $attempt++) {
     $response = Invoke-Cdp -Connection $Connection -Method 'Runtime.evaluate' -Params @{ expression = 'document.title'; returnByValue = $true }
     $title = [string]$response.result.result.value
-    if ($title.StartsWith('VERISILO_E2E:PASS:', [StringComparison]::Ordinal)) { return $title }
-    if ($title.StartsWith('VERISILO_E2E:FAIL:', [StringComparison]::Ordinal)) { throw "Fixture assertion failed: $title" }
+    if ($title.StartsWith($passPrefix, [StringComparison]::Ordinal)) { return $title }
+    if ($title.StartsWith($failPrefix, [StringComparison]::Ordinal)) { throw "Fixture assertion failed: $title" }
     Start-Sleep -Milliseconds 125
   }
-  throw 'Fixture page did not report a PASS/FAIL title before the timeout.'
+  throw "Fixture page did not report a PASS/FAIL title for operation token $ExpectedToken before the timeout."
+}
+
+function Invoke-FixtureCase {
+  param(
+    [Parameter(Mandatory = $true)]$Connection,
+    [Parameter(Mandatory = $true)][string]$Query
+  )
+  $operationToken = Get-RandomHex -Bytes 16
+  $uri = "http://127.0.0.1:$script:ActiveFixturePort/?$Query&harnessToken=$script:FixtureToken&operationToken=$operationToken"
+  Invoke-CdpNavigate -Connection $Connection -Uri $uri | Out-Null
+  return Wait-FixtureTitle -Connection $Connection -ExpectedToken $operationToken
 }
 
 function Start-TemporaryBrowser {
@@ -369,8 +576,11 @@ function Start-TemporaryBrowser {
     [string[]]$ExtraArguments = @()
   )
 
+  $userDataExists = Test-Path -LiteralPath $UserDataDirectory
+  if (-not $userDataExists) {
+    [void](New-Item -ItemType Directory -Path $UserDataDirectory)
+  }
   Assert-TemporaryUserDataDirectory -UserDataDirectory $UserDataDirectory -DefaultUserDataDirectory $Configuration.DefaultUserData
-  New-Item -ItemType Directory -Force -Path $UserDataDirectory | Out-Null
   $arguments = @(
     "--user-data-dir=$UserDataDirectory",
     "--remote-debugging-port=$RemoteDebuggingPort",
@@ -383,22 +593,77 @@ function Start-TemporaryBrowser {
   if ($arguments -match '--profile-directory=Default') {
     throw 'The E2E harness must never select a default browser Profile.'
   }
-  $process = Start-ArrayProcess -FilePath $Configuration.Executable -Arguments $arguments
-  $script:ProcessIds.Add($process.Id)
-  $page = Wait-CdpPage -Port $RemoteDebuggingPort
-  return [pscustomobject]@{ Process = $process; Connection = (Connect-Cdp -WebSocketDebuggerUrl $page.webSocketDebuggerUrl); UserDataDirectory = $UserDataDirectory; RemoteDebuggingPort = $RemoteDebuggingPort }
+  $process = $null
+  $connection = $null
+  try {
+    $process = Start-ArrayProcess -FilePath $Configuration.Executable -Arguments $arguments
+    $page = Wait-CdpPage -Port $RemoteDebuggingPort
+    $connection = Connect-Cdp -WebSocketDebuggerUrl $page.webSocketDebuggerUrl
+    return [pscustomobject]@{
+      Process = $process
+      Connection = $connection
+      UserDataDirectory = $UserDataDirectory
+      RemoteDebuggingPort = $RemoteDebuggingPort
+    }
+  } catch {
+    if ($null -ne $connection) {
+      try { $connection.Socket.Dispose() } catch {}
+    }
+    Stop-TestProcess -Process $process
+    throw
+  }
 }
 
 function Stop-TemporaryBrowser {
   param($BrowserSession)
-  if ($null -eq $BrowserSession) { return }
+  if ($null -eq $BrowserSession) { return $true }
+  $graceful = $false
   try {
     if ($BrowserSession.Connection.Socket.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
-      $BrowserSession.Connection.Socket.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'complete', [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+      try {
+        [void](Invoke-Cdp -Connection $BrowserSession.Connection -Method 'Browser.close')
+      } catch {
+        # Browser.close may tear down the DevTools socket before its acknowledgement.
+      }
+
+      # The bootstrap process and the DevTools endpoint can disappear a few moments apart.
+      # Poll both signals within one fixed deadline instead of treating that interval as a leak.
+      $deadline = [DateTime]::UtcNow.AddSeconds(15)
+      do {
+        $processExited = $false
+        try { $processExited = $BrowserSession.Process.HasExited } catch {}
+
+        $endpointClosed = $false
+        try {
+          $endpointClosed = @(Get-CdpEndpoint -Port $BrowserSession.RemoteDebuggingPort).Count -eq 0
+        } catch {
+          # A refused DevTools connection is the expected post-close state.
+          $endpointClosed = $true
+        }
+
+        if ($processExited -and $endpointClosed) {
+          $graceful = $true
+          break
+        }
+        Start-Sleep -Milliseconds 125
+      } while ([DateTime]::UtcNow -lt $deadline)
     }
-    $BrowserSession.Connection.Socket.Dispose()
   } catch {}
-  Stop-TestProcess -Process $BrowserSession.Process
+  try { $BrowserSession.Connection.Socket.Dispose() } catch {}
+  if (-not $graceful) {
+    Stop-TestProcess -Process $BrowserSession.Process
+  }
+  return $graceful
+}
+
+function Wait-CdpEndpointStable {
+  param([Parameter(Mandatory = $true)][int]$Port)
+  for ($attempt = 0; $attempt -lt 4; $attempt++) {
+    if (@(Get-CdpEndpoint -Port $Port | Where-Object { $_.type -eq 'page' }).Count -eq 0) {
+      throw "The original browser DevTools endpoint was not stable on port $Port."
+    }
+    Start-Sleep -Milliseconds 125
+  }
 }
 
 function Get-TreeFingerprint {
@@ -447,6 +712,10 @@ function Test-DefaultProfileInvariant {
   try {
     $before = Get-TreeFingerprint -Path $Configuration.DefaultProfile
     & $Exercise
+    if (Get-Process -Name $Configuration.ProcessName -ErrorAction SilentlyContinue) {
+      Add-Result -Name "$($Configuration.Name)_default_profile_unchanged" -Status 'BLOCKED' -Detail 'A browser process appeared during the run and could have mutated the default profile; no clean before/after claim was made.'
+      return
+    }
     $after = Get-TreeFingerprint -Path $Configuration.DefaultProfile
     if ($before.Hash -ne $after.Hash -or $before.Entries -ne $after.Entries) {
       throw "default profile file-tree hash or mtime changed ($($before.Hash) -> $($after.Hash))."
@@ -459,66 +728,83 @@ function Test-DefaultProfileInvariant {
 
 function Test-BrowserStorageIsolation {
   param([Parameter(Mandatory = $true)]$Configuration)
-  $browserRoot = Join-Path $script:ArtifactDirectory $Configuration.Name.ToLowerInvariant()
+  $browserRoot = Join-Path $script:ResolvedArtifactDirectory $Configuration.Name.ToLowerInvariant()
   $profileA = Join-Path $browserRoot 'profile-a'
   $profileB = Join-Path $browserRoot 'profile-b'
   $session = $null
   try {
     $session = Start-TemporaryBrowser -Configuration $Configuration -UserDataDirectory $profileA -RemoteDebuggingPort (Get-FreeLoopbackPort)
-    Invoke-CdpNavigate -Connection $session.Connection -Uri "http://127.0.0.1:$script:FixturePort/?op=write&value=A" | Out-Null
-    Wait-FixtureTitle -Connection $session.Connection | Out-Null
-    Invoke-CdpNavigate -Connection $session.Connection -Uri "http://127.0.0.1:$script:FixturePort/?op=read&expected=A" | Out-Null
-    Wait-FixtureTitle -Connection $session.Connection | Out-Null
-    Stop-TemporaryBrowser -BrowserSession $session
+    Invoke-FixtureCase -Connection $session.Connection -Query 'op=write&value=A' | Out-Null
+    Invoke-FixtureCase -Connection $session.Connection -Query 'op=read&expected=A' | Out-Null
+    if (-not (Stop-TemporaryBrowser -BrowserSession $session)) {
+      throw 'The first A browser did not close gracefully, so persistence/session-lifecycle evidence is invalid.'
+    }
     $session = $null
 
     $session = Start-TemporaryBrowser -Configuration $Configuration -UserDataDirectory $profileB -RemoteDebuggingPort (Get-FreeLoopbackPort)
-    Invoke-CdpNavigate -Connection $session.Connection -Uri "http://127.0.0.1:$script:FixturePort/?op=read&expected=" | Out-Null
-    Wait-FixtureTitle -Connection $session.Connection | Out-Null
-    Stop-TemporaryBrowser -BrowserSession $session
+    Invoke-FixtureCase -Connection $session.Connection -Query 'op=read&expected=' | Out-Null
+    if (-not (Stop-TemporaryBrowser -BrowserSession $session)) {
+      throw 'The B browser did not close gracefully, so profile-isolation evidence is invalid.'
+    }
     $session = $null
 
     $session = Start-TemporaryBrowser -Configuration $Configuration -UserDataDirectory $profileA -RemoteDebuggingPort (Get-FreeLoopbackPort)
-    Invoke-CdpNavigate -Connection $session.Connection -Uri "http://127.0.0.1:$script:FixturePort/?op=read&expected=A" | Out-Null
-    Wait-FixtureTitle -Connection $session.Connection | Out-Null
-    Add-Result -Name "$($Configuration.Name)_temporary_A_B_storage_cookie_isolation" -Status 'PASS' -Detail 'Temporary A/B user-data-dir profiles isolated localStorage, sessionStorage, IndexedDB, and cookies; reopening A retained all markers.'
+    Invoke-FixtureCase -Connection $session.Connection -Query 'op=read-lifecycle&expectedPersistent=A&expectedEphemeral=' | Out-Null
+    if (-not (Stop-TemporaryBrowser -BrowserSession $session)) {
+      throw 'The restarted A browser did not close gracefully after lifecycle verification.'
+    }
+    $session = $null
+    Add-Result -Name "$($Configuration.Name)_temporary_A_B_storage_cookie_isolation" -Status 'PASS' -Detail 'Temporary A/B user-data-dir profiles isolated all four markers; after a full browser restart, A retained localStorage and IndexedDB while sessionStorage and the session cookie were cleared.'
   } catch {
     Add-Result -Name "$($Configuration.Name)_temporary_A_B_storage_cookie_isolation" -Status 'FAIL' -Detail $_.Exception.Message
-  } finally { Stop-TemporaryBrowser -BrowserSession $session }
+  } finally { [void](Stop-TemporaryBrowser -BrowserSession $session) }
 }
 
 function Test-BrowserLockBehavior {
   param([Parameter(Mandatory = $true)]$Configuration)
-  $profile = Join-Path (Join-Path $script:ArtifactDirectory $Configuration.Name.ToLowerInvariant()) 'lock-profile'
+  $profile = Join-Path (Join-Path $script:ResolvedArtifactDirectory $Configuration.Name.ToLowerInvariant()) 'lock-profile'
   $first = $null
   $second = $null
   try {
     $first = Start-TemporaryBrowser -Configuration $Configuration -UserDataDirectory $profile -RemoteDebuggingPort (Get-FreeLoopbackPort)
-    $lockPaths = @((Join-Path $profile 'SingletonLock'), (Join-Path $profile 'SingletonCookie'))
-    if (-not ($lockPaths | Where-Object { Test-Path -LiteralPath $_ })) {
-      throw 'Chromium did not expose a managed-profile lock marker before the lock test.'
-    }
+    Wait-CdpEndpointStable -Port $first.RemoteDebuggingPort
     $secondPort = Get-FreeLoopbackPort
-    $second = Start-ArrayProcess -FilePath $Configuration.Executable -Arguments @("--user-data-dir=$profile", "--remote-debugging-port=$secondPort", '--no-first-run', 'about:blank')
+    $second = Start-ArrayProcess -FilePath $Configuration.Executable -Arguments @(
+      "--user-data-dir=$profile",
+      "--remote-debugging-port=$secondPort",
+      '--remote-allow-origins=*',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-background-networking',
+      'about:blank'
+    )
     Start-Sleep -Seconds 3
-    $secondEndpoint = $null
+    # Keep the expected connection-refused result as an actual empty array.
+    # In PowerShell, @($null).Count is 1 and would falsely report contention
+    # failure whenever the second DevTools connection was correctly refused.
+    $secondEndpoint = @()
     try { $secondEndpoint = Get-CdpEndpoint -Port $secondPort } catch {}
-    if (-not $second.HasExited -and $null -ne $secondEndpoint) {
-      throw 'A second browser instance accepted the already locked temporary user-data-dir.'
+    if ($secondEndpoint.Count -ne 0) {
+      $endpointDetail = $secondEndpoint | ConvertTo-Json -Compress -Depth 5
+      throw "A second browser instance accepted the already locked temporary user-data-dir: $endpointDetail"
     }
-    Add-Result -Name "$($Configuration.Name)_browser_profile_lock_refusal" -Status 'PASS' -Detail 'A live Chromium lock prevented a second process from exposing an independent DevTools session for the same temporary profile.'
+    if (@(Get-CdpEndpoint -Port $first.RemoteDebuggingPort).Count -eq 0) {
+      throw 'The original browser lost its DevTools endpoint during the same-profile contention test.'
+    }
+    Invoke-FixtureCase -Connection $first.Connection -Query 'op=read&expected=' | Out-Null
+    Add-Result -Name "$($Configuration.Name)_browser_profile_lock_refusal" -Status 'PASS' -Detail 'The live Windows Chromium profile refused an independent second DevTools endpoint while the original profile owner remained usable; no Unix-only Singleton marker was assumed.'
   } catch {
     Add-Result -Name "$($Configuration.Name)_browser_profile_lock_refusal" -Status 'FAIL' -Detail $_.Exception.Message
   } finally {
     Stop-TestProcess -Process $second
-    Stop-TemporaryBrowser -BrowserSession $first
+    [void](Stop-TemporaryBrowser -BrowserSession $first)
   }
 }
 
 function Test-LoopbackProxyFailClosed {
   param([Parameter(Mandatory = $true)]$Configuration)
   $closedPort = Get-FreeLoopbackPort
-  $profile = Join-Path (Join-Path $script:ArtifactDirectory $Configuration.Name.ToLowerInvariant()) 'proxy-fail-closed'
+  $profile = Join-Path (Join-Path $script:ResolvedArtifactDirectory $Configuration.Name.ToLowerInvariant()) 'proxy-fail-closed'
   $session = $null
   try {
     Reset-LoopbackEvents
@@ -526,7 +812,9 @@ function Test-LoopbackProxyFailClosed {
       "--proxy-server=http://127.0.0.1:$closedPort",
       '--proxy-bypass-list=<-loopback>'
     )
-    $response = Invoke-CdpNavigate -Connection $session.Connection -Uri "http://127.0.0.1:$script:FixturePort/?op=read&expected="
+    $response = Invoke-CdpNavigate -Connection $session.Connection -Uri (
+      "http://127.0.0.1:$script:ActiveFixturePort/?op=read&expected=&harnessToken=$script:FixtureToken&operationToken=$(Get-RandomHex -Bytes 16)"
+    )
     $errorText = [string]$response.result.errorText
     $events = Get-LoopbackEvents
     if ($errorText -notmatch 'ERR_PROXY_CONNECTION_FAILED') {
@@ -538,23 +826,46 @@ function Test-LoopbackProxyFailClosed {
     Add-Result -Name "$($Configuration.Name)_loopback_proxy_fail_closed" -Status 'PASS' -Detail 'The browser reported ERR_PROXY_CONNECTION_FAILED and the loopback fixture saw no direct request.'
   } catch {
     Add-Result -Name "$($Configuration.Name)_loopback_proxy_fail_closed" -Status 'FAIL' -Detail $_.Exception.Message
-  } finally { Stop-TemporaryBrowser -BrowserSession $session }
+  } finally { [void](Stop-TemporaryBrowser -BrowserSession $session) }
 }
 
 function Test-ExtensionAbsentBehavior {
   param([Parameter(Mandatory = $true)]$Configuration)
-  $profile = Join-Path (Join-Path $script:ArtifactDirectory $Configuration.Name.ToLowerInvariant()) 'no-extension'
+  if (-not $ReleaseConfigPath) {
+    Add-Result -Name "$($Configuration.Name)_extension_absent_browser_baseline" -Status 'SKIP' -Detail 'Supply the verified -ReleaseConfigPath so absence can be evaluated against the formal VeriSilo extension ID instead of unrelated Chromium extension targets.'
+    return
+  }
+  $profile = Join-Path (Join-Path $script:ResolvedArtifactDirectory $Configuration.Name.ToLowerInvariant()) 'no-extension'
   $session = $null
   try {
+    $releaseConfig = Get-ReleaseConfig -Path $ReleaseConfigPath
+    $extensionId = if ($Configuration.Name -eq 'Chrome') {
+      [string]$releaseConfig.chromeExtensionId
+    } else {
+      [string]$releaseConfig.edgeExtensionId
+    }
+    $originPrefix = "chrome-extension://$extensionId/"
     $session = Start-TemporaryBrowser -Configuration $Configuration -UserDataDirectory $profile -RemoteDebuggingPort (Get-FreeLoopbackPort) -ExtraArguments @('--disable-extensions')
-    Invoke-CdpNavigate -Connection $session.Connection -Uri "http://127.0.0.1:$script:FixturePort/?op=read&expected=" | Out-Null
-    Wait-FixtureTitle -Connection $session.Connection | Out-Null
-    $extensionTargets = Get-CdpEndpoint -Port $session.RemoteDebuggingPort | Where-Object { $_.url -like 'chrome-extension://*' }
-    if (@($extensionTargets).Count -ne 0) { throw 'A chrome-extension target was present despite --disable-extensions.' }
-    Add-Result -Name "$($Configuration.Name)_extension_absent_browser_baseline" -Status 'PASS' -Detail 'A fresh temporary browser with --disable-extensions completed the fixture; no extension target was observed.'
+    Invoke-FixtureCase -Connection $session.Connection -Query 'op=read&expected=' | Out-Null
+    $veriSiloTargets = Get-CdpEndpoint -Port $session.RemoteDebuggingPort | Where-Object {
+      Test-VeriSiloExtensionTarget -Target $_ -OriginPrefix $originPrefix
+    }
+    if (@($veriSiloTargets).Count -ne 0) { throw "The formal VeriSilo extension target $originPrefix was present despite --disable-extensions." }
+    Add-Result -Name "$($Configuration.Name)_extension_absent_browser_baseline" -Status 'PASS' -Detail "A fresh temporary browser with --disable-extensions completed the fixture; the formal VeriSilo extension ID $extensionId was absent. Unrelated extension targets were ignored."
   } catch {
     Add-Result -Name "$($Configuration.Name)_extension_absent_browser_baseline" -Status 'FAIL' -Detail $_.Exception.Message
-  } finally { Stop-TemporaryBrowser -BrowserSession $session }
+  } finally { [void](Stop-TemporaryBrowser -BrowserSession $session) }
+}
+
+function Test-VeriSiloExtensionTarget {
+  param(
+    [Parameter(Mandatory = $true)]$Target,
+    [Parameter(Mandatory = $true)][string]$OriginPrefix
+  )
+  $urlProperty = $Target.PSObject.Properties['url']
+  return $null -ne $urlProperty -and
+    $Target.url -is [string] -and
+    $Target.url.StartsWith($OriginPrefix, [StringComparison]::Ordinal)
 }
 
 function Add-DesktopAcceptanceUnavailable {
@@ -596,7 +907,9 @@ function Test-DesktopAcceptance {
     return
   }
 
-  $acceptanceRoot = Join-Path ([IO.Path]::GetTempPath()) ("verisilo-desktop-acceptance-" + [guid]::NewGuid().ToString('N'))
+  # Keep the managed browser Profile below legacy Windows path limits even when
+  # the caller deliberately places TEMP under a long, isolated evidence root.
+  $acceptanceRoot = Join-Path ([IO.Path]::GetTempPath()) (New-ShortAcceptanceLeaf)
   $driverSucceeded = $false
   try {
     $descriptor = Get-Content -Raw -LiteralPath $CandidateDescriptorPath | ConvertFrom-Json
@@ -723,7 +1036,7 @@ function Test-DesktopAcceptance {
       throw 'The acceptance receipt is incomplete or is not bound to the exact candidate/browser execution.'
     }
 
-    $receiptPath = Join-Path $script:ArtifactDirectory "desktop-acceptance-$($Configuration.Name).json"
+    $receiptPath = Join-Path $script:ResolvedArtifactDirectory "desktop-acceptance-$($Configuration.Name).json"
     [IO.File]::WriteAllText($receiptPath, $receiptText, [Text.UTF8Encoding]::new($false))
     foreach ($result in $receipt.results) {
       Add-Result -Name ([string]$result.name) -Status 'PASS' -Detail ([string]$result.detail)
@@ -741,11 +1054,24 @@ function Test-DesktopAcceptance {
 }
 
 function Read-Exact {
-  param([Parameter(Mandatory = $true)][IO.Stream]$Stream, [Parameter(Mandatory = $true)][int]$Count)
+  param(
+    [Parameter(Mandatory = $true)][IO.Stream]$Stream,
+    [Parameter(Mandatory = $true)][int]$Count,
+    [Parameter(Mandatory = $true)][Threading.CancellationToken]$CancellationToken
+  )
   $buffer = New-Object byte[] $Count
   $offset = 0
   while ($offset -lt $Count) {
-    $read = $Stream.Read($buffer, $offset, $Count - $offset)
+    try {
+      $read = $Stream.ReadAsync(
+        $buffer,
+        $offset,
+        $Count - $offset,
+        $CancellationToken
+      ).GetAwaiter().GetResult()
+    } catch [OperationCanceledException] {
+      throw 'Native Host did not return a complete frame within fifteen seconds.'
+    }
     if ($read -eq 0) { throw 'Native Host ended its output before a complete frame was received.' }
     $offset += $read
   }
@@ -763,12 +1089,16 @@ function Invoke-NativeHostFrame {
   $startInfo.UseShellExecute = $false
   $startInfo.RedirectStandardInput = $true
   $startInfo.RedirectStandardOutput = $true
-  $startInfo.RedirectStandardError = $true
+  # Do not create an unread stderr pipe: a noisy failed Host must not deadlock
+  # the bounded framed stdout exchange.
+  $startInfo.RedirectStandardError = $false
   $startInfo.CreateNoWindow = $true
   [void]$startInfo.ArgumentList.Add($Origin)
   $process = [Diagnostics.Process]::new()
   $process.StartInfo = $startInfo
   if (-not $process.Start()) { throw 'Could not start the Native Host.' }
+  $cancellation = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(15))
+  $parsedResponse = $null
   try {
     $payload = [Text.Encoding]::UTF8.GetBytes(($Message | ConvertTo-Json -Compress -Depth 20))
     $length = [BitConverter]::GetBytes([uint32]$payload.Length)
@@ -777,14 +1107,104 @@ function Invoke-NativeHostFrame {
     $input.Write($payload, 0, $payload.Length)
     $input.Flush()
     $output = $process.StandardOutput.BaseStream
-    $responseLength = [BitConverter]::ToUInt32((Read-Exact -Stream $output -Count 4), 0)
+    $responseLength = [BitConverter]::ToUInt32(
+      (Read-Exact -Stream $output -Count 4 -CancellationToken $cancellation.Token),
+      0
+    )
     if ($responseLength -gt 16384) { throw "Native Host emitted an oversized $responseLength-byte response." }
-    $response = Read-Exact -Stream $output -Count ([int]$responseLength)
-    return ([Text.Encoding]::UTF8.GetString($response) | ConvertFrom-Json)
+    $response = Read-Exact -Stream $output -Count ([int]$responseLength) -CancellationToken $cancellation.Token
+    $parsedResponse = [Text.Encoding]::UTF8.GetString($response) | ConvertFrom-Json
   } finally {
     try { $process.StandardInput.Close() } catch {}
     Stop-TestProcess -Process $process
+    $cancellation.Dispose()
     $process.Dispose()
+  }
+  return $parsedResponse
+}
+
+function Get-NonAllowlistedNativeHostExtensionId {
+  param([Parameter(Mandatory = $true)][string[]]$AllowedExtensionIds)
+
+  $candidatePrefix = ('a' * 28) + 'bcd'
+  foreach ($suffix in [char[]]'abcdefghijklmnop') {
+    $candidate = $candidatePrefix + [string]$suffix
+    if (-not ($AllowedExtensionIds -ccontains $candidate)) {
+      return $candidate
+    }
+  }
+  throw 'Could not construct a syntactically valid Native Host extension ID outside the release allowlist.'
+}
+
+function Assert-NativeHostRejectsUnauthorizedOrigin {
+  param(
+    [Parameter(Mandatory = $true)][string]$HostPath,
+    [Parameter(Mandatory = $true)][string]$Origin
+  )
+
+  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $HostPath
+  $startInfo.UseShellExecute = $false
+  $startInfo.RedirectStandardInput = $true
+  $startInfo.RedirectStandardOutput = $true
+  # Keep stderr inherited so a noisy failure cannot fill an unread redirected pipe.
+  $startInfo.RedirectStandardError = $false
+  $startInfo.CreateNoWindow = $true
+  [void]$startInfo.ArgumentList.Add($Origin)
+
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  $stdout = [IO.MemoryStream]::new()
+  $cancellation = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(15))
+  $copyTask = $null
+  $started = $false
+  try {
+    if (-not $process.Start()) { throw 'Could not start the Native Host for the unauthorized-origin check.' }
+    $started = $true
+    $copyTask = $process.StandardOutput.BaseStream.CopyToAsync(
+      $stdout,
+      81920,
+      $cancellation.Token
+    )
+    # The Host must reject the origin before it attempts to read a framed message.
+    if (-not $process.WaitForExit(15000)) {
+      throw 'Native Host did not reject a non-allowlisted origin within fifteen seconds.'
+    }
+    try {
+      $copyTask.GetAwaiter().GetResult()
+    } catch [OperationCanceledException] {
+      throw 'Native Host stdout did not close after the non-allowlisted origin was rejected.'
+    }
+    if ($process.ExitCode -eq 0) {
+      throw 'Native Host accepted a syntactically valid non-allowlisted origin.'
+    }
+    if ($stdout.Length -ne 0) {
+      throw "Native Host emitted $($stdout.Length) stdout bytes before rejecting a non-allowlisted origin."
+    }
+  } finally {
+    if ($started) {
+      try { $process.StandardInput.Close() } catch {}
+      Stop-TestProcess -Process $process
+    }
+    $cancellation.Cancel()
+    if ($null -ne $copyTask -and -not $copyTask.IsCompleted) {
+      try { $copyTask.GetAwaiter().GetResult() } catch {}
+    }
+    $cancellation.Dispose()
+    $stdout.Dispose()
+    $process.Dispose()
+  }
+}
+
+function Assert-ExactObjectProperties {
+  param(
+    [Parameter(Mandatory = $true)]$Value,
+    [Parameter(Mandatory = $true)][string[]]$Expected,
+    [Parameter(Mandatory = $true)][string]$Label
+  )
+  $actual = @($Value.PSObject.Properties.Name | Sort-Object)
+  if (@(Compare-Object ($Expected | Sort-Object) $actual).Count -ne 0) {
+    throw "$Label has unknown or missing properties."
   }
 }
 
@@ -792,6 +1212,12 @@ function Get-ReleaseConfig {
   param([Parameter(Mandatory = $true)][string]$Path)
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Native Host release configuration is missing: $Path" }
   $config = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+  Assert-ExactObjectProperties -Value $config -Expected @(
+    'schemaVersion', 'chromeExtensionId', 'edgeExtensionId'
+  ) -Label 'Native Host release configuration'
+  if ($config.schemaVersion -ne 1) {
+    throw 'Native Host release configuration has an unsupported schemaVersion.'
+  }
   $placeholderIds = @('abcdefghijklmnopabcdefghijklmnop', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
   foreach ($name in @('chromeExtensionId', 'edgeExtensionId')) {
     $value = [string]$config.$name
@@ -807,6 +1233,10 @@ function Test-NativeHost {
     Add-Result -Name 'native_host_current_user_registration_and_messages' -Status 'SKIP' -Detail 'No built verisilo-native-host.exe was supplied; no Native Host behavior was simulated.'
     return
   }
+  if (-not $ReleaseConfigPath -or -not (Test-Path -LiteralPath $ReleaseConfigPath -PathType Leaf)) {
+    Add-Result -Name 'native_host_current_user_registration_and_messages' -Status 'BLOCKED' -Detail 'A Native Host executable was supplied without its release configuration.'
+    return
+  }
   try {
     $config = Get-ReleaseConfig -Path $ReleaseConfigPath
     $verifyScript = Join-Path $PSScriptRoot '..\..\scripts\verify-native-host-install.ps1'
@@ -816,21 +1246,59 @@ function Test-NativeHost {
     }
     if ($NativeHostManifestRoot) { $verifyArguments.ManifestRoot = $NativeHostManifestRoot }
     & $verifyScript @verifyArguments
+    $unauthorizedExtensionId = Get-NonAllowlistedNativeHostExtensionId -AllowedExtensionIds @(
+      [string]$config.chromeExtensionId,
+      [string]$config.edgeExtensionId
+    )
+    Assert-NativeHostRejectsUnauthorizedOrigin `
+      -HostPath $NativeHostPath `
+      -Origin "chrome-extension://$unauthorizedExtensionId/"
     foreach ($extensionId in @($config.chromeExtensionId, $config.edgeExtensionId)) {
       $requestId = [guid]::NewGuid().ToString()
       $origin = "chrome-extension://$extensionId/"
-      $positive = Invoke-NativeHostFrame -HostPath $NativeHostPath -Origin $origin -Message @{ type = 'handshake'; protocolVersion = 1; requestId = $requestId }
-      if ($positive.type -ne 'handshake_ack' -or $positive.requestId -ne $requestId -or $positive.protocolVersion -ne 1) {
+      $positive = Invoke-NativeHostFrame -HostPath $NativeHostPath -Origin $origin -Message @{ type = 'handshake'; protocolVersion = $script:NativeHostProtocolVersion; requestId = $requestId }
+      Assert-ExactObjectProperties -Value $positive -Expected @(
+        'type', 'protocolVersion', 'requestId', 'product'
+      ) -Label 'Native Host handshake response'
+      if ($positive.type -cne 'handshake_ack' -or
+          $positive.requestId -cne $requestId -or
+          $positive.protocolVersion -ne $script:NativeHostProtocolVersion -or
+          $positive.product -cne 'VeriSilo') {
         throw 'Native Host did not return the expected handshake_ack response.'
       }
     }
-    $negative = Invoke-NativeHostFrame -HostPath $NativeHostPath -Origin "chrome-extension://$($config.chromeExtensionId)/" -Message @{ type = 'unknown_message'; protocolVersion = 1; requestId = ([guid]::NewGuid().ToString()) }
-    if ($negative.type -ne 'error' -or $negative.code -ne 'invalid_message') {
+    $negative = Invoke-NativeHostFrame -HostPath $NativeHostPath -Origin "chrome-extension://$($config.chromeExtensionId)/" -Message @{ type = 'unknown_message'; protocolVersion = $script:NativeHostProtocolVersion; requestId = ([guid]::NewGuid().ToString()) }
+    Assert-ExactObjectProperties -Value $negative -Expected @(
+      'type', 'protocolVersion', 'code', 'message'
+    ) -Label 'Native Host malformed-message response'
+    if ($negative.type -cne 'error' -or
+        $negative.protocolVersion -ne $script:NativeHostProtocolVersion -or
+        $negative.code -cne 'invalid_message' -or
+        [string]::IsNullOrWhiteSpace([string]$negative.message) -or
+        ([string]$negative.message).Length -gt 200) {
       throw 'Native Host did not reject an unknown message with invalid_message.'
     }
-    Add-Result -Name 'native_host_current_user_registration_and_messages' -Status 'PASS' -Detail 'Verified the real HKCU registration, an allowlisted handshake, and rejection of an unknown framed message.'
+
+    $mismatchRequestId = [guid]::NewGuid().ToString()
+    $protocolMismatch = Invoke-NativeHostFrame -HostPath $NativeHostPath -Origin "chrome-extension://$($config.chromeExtensionId)/" -Message @{
+      type = 'handshake'
+      protocolVersion = $script:NativeHostProtocolVersion + 1
+      requestId = $mismatchRequestId
+    }
+    Assert-ExactObjectProperties -Value $protocolMismatch -Expected @(
+      'type', 'protocolVersion', 'requestId', 'code', 'message'
+    ) -Label 'Native Host protocol-mismatch response'
+    if ($protocolMismatch.type -cne 'error' -or
+        $protocolMismatch.protocolVersion -ne $script:NativeHostProtocolVersion -or
+        $protocolMismatch.requestId -cne $mismatchRequestId -or
+        $protocolMismatch.code -cne 'unsupported_protocol' -or
+        [string]::IsNullOrWhiteSpace([string]$protocolMismatch.message) -or
+        ([string]$protocolMismatch.message).Length -gt 200) {
+      throw 'Native Host did not bind an unsupported_protocol response to the mismatched request.'
+    }
+    Add-Result -Name 'native_host_current_user_registration_and_messages' -Status 'PASS' -Detail 'Verified the real HKCU registration, zero-output/nonzero-exit rejection of a syntactically valid non-allowlisted origin, exact v2 response schemas for both allowlisted handshakes, rejection of an unknown framed message, and explicit rejection of a future protocol version.'
   } catch {
-    Add-Result -Name 'native_host_current_user_registration_and_messages' -Status 'BLOCKED' -Detail $_.Exception.Message
+    Add-Result -Name 'native_host_current_user_registration_and_messages' -Status 'FAIL' -Detail $_.Exception.Message
   }
 }
 
@@ -888,24 +1356,82 @@ function Invoke-SelfTest {
   $refused = $false
   try { Assert-TemporaryUserDataDirectory -UserDataDirectory 'C:\non-temporary-profile' -DefaultUserDataDirectory 'C:\default' } catch { $refused = $true }
   if (-not $refused) { throw 'Self-test accepted a non-temporary user-data-dir.' }
+  if (Test-StrictPathDescendant -Candidate 'C:\non-temporary-artifacts' -Ancestor ([IO.Path]::GetTempPath())) {
+    throw 'Self-test treated a non-temporary artifact path as temporary.'
+  }
+  if ($FixturePort -ne $script:RequestedFixturePort -or $ArtifactDirectory -cne $script:RequestedArtifactDirectory) {
+    throw 'Script-scope initialization overwrote a caller-supplied FixturePort or ArtifactDirectory parameter.'
+  }
+  if ((Get-WindowsFamilyFromBuild -Build 19045) -cne 'Windows 10' -or
+      (Get-WindowsFamilyFromBuild -Build 22000) -cne 'Windows 11') {
+    throw 'Build-number Windows family classification self-test failed.'
+  }
+  $emptyEvents = ConvertFrom-JsonArray -Json '[]'
+  if ($null -eq $emptyEvents -or $emptyEvents.Count -ne 0) {
+    throw 'Empty fixture event JSON did not remain a non-null zero-length array.'
+  }
+  $responseWithoutError = [pscustomobject]@{ id = 1; result = [pscustomobject]@{} }
+  if ($null -ne (Get-CdpErrorMessage -Message $responseWithoutError)) {
+    throw 'A CDP response without an error property was treated as an error under strict mode.'
+  }
+  $counter = [pscustomobject]@{ NextId = 7 }
+  $nextIdOutput = @(Get-NextCdpId -Connection $counter)
+  if ($nextIdOutput.Count -ne 1 -or $nextIdOutput[0] -ne 7 -or $counter.NextId -ne 8) {
+    throw 'CDP request-ID increment leaked an extra pipeline value.'
+  }
+  $formalOrigin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/'
+  if (-not (Test-VeriSiloExtensionTarget -Target ([pscustomobject]@{ url = "$formalOrigin`worker.js" }) -OriginPrefix $formalOrigin) -or
+      (Test-VeriSiloExtensionTarget -Target ([pscustomobject]@{ url = 'chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba/worker.js' }) -OriginPrefix $formalOrigin)) {
+    throw 'Formal extension-ID target filtering self-test failed.'
+  }
+  $strictResponseRejected = $false
+  try {
+    Assert-ExactObjectProperties -Value ([pscustomobject]@{ type = 'handshake_ack'; extra = $true }) -Expected @('type') -Label 'self-test response'
+  } catch {
+    $strictResponseRejected = $true
+  }
+  if (-not $strictResponseRejected) {
+    throw 'Strict Native Host response-property validation accepted an unknown field.'
+  }
+  $sampleAllowedIds = @(
+    'abcdeabcdeabcdeabcdeabcdeabcdeab',
+    'ponmlkjihgfedcbaponmlkjihgfedcba'
+  )
+  $sampleUnauthorizedId = Get-NonAllowlistedNativeHostExtensionId -AllowedExtensionIds $sampleAllowedIds
+  if ($sampleUnauthorizedId -notmatch '^[a-p]{32}$' -or
+      $sampleAllowedIds -ccontains $sampleUnauthorizedId) {
+    throw 'Non-allowlisted Native Host origin generator self-test failed.'
+  }
+  $shortAcceptanceLeaf = New-ShortAcceptanceLeaf
+  if ($shortAcceptanceLeaf -cnotmatch '^vda-[0-9a-f]{16}$') {
+    throw 'Short desktop acceptance root generation self-test failed.'
+  }
   Add-Result -Name 'harness_input_safety' -Status 'PASS' -Detail 'The runner rejects default and non-temporary user-data-dir inputs before starting a browser.'
+  Add-Result -Name 'harness_regression_guards' -Status 'PASS' -Detail 'Caller parameters, temporary-root boundaries, short acceptance-root generation, Windows build classification, empty events, strict CDP/Native Host response parsing, non-allowlisted origin generation, and formal extension-ID filtering passed pure self-tests.'
 }
 
 function Complete-Run {
-  $summaryPath = Join-Path $script:ArtifactDirectory 'summary.json'
+  $summaryPath = Join-Path $script:ResolvedArtifactDirectory 'summary.json'
   $script:Results | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding utf8
   $failed = @($script:Results | Where-Object { $_.status -eq 'FAIL' }).Count
   $blocked = @($script:Results | Where-Object { $_.status -eq 'BLOCKED' }).Count
   $skipped = @($script:Results | Where-Object { $_.status -eq 'SKIP' }).Count
   Write-Host "Summary written to $summaryPath"
-  if ($failed -gt 0 -or ($RequireAll -and ($blocked -gt 0 -or $skipped -gt 0))) { exit 1 }
+  if ($failed -gt 0 -or ($RequireAll -and ($blocked -gt 0 -or $skipped -gt 0))) { return 1 }
+  return 0
 }
 
 if ($SelfTest) {
-  $script:ArtifactDirectory = Join-Path ([IO.Path]::GetTempPath()) ("verisilo-e2e-self-test-" + [guid]::NewGuid())
-  New-Item -ItemType Directory -Force -Path $script:ArtifactDirectory | Out-Null
-  try { Invoke-SelfTest; Complete-Run } finally { Remove-Item -LiteralPath $script:ArtifactDirectory -Recurse -Force -ErrorAction SilentlyContinue }
-  exit 0
+  $selfTestExitCode = 1
+  $selfTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("verisilo-e2e-self-test-" + [guid]::NewGuid())
+  $script:ResolvedArtifactDirectory = New-TemporaryArtifactDirectory -Path $selfTestRoot
+  try {
+    Invoke-SelfTest
+    $selfTestExitCode = Complete-Run
+  } finally {
+    Remove-TemporaryArtifactDirectory -Path $script:ResolvedArtifactDirectory
+  }
+  exit $selfTestExitCode
 }
 
 if (-not (Test-WindowsHost)) {
@@ -914,8 +1440,13 @@ if (-not (Test-WindowsHost)) {
 }
 
 $script:ArtifactDirectoryWasProvided = [bool]$ArtifactDirectory
-$script:ArtifactDirectory = if ($ArtifactDirectory) { Get-NormalizedPath $ArtifactDirectory } else { Join-Path ([IO.Path]::GetTempPath()) ("verisilo-windows-e2e-" + [guid]::NewGuid()) }
-New-Item -ItemType Directory -Force -Path $script:ArtifactDirectory | Out-Null
+$requestedArtifactDirectory = if ($ArtifactDirectory) {
+  Get-NormalizedPath $ArtifactDirectory
+} else {
+  Join-Path ([IO.Path]::GetTempPath()) ("verisilo-windows-e2e-" + [guid]::NewGuid())
+}
+$script:ResolvedArtifactDirectory = New-TemporaryArtifactDirectory -Path $requestedArtifactDirectory
+$runExitCode = 1
 
 try {
   Test-OperatingSystemEvidence
@@ -924,7 +1455,7 @@ try {
   foreach ($name in $selected) {
     $configuration = Get-BrowserConfiguration -Name $name
     if (-not $configuration.Executable) {
-      Add-Result -Name "$name_browser_cases" -Status 'SKIP' -Detail "No $name executable was found. Supply -$($name)Path to run real browser cases."
+      Add-Result -Name "${name}_browser_cases" -Status 'SKIP' -Detail "No $name executable was found. Supply -$($name)Path to run real browser cases."
       continue
     }
     Test-DefaultProfileInvariant -Configuration $configuration -Exercise {
@@ -949,10 +1480,11 @@ try {
       Write-Warning "Could not collect fixture logs: $($_.Exception.Message)"
     }
   }
-  Complete-Run
+  $runExitCode = Complete-Run
   if ($KeepArtifacts -or $script:ArtifactDirectoryWasProvided) {
-    Write-Host "Artifacts retained for inspection: $script:ArtifactDirectory"
+    Write-Host "Artifacts retained for inspection: $script:ResolvedArtifactDirectory"
   } else {
-    Remove-Item -LiteralPath $script:ArtifactDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-TemporaryArtifactDirectory -Path $script:ResolvedArtifactDirectory
   }
 }
+exit $runExitCode

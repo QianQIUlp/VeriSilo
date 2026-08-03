@@ -28,6 +28,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "icon": ["icons/icon.ico", "icons/icon.png"],
     "resources": {
       "../../../scripts/verisilo-environment-probe.ps1": "environment/verisilo-environment-probe.ps1",
       "../../../scripts/verisilo-hyperv.ps1": "environment/verisilo-hyperv.ps1",

@@ -9,6 +9,7 @@ import type {
   EngineNegotiation,
   EnginePackageRequest,
   EnvironmentActionReceipt,
+  EnvironmentBackendId,
   EnvironmentBackendStatus,
   EnvironmentOperationRequest,
   MihomoControllerSecretInput,
@@ -33,6 +34,7 @@ import type {
   RuntimeActivation,
   Silo,
   SiloEngineConfig,
+  SiloExecutionTarget,
   VaultState,
 } from "@verisilo/contracts";
 
@@ -49,6 +51,7 @@ export interface CreateSiloInput {
   browserKind: BrowserKind;
   executablePath: string;
   networkProfile: NetworkProfile;
+  executionTarget: SiloExecutionTarget;
   engine?: SiloEngineConfig;
   proxyCredentials?: ProxyCredentialsInput;
   mihomoControllerSecret?: MihomoControllerSecretInput;
@@ -127,6 +130,13 @@ export interface WslStatus {
   supportedPlatform: boolean;
   available: boolean;
   distributions: string[];
+  message: string;
+}
+
+export interface LegacyEnvironmentArtifact {
+  siloId: string;
+  backend: EnvironmentBackendId;
+  cleanupAvailable: boolean;
   message: string;
 }
 
@@ -416,6 +426,17 @@ export const desktopApi = {
     invoke<EnvironmentActionReceipt>("environment_backend_execute", {
       request,
     }),
+  listLegacyEnvironmentArtifacts: () =>
+    invoke<LegacyEnvironmentArtifact[]>("list_legacy_environment_artifacts"),
+  cleanupLegacyEnvironmentArtifact: (
+    siloId: string,
+    backend: EnvironmentBackendId,
+  ) =>
+    invoke<EnvironmentActionReceipt>("cleanup_legacy_environment_artifact", {
+      siloId,
+      backend,
+      confirmCleanup: true,
+    }),
   inspectMihomoController: (input: MihomoControllerInput) =>
     invoke<MihomoSnapshot>("inspect_mihomo_controller", { input }),
   listSilos: () => invoke<Silo[]>("list_silos"),
@@ -478,6 +499,8 @@ export const desktopApi = {
     }),
   launchSilo: (siloId: string) =>
     invoke<RuntimeActivation>("launch_silo", { siloId }),
+  stopSilo: (siloId: string) =>
+    invoke<RuntimeActivation>("stop_silo", { siloId }),
   recheckSiloBrowser: (siloId: string) =>
     invoke<BrowserVerification>("recheck_silo_browser", { siloId }),
   recheckSiloRuntime: (siloId: string) =>

@@ -6,6 +6,13 @@ param(
   [string]$StateRoot,
   [Parameter(ParameterSetName = 'Run', Mandatory = $true)]
   [string]$ApprovedImageRoot,
+  [Parameter(ParameterSetName = 'Run', Mandatory = $true)]
+  [string]$ExpectedEnvironmentId,
+  [Parameter(ParameterSetName = 'Run', Mandatory = $true)]
+  [ValidateSet('create', 'start', 'stop', 'pause', 'checkpoint', 'remove', 'health', 'logs')]
+  [string]$ExpectedAction,
+  [Parameter(ParameterSetName = 'Run', Mandatory = $true)]
+  [string]$ExpectedRequestNonce,
   [Parameter(ParameterSetName = 'SelfTest', Mandatory = $true)]
   [switch]$SelfTest
 )
@@ -23,6 +30,15 @@ function Assert-ExactFields {
   foreach ($name in $Required) {
     if ($name -notin $names) { throw "Missing request field: $name" }
   }
+}
+
+function ConvertFrom-StrictJson {
+  param([Parameter(Mandatory = $true)][string]$Json)
+  $command = Get-Command ConvertFrom-Json -CommandType Cmdlet
+  if ($command.Parameters.ContainsKey('DateKind')) {
+    return $Json | ConvertFrom-Json -DateKind String
+  }
+  return $Json | ConvertFrom-Json
 }
 
 function Assert-LeafName {
@@ -66,11 +82,36 @@ function Assert-RegularFile {
   return $item
 }
 
+function Convert-CanonicalUuid {
+  param([object]$Value, [string]$Label)
+  if ($Value -isnot [string]) { throw "$Label must be a canonical lowercase UUID." }
+  $parsed = [Guid]::Empty
+  $raw = [string]$Value
+  if (-not [Guid]::TryParseExact($raw, 'D', [ref]$parsed) -or
+      $parsed -eq [Guid]::Empty -or $parsed.ToString('D') -cne $raw) {
+    throw "$Label must be a canonical lowercase non-zero UUID."
+  }
+  return $parsed.ToString('D')
+}
+
+function Get-LockedFileSha256 {
+  param([Parameter(Mandatory = $true)][IO.Stream]$Stream)
+  $originalPosition = $Stream.Position
+  $Stream.Position = 0
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  try {
+    return [BitConverter]::ToString($algorithm.ComputeHash($Stream)).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $algorithm.Dispose()
+    $Stream.Position = $originalPosition
+  }
+}
+
 function Read-StrictRequest {
   param([string]$Path)
   $file = Assert-RegularFile $Path 16384 'Request file'
-  $request = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-  $common = @('schemaVersion', 'action', 'environmentId', 'confirmDestroy')
+  $request = ConvertFrom-StrictJson (Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8)
+  $common = @('schemaVersion', 'action', 'environmentId', 'requestNonce', 'confirmDestroy')
   $manifest = @('manifestSchemaVersion', 'manifestImageFile', 'manifestImageSha256', 'manifestTrusted')
   if ($request.action -eq 'create') {
     Assert-ExactFields $request ($common + $manifest) ($common + $manifest)
@@ -83,12 +124,8 @@ function Read-StrictRequest {
     throw 'action and environmentId must be strings.'
   }
   if ($request.confirmDestroy -isnot [bool]) { throw 'confirmDestroy must be a Boolean.' }
-  $parsedId = [Guid]::Empty
-  $rawId = [string]$request.environmentId
-  if (-not [Guid]::TryParseExact($rawId, 'D', [ref]$parsedId) -or
-      $parsedId.ToString('D') -cne $rawId) {
-    throw 'environmentId must be a canonical lowercase UUID.'
-  }
+  [void](Convert-CanonicalUuid $request.environmentId 'environmentId')
+  [void](Convert-CanonicalUuid $request.requestNonce 'requestNonce')
   if ($request.action -notin @('create', 'start', 'stop', 'pause', 'checkpoint', 'remove', 'health', 'logs')) {
     throw 'Unknown Hyper-V action.'
   }
@@ -99,7 +136,7 @@ function Read-SiloBinding {
   param([string]$EnvironmentRoot, [string]$EnvironmentId, [string]$VmName)
   $path = Assert-DescendantPath $EnvironmentRoot (Join-Path $EnvironmentRoot 'binding.json')
   $file = Assert-RegularFile $path 8192 'Persistent Silo binding'
-  $binding = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+  $binding = ConvertFrom-StrictJson (Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8)
   Assert-ExactFields $binding @('schemaVersion', 'environmentId', 'backend', 'providerKey') @('schemaVersion', 'environmentId', 'backend', 'providerKey')
   if (($binding.schemaVersion -isnot [int] -and $binding.schemaVersion -isnot [long]) -or
       $binding.environmentId -isnot [string] -or $binding.backend -isnot [string] -or
@@ -114,7 +151,7 @@ function Write-BoundedJson {
   param([string]$Path, [object]$Value, [int]$MaximumBytes)
   $json = ($Value | ConvertTo-Json -Depth 8 -Compress) + [Environment]::NewLine
   $bytes = [Text.Encoding]::UTF8.GetBytes($json)
-  if ($bytes.Length -gt $MaximumBytes) { throw 'Hyper-V receipt exceeded its fixed byte limit.' }
+  if ($bytes.Length -gt $MaximumBytes) { throw 'Hyper-V state artifact exceeded its fixed byte limit.' }
   $temporary = "$Path.$([Guid]::NewGuid().ToString('N')).tmp"
   $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
   try {
@@ -124,10 +161,16 @@ function Write-BoundedJson {
     $stream.Dispose()
   }
   if (Test-Path -LiteralPath $Path) {
-    [void](Assert-RegularFile $Path $MaximumBytes 'Existing Hyper-V receipt')
-    Remove-Item -LiteralPath $Path -Force
+    [void](Assert-RegularFile $Path $MaximumBytes 'Existing Hyper-V state artifact')
+    $backup = "$Path.$([Guid]::NewGuid().ToString('N')).bak"
+    [IO.File]::Replace($temporary, $Path, $backup, $true)
+    if (Test-Path -LiteralPath $backup -PathType Leaf) {
+      [void](Assert-RegularFile $backup $MaximumBytes 'Replaced Hyper-V state artifact backup')
+      Remove-Item -LiteralPath $backup -Force
+    }
+  } else {
+    Move-Item -LiteralPath $temporary -Destination $Path
   }
-  Move-Item -LiteralPath $temporary -Destination $Path
 }
 
 function Convert-StrictUtcTimestamp {
@@ -158,7 +201,7 @@ function Read-ProviderReceipt {
     [string]$DiskPath
   )
   $file = Assert-RegularFile $Path 16384 'Hyper-V provider receipt'
-  $receipt = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+  $receipt = ConvertFrom-StrictJson (Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8)
   $fields = @(
     'schemaVersion', 'environmentId', 'vmName', 'vmId', 'generation',
     'switchName', 'diskPath', 'baseImagePath', 'baseImageFile', 'baseImageSha256',
@@ -191,6 +234,105 @@ function Read-ProviderReceipt {
   return $receipt
 }
 
+function New-CreateJournal {
+  param(
+    [string]$EnvironmentId,
+    [string]$VmName,
+    [string]$SwitchName,
+    [string]$DiskPath,
+    [string]$BaseImagePath,
+    [string]$BaseImageFile,
+    [string]$BaseImageSha256
+  )
+  $now = [DateTime]::UtcNow.ToString('o')
+  return [ordered]@{
+    schemaVersion = 1
+    environmentId = $EnvironmentId
+    vmName = $VmName
+    switchName = $SwitchName
+    diskPath = [IO.Path]::GetFullPath($DiskPath)
+    baseImagePath = [IO.Path]::GetFullPath($BaseImagePath)
+    baseImageFile = $BaseImageFile
+    baseImageSha256 = $BaseImageSha256.ToLowerInvariant()
+    vmId = $null
+    switchOwned = $false
+    diskOwned = $false
+    vmOwned = $false
+    phase = 'prepared'
+    createdAt = $now
+    updatedAt = $now
+  }
+}
+
+function Read-CreateJournal {
+  param(
+    [string]$Path,
+    [string]$EnvironmentId,
+    [string]$VmName,
+    [string]$SwitchName,
+    [string]$DiskPath
+  )
+  $file = Assert-RegularFile $Path 16384 'Hyper-V create rollback journal'
+  $journal = ConvertFrom-StrictJson (Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8)
+  $fields = @(
+    'schemaVersion', 'environmentId', 'vmName', 'switchName', 'diskPath',
+    'baseImagePath', 'baseImageFile', 'baseImageSha256', 'vmId',
+    'switchOwned', 'diskOwned', 'vmOwned', 'phase', 'createdAt', 'updatedAt'
+  )
+  Assert-ExactFields $journal $fields $fields
+  $validPhases = @(
+    'prepared', 'switch_pending', 'switch_ready', 'disk_pending', 'disk_ready',
+    'vm_pending', 'vm_ready', 'configuring', 'configured', 'cleanup_pending',
+    'cleanup_complete'
+  )
+  $parsedVmId = [Guid]::Empty
+  $vmIdValid = $null -eq $journal.vmId -or
+    ($journal.vmId -is [string] -and
+      [Guid]::TryParseExact([string]$journal.vmId, 'D', [ref]$parsedVmId) -and
+      $parsedVmId -ne [Guid]::Empty -and
+      $parsedVmId.ToString('D') -ceq [string]$journal.vmId)
+  if (($journal.schemaVersion -isnot [int] -and $journal.schemaVersion -isnot [long]) -or
+      $journal.schemaVersion -ne 1 -or $journal.environmentId -isnot [string] -or
+      $journal.vmName -isnot [string] -or $journal.switchName -isnot [string] -or
+      $journal.diskPath -isnot [string] -or $journal.baseImagePath -isnot [string] -or
+      $journal.baseImageFile -isnot [string] -or $journal.baseImageSha256 -isnot [string] -or
+      $journal.switchOwned -isnot [bool] -or $journal.diskOwned -isnot [bool] -or
+      $journal.vmOwned -isnot [bool] -or $journal.phase -isnot [string] -or
+      [string]$journal.environmentId -cne $EnvironmentId -or
+      [string]$journal.vmName -cne $VmName -or [string]$journal.switchName -cne $SwitchName -or
+      -not [IO.Path]::GetFullPath([string]$journal.diskPath).Equals($DiskPath, [StringComparison]::OrdinalIgnoreCase) -or
+      [string]$journal.baseImageFile -cne [IO.Path]::GetFileName([string]$journal.baseImagePath) -or
+      [string]$journal.baseImageSha256 -cnotmatch '^[a-f0-9]{64}$' -or
+      [string]$journal.phase -cnotin $validPhases -or -not $vmIdValid) {
+    throw 'Hyper-V create rollback journal failed its exact resource and phase binding.'
+  }
+  Assert-LeafName ([string]$journal.baseImageFile)
+  [void](Convert-StrictUtcTimestamp $journal.createdAt 'Hyper-V create journal createdAt')
+  [void](Convert-StrictUtcTimestamp $journal.updatedAt 'Hyper-V create journal updatedAt')
+  return $journal
+}
+
+function Write-CreateJournalPhase {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)]$Journal,
+    [Parameter(Mandatory = $true)]
+    [ValidateSet(
+      'prepared', 'switch_pending', 'switch_ready', 'disk_pending', 'disk_ready',
+      'vm_pending', 'vm_ready', 'configuring', 'configured', 'cleanup_pending',
+      'cleanup_complete'
+    )]
+    [string]$Phase,
+    [string]$VmId
+  )
+  $Journal.phase = $Phase
+  if ($PSBoundParameters.ContainsKey('VmId')) {
+    $Journal.vmId = $VmId
+  }
+  $Journal.updatedAt = [DateTime]::UtcNow.ToString('o')
+  Write-BoundedJson $Path $Journal 16384
+}
+
 if ($SelfTest) {
   Assert-LeafName 'windows-11-base.vhdx'
   $rejected = $false
@@ -201,13 +343,92 @@ if ($SelfTest) {
   if (-not $rejected) { throw 'Self-test did not reject an unknown field.' }
   $id = [Guid]::NewGuid().ToString('D')
   if ("VeriSilo-$id".Length -gt 64) { throw 'Full UUID resource name exceeds the supported bound.' }
-  Write-Host 'Hyper-V request validation self-test passed.'
+  $selfTestId = [Guid]::NewGuid().ToString('N').Substring(0, 12)
+  $selfTestRoot = Join-Path ([IO.Path]::GetTempPath()) "vhv-$selfTestId"
+  [void](New-Item -ItemType Directory -Path $selfTestRoot)
+  try {
+    $selfTestRequestNonce = [Guid]::NewGuid().ToString('D')
+    $selfTestRequestPath = Join-Path $selfTestRoot "$selfTestRequestNonce.request.json"
+    $selfTestRequest = [ordered]@{
+      schemaVersion = 1
+      action = 'health'
+      environmentId = $id
+      requestNonce = $selfTestRequestNonce
+      confirmDestroy = $false
+    }
+    Write-BoundedJson $selfTestRequestPath $selfTestRequest 16384
+    $requestRoundTrip = Read-StrictRequest $selfTestRequestPath
+    if ([string]$requestRoundTrip.environmentId -cne $id -or
+        [string]$requestRoundTrip.action -cne 'health' -or
+        [string]$requestRoundTrip.requestNonce -cne $selfTestRequestNonce) {
+      throw 'Strict request environment, action, and nonce binding did not round-trip.'
+    }
+    $selfTestDisk = Join-Path $selfTestRoot 'system-diff.vhdx'
+    $selfTestImage = Join-Path $selfTestRoot 'windows-11-base.vhdx'
+    $selfTestJournalPath = Join-Path $selfTestRoot 'hyperv-create-journal.json'
+    $journal = New-CreateJournal $id "VeriSilo-$id" "VeriSilo-$id" $selfTestDisk $selfTestImage 'windows-11-base.vhdx' ('a' * 64)
+    Write-BoundedJson $selfTestJournalPath $journal 16384
+    $journal = Read-CreateJournal $selfTestJournalPath $id "VeriSilo-$id" "VeriSilo-$id" $selfTestDisk
+    foreach ($phase in @(
+      'switch_pending', 'switch_ready', 'disk_pending', 'disk_ready', 'vm_pending',
+      'vm_ready', 'configuring', 'configured', 'cleanup_pending', 'cleanup_complete'
+    )) {
+      if ($phase -eq 'switch_pending') { $journal.switchOwned = $true }
+      if ($phase -eq 'disk_pending') { $journal.diskOwned = $true }
+      if ($phase -eq 'vm_pending') { $journal.vmOwned = $true }
+      if ($phase -eq 'vm_ready') {
+        Write-CreateJournalPhase $selfTestJournalPath $journal $phase ([Guid]::NewGuid().ToString('D'))
+      } else {
+        Write-CreateJournalPhase $selfTestJournalPath $journal $phase
+      }
+      $journal = Read-CreateJournal $selfTestJournalPath $id "VeriSilo-$id" "VeriSilo-$id" $selfTestDisk
+      if ([string]$journal.phase -cne $phase) { throw "Journal phase did not persist: $phase" }
+    }
+    if (-not $journal.switchOwned -or -not $journal.diskOwned -or -not $journal.vmOwned) {
+      throw 'Journal ownership flags did not persist across phase replacements.'
+    }
+    $journal.vmId = $null
+    $cleanupResponse = [ordered]@{
+      action = 'remove'
+      vmId = $null
+      cleanupState = 'rolled_back_from_journal'
+    }
+    $cleanupRoundTrip = ConvertFrom-StrictJson ($cleanupResponse | ConvertTo-Json -Compress)
+    if ([string]$cleanupRoundTrip.action -cne 'remove' -or $null -ne $cleanupRoundTrip.vmId -or
+        [string]$cleanupRoundTrip.cleanupState -cne 'rolled_back_from_journal') {
+      throw 'Remove-only nullable VM identity cleanup response did not round-trip.'
+    }
+    $journal.phase = 'untrusted_phase'
+    Write-BoundedJson $selfTestJournalPath $journal 16384
+    $rejected = $false
+    try { [void](Read-CreateJournal $selfTestJournalPath $id "VeriSilo-$id" "VeriSilo-$id" $selfTestDisk) } catch { $rejected = $true }
+    if (-not $rejected) { throw 'Self-test accepted an unknown rollback-journal phase.' }
+  } finally {
+    Remove-Item -LiteralPath $selfTestRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  Write-Host 'Hyper-V request and persistent rollback-journal self-test passed.'
   exit 0
 }
 
+$environmentId = Convert-CanonicalUuid $ExpectedEnvironmentId 'ExpectedEnvironmentId'
+$requestNonce = Convert-CanonicalUuid $ExpectedRequestNonce 'ExpectedRequestNonce'
+if ([string]$ExpectedAction -cnotin @('create', 'start', 'stop', 'pause', 'checkpoint', 'remove', 'health', 'logs')) {
+  throw 'ExpectedAction must use the exact lowercase Hyper-V action spelling.'
+}
 $stateRootPath = Resolve-SafeDirectory $StateRoot 'StateRoot'
+$environmentRoot = Resolve-SafeDirectory (Assert-DescendantPath $stateRootPath (Join-Path $stateRootPath $environmentId)) 'Hyper-V environment root'
 $requestPathResolved = Assert-DescendantPath $stateRootPath $RequestPath
+$requestParent = [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName($requestPathResolved))
+if (-not $requestParent.Equals($environmentRoot, [StringComparison]::OrdinalIgnoreCase) -or
+    [IO.Path]::GetFileName($requestPathResolved) -cne "$requestNonce.request.json") {
+  throw 'RequestPath must be the nonce-named direct child of the exact bound environment directory.'
+}
 $request = Read-StrictRequest $requestPathResolved
+if ([string]$request.environmentId -cne $environmentId -or
+    [string]$request.action -cne [string]$ExpectedAction -or
+    [string]$request.requestNonce -cne $requestNonce) {
+  throw 'Request file did not match the expected environmentId, action, and requestNonce.'
+}
 $imageRootPath = if ($request.action -eq 'create' -or (Test-Path -LiteralPath $ApprovedImageRoot)) {
   Resolve-SafeDirectory $ApprovedImageRoot 'ApprovedImageRoot'
 } else {
@@ -223,14 +444,13 @@ if ($null -eq (Get-Command Get-VM -ErrorAction SilentlyContinue)) {
   throw 'Hyper-V PowerShell commands are unavailable on this SKU or feature state.'
 }
 
-$environmentId = ([Guid]$request.environmentId).ToString('D')
 $vmName = "VeriSilo-$environmentId"
 $switchName = $vmName
 $bindingNote = "VeriSilo:v1:$environmentId"
-$environmentRoot = Resolve-SafeDirectory (Assert-DescendantPath $stateRootPath (Join-Path $stateRootPath $environmentId)) 'Hyper-V environment root'
 $diskPath = Assert-DescendantPath $environmentRoot (Join-Path $environmentRoot 'system-diff.vhdx')
 $logPath = Assert-DescendantPath $environmentRoot (Join-Path $environmentRoot 'hyperv-status.json')
 $providerReceiptPath = Assert-DescendantPath $environmentRoot (Join-Path $environmentRoot 'hyperv-receipt.json')
+$createJournalPath = Assert-DescendantPath $environmentRoot (Join-Path $environmentRoot 'hyperv-create-journal.json')
 Read-SiloBinding $environmentRoot $environmentId $vmName
 
 function Assert-BoundSwitch {
@@ -382,12 +602,128 @@ function Assert-NoOtherRunningSilo {
   if ($other.Count -ne 0) { throw 'Concurrent multi-Silo Hyper-V execution is gated in V0.8.' }
 }
 
+function Invoke-CreateJournalRollback {
+  param([Parameter(Mandatory = $true)]$Journal)
+
+  $vm = Get-VM -Name $vmName -ErrorAction SilentlyContinue
+  $switch = Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue
+  $diskExists = Test-Path -LiteralPath $diskPath -PathType Leaf
+  if ([string]$Journal.phase -ceq 'cleanup_complete') {
+    if (($Journal.vmOwned -and $null -ne $vm) -or
+        ($Journal.diskOwned -and $diskExists) -or
+        ($Journal.switchOwned -and $null -ne $switch)) {
+      throw 'A journal-owned resource reappeared after rollback completed; refusing to delete an unjournaled replacement.'
+    }
+    return $Journal
+  }
+
+  $ownedVmId = if ($null -ne $Journal.vmId) { [string]$Journal.vmId } else { $null }
+  if ($Journal.vmOwned -and $null -ne $vm) {
+    $actualVmId = ([Guid]$vm.Id).ToString('D')
+    if (($null -ne $ownedVmId -and $actualVmId -cne $ownedVmId) -or
+        [int]$vm.Generation -ne 2 -or
+        ([string]$vm.Notes -notin @('', $bindingNote))) {
+      throw 'Journal-owned partial VM failed its exact identity, generation, or binding check.'
+    }
+    [void](Assert-DescendantPath $environmentRoot ([string]$vm.Path))
+    $drives = @(Get-VMHardDiskDrive -VMName $vmName -ErrorAction Stop)
+    if ($drives.Count -gt 1 -or
+        ($drives.Count -eq 1 -and
+          -not [IO.Path]::GetFullPath([string]$drives[0].Path).Equals($diskPath, [StringComparison]::OrdinalIgnoreCase))) {
+      throw 'Journal-owned partial VM has an unexpected disk attachment.'
+    }
+    $adapters = @(Get-VMNetworkAdapter -VMName $vmName -ErrorAction Stop)
+    if ($adapters.Count -gt 1 -or
+        ($adapters.Count -eq 1 -and [string]$adapters[0].SwitchName -cne $switchName)) {
+      throw 'Journal-owned partial VM has an unexpected network attachment.'
+    }
+    if ([string]$vm.State -notin @('Off', 'Saved')) {
+      throw 'Journal rollback refuses to force-power off a partial VM.'
+    }
+    $ownedVmId = $actualVmId
+    if ($null -eq $Journal.vmId) {
+      Write-CreateJournalPhase $createJournalPath $Journal 'cleanup_pending' $ownedVmId
+    }
+  } elseif ($Journal.vmOwned -and $null -ne $ownedVmId) {
+    $renamedVm = Get-VM -Id ([Guid]$ownedVmId) -ErrorAction SilentlyContinue
+    if ($null -ne $renamedVm) {
+      throw 'Journal-owned VM identity exists under an unexpected name; refusing cleanup.'
+    }
+  }
+
+  if ($Journal.switchOwned) {
+    $foreignSwitchAdapters = @(Get-VMNetworkAdapter -All -ErrorAction Stop | Where-Object {
+      [string]$_.SwitchName -ceq $switchName -and
+      ($null -eq $ownedVmId -or ([string]$_.VMId).ToLowerInvariant() -cne $ownedVmId)
+    })
+    if ($foreignSwitchAdapters.Count -ne 0) {
+      throw 'The journal-owned switch has a foreign active VM adapter; rollback will not mutate any resource.'
+    }
+  }
+  if ($Journal.diskOwned -and $diskExists) {
+    $foreignDiskUsers = @(Get-VM -ErrorAction Stop | Get-VMHardDiskDrive -ErrorAction Stop | Where-Object {
+      [IO.Path]::GetFullPath([string]$_.Path).Equals($diskPath, [StringComparison]::OrdinalIgnoreCase) -and
+      ($null -eq $ownedVmId -or ([string]$_.VMId).ToLowerInvariant() -cne $ownedVmId)
+    })
+    if ($foreignDiskUsers.Count -ne 0) {
+      throw 'The journal-owned disk is attached to a foreign VM; rollback will not mutate any resource.'
+    }
+    [void](Assert-RegularFile $diskPath ([long]::MaxValue) 'Journal-owned differencing disk')
+    $journalDisk = Get-VHD -Path $diskPath -ErrorAction Stop
+    if ([string]$journalDisk.VhdType -cne 'Differencing' -or
+        -not [IO.Path]::GetFullPath([string]$journalDisk.ParentPath).Equals(
+          [IO.Path]::GetFullPath([string]$Journal.baseImagePath),
+          [StringComparison]::OrdinalIgnoreCase
+        )) {
+      throw 'Journal-owned disk is not the expected differencing child of the recorded base image.'
+    }
+  }
+  if ($Journal.switchOwned -and $null -ne $switch -and
+      ([string]$switch.SwitchType -cne 'Internal' -or [string]$switch.Notes -cne $bindingNote)) {
+    throw 'Journal-owned switch failed its exact internal-switch binding.'
+  }
+
+  Write-CreateJournalPhase $createJournalPath $Journal 'cleanup_pending'
+  if ($Journal.vmOwned -and $null -ne $vm) {
+    Remove-VM -VM $vm -Force
+    if ($null -ne (Get-VM -Id ([Guid]$ownedVmId) -ErrorAction SilentlyContinue)) {
+      throw 'The exact journal-owned VM still exists after rollback removal.'
+    }
+  }
+  if ($Journal.diskOwned -and (Test-Path -LiteralPath $diskPath -PathType Leaf)) {
+    Write-CreateJournalPhase $createJournalPath $Journal 'cleanup_pending'
+    Remove-Item -LiteralPath $diskPath -Force
+  }
+  if ($Journal.switchOwned) {
+    $switch = Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue
+    if ($null -ne $switch) {
+      if (@(Get-VMNetworkAdapter -All -ErrorAction Stop | Where-Object { [string]$_.SwitchName -ceq $switchName }).Count -ne 0) {
+        throw 'The journal-owned switch still has active VM adapters after VM rollback.'
+      }
+      Write-CreateJournalPhase $createJournalPath $Journal 'cleanup_pending'
+      Remove-VMSwitch -VMSwitch $switch -Force
+    }
+  }
+  Write-CreateJournalPhase $createJournalPath $Journal 'cleanup_complete'
+  return $Journal
+}
+
+$baseImageLease = $null
 try {
   $providerReceipt = $null
+  $createJournal = $null
+  $cleanupState = $null
   if ($request.action -ne 'create') {
-    $providerReceipt = Read-ProviderReceipt $providerReceiptPath $environmentId $vmName $switchName $diskPath
-    [void](Assert-DescendantPath $imageRootPath ([string]$providerReceipt.baseImagePath))
-    Assert-ReceiptImageBinding $providerReceipt
+    if (Test-Path -LiteralPath $providerReceiptPath -PathType Leaf) {
+      $providerReceipt = Read-ProviderReceipt $providerReceiptPath $environmentId $vmName $switchName $diskPath
+      [void](Assert-DescendantPath $imageRootPath ([string]$providerReceipt.baseImagePath))
+      Assert-ReceiptImageBinding $providerReceipt
+    } elseif ($request.action -eq 'remove' -and (Test-Path -LiteralPath $createJournalPath -PathType Leaf)) {
+      $createJournal = Read-CreateJournal $createJournalPath $environmentId $vmName $switchName $diskPath
+      [void](Assert-DescendantPath $imageRootPath ([string]$createJournal.baseImagePath))
+    } else {
+      throw 'Hyper-V provider receipt is missing and no rollback journal authorizes this action.'
+    }
   }
 
   switch ($request.action) {
@@ -404,27 +740,66 @@ try {
     }
     $imagePath = Assert-DescendantPath $imageRootPath (Join-Path $imageRootPath ([string]$request.manifestImageFile))
     $image = Assert-RegularFile $imagePath ([long]::MaxValue) 'Signed-manifest base image'
-    $actualHash = (Get-FileHash -LiteralPath $image.FullName -Algorithm SHA256).Hash
-    if ($actualHash -cne ([string]$request.manifestImageSha256).ToUpperInvariant()) {
+    $baseImageLease = [IO.File]::Open($image.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $actualHash = Get-LockedFileSha256 $baseImageLease
+    if ($actualHash -cne ([string]$request.manifestImageSha256).ToLowerInvariant()) {
       throw 'Base image hash does not match the signed build manifest.'
+    }
+
+    if (Test-Path -LiteralPath $createJournalPath -PathType Leaf) {
+      $createJournal = Read-CreateJournal $createJournalPath $environmentId $vmName $switchName $diskPath
+      if (-not [IO.Path]::GetFullPath([string]$createJournal.baseImagePath).Equals($image.FullName, [StringComparison]::OrdinalIgnoreCase) -or
+          [string]$createJournal.baseImageFile -cne [string]$request.manifestImageFile -or
+          [string]$createJournal.baseImageSha256 -cne ([string]$request.manifestImageSha256).ToLowerInvariant()) {
+        throw 'Existing rollback journal is bound to a different signed base image.'
+      }
+      if ([string]$createJournal.phase -ceq 'cleanup_complete') {
+        if (($createJournal.vmOwned -and $null -ne (Get-VM -Name $vmName -ErrorAction SilentlyContinue)) -or
+            ($createJournal.diskOwned -and (Test-Path -LiteralPath $diskPath -PathType Leaf)) -or
+            ($createJournal.switchOwned -and $null -ne (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue))) {
+          throw 'Completed rollback journal still has an owned resource; refusing a new create.'
+        }
+        $createJournal = New-CreateJournal $environmentId $vmName $switchName $diskPath $image.FullName ([string]$request.manifestImageFile) ([string]$request.manifestImageSha256)
+        Write-BoundedJson $createJournalPath $createJournal 16384
+      }
+    } else {
+      $createJournal = New-CreateJournal $environmentId $vmName $switchName $diskPath $image.FullName ([string]$request.manifestImageFile) ([string]$request.manifestImageSha256)
+      Write-BoundedJson $createJournalPath $createJournal 16384
     }
 
     $switch = Assert-BoundSwitch $false
     if ($null -eq $switch) {
+      $createJournal.switchOwned = $true
+      Write-CreateJournalPhase $createJournalPath $createJournal 'switch_pending'
       $switch = New-VMSwitch -Name $switchName -SwitchType Internal -Notes $bindingNote
+      Write-CreateJournalPhase $createJournalPath $createJournal 'switch_ready'
     }
     $disk = Assert-BoundDisk $image.FullName $false
     if ($null -eq $disk) {
+      $createJournal.diskOwned = $true
+      Write-CreateJournalPhase $createJournalPath $createJournal 'disk_pending'
       $disk = New-VHD -Path $diskPath -ParentPath $image.FullName -Differencing
+      Write-CreateJournalPhase $createJournalPath $createJournal 'disk_ready'
     }
     $vm = Get-VM -Name $vmName -ErrorAction SilentlyContinue
     if ($null -eq $vm) {
+      $createJournal.vmOwned = $true
+      Write-CreateJournalPhase $createJournalPath $createJournal 'vm_pending'
       $vm = New-VM -Name $vmName -Path $environmentRoot -Generation 2 -MemoryStartupBytes 4GB -VHDPath $diskPath -SwitchName $switchName
+      Write-CreateJournalPhase $createJournalPath $createJournal 'vm_ready' (([Guid]$vm.Id).ToString('D'))
+    } elseif ($createJournal.vmOwned) {
+      $existingVmId = ([Guid]$vm.Id).ToString('D')
+      if ($null -ne $createJournal.vmId -and [string]$createJournal.vmId -cne $existingVmId) {
+        throw 'Existing partial VM does not match the rollback journal VM identity.'
+      }
+      Write-CreateJournalPhase $createJournalPath $createJournal 'vm_ready' $existingVmId
     }
+    Write-CreateJournalPhase $createJournalPath $createJournal 'configuring'
     Initialize-BoundVm
     [void](Assert-BoundSwitch $true)
     [void](Assert-BoundDisk $image.FullName $true)
     $vm = Assert-BoundVm $true
+    Write-CreateJournalPhase $createJournalPath $createJournal 'configured' (([Guid]$vm.Id).ToString('D'))
     $providerReceipt = [ordered]@{
       schemaVersion = 1
       environmentId = $environmentId
@@ -449,6 +824,8 @@ try {
       createdAt = [DateTime]::UtcNow.ToString('o')
     }
     Write-BoundedJson $providerReceiptPath $providerReceipt 16384
+    [void](Assert-RegularFile $createJournalPath 16384 'Completed Hyper-V create rollback journal')
+    Remove-Item -LiteralPath $createJournalPath -Force
   }
   'start' {
     [void](Assert-BoundDisk ([string]$providerReceipt.baseImagePath) $true)
@@ -487,51 +864,61 @@ try {
   }
   'remove' {
     if ($request.confirmDestroy -ne $true) { throw 'VM removal requires confirmDestroy=true.' }
-    $vm = Assert-BoundVm $false ([string]$providerReceipt.vmId)
-    $ownedDisks = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    if ($null -ne $vm) {
-      $foreignSwitchAdapters = @(Get-VMNetworkAdapter -All -ErrorAction Stop | Where-Object {
-        [string]$_.SwitchName -ceq $switchName -and
-        ([string]$_.VMId).ToLowerInvariant() -cne ([string]$providerReceipt.vmId).ToLowerInvariant()
-      })
-      if ($foreignSwitchAdapters.Count -ne 0) {
-        throw 'The bound switch has a foreign active VM adapter; no VM, disk, or switch will be removed.'
-      }
-      foreach ($drive in @(Get-VMHardDiskDrive -VMName $vmName -ErrorAction Stop)) {
-        [void]$ownedDisks.Add((Assert-DescendantPath $environmentRoot ([string]$drive.Path)))
-      }
-      foreach ($snapshot in @(Get-VMSnapshot -VMName $vmName -ErrorAction SilentlyContinue)) {
-        foreach ($drive in @($snapshot | Get-VMHardDiskDrive -ErrorAction Stop)) {
+    if ($null -ne $createJournal) {
+      $createJournal = Invoke-CreateJournalRollback $createJournal
+      $cleanupState = 'rolled_back_from_journal'
+    } else {
+      $vm = Assert-BoundVm $false ([string]$providerReceipt.vmId)
+      $ownedDisks = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+      if ($null -ne $vm) {
+        $foreignSwitchAdapters = @(Get-VMNetworkAdapter -All -ErrorAction Stop | Where-Object {
+          [string]$_.SwitchName -ceq $switchName -and
+          ([string]$_.VMId).ToLowerInvariant() -cne ([string]$providerReceipt.vmId).ToLowerInvariant()
+        })
+        if ($foreignSwitchAdapters.Count -ne 0) {
+          throw 'The bound switch has a foreign active VM adapter; no VM, disk, or switch will be removed.'
+        }
+        foreach ($drive in @(Get-VMHardDiskDrive -VMName $vmName -ErrorAction Stop)) {
           [void]$ownedDisks.Add((Assert-DescendantPath $environmentRoot ([string]$drive.Path)))
         }
+        foreach ($snapshot in @(Get-VMSnapshot -VMName $vmName -ErrorAction SilentlyContinue)) {
+          foreach ($drive in @($snapshot | Get-VMHardDiskDrive -ErrorAction Stop)) {
+            [void]$ownedDisks.Add((Assert-DescendantPath $environmentRoot ([string]$drive.Path)))
+          }
+        }
+        if ([string]$vm.State -notin @('Off', 'Saved')) {
+          throw 'Stop the exact bound VM before destroy; removal never force-powers it off.'
+        }
+        Remove-VM -Name $vmName -Force
+        if ($null -ne (Get-VM -Id ([Guid]$providerReceipt.vmId) -ErrorAction SilentlyContinue)) {
+          throw 'The exact bound VM still exists after removal.'
+        }
       }
-      if ([string]$vm.State -notin @('Off', 'Saved')) {
-        throw 'Stop the exact bound VM before destroy; removal never force-powers it off.'
+      if (Test-Path -LiteralPath $diskPath -PathType Leaf) {
+        $orphan = Get-VHD -Path $diskPath -ErrorAction Stop
+        if ([string]$orphan.VhdType -cne 'Differencing') {
+          throw 'Orphaned Silo disk is not a differencing disk.'
+        }
       }
-      Remove-VM -Name $vmName -Force
-      if ($null -ne (Get-VM -Id ([Guid]$providerReceipt.vmId) -ErrorAction SilentlyContinue)) {
-        throw 'The exact bound VM still exists after removal.'
+      $activeSwitchAdapters = @(Get-VMNetworkAdapter -All -ErrorAction Stop | Where-Object { [string]$_.SwitchName -ceq $switchName })
+      if ($activeSwitchAdapters.Count -ne 0) {
+        throw 'The bound switch still has active VM adapters and no disk or switch will be removed.'
       }
+      [void]$ownedDisks.Add($diskPath)
+      foreach ($ownedDisk in $ownedDisks) {
+        if (Test-Path -LiteralPath $ownedDisk -PathType Leaf) {
+          [void](Assert-RegularFile $ownedDisk ([long]::MaxValue) 'Owned VM disk')
+          Remove-Item -LiteralPath $ownedDisk -Force
+        }
+      }
+      $switch = Assert-BoundSwitch $false
+      if ($null -ne $switch) { Remove-VMSwitch -Name $switchName -Force }
+      if (Test-Path -LiteralPath $createJournalPath -PathType Leaf) {
+        [void](Read-CreateJournal $createJournalPath $environmentId $vmName $switchName $diskPath)
+        Remove-Item -LiteralPath $createJournalPath -Force
+      }
+      $cleanupState = 'removed_from_receipt'
     }
-    if (Test-Path -LiteralPath $diskPath -PathType Leaf) {
-      $orphan = Get-VHD -Path $diskPath -ErrorAction Stop
-      if ([string]$orphan.VhdType -cne 'Differencing') {
-        throw 'Orphaned Silo disk is not a differencing disk.'
-      }
-    }
-    $activeSwitchAdapters = @(Get-VMNetworkAdapter -All -ErrorAction Stop | Where-Object { [string]$_.SwitchName -ceq $switchName })
-    if ($activeSwitchAdapters.Count -ne 0) {
-      throw 'The bound switch still has active VM adapters and no disk or switch will be removed.'
-    }
-    [void]$ownedDisks.Add($diskPath)
-    foreach ($ownedDisk in $ownedDisks) {
-      if (Test-Path -LiteralPath $ownedDisk -PathType Leaf) {
-        [void](Assert-RegularFile $ownedDisk ([long]::MaxValue) 'Owned VM disk')
-        Remove-Item -LiteralPath $ownedDisk -Force
-      }
-    }
-    $switch = Assert-BoundSwitch $false
-    if ($null -ne $switch) { Remove-VMSwitch -Name $switchName -Force }
   }
   'health' {
     [void](Assert-BoundVm $true ([string]$providerReceipt.vmId))
@@ -542,17 +929,19 @@ try {
   }
   }
 
+  $identitySource = if ($null -ne $providerReceipt) { $providerReceipt } else { $createJournal }
   $result = [ordered]@{
     schemaVersion = 1
     action = $request.action
     environmentId = $environmentId
+    requestNonce = $requestNonce
     success = $true
     source = 'hyperv-controller'
     observedAt = [DateTime]::UtcNow.ToString('o')
-    vmName = [string]$providerReceipt.vmName
-    vmId = [string]$providerReceipt.vmId
-    generation = [int]$providerReceipt.generation
-    baseImageSha256 = [string]$providerReceipt.baseImageSha256
+    vmName = [string]$identitySource.vmName
+    vmId = if ($null -eq $identitySource.vmId) { $null } else { [string]$identitySource.vmId }
+    generation = 2
+    baseImageSha256 = [string]$identitySource.baseImageSha256
     guestAgentVersion = $null
     guestAgentSha256 = $null
     guestProfile = 'unavailable'
@@ -563,6 +952,9 @@ try {
     guestResolver = 'unavailable'
     browserReady = 'unavailable'
   }
+  if ($request.action -eq 'remove') {
+    $result.cleanupState = $cleanupState
+  }
   Write-BoundedJson $logPath $result 16384
   $result | ConvertTo-Json -Compress
 } catch {
@@ -571,6 +963,7 @@ try {
     schemaVersion = 1
     action = [string]$request.action
     environmentId = $environmentId
+    requestNonce = $requestNonce
     success = $false
     source = 'hyperv-controller'
     observedAt = [DateTime]::UtcNow.ToString('o')
@@ -587,4 +980,6 @@ try {
   }
   try { Write-BoundedJson $logPath $failure 16384 } catch { }
   throw
+} finally {
+  if ($null -ne $baseImageLease) { $baseImageLease.Dispose() }
 }

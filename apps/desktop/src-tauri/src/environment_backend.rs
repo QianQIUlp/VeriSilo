@@ -23,6 +23,20 @@ use uuid::Uuid;
 
 #[cfg(target_os = "windows")]
 use crate::domain::{trusted_windows_system_tool, WindowsSystemTool};
+#[cfg(target_os = "windows")]
+use std::io::{Seek, SeekFrom};
+#[cfg(target_os = "windows")]
+use std::os::windows::fs::OpenOptionsExt;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Security::Cryptography::{
+    BCryptCloseAlgorithmProvider, BCryptCreateHash, BCryptDestroyHash, BCryptFinishHash,
+    BCryptHashData, BCryptOpenAlgorithmProvider, BCRYPT_ALG_HANDLE, BCRYPT_HASH_HANDLE,
+    BCRYPT_SHA256_ALGORITHM,
+};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE,
+};
 
 pub const ENVIRONMENT_CONTRACT_VERSION: u32 = 1;
 pub const WSL_GUEST_AGENT_PATH: &str = "/opt/verisilo/bin/verisilo-guest-agent";
@@ -664,6 +678,15 @@ fn reject_existing_reparse_components(
     let mut current = PathBuf::new();
     for component in path.components() {
         current.push(component.as_os_str());
+        // A Windows verbatim path starts with a non-openable prefix such as
+        // `\\?\C:`. The prefix only becomes a filesystem path after the root
+        // component is appended (`\\?\C:\`). Tauri returns resource paths in
+        // this form, so querying the bare prefix makes desktop startup fail
+        // with ERROR_INVALID_FUNCTION before any provider is used.
+        #[cfg(target_os = "windows")]
+        if matches!(component, Component::Prefix(_)) {
+            continue;
+        }
         match fs::symlink_metadata(&current) {
             Ok(metadata) if metadata_is_reparse_point(&metadata) => {
                 return Err(EnvironmentBackendError::InvalidRequest(format!(
@@ -823,6 +846,72 @@ pub fn local_environment_artifacts(
         }
     }
     Ok(artifacts)
+}
+
+/// Reads a UUID-derived provider binding without trusting a caller-selected
+/// provider handle. This is used only to clean up environment state created by
+/// older Vault schemas that did not persist a Silo run location.
+pub fn local_environment_binding_provider(
+    environment_root: &Path,
+    environment_id: Uuid,
+    backend: EnvironmentBackendId,
+) -> Result<Option<String>, EnvironmentBackendError> {
+    require_absolute_clean_path(environment_root, "Local environment binding root")?;
+    let provider_directory = match backend {
+        EnvironmentBackendId::WslChromium => "wsl",
+        EnvironmentBackendId::WindowsSandbox => "sandbox",
+        EnvironmentBackendId::HyperV => "hyperv",
+    };
+    let state_root = environment_root.join(provider_directory);
+    let environment_path = environment_directory(&state_root, environment_id);
+    match fs::symlink_metadata(&environment_path) {
+        Ok(metadata) if !metadata_is_reparse_point(&metadata) && metadata.is_dir() => {}
+        Ok(_) => {
+            return Err(EnvironmentBackendError::Protocol(
+                "The legacy environment owner path is not a real directory.".to_owned(),
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(EnvironmentBackendError::Io(error)),
+    }
+
+    let bytes = read_bounded_regular_file(
+        &binding_path(&state_root, environment_id),
+        MAX_BINDING_BYTES,
+    )?;
+    let actual: EnvironmentBinding = serde_json::from_slice(&bytes)?;
+    if actual.schema_version != ENVIRONMENT_CONTRACT_VERSION
+        || actual.environment_id != environment_id
+        || actual.backend != backend
+    {
+        return Err(EnvironmentBackendError::Protocol(
+            "The legacy environment binding does not match its UUID and provider namespace."
+                .to_owned(),
+        ));
+    }
+    match backend {
+        EnvironmentBackendId::WslChromium => validate_distribution_name(&actual.provider_key)?,
+        EnvironmentBackendId::WindowsSandbox
+            if actual.provider_key != "windows-sandbox-v0.8-ephemeral" =>
+        {
+            return Err(EnvironmentBackendError::Protocol(
+                "The legacy Windows Sandbox binding uses an unknown provider identity.".to_owned(),
+            ));
+        }
+        EnvironmentBackendId::HyperV
+            if actual.provider_key != format!("VeriSilo-{environment_id}") =>
+        {
+            return Err(EnvironmentBackendError::Protocol(
+                "The legacy Hyper-V binding uses an unknown provider identity.".to_owned(),
+            ));
+        }
+        _ => {}
+    }
+    require_binding(
+        &state_root,
+        &EnvironmentBinding::new(environment_id, backend, actual.provider_key.clone()),
+    )?;
+    Ok(Some(actual.provider_key))
 }
 
 fn local_environment_provider_directories() -> [(&'static str, EnvironmentBackendId); 3] {
@@ -2555,9 +2644,12 @@ impl<R: ProcessRunner> HyperVBackend<R> {
         }
     }
 
-    pub fn command_spec(
+    fn command_spec(
         &self,
         request_path: &Path,
+        action: HyperVAction,
+        environment_id: Uuid,
+        request_nonce: Uuid,
     ) -> Result<CommandSpec, EnvironmentBackendError> {
         require_absolute_clean_path(request_path, "Hyper-V request path")?;
         Ok(CommandSpec {
@@ -2576,6 +2668,15 @@ impl<R: ProcessRunner> HyperVBackend<R> {
                 self.state_root.as_os_str().to_owned(),
                 "-ApprovedImageRoot".into(),
                 self.approved_image_root.as_os_str().to_owned(),
+                "-ExpectedEnvironmentId".into(),
+                environment_id.to_string().into(),
+                "-ExpectedAction".into(),
+                serde_json::to_value(action)?
+                    .as_str()
+                    .expect("Hyper-V action serializes as a string")
+                    .into(),
+                "-ExpectedRequestNonce".into(),
+                request_nonce.to_string().into(),
             ],
             stdin: None,
             completion: CommandCompletion::WaitForExit,
@@ -2599,7 +2700,8 @@ impl<R: ProcessRunner> HyperVBackend<R> {
         }
         let directory = environment_directory(&self.state_root, environment_id);
         ensure_state_directory(&directory)?;
-        let request_path = directory.join(format!("{}.request.json", Uuid::new_v4()));
+        let request_nonce = Uuid::new_v4();
+        let request_path = directory.join(format!("{request_nonce}.request.json"));
         let create_image = if action == HyperVAction::Create {
             Some(self.image.as_ref().ok_or_else(|| {
                 unavailable(
@@ -2611,10 +2713,20 @@ impl<R: ProcessRunner> HyperVBackend<R> {
         } else {
             None
         };
+        let image_lease = create_image
+            .map(|image| {
+                HyperVImageLease::acquire(
+                    &self.approved_image_root,
+                    &image.file_name,
+                    &image.sha256,
+                )
+            })
+            .transpose()?;
         let request = HyperVScriptRequest {
             schema_version: ENVIRONMENT_CONTRACT_VERSION,
             action,
             environment_id,
+            request_nonce,
             confirm_destroy,
             manifest_schema_version: if action == HyperVAction::Create {
                 Some(ENVIRONMENT_CONTRACT_VERSION)
@@ -2638,12 +2750,15 @@ impl<R: ProcessRunner> HyperVBackend<R> {
             },
         };
         let bytes = serde_json::to_vec_pretty(&request)?;
-        write_new_file(&request_path, &bytes)?;
-        let mut spec = self.command_spec(&request_path)?;
+        let request_lease =
+            HyperVRequestLease::create(&self.state_root, &directory, &request_path, &bytes)?;
+        let mut spec = self.command_spec(&request_path, action, environment_id, request_nonce)?;
         if action == HyperVAction::Create {
             spec.timeout = HYPERV_CREATE_TIMEOUT;
         }
         let output_result = self.runner.run(&spec);
+        drop(request_lease);
+        drop(image_lease);
         remove_regular_file_if_exists(&request_path)?;
         let output = output_result?;
         if !output.success {
@@ -2671,11 +2786,12 @@ impl<R: ProcessRunner> HyperVBackend<R> {
         if response.schema_version != ENVIRONMENT_CONTRACT_VERSION
             || response.action != action
             || response.environment_id != environment_id
+            || response.request_nonce != request_nonce
             || !response.success
             || response.source != "hyperv-controller"
             || !observed_is_fresh
             || response.vm_name != format!("VeriSilo-{environment_id}")
-            || response.vm_id == Uuid::nil()
+            || !hyperv_response_identity_is_valid(action, &response)
             || response.generation != 2
             || !image_hash_is_valid
             || !create_hash_matches
@@ -3016,12 +3132,20 @@ enum HyperVAction {
     Logs,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum HyperVCleanupState {
+    RemovedFromReceipt,
+    RolledBackFromJournal,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HyperVScriptRequest {
     schema_version: u32,
     action: HyperVAction,
     environment_id: Uuid,
+    request_nonce: Uuid,
     confirm_destroy: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     manifest_schema_version: Option<u32>,
@@ -3039,11 +3163,13 @@ struct HyperVScriptResponse {
     schema_version: u32,
     action: HyperVAction,
     environment_id: Uuid,
+    request_nonce: Uuid,
     success: bool,
     source: String,
     observed_at: String,
     vm_name: String,
-    vm_id: Uuid,
+    vm_id: Option<Uuid>,
+    cleanup_state: Option<HyperVCleanupState>,
     generation: u8,
     base_image_sha256: String,
     guest_agent_version: Option<String>,
@@ -3055,6 +3181,22 @@ struct HyperVScriptResponse {
     proxy_dns: GuestEvidenceState,
     guest_resolver: GuestEvidenceState,
     browser_ready: GuestEvidenceState,
+}
+
+fn hyperv_response_identity_is_valid(
+    action: HyperVAction,
+    response: &HyperVScriptResponse,
+) -> bool {
+    let has_non_nil_vm = response.vm_id.is_some_and(|vm_id| vm_id != Uuid::nil());
+    match (action, response.cleanup_state) {
+        (HyperVAction::Remove, Some(HyperVCleanupState::RemovedFromReceipt)) => has_non_nil_vm,
+        (HyperVAction::Remove, Some(HyperVCleanupState::RolledBackFromJournal)) => {
+            response.vm_id.is_none() || has_non_nil_vm
+        }
+        (HyperVAction::Remove, None) => false,
+        (_, None) => has_non_nil_vm,
+        (_, Some(_)) => false,
+    }
 }
 
 fn validate_image_descriptor(image: &ValidatedHyperVImage) -> Result<(), EnvironmentBackendError> {
@@ -3135,6 +3277,296 @@ fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), EnvironmentBackendErr
     file.sync_all().map_err(EnvironmentBackendError::Io)
 }
 
+struct HyperVRequestLease {
+    _request_file: fs::File,
+    #[cfg(target_os = "windows")]
+    _directory_chain: Vec<fs::File>,
+}
+
+struct HyperVImageLease {
+    _image_file: fs::File,
+    #[cfg(target_os = "windows")]
+    _directory_chain: Vec<fs::File>,
+}
+
+impl HyperVImageLease {
+    fn acquire(
+        approved_image_root: &Path,
+        image_file_name: &str,
+        expected_sha256: &str,
+    ) -> Result<Self, EnvironmentBackendError> {
+        require_absolute_clean_path(approved_image_root, "approved Hyper-V image root")?;
+        let image_path = approved_image_root.join(image_file_name);
+        require_absolute_clean_path(&image_path, "approved Hyper-V image path")?;
+        if image_path.parent() != Some(approved_image_root)
+            || image_path.file_name().and_then(|name| name.to_str()) != Some(image_file_name)
+        {
+            return Err(EnvironmentBackendError::InvalidRequest(
+                "Hyper-V base image must be the exact manifest leaf under ApprovedImageRoot."
+                    .to_owned(),
+            ));
+        }
+
+        #[cfg(target_os = "windows")]
+        let directory_chain = open_locked_hyperv_directory_chain(approved_image_root)?;
+
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(target_os = "windows")]
+        {
+            // The provider and New-VHD may read the parent VHDX, while writes,
+            // rename, deletion, and directory replacement remain impossible.
+            options
+                .share_mode(FILE_SHARE_READ)
+                .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+        }
+        let image_file = options
+            .open(&image_path)
+            .map_err(EnvironmentBackendError::Io)?;
+        let metadata = image_file.metadata().map_err(EnvironmentBackendError::Io)?;
+        if metadata_is_reparse_point(&metadata) || !metadata.is_file() || metadata.len() == 0 {
+            return Err(EnvironmentBackendError::InvalidRequest(
+                "Hyper-V base image must be a non-empty regular non-reparse file.".to_owned(),
+            ));
+        }
+
+        #[cfg(target_os = "windows")]
+        let image_file = {
+            let mut image_file = image_file;
+            let actual_sha256 = sha256_from_locked_file(&mut image_file)?;
+            if actual_sha256 != expected_sha256 {
+                return Err(EnvironmentBackendError::Protocol(
+                    "The locked Hyper-V base image did not match the build-pinned SHA-256."
+                        .to_owned(),
+                ));
+            }
+            image_file
+        };
+
+        #[cfg(not(target_os = "windows"))]
+        let _ = expected_sha256;
+
+        Ok(Self {
+            _image_file: image_file,
+            #[cfg(target_os = "windows")]
+            _directory_chain: directory_chain,
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct BCryptAlgorithm(BCRYPT_ALG_HANDLE);
+
+#[cfg(target_os = "windows")]
+impl Drop for BCryptAlgorithm {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                BCryptCloseAlgorithmProvider(self.0, 0);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct BCryptHash(BCRYPT_HASH_HANDLE);
+
+#[cfg(target_os = "windows")]
+impl Drop for BCryptHash {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                BCryptDestroyHash(self.0);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn require_nt_success(status: i32, operation: &str) -> Result<(), EnvironmentBackendError> {
+    if status >= 0 {
+        Ok(())
+    } else {
+        Err(EnvironmentBackendError::Protocol(format!(
+            "Windows CNG failed to {operation} (NTSTATUS 0x{:08x}).",
+            status as u32
+        )))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn sha256_from_locked_file(file: &mut fs::File) -> Result<String, EnvironmentBackendError> {
+    let mut algorithm = std::ptr::null_mut();
+    require_nt_success(
+        unsafe {
+            BCryptOpenAlgorithmProvider(
+                &mut algorithm,
+                BCRYPT_SHA256_ALGORITHM,
+                std::ptr::null(),
+                0,
+            )
+        },
+        "open SHA-256",
+    )?;
+    let algorithm = BCryptAlgorithm(algorithm);
+
+    let mut hash = std::ptr::null_mut();
+    require_nt_success(
+        unsafe {
+            BCryptCreateHash(
+                algorithm.0,
+                &mut hash,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null(),
+                0,
+                0,
+            )
+        },
+        "create SHA-256 state",
+    )?;
+    let hash = BCryptHash(hash);
+
+    file.seek(SeekFrom::Start(0))
+        .map_err(EnvironmentBackendError::Io)?;
+    let mut buffer = vec![0_u8; 1024 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(EnvironmentBackendError::Io)?;
+        if read == 0 {
+            break;
+        }
+        require_nt_success(
+            unsafe { BCryptHashData(hash.0, buffer.as_ptr(), read as u32, 0) },
+            "hash the locked Hyper-V image",
+        )?;
+    }
+    let mut digest = [0_u8; 32];
+    require_nt_success(
+        unsafe { BCryptFinishHash(hash.0, digest.as_mut_ptr(), digest.len() as u32, 0) },
+        "finish the locked Hyper-V image SHA-256",
+    )?;
+    file.seek(SeekFrom::Start(0))
+        .map_err(EnvironmentBackendError::Io)?;
+
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    Ok(encoded)
+}
+
+impl HyperVRequestLease {
+    fn create(
+        state_root: &Path,
+        request_parent: &Path,
+        request_path: &Path,
+        bytes: &[u8],
+    ) -> Result<Self, EnvironmentBackendError> {
+        require_absolute_clean_path(state_root, "Hyper-V request state root")?;
+        require_absolute_clean_path(request_parent, "Hyper-V request parent")?;
+        require_absolute_clean_path(request_path, "Hyper-V request path")?;
+        if request_path.parent() != Some(request_parent)
+            || request_parent.parent() != Some(state_root)
+        {
+            return Err(EnvironmentBackendError::InvalidRequest(
+                "Hyper-V request must be a direct child of its exact environment directory."
+                    .to_owned(),
+            ));
+        }
+
+        #[cfg(target_os = "windows")]
+        let directory_chain = open_locked_hyperv_directory_chain(request_parent)?;
+
+        let mut options = fs::OpenOptions::new();
+        options.read(true).write(true).create_new(true);
+        #[cfg(target_os = "windows")]
+        {
+            // PowerShell may open the file for reading, but no peer can acquire
+            // write or delete access while the elevated provider is running.
+            options
+                .share_mode(FILE_SHARE_READ)
+                .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+        }
+        let mut request_file = options
+            .open(request_path)
+            .map_err(EnvironmentBackendError::Io)?;
+        request_file
+            .write_all(bytes)
+            .map_err(EnvironmentBackendError::Io)?;
+        request_file
+            .sync_all()
+            .map_err(EnvironmentBackendError::Io)?;
+        let metadata = request_file
+            .metadata()
+            .map_err(EnvironmentBackendError::Io)?;
+        if metadata_is_reparse_point(&metadata)
+            || !metadata.is_file()
+            || metadata.len() != bytes.len() as u64
+        {
+            return Err(EnvironmentBackendError::Protocol(
+                "Hyper-V request lease did not resolve to the exact regular file that was written."
+                    .to_owned(),
+            ));
+        }
+
+        Ok(Self {
+            _request_file: request_file,
+            #[cfg(target_os = "windows")]
+            _directory_chain: directory_chain,
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn open_locked_hyperv_directory_chain(
+    request_parent: &Path,
+) -> Result<Vec<fs::File>, EnvironmentBackendError> {
+    let mut leases = Vec::new();
+    for path in request_parent
+        .ancestors()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
+        if path.as_os_str().is_empty() {
+            continue;
+        }
+        let label = if path == request_parent {
+            "Hyper-V request parent"
+        } else {
+            "Hyper-V request ancestor"
+        };
+        leases.push(open_locked_hyperv_directory(path, label)?);
+    }
+    Ok(leases)
+}
+
+#[cfg(target_os = "windows")]
+fn open_locked_hyperv_directory(
+    path: &Path,
+    label: &str,
+) -> Result<fs::File, EnvironmentBackendError> {
+    let mut options = fs::OpenOptions::new();
+    options
+        .read(true)
+        // Directory traversal and ordinary state writes remain available, but
+        // replacement, rename, and deletion of the bound directory do not.
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    let directory = options.open(path).map_err(EnvironmentBackendError::Io)?;
+    let metadata = directory.metadata().map_err(EnvironmentBackendError::Io)?;
+    if metadata_is_reparse_point(&metadata) || !metadata.is_dir() {
+        return Err(EnvironmentBackendError::InvalidRequest(format!(
+            "{label} must be a real non-reparse directory for the full elevated operation."
+        )));
+    }
+    Ok(directory)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -3160,6 +3592,23 @@ mod tests {
 
     fn temporary_root(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("verisilo-environment-{label}-{}", Uuid::new_v4()))
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn absolute_verbatim_path_skips_the_non_openable_windows_prefix() {
+        let root = temporary_root("verbatim-path");
+        fs::create_dir_all(&root).expect("create verbatim path fixture");
+        let verbatim_root = fs::canonicalize(&root).expect("canonicalize fixture");
+
+        assert!(matches!(
+            verbatim_root.components().next(),
+            Some(Component::Prefix(_))
+        ));
+        require_absolute_clean_path(&verbatim_root, "Verbatim resource root")
+            .expect("accept an absolute normalized verbatim path");
+
+        fs::remove_dir_all(&root).expect("remove verbatim path fixture");
     }
 
     fn assert_fixed_system_tool(program: &Path, basename: &str) {
@@ -3814,6 +4263,70 @@ mod tests {
     }
 
     #[test]
+    fn legacy_cleanup_discovers_only_exact_uuid_bound_provider_owners() {
+        let environment_root = temporary_root("legacy-binding-owner");
+        let unbound_id = Uuid::new_v4();
+        assert_eq!(
+            local_environment_binding_provider(
+                &environment_root,
+                unbound_id,
+                EnvironmentBackendId::WslChromium,
+            )
+            .expect("missing legacy owner"),
+            None
+        );
+
+        let bound_id = Uuid::new_v4();
+        ensure_binding(
+            &environment_root.join("wsl"),
+            &EnvironmentBinding::new(
+                bound_id,
+                EnvironmentBackendId::WslChromium,
+                "Ubuntu-24.04".to_owned(),
+            ),
+        )
+        .expect("write exact WSL owner");
+        assert_eq!(
+            local_environment_binding_provider(
+                &environment_root,
+                bound_id,
+                EnvironmentBackendId::WslChromium,
+            )
+            .expect("read exact WSL owner"),
+            Some("Ubuntu-24.04".to_owned())
+        );
+
+        let partial_id = Uuid::new_v4();
+        fs::create_dir_all(environment_root.join("wsl").join(partial_id.to_string()))
+            .expect("create partial legacy owner");
+        assert!(local_environment_binding_provider(
+            &environment_root,
+            partial_id,
+            EnvironmentBackendId::WslChromium,
+        )
+        .is_err());
+
+        let wrong_backend_id = Uuid::new_v4();
+        ensure_binding(
+            &environment_root.join("wsl"),
+            &EnvironmentBinding::new(
+                wrong_backend_id,
+                EnvironmentBackendId::WindowsSandbox,
+                "windows-sandbox-v0.8-ephemeral".to_owned(),
+            ),
+        )
+        .expect("write mismatched provider owner");
+        assert!(local_environment_binding_provider(
+            &environment_root,
+            wrong_backend_id,
+            EnvironmentBackendId::WslChromium,
+        )
+        .is_err());
+
+        fs::remove_dir_all(environment_root).expect("remove legacy owner root");
+    }
+
+    #[test]
     fn wsl_failed_required_proxy_reconfigure_invalidates_old_direct_start_binding() {
         let environment_id = Uuid::new_v4();
         let direct_runtime_id = Uuid::new_v4();
@@ -4094,11 +4607,208 @@ mod tests {
         )
         .expect("backend");
         let request = temporary_root("request").join("request.json");
-        let spec = backend.command_spec(&request).expect("command spec");
+        let environment_id = Uuid::new_v4();
+        let request_nonce = Uuid::new_v4();
+        let spec = backend
+            .command_spec(
+                &request,
+                HyperVAction::Health,
+                environment_id,
+                request_nonce,
+            )
+            .expect("command spec");
         assert_fixed_system_tool(&spec.program, "powershell.exe");
         assert!(spec.args.contains(&script.into_os_string()));
         assert!(spec.args.contains(&"-RequestPath".into()));
+        assert!(spec.args.contains(&"-ExpectedEnvironmentId".into()));
+        assert!(spec.args.contains(&environment_id.to_string().into()));
+        assert!(spec.args.contains(&"-ExpectedAction".into()));
+        assert!(spec.args.contains(&"health".into()));
+        assert!(spec.args.contains(&"-ExpectedRequestNonce".into()));
+        assert!(spec.args.contains(&request_nonce.to_string().into()));
         assert!(!spec.args.iter().any(|argument| argument == "-Command"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn hyperv_request_lease_blocks_write_delete_rename_and_parent_replacement() {
+        let fixture_root = temporary_root("hyperv-request-lease");
+        let app_data_root = fixture_root.join("app-data");
+        let verisilo_root = app_data_root.join("VeriSilo");
+        let environments_root = verisilo_root.join("environments");
+        let state_root = environments_root.join("hyperv");
+        let environment_id = Uuid::new_v4();
+        let request_nonce = Uuid::new_v4();
+        let request_parent = state_root.join(environment_id.to_string());
+        fs::create_dir_all(&request_parent).expect("request parent");
+        let request_path = request_parent.join(format!("{request_nonce}.request.json"));
+        let replacement = request_parent.join("replacement.request.json");
+        let renamed_parent = state_root.join("renamed-environment");
+        let renamed_root = environments_root.join("renamed-hyperv");
+        let renamed_environments = verisilo_root.join("renamed-environments");
+        let renamed_app_data = fixture_root.join("renamed-app-data");
+        let bytes = br#"{"schemaVersion":1}"#;
+
+        let lease = HyperVRequestLease::create(&state_root, &request_parent, &request_path, bytes)
+            .expect("locked request");
+        assert_eq!(
+            fs::read(&request_path).expect("request remains readable"),
+            bytes
+        );
+        assert!(
+            fs::OpenOptions::new()
+                .write(true)
+                .open(&request_path)
+                .is_err(),
+            "a second writer must be denied while the elevated operation runs"
+        );
+        assert!(
+            fs::remove_file(&request_path).is_err(),
+            "request deletion must be denied while leased"
+        );
+        assert!(
+            fs::rename(&request_path, &replacement).is_err(),
+            "request rename must be denied while leased"
+        );
+        assert!(
+            fs::rename(&request_parent, &renamed_parent).is_err(),
+            "the exact request parent must not be replaceable while leased"
+        );
+        assert!(
+            fs::rename(&state_root, &renamed_root).is_err(),
+            "the state root must not be replaceable while leased"
+        );
+        assert!(
+            fs::rename(&environments_root, &renamed_environments).is_err(),
+            "an ancestor of the state root must not be replaceable while leased"
+        );
+        assert!(
+            fs::rename(&app_data_root, &renamed_app_data).is_err(),
+            "the app-data anchor must not be replaceable while leased"
+        );
+
+        drop(lease);
+        fs::remove_file(&request_path).expect("request is removable after lease release");
+        fs::remove_dir_all(&fixture_root).expect("request fixture cleanup");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn hyperv_request_lease_rejects_reparse_ancestors_and_prepositioned_files() {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
+
+        let fixture_root = temporary_root("hyperv-request-reparse");
+        let target_root = fixture_root.join("target");
+        let link_root = fixture_root.join("linked-state");
+        let environment_id = Uuid::new_v4();
+        let request_nonce = Uuid::new_v4();
+        let target_parent = target_root.join(environment_id.to_string());
+        fs::create_dir_all(&target_parent).expect("reparse target");
+
+        if symlink_dir(&target_root, &link_root).is_ok() {
+            let linked_parent = link_root.join(environment_id.to_string());
+            let linked_request = linked_parent.join(format!("{request_nonce}.request.json"));
+            assert!(
+                HyperVRequestLease::create(&link_root, &linked_parent, &linked_request, b"trusted")
+                    .is_err(),
+                "a reparse-point ancestor must be rejected"
+            );
+            fs::remove_dir(&link_root).expect("remove directory symlink");
+        }
+
+        let request_path = target_parent.join(format!("{request_nonce}.request.json"));
+        let attacker_file = fixture_root.join("attacker-request.json");
+        fs::write(&attacker_file, b"attacker").expect("attacker file");
+        if symlink_file(&attacker_file, &request_path).is_ok() {
+            assert!(
+                HyperVRequestLease::create(&target_root, &target_parent, &request_path, b"trusted")
+                    .is_err(),
+                "a prepositioned reparse-point request must be rejected"
+            );
+            fs::remove_file(&request_path).expect("remove request symlink");
+        }
+
+        fs::remove_dir_all(&fixture_root).expect("remove reparse fixture");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn hyperv_image_lease_hashes_the_locked_handle_and_blocks_path_replacement() {
+        let fixture_root = temporary_root("hyperv-image-lease");
+        let app_data_root = fixture_root.join("app-data");
+        let approved_root = app_data_root.join("VeriSilo").join("images");
+        fs::create_dir_all(&approved_root).expect("approved image root");
+        let image_path = approved_root.join("base.vhdx");
+        fs::write(&image_path, b"abc").expect("base image fixture");
+        let expected_sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+        let lease = HyperVImageLease::acquire(&approved_root, "base.vhdx", expected_sha256)
+            .expect("locked and hashed image");
+        assert!(
+            fs::OpenOptions::new()
+                .write(true)
+                .open(&image_path)
+                .is_err(),
+            "a second writer must not modify the verified base image"
+        );
+        assert!(
+            fs::remove_file(&image_path).is_err(),
+            "the verified base image must not be deleted"
+        );
+        assert!(
+            fs::rename(&image_path, approved_root.join("replacement.vhdx")).is_err(),
+            "the verified base image must not be renamed"
+        );
+        assert!(
+            fs::rename(&approved_root, app_data_root.join("replacement-images")).is_err(),
+            "the approved image root must remain path-bound"
+        );
+        assert!(
+            fs::rename(&app_data_root, fixture_root.join("replacement-app-data")).is_err(),
+            "an ancestor of the image root must remain path-bound"
+        );
+
+        drop(lease);
+        assert!(
+            HyperVImageLease::acquire(&approved_root, "base.vhdx", &"0".repeat(64)).is_err(),
+            "the SHA-256 must be calculated from and bound to the held image handle"
+        );
+        fs::remove_dir_all(&fixture_root).expect("remove image fixture");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn hyperv_image_lease_rejects_reparse_roots_and_image_files() {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
+
+        let fixture_root = temporary_root("hyperv-image-reparse");
+        let target_root = fixture_root.join("target-images");
+        let link_root = fixture_root.join("linked-images");
+        fs::create_dir_all(&target_root).expect("image target root");
+        let target_image = target_root.join("base.vhdx");
+        fs::write(&target_image, b"abc").expect("target image");
+        let expected_sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+        if symlink_dir(&target_root, &link_root).is_ok() {
+            assert!(
+                HyperVImageLease::acquire(&link_root, "base.vhdx", expected_sha256).is_err(),
+                "a reparse-point image root must be rejected"
+            );
+            fs::remove_dir(&link_root).expect("remove image-root symlink");
+        }
+
+        let attacker_image = fixture_root.join("attacker.vhdx");
+        fs::write(&attacker_image, b"abc").expect("attacker image");
+        let linked_image = target_root.join("linked.vhdx");
+        if symlink_file(&attacker_image, &linked_image).is_ok() {
+            assert!(
+                HyperVImageLease::acquire(&target_root, "linked.vhdx", expected_sha256).is_err(),
+                "a reparse-point image file must be rejected"
+            );
+            fs::remove_file(&linked_image).expect("remove image symlink");
+        }
+
+        fs::remove_dir_all(&fixture_root).expect("remove image reparse fixture");
     }
 
     #[test]
@@ -4155,10 +4865,12 @@ mod tests {
     #[test]
     fn hyperv_response_is_strict_and_bound_to_a_typed_action() {
         let environment_id = Uuid::new_v4();
+        let request_nonce = Uuid::new_v4();
         let response: HyperVScriptResponse = serde_json::from_value(serde_json::json!({
             "schemaVersion": 1,
             "action": "health",
             "environmentId": environment_id,
+            "requestNonce": request_nonce,
             "success": true,
             "source": "hyperv-controller",
             "observedAt": Utc::now().to_rfc3339(),
@@ -4178,15 +4890,108 @@ mod tests {
         }))
         .expect("strict response");
         assert_eq!(response.action, HyperVAction::Health);
+        assert!(response.vm_id.is_some());
+        assert!(response.cleanup_state.is_none());
+        assert!(hyperv_response_identity_is_valid(
+            HyperVAction::Health,
+            &response
+        ));
         assert!(
             serde_json::from_value::<HyperVScriptResponse>(serde_json::json!({
                 "schemaVersion": 1,
                 "action": "health",
                 "environmentId": environment_id,
+                "requestNonce": request_nonce,
                 "success": true,
                 "command": "Get-VM",
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn hyperv_remove_accepts_only_typed_receipt_or_journal_cleanup_identity() {
+        let environment_id = Uuid::new_v4();
+        let request_nonce = Uuid::new_v4();
+        let response_value =
+            |vm_id: serde_json::Value, cleanup_state: Option<&str>| -> serde_json::Value {
+                let mut response = serde_json::json!({
+                    "schemaVersion": 1,
+                    "action": "remove",
+                    "environmentId": environment_id,
+                    "requestNonce": request_nonce,
+                    "success": true,
+                    "source": "hyperv-controller",
+                    "observedAt": Utc::now().to_rfc3339(),
+                    "vmName": format!("VeriSilo-{environment_id}"),
+                    "vmId": vm_id,
+                    "generation": 2,
+                    "baseImageSha256": "a".repeat(64),
+                    "guestAgentVersion": null,
+                    "guestAgentSha256": null,
+                    "guestProfile": "unavailable",
+                    "guestHealth": "unavailable",
+                    "proxy": "unavailable",
+                    "exit": "unavailable",
+                    "proxyDns": "unavailable",
+                    "guestResolver": "unavailable",
+                    "browserReady": "unavailable",
+                });
+                if let Some(cleanup_state) = cleanup_state {
+                    response
+                        .as_object_mut()
+                        .expect("response object")
+                        .insert("cleanupState".to_owned(), serde_json::json!(cleanup_state));
+                }
+                response
+            };
+
+        let receipt: HyperVScriptResponse = serde_json::from_value(response_value(
+            serde_json::json!(Uuid::new_v4()),
+            Some("removed_from_receipt"),
+        ))
+        .expect("receipt cleanup response");
+        assert!(hyperv_response_identity_is_valid(
+            HyperVAction::Remove,
+            &receipt
+        ));
+
+        let journal_without_vm: HyperVScriptResponse = serde_json::from_value(response_value(
+            serde_json::Value::Null,
+            Some("rolled_back_from_journal"),
+        ))
+        .expect("partial journal cleanup response");
+        assert!(hyperv_response_identity_is_valid(
+            HyperVAction::Remove,
+            &journal_without_vm
+        ));
+
+        let missing_cleanup: HyperVScriptResponse =
+            serde_json::from_value(response_value(serde_json::Value::Null, None))
+                .expect("shape remains parseable for semantic rejection");
+        assert!(!hyperv_response_identity_is_valid(
+            HyperVAction::Remove,
+            &missing_cleanup
+        ));
+
+        let receipt_without_vm: HyperVScriptResponse = serde_json::from_value(response_value(
+            serde_json::Value::Null,
+            Some("removed_from_receipt"),
+        ))
+        .expect("shape remains parseable for semantic rejection");
+        assert!(!hyperv_response_identity_is_valid(
+            HyperVAction::Remove,
+            &receipt_without_vm
+        ));
+
+        let nil_journal_vm: HyperVScriptResponse = serde_json::from_value(response_value(
+            serde_json::json!(Uuid::nil()),
+            Some("rolled_back_from_journal"),
+        ))
+        .expect("shape remains parseable for semantic rejection");
+        assert!(!hyperv_response_identity_is_valid(
+            HyperVAction::Remove,
+            &nil_journal_vm
+        ));
     }
 }

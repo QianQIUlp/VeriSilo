@@ -567,6 +567,21 @@ async function monitorCanaryExposure(active: ActiveWorkerRun): Promise<void> {
   ) {
     return;
   }
+  let authorizationFailure: LabsStopConditionCode | null;
+  try {
+    authorizationFailure = await activeAuthorizationFailure(experiment);
+  } catch {
+    // Chrome API rejection is not evidence that the permission/runtime binding
+    // still exists. Restore the live realm and terminate the run fail-closed.
+    authorizationFailure = "verification_failed";
+  }
+  if (activeWorkerRun !== active) {
+    return;
+  }
+  if (authorizationFailure !== null) {
+    await stopActiveWorkerRun(authorizationFailure);
+    return;
+  }
   let leak: LabsStopConditionCode | null;
   try {
     leak = await findCanaryLeak(
@@ -587,6 +602,31 @@ async function monitorCanaryExposure(active: ActiveWorkerRun): Promise<void> {
     return;
   }
   scheduleCanaryMonitor(active);
+}
+
+async function activeAuthorizationFailure(
+  experiment: LabsExperiment,
+): Promise<LabsStopConditionCode | null> {
+  const scope = experiment.scope;
+  if (scope === null) {
+    return "scope_violation";
+  }
+  const permissionStillPresent = await chrome.permissions.contains({
+    origins: [`${scope.siteOrigin}/*`],
+  });
+  if (!permissionStillPresent) {
+    return "permission_taken_over";
+  }
+  if (scope.mode === "desktop_silo") {
+    const activeSiloId = await resolveActiveSiloId(Date.now());
+    if (activeSiloId !== scope.siloId) {
+      // This covers Vault lock, runtime stop, Silo switch, stale status and a
+      // lost Native Host. The page wrapper is restored before the old
+      // authorization can continue to be used.
+      return "scope_violation";
+    }
+  }
+  return null;
 }
 
 async function findCanaryLeak(

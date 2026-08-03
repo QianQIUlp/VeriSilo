@@ -14,8 +14,8 @@
     "test": "pnpm --recursive run test && pnpm session-fixture:self-test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "assets:generate": "node scripts/generate-tauri-icon.mjs",
-    "assets:check": "node scripts/generate-tauri-icon.mjs --check",
+    "assets:generate": "pnpm --filter @verisilo/extension icons:generate && node scripts/generate-tauri-icon.mjs",
+    "assets:check": "pnpm --filter @verisilo/extension icons:check && node scripts/generate-tauri-icon.mjs --check",
     "desktop-core:fmt": "cargo fmt --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml -- --check",
     "desktop-core:check": "cargo check --offline --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml",
     "desktop-core:test": "cargo test --offline --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml",
@@ -34,11 +34,13 @@
     "remote-agent:verify": "node scripts/verify-remote-agent-source.mjs",
     "sbom:generate": "node scripts/generate-sbom.mjs --out artifacts/release/sbom",
     "sbom:check": "node scripts/generate-sbom.mjs --out artifacts/release/sbom --check",
+    "security:audit:offline": "node scripts/audit-osv-offline.mjs",
+    "security:audit:self-test": "node scripts/audit-osv-offline.mjs --self-test",
     "licenses:report": "node scripts/generate-license-report.mjs --collect --out artifacts/release/dependency-licenses.json",
     "licenses:check": "node scripts/generate-license-report.mjs --collect --out artifacts/release/dependency-licenses.json --check",
     "release:metadata": "node scripts/generate-release-metadata.mjs --dir artifacts/release",
     "release:metadata:check": "node scripts/generate-release-metadata.mjs --dir artifacts/release --check",
-    "release:self-test": "node scripts/generate-tauri-icon.mjs --check && node scripts/prepare-native-host-release.mjs --self-test && node scripts/package-extension-zip.mjs --self-test && node scripts/generate-sbom.mjs --self-test && node scripts/generate-license-report.mjs --self-test && node scripts/generate-release-metadata.mjs --self-test && node scripts/verify-release-policy.mjs --self-test && node scripts/stage-windows-bundle.mjs --self-test && node scripts/verify-hyperv-image.mjs --self-test && node scripts/verify-windows-promotion-candidate.mjs --self-test && node scripts/write-windows-promotion-attestation.mjs --self-test && node scripts/verify-engine-source.mjs && node scripts/verify-environment-source.mjs --self-test && node scripts/verify-remote-agent-source.mjs",
+    "release:self-test": "pnpm assets:check && node scripts/prepare-native-host-release.mjs --self-test && node scripts/package-extension-zip.mjs --self-test && node scripts/generate-sbom.mjs --self-test && node scripts/audit-osv-offline.mjs --self-test && node scripts/generate-license-report.mjs --self-test && node scripts/generate-release-metadata.mjs --self-test && node scripts/verify-release-policy.mjs --self-test && node scripts/stage-windows-bundle.mjs --self-test && node scripts/verify-hyperv-image.mjs --self-test && node scripts/verify-windows-promotion-candidate.mjs --self-test && node scripts/write-windows-promotion-attestation.mjs --self-test && node scripts/verify-engine-source.mjs && node scripts/verify-environment-source.mjs --self-test && node scripts/verify-remote-agent-source.mjs",
     "extension:dev": "pnpm --filter @verisilo/extension dev",
     "desktop:dev": "pnpm --filter @verisilo/desktop dev",
     "desktop:build": "pnpm --filter @verisilo/desktop build",
@@ -48,6 +50,7 @@
   },
   "devDependencies": {
     "prettier": "^3.5.3",
-    "prettier-plugin-astro": "^0.14.1"
+    "prettier-plugin-astro": "^0.14.1",
+    "semver": "7.8.5"
   }
 }

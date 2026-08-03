@@ -7,7 +7,10 @@ import sharp from "sharp";
 const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = resolve(extensionRoot, "../site/public/favicon.svg");
 const outputDirectory = resolve(extensionRoot, "icons");
-const sizes = [16, 32, 48, 128];
+// Keep a 256px source available for Windows' high-DPI executable and taskbar
+// icon selection. The extension manifest can continue to reference its
+// browser-specific sizes while the desktop generator consumes this frame.
+const sizes = [16, 32, 48, 128, 256];
 const source = await readFile(sourcePath);
 
 async function render(size) {

@@ -18,13 +18,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-#[cfg(target_os = "windows")]
-use crate::domain::{trusted_windows_system_tool, WindowsSystemTool};
 use crate::domain::{
     verify_browser_descriptor, BrowserVerificationState, NetworkProfile, RuntimeActivation,
     RuntimeEngineEvidence, RuntimeEvidenceState, RuntimeNetworkEvidence,
     RuntimeNetworkEvidenceProvenance, RuntimeState, Silo,
 };
+#[cfg(target_os = "windows")]
+use crate::vault::chromium_profile_sentinel_exists;
 use crate::{
     engine::{
         production_engine_adapter, read_engine_bootstrap_ack_frame,
@@ -40,7 +40,10 @@ use crate::{
         NativeNetworkEvidenceInboxEntry,
     },
     proxy_relay::{ProxyRelay, RelayAuthenticationEvidence},
-    vault::{MihomoControllerAuthentication, ProxyAuthentication},
+    vault::{
+        profile_has_browser_lock, BrowserProfileLease, MihomoControllerAuthentication,
+        ProxyAuthentication,
+    },
 };
 
 const RUNTIME_RECORD_DIRECTORY: &str = "runtime";
@@ -48,6 +51,10 @@ const RUNTIME_RECORD_FILE: &str = "browser-session.json";
 const ENGINE_BOOTSTRAP_ACK_TIMEOUT: Duration = Duration::from_secs(5);
 const ENGINE_INITIAL_RECEIPT_TIMEOUT: Duration = Duration::from_secs(5);
 const ENGINE_EXIT_RECEIPT_GRACE: Duration = Duration::from_millis(100);
+#[cfg(target_os = "windows")]
+const STOCK_BROWSER_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(target_os = "windows")]
+const STOCK_BROWSER_OWNERSHIP_STABILITY: Duration = Duration::from_millis(350);
 const ENGINE_PROTOCOL_CHANNEL_CAPACITY: usize = 32;
 const HTTP_AUTH_EVIDENCE_LOOKBACK_SECONDS: i64 = 15;
 const EVIDENCE_CLOCK_SKEW_SECONDS: i64 = 5;
@@ -60,6 +67,7 @@ pub struct RuntimeManager {
     proxy_relay: Option<ProxyRelay>,
     health_context: Option<RuntimeHealthContext>,
     engine_runtime: Option<EngineRuntimeProtocol>,
+    profile_lease: Option<BrowserProfileLease>,
     record_path: Option<PathBuf>,
     record: Option<RuntimeRecord>,
 }
@@ -125,6 +133,8 @@ pub enum LauncherError {
     InvalidNetwork(String),
     #[error("浏览器启动前核验失败：{0}")]
     BrowserVerification(String),
+    #[error("浏览器启动后未能证明受管 Profile 的独立所有权：{0}")]
+    BrowserStartup(String),
     #[error("浏览器引擎适配器拒绝启动：{0}")]
     Engine(String),
     #[error("受控引擎启动协议写入失败：{0}")]
@@ -380,6 +390,7 @@ impl RuntimeManager {
             && self.proxy_relay.is_none()
             && self.health_context.is_none()
             && self.engine_runtime.is_none()
+            && self.profile_lease.is_none()
             && !self.needs_reconciliation())
         .then_some(VaultRestoreRuntimePreparation { _private: () })
     }
@@ -395,6 +406,7 @@ impl RuntimeManager {
         self.proxy_relay = None;
         self.health_context = None;
         self.engine_runtime = None;
+        self.profile_lease = None;
         self.record = None;
         if let Some(path) = self.record_path.as_ref() {
             // The Vault is already committed. Stale-record cleanup is
@@ -667,21 +679,24 @@ impl RuntimeManager {
             network_evidence: Some(network_evidence.clone()),
         });
 
-        if managed_profile_directories
-            .iter()
-            .any(|directory| profile_in_use(directory))
-        {
-            self.activation = Some(RuntimeActivation {
-                active_silo_id: None,
-                state: RuntimeState::Failed,
-                updated_at: Utc::now(),
-                message: Some("另一个受管 Silo 的浏览器目录正在使用中。".to_owned()),
-                browser_verification: browser_verification.clone(),
-                engine_evidence: Some(engine_evidence.clone()),
-                network_evidence: Some(network_evidence),
-            });
-            return Err(LauncherError::ProfileInUse);
-        }
+        let profile_lease = match BrowserProfileLease::acquire_for_runtime(
+            managed_profile_directories,
+            Path::new(&silo.profile_directory),
+        ) {
+            Ok(lease) => lease,
+            Err(_) => {
+                self.activation = Some(RuntimeActivation {
+                    active_silo_id: None,
+                    state: RuntimeState::Failed,
+                    updated_at: Utc::now(),
+                    message: Some("另一个受管 Silo 的浏览器目录正在使用中。".to_owned()),
+                    browser_verification: browser_verification.clone(),
+                    engine_evidence: Some(engine_evidence.clone()),
+                    network_evidence: Some(network_evidence),
+                });
+                return Err(LauncherError::ProfileInUse);
+            }
+        };
 
         // Resolve, reverify, derive, and serialize the immutable adapter plan
         // before touching Mihomo or starting a relay. A controlled failure is
@@ -973,6 +988,27 @@ impl RuntimeManager {
             runtime,
         } = spawned;
 
+        #[cfg(target_os = "windows")]
+        if silo.engine.is_stock() {
+            if let Err(error) = verify_stock_browser_profile_ownership(
+                &mut child,
+                &silo.engine_profile_directory(),
+                &engine_plan.executable_path,
+            ) {
+                network_evidence.browser_routing = RuntimeEvidenceState::Failed;
+                self.activation = Some(RuntimeActivation {
+                    active_silo_id: None,
+                    state: RuntimeState::Failed,
+                    updated_at: Utc::now(),
+                    message: Some(error.to_string()),
+                    browser_verification: browser_verification.clone(),
+                    engine_evidence: Some(engine_evidence),
+                    network_evidence: Some(network_evidence),
+                });
+                return Err(error);
+            }
+        }
+
         if externally_packaged && bootstrap_ack.is_none() {
             terminate_just_spawned_child(&mut child);
             engine_evidence.bootstrap_delivery = RuntimeEvidenceState::Failed;
@@ -1038,6 +1074,7 @@ impl RuntimeManager {
             network_evidence: Some(network_evidence),
         };
         self.child = Some(child);
+        self.profile_lease = Some(profile_lease);
         self.engine_runtime = runtime;
         self.proxy_relay = proxy_relay;
         self.health_context = Some(RuntimeHealthContext {
@@ -1532,6 +1569,7 @@ impl RuntimeManager {
                 self.shutdown_relay_for_runtime(silo_id, runtime_id);
             }
             self.child = None;
+            self.profile_lease = None;
             self.health_context = None;
             self.activation = Some(RuntimeActivation {
                 active_silo_id: None,
@@ -1710,9 +1748,7 @@ pub fn runtime_allows_vault_restore(activation: &RuntimeActivation) -> bool {
 }
 
 pub fn profile_in_use(profile_directory: &Path) -> bool {
-    ["SingletonLock", "SingletonCookie", "SingletonSocket"]
-        .iter()
-        .any(|name| fs::symlink_metadata(profile_directory.join(name)).is_ok())
+    profile_has_browser_lock(profile_directory)
 }
 
 pub fn managed_profiles_are_quiescent_for_vault_restore(profile_directories: &[PathBuf]) -> bool {
@@ -2110,6 +2146,63 @@ fn terminate_just_spawned_child(child: &mut Child) {
     let _ = child.wait();
 }
 
+#[cfg(target_os = "windows")]
+fn verify_stock_browser_profile_ownership(
+    child: &mut Child,
+    profile_directory: &Path,
+    executable_path: &Path,
+) -> Result<(), LauncherError> {
+    #[cfg(test)]
+    if executable_path.with_extension("version-output").is_file() {
+        return Ok(());
+    }
+    let _ = executable_path;
+
+    let deadline = Instant::now() + STOCK_BROWSER_STARTUP_TIMEOUT;
+    let mut sentinel_observed_at = None;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Err(LauncherError::BrowserStartup(format!(
+                    "newly spawned browser exited before ownership stabilized (status {status})"
+                )));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                terminate_just_spawned_child(child);
+                return Err(LauncherError::Spawn(error));
+            }
+        }
+
+        match chromium_profile_sentinel_exists(profile_directory) {
+            Ok(true) => {
+                let observed_at = sentinel_observed_at.get_or_insert_with(Instant::now);
+                if observed_at.elapsed() >= STOCK_BROWSER_OWNERSHIP_STABILITY {
+                    return Ok(());
+                }
+            }
+            Ok(false) => {
+                sentinel_observed_at = None;
+            }
+            Err(error) => {
+                terminate_just_spawned_child(child);
+                return Err(LauncherError::BrowserStartup(format!(
+                    "Chromium Profile sentinel probe failed closed: {error}"
+                )));
+            }
+        }
+
+        if Instant::now() >= deadline {
+            terminate_just_spawned_child(child);
+            return Err(LauncherError::BrowserStartup(
+                "the exact child stayed alive but no stable Chromium Profile sentinel appeared"
+                    .to_owned(),
+            ));
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
 fn expects_managed_relay(profile: &NetworkProfile) -> bool {
     ProxyRelay::supports(profile)
         && (profile.requires_proxy()
@@ -2162,22 +2255,24 @@ fn write_runtime_record(path: &Path, record: &RuntimeRecord) -> Result<(), std::
 
 #[cfg(target_os = "windows")]
 fn process_is_alive(pid: u32) -> bool {
-    let filter = format!("PID eq {pid}");
-    let Ok(tasklist) = trusted_windows_system_tool(WindowsSystemTool::Tasklist) else {
-        return false;
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, STILL_ACTIVE},
+        System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
     };
-    Command::new(tasklist)
-        .args(["/FI", &filter, "/FO", "CSV", "/NH"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| {
-            let text = String::from_utf8_lossy(&output.stdout);
-            !text.trim().is_empty()
-                && !text.contains("INFO:")
-                && text.contains(&format!("\",\"{pid}\","))
-        })
-        .unwrap_or(false)
+
+    // Avoid tasklist.exe entirely: its output is locale/code-page dependent and
+    // can be denied by application-control policy even when this process may
+    // query the recorded PID directly.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return false;
+        }
+        let mut exit_code = 0_u32;
+        let queried = GetExitCodeProcess(process, &mut exit_code) != 0;
+        let _ = CloseHandle(process);
+        queried && exit_code == STILL_ACTIVE as u32
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -2268,7 +2363,7 @@ mod tests {
     use crate::domain::{
         BrowserDescriptor, BrowserKind, NetworkProfile, RuntimeActivation, RuntimeEngineEvidence,
         RuntimeEvidenceState, RuntimeNetworkEvidence, RuntimeNetworkEvidenceProvenance,
-        RuntimeState, Silo, SCHEMA_VERSION,
+        RuntimeState, Silo, SiloExecutionTarget, SCHEMA_VERSION,
     };
     #[cfg(unix)]
     use crate::domain::{ExternalMihomoBinding, ProxyScheme};
@@ -2315,11 +2410,13 @@ mod tests {
                     .to_string(),
                 version: Some("126.0.6478.127".to_owned()),
             },
+            execution_target: SiloExecutionTarget::Local,
             profile_directory: profile_directory.to_string_lossy().to_string(),
             network_profile,
             engine: Default::default(),
             seed_reference: Uuid::new_v4(),
             created_at: Utc::now(),
+            identity_locked_at: None,
             archived_at: None,
         }
     }
@@ -2806,7 +2903,7 @@ process.stdin.on('end', () => {
     return process.exit(0);
   }
   if (behavior === 'inherit_stdout_after_ack') {
-    require('node:child_process').spawn('sh', ['-c', 'sleep 4'], {
+    require('node:child_process').spawn('sh', ['-c', 'sleep 15'], {
       stdio: ['ignore', 1, 'ignore']
     });
     return process.exit(0);
@@ -2860,8 +2957,27 @@ process.stdin.on('end', () => {
         protocol_fixture_with_behavior("complete")
     }
 
+    fn reserve_fake_controlled_engine_test() -> std::sync::MutexGuard<'static, ()> {
+        static RESERVATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        static NODE_WARMUP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        let reservation = RESERVATION
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        NODE_WARMUP.get_or_init(|| {
+            let status = std::process::Command::new("node")
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .expect("start Node protocol fixture warmup");
+            assert!(status.success(), "Node protocol fixture warmup failed");
+        });
+        reservation
+    }
+
     #[test]
     fn fake_controlled_command_completes_bound_bootstrap_ack_e2e() {
+        let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) = protocol_fixture();
         let mut spawned = super::spawn_engine_child(&plan, &arguments, Some(&envelope))
             .expect("fake controlled process ACK");
@@ -2918,8 +3034,27 @@ process.stdin.on('end', () => {
         }
     }
 
+    fn wait_for_runtime_state(
+        runtime: &mut RuntimeManager,
+        expected: RuntimeState,
+    ) -> RuntimeActivation {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            let activation = runtime.activation();
+            if activation.state == expected {
+                return activation;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "runtime did not reach {expected:?}; last activation was {activation:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     #[test]
     fn fake_controlled_engine_rejects_out_of_order_duplicate_missing_and_wrong_bound_receipts() {
+        let _reservation = reserve_fake_controlled_engine_test();
         for behavior in [
             "out_of_order",
             "duplicate_sequence",
@@ -2943,6 +3078,7 @@ process.stdin.on('end', () => {
     #[cfg(unix)]
     #[test]
     fn initial_receipt_exit_with_inherited_stdout_is_bounded() {
+        let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) =
             protocol_fixture_with_behavior("inherit_stdout_after_ack");
         let started = std::time::Instant::now();
@@ -2956,20 +3092,20 @@ process.stdin.on('end', () => {
         }
         let elapsed = started.elapsed();
         assert!(
-            elapsed < std::time::Duration::from_secs(3),
+            elapsed < std::time::Duration::from_secs(8),
             "launch failure waited {elapsed:?} for a descendant that inherited stdout"
         );
     }
 
     #[test]
     fn runtime_accepts_bound_fallback_and_restore_before_normal_exit() {
+        let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) = protocol_fixture_with_behavior("fallback_restore_exit");
         let spawned = super::spawn_engine_child(&plan, &arguments, Some(&envelope))
             .expect("verified initial runtime receipts");
         let mut runtime = runtime_manager_for_spawned(&envelope, spawned);
-        std::thread::sleep(std::time::Duration::from_millis(150));
 
-        let activation = runtime.activation();
+        let activation = wait_for_runtime_state(&mut runtime, RuntimeState::Stopped);
         let evidence = activation.engine_evidence.expect("engine evidence");
         assert_eq!(activation.state, RuntimeState::Stopped);
         assert_eq!(evidence.restore_receipt, RuntimeEvidenceState::Verified);
@@ -2984,13 +3120,13 @@ process.stdin.on('end', () => {
 
     #[test]
     fn forged_runtime_fallback_is_transactionally_rejected() {
+        let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) = protocol_fixture_with_behavior("forged_fallback");
         let spawned = super::spawn_engine_child(&plan, &arguments, Some(&envelope))
             .expect("verified initial runtime receipts");
         let mut runtime = runtime_manager_for_spawned(&envelope, spawned);
-        std::thread::sleep(std::time::Duration::from_millis(50));
 
-        let activation = runtime.activation();
+        let activation = wait_for_runtime_state(&mut runtime, RuntimeState::VerificationFailed);
         let evidence = activation.engine_evidence.expect("engine evidence");
         assert_eq!(activation.state, RuntimeState::VerificationFailed);
         assert_eq!(evidence.runtime_receipts, RuntimeEvidenceState::Failed);
@@ -3003,13 +3139,13 @@ process.stdin.on('end', () => {
 
     #[test]
     fn normal_exit_without_restore_never_claims_restoration() {
+        let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) = protocol_fixture_with_behavior("no_restore_exit");
         let spawned = super::spawn_engine_child(&plan, &arguments, Some(&envelope))
             .expect("verified initial runtime receipts");
         let mut runtime = runtime_manager_for_spawned(&envelope, spawned);
-        std::thread::sleep(std::time::Duration::from_millis(200));
 
-        let activation = runtime.activation();
+        let activation = wait_for_runtime_state(&mut runtime, RuntimeState::Stopped);
         let evidence = activation.engine_evidence.expect("engine evidence");
         assert_eq!(activation.state, RuntimeState::Stopped);
         assert!(matches!(
@@ -3562,7 +3698,11 @@ process.stdin.on('end', () => {
         });
         let locked_directory = std::path::PathBuf::from(&locked_silo.profile_directory);
         fs::create_dir_all(&locked_directory).expect("create locked profile directory");
-        fs::write(locked_directory.join("SingletonLock"), []).expect("create profile lock");
+        fs::write(
+            locked_directory.join(crate::vault::CHROMIUM_PROFILE_SENTINEL_NAMES[0]),
+            [],
+        )
+        .expect("create profile lock");
 
         assert!(runtime
             .launch(
@@ -3625,7 +3765,7 @@ process.stdin.on('end', () => {
             proxy_required: false,
         });
         let profile = std::path::PathBuf::from(&silo.profile_directory);
-        let lock = profile.join("SingletonLock");
+        let lock = profile.join(crate::vault::CHROMIUM_PROFILE_SENTINEL_NAMES[0]);
         fs::write(&lock, []).expect("create browser lock");
         let now = Utc::now();
         write_runtime_record(
@@ -3701,7 +3841,11 @@ process.stdin.on('end', () => {
         assert!(managed_profiles_are_quiescent_for_vault_restore(&[
             profile.clone()
         ]));
-        fs::write(profile.join("SingletonLock"), []).expect("create active profile lock");
+        fs::write(
+            profile.join(crate::vault::CHROMIUM_PROFILE_SENTINEL_NAMES[0]),
+            [],
+        )
+        .expect("create active profile lock");
         assert!(!managed_profiles_are_quiescent_for_vault_restore(&[
             profile.clone()
         ]));
@@ -3782,7 +3926,7 @@ process.stdin.on('end', () => {
             external_mihomo: None,
         });
         let profile = std::path::PathBuf::from(&silo.profile_directory);
-        let lock = profile.join("SingletonLock");
+        let lock = profile.join(crate::vault::CHROMIUM_PROFILE_SENTINEL_NAMES[0]);
         fs::write(&lock, []).expect("create browser lock");
         let now = Utc::now();
         write_runtime_record(

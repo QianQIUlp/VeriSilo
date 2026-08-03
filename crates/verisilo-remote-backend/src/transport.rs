@@ -354,14 +354,16 @@ fn map_transport_error(error: reqwest::Error, pin_mismatch: &AtomicBool) -> Remo
 #[cfg(test)]
 mod tests {
     use std::{
-        io::{Cursor, Read as _, Write as _},
+        io::{Read as _, Write as _},
         net::{TcpListener, TcpStream},
         sync::mpsc::{self, Receiver},
         thread::{self, JoinHandle},
     };
 
     use rustls::{
-        client::WebPkiServerVerifier, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
+        client::WebPkiServerVerifier,
+        pki_types::{pem::PemObject, PrivateKeyDer},
+        RootCertStore, ServerConfig, ServerConnection, StreamOwned,
     };
 
     use super::*;
@@ -389,12 +391,10 @@ mod tests {
     fn spawn_local_tls_server() -> LocalTlsServer {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
-        let certificates = rustls_pemfile::certs(&mut Cursor::new(TEST_LEAF_PEM))
+        let certificates = CertificateDer::pem_slice_iter(TEST_LEAF_PEM)
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        let private_key = rustls_pemfile::private_key(&mut Cursor::new(TEST_LEAF_KEY_PEM))
-            .unwrap()
-            .unwrap();
+        let private_key = PrivateKeyDer::from_pem_slice(TEST_LEAF_KEY_PEM).unwrap();
         let mut config = ServerConfig::builder_with_provider(default_tls_provider())
             .with_protocol_versions(rustls::DEFAULT_VERSIONS)
             .unwrap()
@@ -464,7 +464,7 @@ mod tests {
 
     fn test_transport() -> PinnedHttpsTransport {
         let tls_provider = default_tls_provider();
-        let root = rustls_pemfile::certs(&mut Cursor::new(TEST_CA_PEM))
+        let root = CertificateDer::pem_slice_iter(TEST_CA_PEM)
             .next()
             .unwrap()
             .unwrap();
@@ -489,7 +489,7 @@ mod tests {
     }
 
     fn test_leaf_der() -> Vec<u8> {
-        rustls_pemfile::certs(&mut Cursor::new(TEST_LEAF_PEM))
+        CertificateDer::pem_slice_iter(TEST_LEAF_PEM)
             .next()
             .unwrap()
             .unwrap()

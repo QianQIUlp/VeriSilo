@@ -1,6 +1,7 @@
 import {
   buildNetworkCheckResult,
   NETWORK_CHECK_ENDPOINTS,
+  readBoundedUtf8Response,
   type NetworkCheckResult,
 } from "@verisilo/contracts";
 
@@ -41,7 +42,7 @@ async function probeJson(
   } catch (error) {
     return {
       value: null,
-      error: `${label}：${errorMessage(error)}`.slice(0, 300),
+      error: `${label}：${networkCheckErrorMessage(error)}`.slice(0, 300),
     };
   }
 }
@@ -71,19 +72,19 @@ async function fetchBoundedJson(
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    const text = await response.text();
-    if (new TextEncoder().encode(text).byteLength > RESPONSE_LIMIT_BYTES) {
-      throw new Error("响应超过 64 KiB");
-    }
+    const text = await readBoundedUtf8Response(response, RESPONSE_LIMIT_BYTES);
     return JSON.parse(text) as unknown;
   } finally {
     window.clearTimeout(timeout);
   }
 }
 
-function errorMessage(error: unknown): string {
+export function networkCheckErrorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === "AbortError") {
     return "请求超时";
   }
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof SyntaxError) {
+    return "返回内容无法识别";
+  }
+  return "请求失败";
 }

@@ -62,10 +62,10 @@ describe("authoritative Vault lock UI cleanup", () => {
   it("uses a non-interactive loading boundary while applying a restore", () => {
     expect(appSource).toContain('setVaultTransition("restoring")');
     expect(appSource).toContain("正在载入恢复后的保险库");
-    expect(appSource).toContain("正在载入恢复后的权威状态");
+    expect(appSource).toContain("正在恢复安全状态");
     expect(appSource).toContain('result === "stale"');
     expect(appSource).toContain("retryRestoredVaultState");
-    expect(appSource).toContain("重新载入权威状态");
+    expect(appSource).toContain("重新载入");
     expect(appSource).toContain("加密保险库已恢复，但在载入期间已锁定");
 
     const completionStart = appSource.indexOf("const completeVaultRestore");
@@ -94,8 +94,12 @@ describe("authoritative Vault lock UI cleanup", () => {
     expect(appSource).toContain("mihomoRequestRef.current += 1");
     expect(appSource).toContain("operationId === unlockedOperationRef.current");
     expect(appSource).toContain(
-      "remoteBusy || vaultLocked || remoteStatus?.pairing !== null",
+      "remoteStatus === null || remoteStatus.pairing === null",
     );
+    expect(
+      appSource.match(/disabled=\{remoteBusy \|\| vaultLocked\}/gu)?.length ??
+        0,
+    ).toBeGreaterThanOrEqual(3);
   });
 
   it("checks the authoritative deadline synchronously before exporting cached data", () => {

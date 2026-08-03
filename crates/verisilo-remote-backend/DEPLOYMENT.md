@@ -93,6 +93,14 @@ SHA-256 is rechecked; no shell, caller path, arbitrary argument, or remote URL
 is accepted. Browser-profile encryption and the truth of VM/network evidence
 remain obligations of that locally installed provider and guest agent.
 
+Before invoking `create`, the Agent durably records a `provisioning` intent
+bound to the caller-supplied remote environment ID. The provider must therefore
+make `destroy` idempotent and able to remove, or confirm the absence of, that
+remote environment even when volume and key IDs are nil because `create`
+stopped before its receipt was journaled. Invalid create receipts are
+compensated immediately; an interrupted activation remains `provisioning` and
+is compensated before the Agent starts serving after restart.
+
 The provider `deleted` response is strict: `resourceDeletions` must contain
 exactly one `compute_instance`, `persistent_volume`, `snapshot`, and
 `ephemeral_key` item. Each item has `kind`, `status`, and an ID when status is
@@ -110,14 +118,18 @@ authorization and malformed bearer tokens. Header size is 16 KiB and the TLS +
 HTTP read deadline is 15 seconds. Responses always request connection close and
 do not log parser, token, credential, provider, or request-body details.
 
-Auth and Agent mutations plus provider calls are serialized. The listener polls
-accept every 100 ms and runs TTL maintenance at startup and every 30 seconds;
-provider failures remain eligible for a later bounded-frequency retry, while a
-durable-store failure stops further provider mutations until restart. One slow
-provider operation can still delay other requests, and this daemon has no
-distributed rate limiter. Put an untrusted-WAN deployment behind operator-owned
-connection admission/rate limiting and monitor resource use without recording
-headers or bodies.
+TLS handshakes and bounded HTTP reads run in at most 32 connection workers;
+additional sockets fail closed at admission. Only complete, syntactically
+validated requests return to the single handler thread for authentication, so
+auth and Agent mutations plus provider calls remain serialized. The listener
+polls accept every 100 ms and runs TTL
+maintenance at startup and every 30 seconds; provider failures remain eligible
+for a later bounded-frequency retry, while a durable-store failure stops
+further provider mutations until restart. One slow provider operation can
+still delay other ready requests, and this daemon has no distributed rate
+limiter. Put an untrusted-WAN deployment behind operator-owned connection
+admission/rate limiting and monitor resource use without recording headers or
+bodies.
 
 `openScreen` returns only authenticated channel metadata. V0.9 does not include
 or claim an implemented media stream, real WAN test, VM/browser provider,

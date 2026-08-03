@@ -18,7 +18,7 @@ use crate::engine::{
     SiloEngineConfig, SiteFallbackReceipt,
 };
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -52,6 +52,134 @@ pub struct BrowserDescriptor {
     pub kind: BrowserKind,
     pub executable_path: String,
     pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum SiloExecutionTarget {
+    Local,
+    Wsl { distribution: String },
+    Remote { endpoint_origin: String },
+}
+
+impl Default for SiloExecutionTarget {
+    fn default() -> Self {
+        Self::Local
+    }
+}
+
+impl SiloExecutionTarget {
+    pub fn is_local(&self) -> bool {
+        matches!(self, Self::Local)
+    }
+
+    pub fn validate(&self) -> Result<(), DomainError> {
+        match self {
+            Self::Local => Ok(()),
+            Self::Wsl { distribution } => {
+                if distribution.trim().is_empty()
+                    || distribution.len() > 128
+                    || distribution.chars().any(char::is_control)
+                {
+                    return Err(DomainError::InvalidSilo(
+                        "The WSL distribution must be non-empty, at most 128 bytes, and contain no control characters."
+                            .to_owned(),
+                    ));
+                }
+                Ok(())
+            }
+            Self::Remote { endpoint_origin } => {
+                if endpoint_origin.trim() != endpoint_origin
+                    || endpoint_origin.is_empty()
+                    || endpoint_origin.len() > 2_048
+                    || endpoint_origin.chars().any(char::is_control)
+                {
+                    return Err(DomainError::InvalidSilo(
+                        "The remote endpoint origin is empty, too long, or contains unsafe characters."
+                            .to_owned(),
+                    ));
+                }
+                let parsed = Url::parse(endpoint_origin).map_err(|_| {
+                    DomainError::InvalidSilo(
+                        "The remote endpoint must be a valid HTTPS origin.".to_owned(),
+                    )
+                })?;
+                let authority_and_suffix = endpoint_origin
+                    .find("://")
+                    .and_then(|separator| endpoint_origin.get(separator + 3..))
+                    .ok_or_else(|| {
+                        DomainError::InvalidSilo(
+                            "The remote endpoint must be a valid HTTPS origin.".to_owned(),
+                        )
+                    })?;
+                let suffix_start = authority_and_suffix
+                    .find(['/', '?', '#'])
+                    .unwrap_or(authority_and_suffix.len());
+                let (raw_authority, raw_suffix) = authority_and_suffix.split_at(suffix_start);
+                if parsed.scheme() != "https"
+                    || parsed.host_str().is_none()
+                    || !parsed.username().is_empty()
+                    || parsed.password().is_some()
+                    || parsed.path() != "/"
+                    || parsed.query().is_some()
+                    || parsed.fragment().is_some()
+                    || raw_authority.contains('@')
+                    || !matches!(raw_suffix, "" | "/")
+                {
+                    return Err(DomainError::InvalidSilo(
+                        "The remote endpoint must be an HTTPS origin without credentials, a path, query, or fragment."
+                            .to_owned(),
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    pub fn validate_network_input(
+        &self,
+        network_profile: &NetworkProfile,
+        proxy_credentials: Option<&ProxyCredentialsInput>,
+        mihomo_controller_secret: Option<&MihomoControllerSecretInput>,
+    ) -> Result<(), DomainError> {
+        validate_network_replacement(network_profile, proxy_credentials, mihomo_controller_secret)?;
+        let wsl_network_supported = match network_profile {
+            NetworkProfile::Direct { proxy_required } => !proxy_required,
+            NetworkProfile::FixedProxy {
+                scheme: ProxyScheme::Socks5,
+                host,
+                port,
+                bypass_list,
+                credential_reference: None,
+                external_mihomo: None,
+                ..
+            } => host == "127.0.0.1" && *port > 0 && bypass_list.is_empty(),
+            _ => false,
+        };
+        match self {
+            Self::Local => Ok(()),
+            Self::Wsl { .. }
+                if proxy_credentials.is_none()
+                    && mihomo_controller_secret.is_none()
+                    && wsl_network_supported =>
+            {
+                Ok(())
+            }
+            Self::Wsl { .. } => Err(DomainError::InvalidNetwork(
+                "A WSL Silo currently accepts direct access or a credential-free loopback SOCKS5 endpoint inside that Linux environment."
+                    .to_owned(),
+            )),
+            Self::Remote { .. } => Err(DomainError::InvalidNetwork(
+                "Remote Silo network changes are unavailable until the remote browser identity runtime is verified."
+                    .to_owned(),
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,18 +280,57 @@ pub fn trusted_windows_system_tool(tool: WindowsSystemTool) -> Result<PathBuf, D
         WindowsSystemTool::Certutil => system_directory.join("certutil.exe"),
     };
     let canonical_system = fs::canonicalize(&system_directory)?;
+    let candidate_metadata = fs::symlink_metadata(&candidate)?;
     let canonical_candidate = fs::canonicalize(&candidate)?;
     if !canonical_candidate.starts_with(&canonical_system)
-        || !canonical_candidate.is_file()
-        || fs::symlink_metadata(&canonical_candidate)?.file_attributes()
-            & FILE_ATTRIBUTE_REPARSE_POINT
-            != 0
+        || !candidate_metadata.is_file()
+        || candidate_metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
     {
         return Err(DomainError::InvalidSilo(
             "Windows system tool path is outside System32, missing, or a reparse point.".to_owned(),
         ));
     }
-    Ok(canonical_candidate)
+    // `std::fs::canonicalize` returns an extended-length (`\\?\`) path on Windows.
+    // Windows PowerShell 5.1 cannot initialize reliably when launched through that spelling,
+    // so preserve the fixed System32 path after validating it against the canonical root.
+    Ok(candidate)
+}
+
+#[cfg(target_os = "windows")]
+fn trusted_windows_powershell_security_module(
+    powershell: &Path,
+) -> Result<(PathBuf, PathBuf), DomainError> {
+    use std::os::windows::fs::MetadataExt;
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    let powershell_root = powershell.parent().ok_or_else(|| {
+        DomainError::InvalidSilo(
+            "Windows PowerShell has no trusted installation directory.".to_owned(),
+        )
+    })?;
+    let module_root = powershell_root.join("Modules");
+    let module_directory = module_root.join("Microsoft.PowerShell.Security");
+    let module_manifest = module_directory.join("Microsoft.PowerShell.Security.psd1");
+    let canonical_root = fs::canonicalize(powershell_root)?;
+    let canonical_manifest = fs::canonicalize(&module_manifest)?;
+    if !module_root.is_dir()
+        || !module_directory.is_dir()
+        || !canonical_manifest.starts_with(&canonical_root)
+        || !canonical_manifest.is_file()
+        || [&module_root, &module_directory, &module_manifest]
+            .iter()
+            .any(|path| {
+                fs::symlink_metadata(path)
+                    .map(|metadata| metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+                    .unwrap_or(true)
+            })
+    {
+        return Err(DomainError::InvalidSilo(
+            "The fixed Windows PowerShell security module is missing, redirected, or outside its trusted installation directory."
+                .to_owned(),
+        ));
+    }
+    Ok((module_root, module_manifest))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -399,12 +566,16 @@ pub struct Silo {
     pub name: String,
     pub color: String,
     pub browser: BrowserDescriptor,
+    #[serde(default)]
+    pub execution_target: SiloExecutionTarget,
     pub profile_directory: String,
     pub network_profile: NetworkProfile,
     #[serde(default)]
     pub engine: SiloEngineConfig,
     pub seed_reference: Uuid,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub identity_locked_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
 }
 
@@ -415,6 +586,8 @@ pub struct CreateSiloInput {
     pub color: String,
     pub browser_kind: BrowserKind,
     pub executable_path: String,
+    #[serde(default)]
+    pub execution_target: SiloExecutionTarget,
     pub network_profile: NetworkProfile,
     #[serde(default)]
     pub engine: SiloEngineConfig,
@@ -478,8 +651,17 @@ pub struct MihomoControllerSecretInput {
 
 impl CreateSiloInput {
     pub fn validate(&self) -> Result<(), DomainError> {
-        validate_silo_metadata(&self.name, &self.color, &self.executable_path)?;
-        validate_network_replacement(
+        validate_silo_appearance(&self.name, &self.color)?;
+        self.execution_target.validate()?;
+        if self.execution_target.is_local() {
+            validate_browser_executable(&self.executable_path)?;
+        } else if !self.engine.is_stock() {
+            return Err(DomainError::InvalidEngine(
+                "WSL and remote execution currently accept only the fixed stock guest engine."
+                    .to_owned(),
+            ));
+        }
+        self.execution_target.validate_network_input(
             &self.network_profile,
             self.proxy_credentials.as_ref(),
             self.mihomo_controller_secret.as_ref(),
@@ -492,11 +674,33 @@ impl UpdateSiloInput {
     pub fn validate(&self) -> Result<(), DomainError> {
         validate_silo_metadata(&self.name, &self.color, &self.executable_path)
     }
+
+    pub fn validate_for_execution_target(
+        &self,
+        execution_target: &SiloExecutionTarget,
+    ) -> Result<(), DomainError> {
+        validate_silo_appearance(&self.name, &self.color)?;
+        if execution_target.is_local() {
+            validate_browser_executable(&self.executable_path)?;
+        }
+        Ok(())
+    }
 }
 
 impl UpdateSiloNetworkInput {
     pub fn validate(&self) -> Result<(), DomainError> {
         validate_network_replacement(
+            &self.network_profile,
+            self.proxy_credentials.as_ref(),
+            self.mihomo_controller_secret.as_ref(),
+        )
+    }
+
+    pub fn validate_for_execution_target(
+        &self,
+        execution_target: &SiloExecutionTarget,
+    ) -> Result<(), DomainError> {
+        execution_target.validate_network_input(
             &self.network_profile,
             self.proxy_credentials.as_ref(),
             self.mihomo_controller_secret.as_ref(),
@@ -533,12 +737,21 @@ fn validate_silo_metadata(
     color: &str,
     executable_path: &str,
 ) -> Result<(), DomainError> {
+    validate_silo_appearance(name, color)?;
+    validate_browser_executable(executable_path)
+}
+
+fn validate_silo_appearance(name: &str, color: &str) -> Result<(), DomainError> {
     validate_silo_name(name)?;
     if !is_hex_color(color) {
         return Err(DomainError::InvalidSilo(
             "Silo color must be a six-digit hex color.".to_owned(),
         ));
     }
+    Ok(())
+}
+
+fn validate_browser_executable(executable_path: &str) -> Result<(), DomainError> {
     if !Path::new(executable_path).is_file() {
         return Err(DomainError::InvalidSilo(
             "The selected browser executable does not exist.".to_owned(),
@@ -702,6 +915,10 @@ impl Silo {
             OsString::from(format!("--user-data-dir={}", self.profile_directory)),
             OsString::from("--no-first-run"),
             OsString::from("--no-default-browser-check"),
+            // A dedicated profile keeps site storage separate. Disabling browser
+            // sync additionally prevents that isolated profile from importing or
+            // exporting browser data through a signed-in Chrome/Edge account.
+            OsString::from("--disable-sync"),
         ];
         arguments.extend(
             self.network_profile
@@ -1060,11 +1277,13 @@ pub fn inspect_browser_executable(
         return Err(BrowserVerificationError::FilenameMismatch);
     }
 
-    verify_windows_browser_publisher(kind, &resolved_path)?;
-    let output = browser_version_output(&resolved_path)?;
     let prefix = match kind {
         BrowserKind::Chrome => "Google Chrome ",
         BrowserKind::Edge => "Microsoft Edge ",
+    };
+    let output = match verify_windows_browser_identity(kind, &resolved_path)? {
+        Some(version) => format!("{prefix}{version}"),
+        None => browser_version_output(&resolved_path)?,
     };
     let version = output
         .strip_prefix(prefix)
@@ -1232,43 +1451,109 @@ fn paths_match(stored: &str, resolved: &str) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn verify_windows_browser_publisher(
+fn verify_windows_browser_identity(
     kind: &BrowserKind,
     executable_path: &Path,
-) -> Result<(), BrowserVerificationError> {
+) -> Result<Option<String>, BrowserVerificationError> {
     #[cfg(test)]
     if executable_path.with_extension("version-output").is_file() {
-        return Ok(());
+        return Ok(None);
     }
-    const SCRIPT: &str = "$s = Get-AuthenticodeSignature -LiteralPath $args[0]; if ($s.Status -ne 'Valid' -or $null -eq $s.SignerCertificate) { exit 3 }; [Console]::Out.WriteLine($s.SignerCertificate.Subject)";
+    const PATH_ENVIRONMENT_VARIABLE: &str = "VERISILO_BROWSER_VERIFICATION_PATH";
+    const MODULE_ENVIRONMENT_VARIABLE: &str = "VERISILO_POWERSHELL_SECURITY_MODULE";
+    const SCRIPT: &str = "$ErrorActionPreference = 'Stop'; try { $m = [Environment]::GetEnvironmentVariable('VERISILO_POWERSHELL_SECURITY_MODULE', 'Process'); if ([string]::IsNullOrWhiteSpace($m)) { exit 7 }; Import-Module -Name $m -Force -ErrorAction Stop; $p = [Environment]::GetEnvironmentVariable('VERISILO_BROWSER_VERIFICATION_PATH', 'Process'); if ([string]::IsNullOrWhiteSpace($p)) { exit 2 }; $s = Get-AuthenticodeSignature -LiteralPath $p; if ($s.Status -ne 'Valid' -or $null -eq $s.SignerCertificate) { exit 3 }; $n = $s.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false); if ([string]::IsNullOrWhiteSpace($n)) { exit 4 }; $v = [Diagnostics.FileVersionInfo]::GetVersionInfo($p); if ($null -eq $v -or [string]::IsNullOrWhiteSpace($v.ProductName) -or [string]::IsNullOrWhiteSpace($v.ProductVersion)) { exit 5 }; [Console]::Out.Write($n); [Console]::Out.Write([char]10); [Console]::Out.Write($v.ProductName); [Console]::Out.Write([char]10); [Console]::Out.Write($v.ProductVersion) } catch { $id = [string]$_.FullyQualifiedErrorId; if ([string]::IsNullOrWhiteSpace($id)) { $id = $_.Exception.GetType().FullName }; [Console]::Error.Write($id); exit 6 }";
     let powershell = trusted_windows_system_tool(WindowsSystemTool::PowerShell)
+        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
+    let (module_root, module_manifest) = trusted_windows_powershell_security_module(&powershell)
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
     let output = Command::new(powershell)
         .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-        .arg(executable_path)
+        .env(PATH_ENVIRONMENT_VARIABLE, executable_path)
+        .env(MODULE_ENVIRONMENT_VARIABLE, module_manifest)
+        // Do not inherit a caller-controlled or PowerShell-7-only module search path.
+        .env("PSModulePath", module_root)
         .output()
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
     if !output.status.success() {
+        return match output.status.code() {
+            Some(3 | 4) => Err(BrowserVerificationError::PublisherMismatch),
+            code => Err(BrowserVerificationError::Probe(format!(
+                "Windows browser signature or version metadata probe failed with exit code {}{}.",
+                code.map_or_else(|| "unavailable".to_owned(), |value| value.to_string()),
+                windows_probe_failure_detail(&output.stderr)
+                    .map(|detail| format!(" ({detail})"))
+                    .unwrap_or_default()
+            ))),
+        };
+    }
+    let identity = std::str::from_utf8(&output.stdout).map_err(|_| {
+        BrowserVerificationError::Probe(
+            "Windows browser identity metadata is not UTF-8.".to_owned(),
+        )
+    })?;
+    let fields = identity
+        .split('\n')
+        .map(|field| field.trim_end_matches('\r'))
+        .collect::<Vec<_>>();
+    if fields.len() != 3 || fields.iter().any(|field| field.trim() != *field) {
+        return Err(BrowserVerificationError::Probe(
+            "Windows browser identity metadata has an invalid shape.".to_owned(),
+        ));
+    }
+    let (expected_publisher, expected_product) = match kind {
+        BrowserKind::Chrome => ("Google LLC", "Google Chrome"),
+        BrowserKind::Edge => ("Microsoft Corporation", "Microsoft Edge"),
+    };
+    if fields[0] != expected_publisher {
         return Err(BrowserVerificationError::PublisherMismatch);
     }
-    let subject = String::from_utf8_lossy(&output.stdout);
-    let expected = match kind {
-        BrowserKind::Chrome => ["O=Google LLC", "CN=Google LLC"],
-        BrowserKind::Edge => ["O=Microsoft Corporation", "CN=Microsoft Corporation"],
-    };
-    if expected.iter().any(|value| subject.contains(value)) {
-        Ok(())
-    } else {
-        Err(BrowserVerificationError::PublisherMismatch)
+    if fields[1] != expected_product {
+        return Err(BrowserVerificationError::KindMismatch);
     }
+    let version = fields[2];
+    if version.is_empty()
+        || version.len() > 128
+        || !version.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_')
+        })
+    {
+        return Err(BrowserVerificationError::Probe(
+            "Windows browser product version metadata is invalid.".to_owned(),
+        ));
+    }
+    Ok(Some(version.to_owned()))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_probe_failure_detail(stderr: &[u8]) -> Option<String> {
+    let decoded = String::from_utf8_lossy(stderr);
+    let printable = decoded
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let compact = printable.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.is_empty() {
+        return None;
+    }
+    let mut bounded = compact.chars().take(240).collect::<String>();
+    if compact.chars().count() > 240 {
+        bounded.push('…');
+    }
+    Some(bounded)
 }
 
 #[cfg(not(target_os = "windows"))]
-fn verify_windows_browser_publisher(
+fn verify_windows_browser_identity(
     _kind: &BrowserKind,
     _executable_path: &Path,
-) -> Result<(), BrowserVerificationError> {
-    Ok(())
+) -> Result<Option<String>, BrowserVerificationError> {
+    Ok(None)
 }
 
 fn is_hex_color(color: &str) -> bool {
@@ -1330,9 +1615,15 @@ mod tests {
 
     use uuid::Uuid;
 
+    #[cfg(target_os = "windows")]
+    use super::{
+        trusted_windows_powershell_security_module, trusted_windows_system_tool,
+        verify_windows_browser_identity, windows_probe_failure_detail, BrowserVerificationError,
+        WindowsSystemTool,
+    };
     use super::{
         verify_browser_descriptor, BrowserDescriptor, BrowserKind, BrowserVerificationState,
-        NetworkProfile, ProxyScheme, Silo,
+        NetworkProfile, ProxyScheme, Silo, SiloExecutionTarget,
     };
 
     fn browser_fixture(output: &str) -> std::path::PathBuf {
@@ -1343,6 +1634,56 @@ mod tests {
         fs::write(executable.with_extension("version-output"), output)
             .expect("write version fixture");
         fs::canonicalize(executable).expect("canonical browser fixture")
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn trusted_windows_system_tools_return_spawnable_dos_paths() {
+        let powershell = trusted_windows_system_tool(WindowsSystemTool::PowerShell)
+            .expect("resolve trusted Windows PowerShell");
+        let rendered = powershell.to_string_lossy();
+
+        assert!(powershell.is_file());
+        assert!(
+            !rendered.starts_with(r"\\?\"),
+            "trusted tools must not be returned with an extended-length prefix: {rendered}"
+        );
+
+        let (module_root, module_manifest) =
+            trusted_windows_powershell_security_module(&powershell)
+                .expect("resolve fixed Windows PowerShell security module");
+        assert!(module_root.is_dir());
+        assert!(module_manifest.is_file());
+        assert_eq!(
+            module_manifest.file_name().and_then(|name| name.to_str()),
+            Some("Microsoft.PowerShell.Security.psd1")
+        );
+        assert!(!module_manifest.to_string_lossy().starts_with(r"\\?\"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_probe_failure_diagnostics_are_bounded_and_control_free() {
+        let raw = format!("probe\r\n\u{1b}[31m{}", "x".repeat(300));
+        let detail = windows_probe_failure_detail(raw.as_bytes()).expect("probe diagnostic");
+
+        assert!(detail.starts_with("probe [31m"));
+        assert!(detail.ends_with('…'));
+        assert!(detail.chars().count() <= 241);
+        assert!(!detail.chars().any(char::is_control));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_identity_probe_loads_the_fixed_security_module() {
+        let powershell = trusted_windows_system_tool(WindowsSystemTool::PowerShell)
+            .expect("resolve trusted Windows PowerShell");
+        let result = verify_windows_browser_identity(&BrowserKind::Edge, &powershell);
+
+        assert!(
+            !matches!(result, Err(BrowserVerificationError::Probe(_))),
+            "the fixed security module should load from the trusted installation: {result:?}"
+        );
     }
 
     #[test]
@@ -1386,6 +1727,113 @@ mod tests {
         }))
         .expect("legacy Silo");
         assert!(silo.engine.is_stock());
+        assert_eq!(silo.execution_target, SiloExecutionTarget::Local);
+        assert!(silo.identity_locked_at.is_none());
+    }
+
+    #[test]
+    fn execution_target_wire_shape_is_strict_and_explicit() {
+        assert_eq!(
+            serde_json::to_value(SiloExecutionTarget::Local).expect("serialize local target"),
+            serde_json::json!({ "kind": "local" })
+        );
+        assert_eq!(
+            serde_json::to_value(SiloExecutionTarget::Wsl {
+                distribution: "Ubuntu-24.04".to_owned(),
+            })
+            .expect("serialize WSL target"),
+            serde_json::json!({
+                "kind": "wsl",
+                "distribution": "Ubuntu-24.04"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(SiloExecutionTarget::Remote {
+                endpoint_origin: "https://remote.example.test:8443".to_owned(),
+            })
+            .expect("serialize remote target"),
+            serde_json::json!({
+                "kind": "remote",
+                "endpointOrigin": "https://remote.example.test:8443"
+            })
+        );
+        assert!(
+            serde_json::from_value::<SiloExecutionTarget>(serde_json::json!({
+                "kind": "wsl",
+                "distribution": "Ubuntu",
+                "futureField": true
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn execution_target_validation_rejects_ambiguous_runtime_addresses() {
+        assert!(SiloExecutionTarget::Wsl {
+            distribution: "Ubuntu-24.04".to_owned(),
+        }
+        .validate()
+        .is_ok());
+        for distribution in [
+            "".to_owned(),
+            "   ".to_owned(),
+            "Ubuntu\n".to_owned(),
+            "x".repeat(129),
+        ] {
+            assert!(SiloExecutionTarget::Wsl { distribution }
+                .validate()
+                .is_err());
+        }
+
+        assert!(SiloExecutionTarget::Remote {
+            endpoint_origin: "https://remote.example.test:8443".to_owned(),
+        }
+        .validate()
+        .is_ok());
+        for endpoint_origin in [
+            "http://remote.example.test".to_owned(),
+            "https://user:password@remote.example.test".to_owned(),
+            "https://@remote.example.test".to_owned(),
+            "https://remote.example.test/runtime".to_owned(),
+            "https://remote.example.test/.".to_owned(),
+            "https://remote.example.test?tenant=one".to_owned(),
+            "https://remote.example.test/#fragment".to_owned(),
+        ] {
+            assert!(SiloExecutionTarget::Remote { endpoint_origin }
+                .validate()
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn silo_launch_keeps_site_data_local_and_disables_account_sync() {
+        let silo: Silo = serde_json::from_value(serde_json::json!({
+            "id": Uuid::new_v4(),
+            "schemaVersion": 1,
+            "name": "isolated",
+            "color": "#4f46e5",
+            "browser": {
+                "kind": "edge",
+                "executablePath": "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+                "version": "150.0.0.0"
+            },
+            "profileDirectory": "C:/VeriSilo/silos/isolated/browser-data",
+            "networkProfile": { "mode": "direct", "proxyRequired": false },
+            "seedReference": Uuid::new_v4(),
+            "createdAt": "2026-07-28T00:00:00Z",
+            "archivedAt": null
+        }))
+        .expect("isolated Silo");
+
+        let arguments = silo
+            .launch_arguments()
+            .into_iter()
+            .map(|argument| argument.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(arguments
+            .contains(&"--user-data-dir=C:/VeriSilo/silos/isolated/browser-data".to_owned()));
+        assert!(arguments.contains(&"--disable-sync".to_owned()));
     }
 
     #[test]

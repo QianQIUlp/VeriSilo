@@ -108,7 +108,16 @@ assert.match(hyperv, /\$vmName = "VeriSilo-\$environmentId"/u);
 assert.match(hyperv, /\$switchName = \$vmName/u);
 assert.match(hyperv, /Read-SiloBinding/u);
 assert.match(hyperv, /manifestTrusted/u);
+assert.match(hyperv, /ExpectedEnvironmentId/u);
+assert.match(hyperv, /ExpectedAction/u);
+assert.match(hyperv, /ExpectedRequestNonce/u);
+assert.match(hyperv, /requestNonce/u);
+assert.match(
+  hyperv,
+  /RequestPath must be the nonce-named direct child[\s\S]*Request file did not match the expected environmentId, action, and requestNonce\.[\s\S]*Get-Command Get-VM/u,
+);
 assert.match(hyperv, /hyperv-receipt\.json/u);
+assert.match(hyperv, /hyperv-create-journal\.json/u);
 assert.match(hyperv, /baseImageSha256/u);
 assert.match(hyperv, /guestAgentVersion = \$null/u);
 assert.match(hyperv, /ExpectedVmId/u);
@@ -121,6 +130,54 @@ assert.match(
 assert.match(hyperv, /Get-VMAssignableDevice/u);
 assert.match(hyperv, /DhcpGuard On -RouterGuard On -MacAddressSpoofing Off/u);
 assert.match(hyperv, /Get-VMSnapshot[^\n]+checkpointName/u);
+assert.match(
+  hyperv,
+  /Write-CreateJournalPhase \$createJournalPath \$createJournal 'switch_pending'[\s\S]*New-VMSwitch/u,
+);
+assert.match(
+  hyperv,
+  /Write-CreateJournalPhase \$createJournalPath \$createJournal 'disk_pending'[\s\S]*New-VHD/u,
+);
+assert.match(
+  hyperv,
+  /Write-CreateJournalPhase \$createJournalPath \$createJournal 'vm_pending'[\s\S]*New-VM/u,
+);
+assert.match(
+  hyperv,
+  /elseif \(\$request\.action -eq 'remove'[\s\S]*Read-CreateJournal/u,
+);
+assert.match(hyperv, /Invoke-CreateJournalRollback/u);
+assert.match(hyperv, /Remove-VM -VM \$vm -Force/u);
+assert.match(hyperv, /Remove-VMSwitch -VMSwitch \$switch -Force/u);
+assert.match(hyperv, /Write-CreateJournalPhase[^\n]+'cleanup_complete'/u);
+assert.match(
+  hyperv,
+  /\$foreignSwitchAdapters[\s\S]*\$foreignDiskUsers[\s\S]*Write-CreateJournalPhase \$createJournalPath \$Journal 'cleanup_pending'[\s\S]*Remove-VM/u,
+);
+assert.match(hyperv, /cleanupState = 'rolled_back_from_journal'/u);
+assert.match(
+  hyperv,
+  /vmId = if \(\$null -eq \$identitySource\.vmId\) \{ \$null \}/u,
+);
+assert.match(hyperv, /\[IO\.File\]::Replace/u);
+assert.match(rust, /struct HyperVRequestLease/u);
+assert.match(rust, /struct HyperVImageLease/u);
+assert.match(rust, /sha256_from_locked_file/u);
+assert.match(rust, /BCryptHashData/u);
+assert.match(
+  rust,
+  /request_parent\s*\.\s*ancestors\(\)[\s\S]*open_locked_hyperv_directory/u,
+);
+assert.match(rust, /\.share_mode\(FILE_SHARE_READ\)/u);
+assert.match(
+  rust,
+  /FILE_FLAG_BACKUP_SEMANTICS \| FILE_FLAG_OPEN_REPARSE_POINT/u,
+);
+assert.match(rust, /response\.request_nonce != request_nonce/u);
+assert.match(
+  hyperv,
+  /\[IO\.File\]::Open\(\$image\.FullName,[\s\S]*\[IO\.FileShare\]::Read\)[\s\S]*Get-LockedFileSha256[\s\S]*New-VHD/u,
+);
 assert.doesNotMatch(hyperv, /New-VMSwitch[^\n]+SwitchType\s+External/u);
 assert.doesNotMatch(hyperv, /Stop-VM[^\n]+-TurnOff/u);
 assert.doesNotMatch(
