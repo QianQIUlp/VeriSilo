@@ -1,48 +1,59 @@
 {
-  "schema": "verisilo-camoufox-m2-evidence-manifest/v2",
-  "updatedAtUtc": "2026-08-04T07:10:00+00:00",
-  "codeGitRevision": "4a9b1c9a96df03d0ab46f03f11d99d7061bdcc71",
-  "codeGitRevisionNote": "commit 4a9b1c9 froze the exact code that produced the runs listed here",
+  "schema": "verisilo-camoufox-m2-evidence-manifest/v3",
+  "updatedAtUtc": "2026-08-04T13:01:32+00:00",
+  "codeGitRevision": "15dec54d5673fe82a14630dd612178f546996207",
+  "codeGitRevisionNote": "commit 15dec54 froze the exact code that produced the runs listed here",
+  "schemaContract": {
+    "artifact": "verisilo-camoufox-resolved-identity/v3",
+    "policy": "verisilo-camoufox-identity-policy/v3",
+    "projection": "verisilo-camoufox-stable-signal-projection/v3",
+    "observedWebsiteDigest": "verisilo-camoufox-observed-website/v2",
+    "runReport": "verisilo-camoufox-m1-run-report/v3",
+    "oldVersionsRejected": "UnsupportedSchemaVersionError / protocol code unsupported_schema_version; never a plain missing-field error"
+  },
   "host": "Linux 6.17.0-1021-azure x86_64 (2 cores, machine x86_64)",
   "m0Gate": {
     "status": "passed-on-this-host",
     "scopeNote": "本机兼容性 Gate；不是供应链和网络行为验证",
     "noCamoufoxWebdlAttemptObserved": true,
     "outboundNetworkFullyObserved": false,
-    "latestRecheckRunId": "run-1785827214-3d9b0f22"
+    "latestRecheckRunId": "run-1785848211-53e085e8"
   },
   "m1_1": {
-    "status": "accepted (M2.0.1 rerun, inherit fontMode)",
-    "stabilityRunId": "run-1785827166-a7885889",
-    "separationRunId": "run-1785827191-786919a8",
-    "tamperRunId": "run-1785827209-90d65d94",
-    "stabilityReportSha256": "821cb41556601c06827fca572480883c008afea47f06bb1bb1149ec6cc7c53f1",
-    "separationReportSha256": "ece3b7c55f106c59374bd896556b671408141a615bba2712cfb322e24bd5ae24",
-    "tamperReportSha256": "e37c00a4abedcb75f53d8a8d10aa10ef7fd91dd7c5eb1748804edd75985e38ec",
+    "status": "accepted (M2.0.2 rerun, v3 artifacts, inherit fontMode)",
+    "stabilityRunId": "run-1785848308-3bce2bb1",
+    "separationRunId": "run-1785848328-b9bec18c",
+    "tamperRunId": "run-1785848341-c249809a",
+    "stabilityReportSha256": "8ba4d9c2d1501296a41c3b2d3871be79b98759b52fa2ea62311f857788e887fe",
+    "separationReportSha256": "d0bb4c2f2bbbfc18dfc1baa89e9dbb0246cdf9ef45201f173d9330c33794d562",
+    "tamperReportSha256": "06e1e12578d768b3bd48e7328c2607a44a572a2f915ffdfdced29706ebe13bf3",
     "artifacts": [
       {
         "artifactId": "identity-a",
         "file": "identity-a.json",
-        "rawFileSha256": "9b4d0519fa9870bc00610cda988372dafd590a6dd7b7ac01de76b6961c6c6fe7",
-        "canonicalDigest": "sha256:83698aeaef4b1e55d3ca00243f3b5106b6d6032b033a3b1b3cb15bd026bf812e",
+        "schema": "verisilo-camoufox-resolved-identity/v3",
+        "rawFileSha256": "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+        "canonicalDigest": "sha256:4f6021791337fb8fe55ddf55dc1ed9010c6424c47fd8444082a038db868758e8",
         "configuredIdentityDigest": "sha256:a8f52442aeddf154858ffe306ecbd64315b7419928181ced3104fb5d949be9d6",
-        "observedWebsiteDigest": "sha256:6206f58db1a9e20cd6681db783d9dbdefd56d4cc7ab02da322ed09167e296f03"
+        "observedWebsiteDigest": "sha256:70f71b5ca7ee287a4d5e989086a990264433129615f0ee988aa18c135385d0ff"
       },
       {
         "artifactId": "identity-b",
         "file": "identity-b.json",
-        "rawFileSha256": "d005382f877cd528e2e7f1573fe764a531756944bdea389782fd6ebea49e2bef",
-        "canonicalDigest": "sha256:bfd11ea9f6b82ac1188b5ccf90edd2d438ef4cc19c3cfb12311dd35693a896f7",
+        "schema": "verisilo-camoufox-resolved-identity/v3",
+        "rawFileSha256": "f142ab0e006a40682a92d2a5b04f88b6a418edf3331084437b672b74dd63b67e",
+        "canonicalDigest": "sha256:0cb8e396d3bd5d6fa3843b7b4444152181e1cc7458de335b4d72ea12b72642f7",
         "configuredIdentityDigest": "sha256:43ed9d7dd79e29b018d7427c2b0047670035975d8921fbf9e835825d7985177e",
-        "observedWebsiteDigest": "sha256:414b8ee864dd8bd9403d2aed26a1ca214e77b416bf85a34c7976f3d25c30fdbf"
+        "observedWebsiteDigest": "sha256:8559d3e0791b8a203063692b06d8f71cb98f5bfe6cdf5467b61c63a0e94f6324"
       },
       {
         "artifactId": "identity-c",
         "file": "identity-c.json",
-        "rawFileSha256": "1513933a263e95b784b2ba9145754227c3eb559264327fedf9166550f9a16037",
-        "canonicalDigest": "sha256:28bab21f6c74f783e6866d36f576863ccfecf7ca96275316790cb29ec6f766a1",
+        "schema": "verisilo-camoufox-resolved-identity/v3",
+        "rawFileSha256": "132b108c488e43b01b206412b954ae4f94260d949d22acc89187076e8d1c7640",
+        "canonicalDigest": "sha256:d6b8ad041720fee91a5488102182cb5e0af36cdefcfac9d8f3c4810eed05713f",
         "configuredIdentityDigest": "sha256:92235bcd1695319deac5702e488cb845fccff8a9b2a0757ce39f985e62bf4d37",
-        "observedWebsiteDigest": "sha256:e6077b79086de7a51099fc22d3d75636c616bad7679c9b158f4236c317c96df4"
+        "observedWebsiteDigest": "sha256:f873b3dd6bc6cd872ef70fbef8189d5e4cd566a0cd36003b711a66db76d6de13"
       }
     ],
     "browserBinding": {
@@ -61,17 +72,17 @@
       "requestedRuns": 5,
       "fontModeEveryStart": ["inherit", "inherit", "inherit", "inherit", "inherit"],
       "allObservedWebsiteDigestsIdentical": true,
-      "stableObservedWebsiteDigest": "sha256:6206f58db1a9e20cd6681db783d9dbdefd56d4cc7ab02da322ed09167e296f03",
+      "stableObservedWebsiteDigest": "sha256:70f71b5ca7ee287a4d5e989086a990264433129615f0ee988aa18c135385d0ff",
       "configUnchangedEveryStart": true,
       "exitStatusEveryStart": [0, 0, 0, 0, 0],
       "exitFileObservedEveryStart": [true, true, true, true, true],
       "profileFreshEveryStart": [true, true, true, true, true],
       "artifactFileSha256EveryStart": [
-        "9b4d0519fa9870bc00610cda988372dafd590a6dd7b7ac01de76b6961c6c6fe7",
-        "9b4d0519fa9870bc00610cda988372dafd590a6dd7b7ac01de76b6961c6c6fe7",
-        "9b4d0519fa9870bc00610cda988372dafd590a6dd7b7ac01de76b6961c6c6fe7",
-        "9b4d0519fa9870bc00610cda988372dafd590a6dd7b7ac01de76b6961c6c6fe7",
-        "9b4d0519fa9870bc00610cda988372dafd590a6dd7b7ac01de76b6961c6c6fe7"
+        "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+        "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+        "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+        "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+        "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e"
       ]
     },
     "separation": {
@@ -94,12 +105,13 @@
       "fontMode": "inherit",
       "fontUniverseWidthsInDigest": false,
       "managedRequiresAllControlsUnavailable": true,
+      "managedSemantics": "browser is temporarily launched and probed; launch fails before running (host_font_masking_failed), not before browser start",
       "fixedUniverse": true,
       "fixedUniverseSize": 25,
       "bogusNegativeControls": true,
       "hostFontNegativeControls": true,
       "hostFontMaskingConfirmed": false,
-      "finding": "inherit mode: fontUniverseWidths excluded from ObservedWebsiteDigest; host font masking still fails on this host (host-installed families remain visible via document.fonts.check); font isolation is NOT claimed; managed mode would require all negative controls unavailable before widths enter the digest"
+      "finding": "inherit mode: fontUniverseWidths excluded from ObservedWebsiteDigest; host font masking still fails on this host; font isolation is NOT claimed"
     },
     "timezoneMode": "fixed",
     "fixedFields": [
@@ -109,29 +121,38 @@
     ],
     "strictSchema": {
       "recursive": true,
+      "unifiedTopLevelClosedSchema": true,
+      "generatedByNonEmptyString": true,
+      "generatedAtUtcRfc3339Z": true,
+      "browserReleaseNonEmptyString": true,
+      "digestFormatSha256Hex": true,
       "boolRejectedForInt": true,
       "nestedUnknownFieldsRejected": true,
       "nestedMissingRequiredFieldsRejected": true,
+      "oldSchemaVersionExplicitlyRejected": true,
       "singleReadArtifact": true,
       "expectedArtifactFileSha256Required": true,
       "sidecarRequired": true,
-      "unitTests": "17/17 passed"
+      "unitTests": "19/19 passed"
     }
   },
   "m2Host": {
     "protocol": "verisilo-camoufox-host/v1",
     "hostVersion": "0.1.0",
     "document": "docs/camoufox-host-v1.md",
-    "integrationTests": "11/11 passed",
+    "integrationTests": "15/15 passed",
     "persistenceAcrossHostRestart": true,
     "persistenceEvidence": "fixed probe origin across Host processes; bootCount 0->1->2; cookie via API and document.cookie on both boots; cookies.sqlite moz_cookies row after close",
     "profileLock": true,
     "lockReleasedLastAfterTreeExit": true,
+    "quarantineFailClosed": true,
+    "quarantineEvidence": "processTreeExit.exited!=true -> quarantined state, profile lock retained, persistent record with PID/start-time/process group; new Host returns profile_quarantined until every recorded identity is gone",
+    "processIdentity": "signals sent only after PID+start-time re-verification; reused PID with different start-time never treated as original",
     "crashRecovery": true,
     "sigtermSigintEofCleanup": true,
     "boundedFrameReader": true,
     "oversizedFrameRejected": true,
-    "supervisorMetadata": "supervisorPid/childPid/startTimeTicks/processGroups written by exit_supervisor; Host performs no /proc cmdline pid guessing",
+    "supervisorMetadata": "supervisorPid/childPid/startTimeTicks/processGroups written by exit_supervisor; no /proc cmdline pid guessing",
     "treeTamperRejected": true,
     "treeRejectsSymlinkAndNonRegular": true,
     "stdoutPureProtocol": true,
