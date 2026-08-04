@@ -1,8 +1,8 @@
 {
   "schema": "verisilo-camoufox-m2-evidence-manifest/v1",
   "updatedAtUtc": "2026-08-04T06:14:44+00:00",
-  "codeGitRevision": "a3c627672711e02b319ce4ab02893a90479646e9",
-  "codeGitRevisionNote": "commit a3c6276 froze the exact code that produced the runs listed here",
+  "codeGitRevision": "bf9dc7e2b0a789d25832e4202cd46221e4eef3d6",
+  "codeGitRevisionNote": "commit bf9dc7e froze the exact code that produced the runs listed here",
   "host": "Linux 6.17.0-1021-azure x86_64 (2 cores, machine x86_64)",
   "m0Gate": {
     "status": "passed-on-this-host",
