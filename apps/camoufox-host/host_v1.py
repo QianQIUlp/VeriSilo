@@ -39,6 +39,7 @@ from typing import Any, Optional
 from identity_policy import (
     ARTIFACT_ID_RE,
     ArtifactIntegrityError,
+    UnsupportedSchemaVersionError,
     build_projection,
     configured_identity_digest,
     diff_configs,
@@ -332,6 +333,22 @@ class CamoufoxHost:
             raise ProtocolError(
                 "profile_in_use", f"profile {profile_id} is locked by another session"
             )
+        # A prior Host may have quarantined this profile. The new Host may
+        # only clean the record and take over after every recorded process
+        # identity (PID + starttime) is gone.
+        quarantine_check = clear_quarantine_if_stale(self.state_root, profile_id)
+        if quarantine_check["alive"]:
+            os.close(lock_fd)
+            raise ProtocolError(
+                "profile_quarantined",
+                f"profile {profile_id} is quarantined and the original "
+                "process is still alive: " + json.dumps(quarantine_check["alive"]),
+            )
+        if quarantine_check["cleared"]:
+            _log(
+                f"profile {profile_id}: cleared stale quarantine "
+                "(recorded process identities no longer exist)"
+            )
 
         session_id = uuid.uuid4().hex
         session_dir = self.state_root / session_id
@@ -379,6 +396,7 @@ class CamoufoxHost:
             "cookieEvidence": None,
             "cookieSqlite": None,
             "probePort": None,
+            "quarantine": None,
         }
         self.session = session
         _log(
@@ -387,8 +405,8 @@ class CamoufoxHost:
         )
         try:
             await self._launch_browser(session, artifact)
-        except ProtocolError:
-            await self._fail_session(session, "launch rejected")
+        except ProtocolError as exc:
+            await self._fail_session(session, f"launch rejected: {exc}")
             raise
         except Exception as exc:  # noqa: BLE001
             await self._fail_session(session, f"{type(exc).__name__}: {exc}")
@@ -604,8 +622,10 @@ class CamoufoxHost:
 
     async def _monitor_session(self, session: dict) -> None:
         while not session["stopMonitor"].is_set():
-            pids = managed_pids(session)
-            if pids and not all(pid_alive(pid) for pid in pids):
+            identities = managed_identities(session)
+            if identities and not all(
+                proc_identity_alive(identity) for identity in identities
+            ):
                 await self._fail_session(
                     session,
                     "browser process exited unexpectedly",
@@ -638,11 +658,42 @@ class CamoufoxHost:
         # profile lock, so no second Host can ever touch the same profile
         # while the old browser is still alive.
         session["processTreeExit"] = terminate_managed_tree(session, timeout=6)
+        if not session["processTreeExit"].get("exited", False):
+            await self._quarantine_session(
+                session,
+                f"{error}; managed process tree did not exit",
+                session["processTreeExit"].get("remaining", []),
+            )
+            return
         session["pid"] = None
         session["childPid"] = None
         await release_session(self, session)
         write_session_state(session)
         _log(f"session {session['sessionId']} failed: {error}")
+
+    async def _quarantine_session(
+        self, session: dict, reason: str, remaining: list[dict]
+    ) -> None:
+        """Fail-closed state: a managed process is still alive, so the profile
+        lock is KEPT by this Host and a persistent quarantine record is
+        written. The session is never marked exited."""
+        session["state"] = "quarantined"
+        session["failure"] = reason
+        record_path = write_quarantine_record(
+            self.state_root, session, reason, remaining
+        )
+        session["quarantine"] = {
+            "reason": reason,
+            "processes": remaining,
+            "recordPath": str(record_path),
+        }
+        # Clean up server/Xvfb/log fds, but DO NOT release the profile lock.
+        await release_session(self, session, release_lock=False)
+        write_session_state(session)
+        _log(
+            f"session {session['sessionId']} QUARANTINED: {reason} "
+            f"(lock retained, record {record_path})"
+        )
 
     def status(self, session_id: Optional[str]) -> dict:
         session = self.session
@@ -661,6 +712,7 @@ class CamoufoxHost:
             "observedWebsiteDigest": session["observedWebsiteDigest"],
             "exitStatus": session["exitStatus"],
             "exitFileObserved": session.get("exitFileObserved"),
+            "quarantine": session.get("quarantine"),
             "failure": session["failure"],
         }
 
@@ -668,13 +720,14 @@ class CamoufoxHost:
         session = self.session
         if session is None or session["sessionId"] != session_id:
             raise ProtocolError("session_not_found", f"no session {session_id}")
-        if session["state"] in ("exited", "failed"):
+        if session["state"] in ("exited", "failed", "quarantined"):
             return {
                 "sessionId": session["sessionId"],
                 "state": session["state"],
                 "exitStatus": session["exitStatus"],
                 "exitFileObserved": session.get("exitFileObserved"),
                 "processTreeExit": session.get("processTreeExit"),
+                "quarantine": session.get("quarantine"),
             }
         session["state"] = "closing"
         session["stopMonitor"].set()
@@ -694,6 +747,21 @@ class CamoufoxHost:
         # close() must CONFIRM the managed process tree is fully gone (and
         # terminate it if not) before the profile lock is released.
         session["processTreeExit"] = terminate_managed_tree(session, timeout=8)
+        if not session["processTreeExit"].get("exited", False):
+            await self._quarantine_session(
+                session,
+                "close: managed process tree did not exit",
+                session["processTreeExit"].get("remaining", []),
+            )
+            return {
+                "sessionId": session["sessionId"],
+                "state": session["state"],
+                "exitStatus": session["exitStatus"],
+                "exitFileObserved": session.get("exitFileObserved"),
+                "processTreeExit": session["processTreeExit"],
+                "quarantine": session.get("quarantine"),
+                "closeSeconds": round(time.perf_counter() - close_start, 3),
+            }
         session["pid"] = None
         session["childPid"] = None
         session["exitFileObserved"] = session["exitFile"].exists()
@@ -727,15 +795,34 @@ def _reassemble_config(env: dict) -> dict:
     return json.loads("".join(value for _, value in chunks))
 
 
-def pid_alive(pid: int) -> bool:
+def proc_starttime_ticks(pid: int) -> Optional[int]:
+    """Field 22 of /proc/<pid>/stat (starttime in clock ticks)."""
     try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
+        text = Path(f"/proc/{pid}/stat").read_text()
     except OSError:
-        return False
-    fields = stat.rsplit(")", 1)
+        return None
+    fields = text.rsplit(")", 1)
     if len(fields) != 2:
+        return None
+    parts = fields[1].split()
+    try:
+        return int(parts[19])
+    except (IndexError, ValueError):
+        return None
+
+
+def proc_identity_alive(identity: dict) -> bool:
+    """A process is 'ours' only when BOTH the PID exists AND its starttime
+    matches the supervisor-recorded identity. A reused PID with a different
+    starttime is never treated as the original process."""
+    pid = identity.get("pid")
+    expected = identity.get("startTimeTicks")
+    if not isinstance(pid, int) or pid <= 0:
         return False
-    return fields[1].split()[0].strip() != "Z"
+    if not isinstance(expected, int) or expected <= 0:
+        return False
+    actual = proc_starttime_ticks(pid)
+    return actual is not None and actual == expected
 
 
 def process_descendants(pid: int) -> list[int]:
@@ -758,12 +845,6 @@ def process_descendants(pid: int) -> list[int]:
     return result
 
 
-def process_tree_alive(pid: Optional[int]) -> bool:
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    return any(pid_alive(candidate) for candidate in process_descendants(pid))
-
-
 def managed_pids(session: dict) -> list[int]:
     return sorted(
         {
@@ -774,64 +855,199 @@ def managed_pids(session: dict) -> list[int]:
     )
 
 
+def managed_identities(session: dict) -> list[dict]:
+    """Supervisor/browser identities from the supervisor's own metadata.
+    Identities without a start-time are NOT considered verified and are not
+    killable (we never guess ownership)."""
+    meta = session.get("supervisorMeta")
+    identities: list[dict] = []
+    if isinstance(meta, dict):
+        if isinstance(meta.get("supervisorPid"), int):
+            identities.append(
+                {
+                    "pid": meta["supervisorPid"],
+                    "startTimeTicks": meta.get("supervisorStartTimeTicks"),
+                    "processGroup": meta.get("supervisorProcessGroup"),
+                    "role": "supervisor",
+                }
+            )
+        if isinstance(meta.get("childPid"), int):
+            identities.append(
+                {
+                    "pid": meta["childPid"],
+                    "startTimeTicks": meta.get("childStartTimeTicks"),
+                    "processGroup": meta.get("childProcessGroup"),
+                    "role": "browser",
+                }
+            )
+    return identities
+
+
+def _identity_matches_live(target: dict) -> bool:
+    expected = target.get("startTimeTicks")
+    if not isinstance(expected, int) or expected <= 0:
+        return False
+    return proc_starttime_ticks(target.get("pid")) == expected
+
+
 def terminate_managed_tree(session: dict, timeout: float = 8.0) -> dict:
     """Terminate every managed supervisor/browser descendant and CONFIRM the
-    tree is gone. Returns evidence; the caller only releases the profile lock
-    after this returns exited=True."""
-    roots = managed_pids(session)
+    tree is gone. Every signal is sent only after re-verifying the target's
+    PID+starttime identity (no PID-reuse mis-kill). Returns evidence; the
+    caller only releases the profile lock after exited=True."""
+    roots = [identity for identity in managed_identities(session) if proc_identity_alive(identity)]
     if not roots:
         return {
             "exited": True,
-            "managedPids": [],
+            "managedIdentities": [],
             "sigterm": False,
             "sigkill": False,
         }
-    targets: list[int] = []
+    targets: list[dict] = []
     seen: set[int] = set()
     for root in roots:
-        for descendant in process_descendants(root):
-            if descendant not in seen:
-                seen.add(descendant)
-                targets.append(descendant)
+        for descendant_pid in process_descendants(root["pid"]):
+            if descendant_pid not in seen:
+                seen.add(descendant_pid)
+                targets.append(
+                    {
+                        "pid": descendant_pid,
+                        "startTimeTicks": proc_starttime_ticks(descendant_pid),
+                    }
+                )
     for target in reversed(targets):  # children first, supervisors last
+        if not _identity_matches_live(target):
+            continue
         try:
-            os.kill(target, signal.SIGTERM)
+            os.kill(target["pid"], signal.SIGTERM)
         except ProcessLookupError:
             pass
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        alive = [pid for pid in targets if pid_alive(pid)]
+        alive = [identity for identity in roots if proc_identity_alive(identity)]
         if not alive:
             return {
                 "exited": True,
-                "managedPids": roots,
+                "managedIdentities": roots,
                 "sigterm": True,
                 "sigkill": False,
             }
         time.sleep(0.05)
-    for target in alive:
+    kill_targets: list[dict] = []
+    seen_kill: set[int] = set()
+    for root in alive:
+        if root["pid"] not in seen_kill:
+            seen_kill.add(root["pid"])
+            kill_targets.append(root)
+        for descendant_pid in process_descendants(root["pid"]):
+            if descendant_pid in seen_kill:
+                continue
+            seen_kill.add(descendant_pid)
+            kill_targets.append(
+                {
+                    "pid": descendant_pid,
+                    "startTimeTicks": proc_starttime_ticks(descendant_pid),
+                }
+            )
+    for target in kill_targets:
+        if not _identity_matches_live(target):
+            continue
         try:
-            os.kill(target, signal.SIGKILL)
+            os.kill(target["pid"], signal.SIGKILL)
         except ProcessLookupError:
             pass
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        alive = [pid for pid in targets if pid_alive(pid)]
+        alive = [identity for identity in roots if proc_identity_alive(identity)]
         if not alive:
             return {
                 "exited": True,
-                "managedPids": roots,
+                "managedIdentities": roots,
                 "sigterm": True,
                 "sigkill": True,
             }
         time.sleep(0.05)
     return {
         "exited": False,
-        "managedPids": roots,
+        "managedIdentities": roots,
         "sigterm": True,
         "sigkill": True,
-        "remainingPids": alive,
+        "remaining": [identity for identity in roots if proc_identity_alive(identity)],
     }
+
+
+def quarantine_record_path(state_root: Path, profile_id: str) -> Path:
+    return Path(state_root) / "quarantine" / f"{profile_id}.json"
+
+
+def write_quarantine_record(
+    state_root: Path,
+    session: dict,
+    reason: str,
+    remaining: list[dict],
+) -> Path:
+    """Persistent, machine-readable quarantine record. A new Host must verify
+    every recorded PID+starttime identity is gone before it may clean the
+    record and take over the profile."""
+    path = quarantine_record_path(state_root, session["profileId"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": "verisilo-camoufox-profile-quarantine/v1",
+        "profileId": session["profileId"],
+        "sessionId": session["sessionId"],
+        "artifactId": session["artifactId"],
+        "artifactFileSha256": session["artifactFileSha256"],
+        "createdAtUtc": utcnow(),
+        "reason": reason,
+        "processes": [
+            {
+                "pid": identity.get("pid"),
+                "startTimeTicks": identity.get("startTimeTicks"),
+                "processGroup": identity.get("processGroup"),
+                "role": identity.get("role"),
+            }
+            for identity in remaining
+        ],
+        "evidenceClass": "observed-on-this-host",
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n")
+    return path
+
+
+def read_quarantine_record(state_root: Path, profile_id: str) -> Optional[dict]:
+    path = quarantine_record_path(state_root, profile_id)
+    if not path.exists():
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def quarantine_processes_alive(record: dict) -> list[dict]:
+    return [
+        proc
+        for proc in record.get("processes", [])
+        if isinstance(proc, dict) and proc_identity_alive(proc)
+    ]
+
+
+def clear_quarantine_if_stale(state_root: Path, profile_id: str) -> dict:
+    """A new Host may only clear the quarantine after every recorded process
+    identity (PID + starttime) is gone. Otherwise it reports the still-alive
+    identities and the caller must NOT take over the profile."""
+    record = read_quarantine_record(state_root, profile_id)
+    if record is None:
+        return {"recordPresent": False, "cleared": False, "alive": []}
+    alive = quarantine_processes_alive(record)
+    if alive:
+        return {"recordPresent": True, "cleared": False, "alive": alive}
+    try:
+        quarantine_record_path(state_root, profile_id).unlink()
+    except OSError:
+        pass
+    return {"recordPresent": True, "cleared": True, "alive": []}
 
 
 async def _collect_cookie_evidence(
@@ -956,6 +1172,7 @@ def write_session_state(session: dict) -> None:
         "cookieEvidence": session.get("cookieEvidence"),
         "cookieSqlite": session.get("cookieSqlite"),
         "probePort": session.get("probePort"),
+        "quarantine": session.get("quarantine"),
     }
     (session_dir / "session.json").write_text(json.dumps(payload, indent=2) + "\n")
 
@@ -970,7 +1187,9 @@ def release_profile_lock(session: dict) -> None:
         session["lockFd"] = None
 
 
-async def release_session(host: CamoufoxHost, session: dict) -> None:
+async def release_session(
+    host: CamoufoxHost, session: dict, release_lock: bool = True
+) -> None:
     try:
         os.dup2(_PROTOCOL_FD, 1)
         os.dup2(_STDERR_FD, 2)
@@ -1001,7 +1220,9 @@ async def release_session(host: CamoufoxHost, session: dict) -> None:
         os.environ.pop("DISPLAY", None)
     # The profile lock is released LAST, only after the process tree is
     # confirmed gone, the context is closed, and server/Xvfb are cleaned up.
-    release_profile_lock(session)
+    # Quarantined sessions pass release_lock=False and KEEP the lock.
+    if release_lock:
+        release_profile_lock(session)
 
 
 # --------------------------------------------------------------------------
@@ -1059,6 +1280,18 @@ async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
             }
         )
         return command == "shutdown"
+    except UnsupportedSchemaVersionError as exc:
+        _send(
+            {
+                "id": request_id,
+                "ok": False,
+                "error": {
+                    "code": "unsupported_schema_version",
+                    "message": str(exc),
+                },
+            }
+        )
+        return False
     except (ArtifactIntegrityError, TreeIntegrityError) as exc:
         _send(
             {
@@ -1212,6 +1445,11 @@ async def run_host(host: CamoufoxHost) -> int:
             "closing",
         ):
             await host.close(host.session["sessionId"])
+        elif host.session is not None and host.session["state"] == "quarantined":
+            _log(
+                "host: session is QUARANTINED; profile lock is released by "
+                "process exit, quarantine record persists for the next Host"
+            )
     _log("host: sessions closed, playwright stopping")
     return 0
 
