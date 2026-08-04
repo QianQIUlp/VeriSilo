@@ -1,0 +1,126 @@
+{
+  "schema": "verisilo-camoufox-m2-evidence-manifest/v1",
+  "updatedAtUtc": "2026-08-04T06:14:44+00:00",
+  "codeGitRevision": "a3c627672711e02b319ce4ab02893a90479646e9",
+  "codeGitRevisionNote": "commit a3c6276 froze the exact code that produced the runs listed here",
+  "host": "Linux 6.17.0-1021-azure x86_64 (2 cores, machine x86_64)",
+  "m0Gate": {
+    "status": "passed-on-this-host",
+    "scopeNote": "本机兼容性 Gate；不是供应链和网络行为验证",
+    "noCamoufoxWebdlAttemptObserved": true,
+    "outboundNetworkFullyObserved": false
+  },
+  "m1_1": {
+    "status": "accepted",
+    "stabilityRunId": "run-1785823932-74f1f3b2",
+    "separationRunId": "run-1785823958-6de874c7",
+    "tamperRunId": "run-1785823971-e003201a",
+    "stabilityReportSha256": "3c7b49aa261b798d72e902d7ee8468ea0a227a62b37e5607f784559be479e1dd",
+    "separationReportSha256": "103f8a8db7c403c40a690ec7a64cfd0b350fcc7b04c46675d60f73b4104026fb",
+    "tamperReportSha256": "2ffe16a2b936ac3dc0e5a2850ef7553947e727bbd7284a2e0266e8edd8ee1f02",
+    "artifacts": [
+      {
+        "artifactId": "identity-a",
+        "file": "identity-a.json",
+        "rawFileSha256": "436d6a07b182f8772c91db3525b645a0d0a36b493fc90e729bc8f2cfca6f8e1c",
+        "canonicalDigest": "sha256:2d3ddbc371b0a114b668aee86a089777dd1826f07f1e417eaad93f1c6a31d6dd",
+        "configuredIdentityDigest": "sha256:a8f52442aeddf154858ffe306ecbd64315b7419928181ced3104fb5d949be9d6",
+        "observedWebsiteDigest": "sha256:1bfa0ca058347422f7a32c2d9c006c3cf0ba08f3d57d1d872e0a69fa6e0cd905"
+      },
+      {
+        "artifactId": "identity-b",
+        "file": "identity-b.json",
+        "rawFileSha256": "37d8d79cc778542824ae107cecd0f9fa21abda88617937bd105660a97974f4ca",
+        "canonicalDigest": "sha256:83614085254c325623d1f32bbc2ceb2f92c7ed1f90eecf18668139d240c379fc",
+        "configuredIdentityDigest": "sha256:43ed9d7dd79e29b018d7427c2b0047670035975d8921fbf9e835825d7985177e",
+        "observedWebsiteDigest": "sha256:0ac0246f030d288278958515b5b9296dd389b0787151dfcefb1d12f984bc9880"
+      },
+      {
+        "artifactId": "identity-c",
+        "file": "identity-c.json",
+        "rawFileSha256": "24973e646a0ce688339f0ee27aa6caff207cf987cf813ef6af56fa3c50eef53a",
+        "canonicalDigest": "sha256:1fb0f585bedf7b01f02b38bf0366ea495628ef32cd6eaf379db9174f84d7663e",
+        "configuredIdentityDigest": "sha256:92235bcd1695319deac5702e488cb845fccff8a9b2a0757ce39f985e62bf4d37",
+        "observedWebsiteDigest": "sha256:a78ff339d1b4d27a7b65158849bfbfdb3131db66f3a74f1512a05ed348c94666"
+      }
+    ],
+    "browserBinding": {
+      "archiveSha256": "924f3109ccd6d47cd6a0384d67a345fadf975d48b6319f8dbbd5954c588982bd",
+      "archiveSizeBytes": 663387175,
+      "buildId": "20260719045650",
+      "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7"
+    },
+    "treeManifest": {
+      "file": "browser-tree-manifest.json",
+      "fileCount": 689,
+      "totalBytes": 1284408846,
+      "manifestSha256": "20807dd2ce29084d9efc67a1f687bcfe6fc7b5775c41d5671f4653f9eafbae75"
+    },
+    "stability": {
+      "requestedRuns": 5,
+      "allObservedWebsiteDigestsIdentical": true,
+      "stableObservedWebsiteDigest": "sha256:1bfa0ca058347422f7a32c2d9c006c3cf0ba08f3d57d1d872e0a69fa6e0cd905",
+      "configUnchangedEveryStart": true,
+      "exitStatusEveryStart": [0, 0, 0, 0, 0],
+      "exitFileObservedEveryStart": [true, true, true, true, true],
+      "profileFreshEveryStart": [true, true, true, true, true],
+      "artifactFileSha256EveryStart": [
+        "436d6a07b182f8772c91db3525b645a0d0a36b493fc90e729bc8f2cfca6f8e1c",
+        "436d6a07b182f8772c91db3525b645a0d0a36b493fc90e729bc8f2cfca6f8e1c",
+        "436d6a07b182f8772c91db3525b645a0d0a36b493fc90e729bc8f2cfca6f8e1c",
+        "436d6a07b182f8772c91db3525b645a0d0a36b493fc90e729bc8f2cfca6f8e1c",
+        "436d6a07b182f8772c91db3525b645a0d0a36b493fc90e729bc8f2cfca6f8e1c"
+      ]
+    },
+    "separation": {
+      "allObservedWebsiteDigestsDistinct": true,
+      "configUnchangedEveryStart": true,
+      "exitStatusEveryStart": [0, 0, 0]
+    },
+    "tamper": {
+      "modes": ["digest", "missing-field", "type-error", "policy-mismatch"],
+      "allRejectedBeforeLaunch": true
+    },
+    "canvas": {
+      "stable": false,
+      "excludedFromObservedWebsiteDigest": true,
+      "rawPixelsStableButSeedNoiseNotObservable": true,
+      "exportEncodingSessionVariableAcrossRestarts": true
+    },
+    "fontEvidence": {
+      "fixedUniverse": true,
+      "fixedUniverseSize": 25,
+      "bogusNegativeControls": true,
+      "hostFontNegativeControls": true,
+      "hostFontMaskingConfirmed": false,
+      "finding": "DejaVu Sans/Mono/Serif and Liberation Mono remain visible via document.fonts.check; injected font list does not fully mask host fonts; font isolation is NOT claimed"
+    },
+    "timezoneMode": "fixed",
+    "fixedFields": [
+      "navigator.globalPrivacyControl",
+      "screen.availTop",
+      "screen.availLeft"
+    ],
+    "strictSchema": {
+      "recursive": true,
+      "boolRejectedForInt": true,
+      "nestedUnknownFieldsRejected": true,
+      "singleReadArtifact": true,
+      "expectedArtifactFileSha256Required": true,
+      "sidecarRequired": true,
+      "unitTests": "14/14 passed"
+    }
+  },
+  "m2Host": {
+    "protocol": "verisilo-camoufox-host/v1",
+    "hostVersion": "0.1.0",
+    "document": "docs/camoufox-host-v1.md",
+    "integrationTests": "7/7 passed",
+    "persistenceAcrossHostRestart": true,
+    "profileLock": true,
+    "crashRecovery": true,
+    "treeTamperRejected": true,
+    "stdoutPureProtocol": true
+  },
+  "note": "原始 Profile 与完整报告位于 gitignored artifacts/ 下；本 manifest 是 tracked 的 sanitized 证据索引。"
+}
