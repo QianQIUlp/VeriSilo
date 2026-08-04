@@ -17,6 +17,7 @@ from identity_policy import (
     ARTIFACT_SCHEMA,
     OBSERVED_DIGEST_SCHEMA,
     ArtifactIntegrityError,
+    UnsupportedSchemaVersionError,
     canonical_digest,
     canonical_json_bytes,
     compute_artifact_digest,
@@ -304,6 +305,79 @@ def test_fixtures_font_mode_inherit() -> None:
         artifact = verify_artifact(FIXTURES / f"{name}.json")
         assert artifact["policy"]["fontMode"] == "inherit"
         assert "fontUniverseWidths" not in artifact["policy"]["stableWebsiteFields"]
+
+
+def test_old_v2_artifact_returns_unsupported_schema_version() -> None:
+    artifact = load_fixture("identity-a")
+    artifact["schema"] = "verisilo-camoufox-resolved-identity/v2"
+    artifact["policy"]["schema"] = "verisilo-camoufox-identity-policy/v2"
+    artifact["policy"]["version"] = 2
+    artifact["policy"].pop("fontMode")
+    _recompute_digests(artifact)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "identity-v2.json"
+        path.write_text(json.dumps(artifact, indent=2) + "\n")
+        (path.with_suffix(".json.sha256")).write_text(
+            f"{__import__('hashlib').sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+        )
+        try:
+            verify_artifact(path)
+        except UnsupportedSchemaVersionError as exc:
+            assert "v2" in str(exc)
+            return
+        raise AssertionError("old v2 artifact must raise UnsupportedSchemaVersionError")
+
+
+def test_top_level_scalar_closure() -> None:
+    bad_values = [
+        ("generatedBy-int", lambda a: a.__setitem__("generatedBy", 123)),
+        (
+            "generatedAt-bool",
+            lambda a: a.__setitem__("generatedAtUtc", False),
+        ),
+        (
+            "generatedAt-not-rfc3339",
+            lambda a: a.__setitem__("generatedAtUtc", "2026-08-04 06:00:00"),
+        ),
+        (
+            "generatedAt-non-utc-offset",
+            lambda a: a.__setitem__("generatedAtUtc", "2026-08-04T06:00:00+02:00"),
+        ),
+        (
+            "generatedAt-not-normalized-z",
+            lambda a: a.__setitem__("generatedAtUtc", "2026-08-04T06:00:00+00:00"),
+        ),
+        (
+            "browserRelease-int",
+            lambda a: a.__setitem__("browserRelease", 123),
+        ),
+        (
+            "configured-digest-format",
+            lambda a: a.__setitem__("configuredIdentityDigest", "not-a-digest"),
+        ),
+    ]
+    for label, mutate in bad_values:
+        artifact = load_fixture("identity-a")
+        mutate(artifact)
+        if label == "configured-digest-format":
+            # _recompute_digests would overwrite the tampered digest; keep the
+            # garbage value and only keep canonicalDigest self-consistent.
+            artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+        else:
+            _recompute_digests(artifact)
+        _expect_rejected(artifact, f"scalar-{label}")
+
+    # Valid canonical Z timestamp passes after digest recompute.
+    artifact = load_fixture("identity-a")
+    artifact["generatedAtUtc"] = "2026-08-04T06:00:00.123456Z"
+    _recompute_digests(artifact)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "valid-z.json"
+        path.write_text(json.dumps(artifact, indent=2) + "\n")
+        (path.with_suffix(".json.sha256")).write_text(
+            f"{__import__('hashlib').sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+        )
+        assert verify_artifact(path)["generatedAtUtc"].endswith("Z")
 
 
 def test_tree_rejects_symlink_and_non_regular() -> None:

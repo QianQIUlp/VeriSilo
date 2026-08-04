@@ -6,6 +6,8 @@ Runs without pytest: `uv run python test_host_v1.py`.
 
 from __future__ import annotations
 
+import asyncio
+import fcntl
 import hashlib
 import json
 import os
@@ -20,6 +22,14 @@ from pathlib import Path
 from identity_policy import (
     compute_artifact_digest,
     configured_identity_digest,
+)
+from host_v1 import (
+    clear_quarantine_if_stale,
+    proc_identity_alive,
+    proc_starttime_ticks,
+    quarantine_processes_alive,
+    release_session,
+    write_quarantine_record,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -477,6 +487,231 @@ def test_sigint_cleanup_active_session() -> None:
 
 def test_eof_cleanup_active_session() -> None:
     _assert_shutdown_cleanup("t-eof", lambda host: host.proc.stdin.close())
+
+
+def test_old_v2_artifact_unsupported_schema_version() -> None:
+    ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
+    source = FIXTURES / "identity-a.json"
+    artifact = json.loads(source.read_text())
+    artifact["artifactId"] = "identity-v2"
+    artifact["schema"] = "verisilo-camoufox-resolved-identity/v2"
+    artifact["policy"]["schema"] = "verisilo-camoufox-identity-policy/v2"
+    artifact["policy"]["version"] = 2
+    artifact["policy"].pop("fontMode")
+    artifact["configuredIdentityDigest"] = configured_identity_digest(
+        artifact["resolvedConfig"]
+    )
+    artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+    path = ARTIFACT_ROOT / "identity-v2.json"
+    path.write_text(json.dumps(artifact, indent=2) + "\n")
+    (ARTIFACT_ROOT / "identity-v2.json.sha256").write_text(
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  identity-v2.json\n"
+    )
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    with fresh_roots() as (profile_root, state_root):
+        host = HostProc(
+            artifact_root=ARTIFACT_ROOT,
+            profile_root=profile_root,
+            state_root=state_root,
+        )
+        try:
+            response = host.launch("identity-v2", "t-v2", expected)
+            assert response["ok"] is False
+            assert response["error"]["code"] == "unsupported_schema_version"
+            host.shutdown()
+            host.assert_stdout_pure()
+        finally:
+            host.kill()
+
+
+def test_managed_font_failure_never_running() -> None:
+    ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
+    source = FIXTURES / "identity-a.json"
+    artifact = json.loads(source.read_text())
+    artifact["artifactId"] = "identity-managed"
+    artifact["policy"]["fontMode"] = "managed"
+    artifact["configuredIdentityDigest"] = configured_identity_digest(
+        artifact["resolvedConfig"]
+    )
+    artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+    path = ARTIFACT_ROOT / "identity-managed.json"
+    path.write_text(json.dumps(artifact, indent=2) + "\n")
+    (ARTIFACT_ROOT / "identity-managed.json.sha256").write_text(
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  identity-managed.json\n"
+    )
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    with fresh_roots() as (profile_root, state_root):
+        host = HostProc(
+            artifact_root=ARTIFACT_ROOT,
+            profile_root=profile_root,
+            state_root=state_root,
+        )
+        try:
+            response = host.launch("identity-managed", "t-managed", expected)
+            assert response["ok"] is False
+            assert response["error"]["code"] == "host_font_masking_failed"
+            status = host.status()
+            assert status["result"]["state"] == "failed"
+            assert "font" in (status["result"]["failure"] or "").lower()
+            # The failed session was cleaned: same profile relaunches.
+            # ARTIFACT_ROOT may hold stale artifacts from earlier runs, so
+            # refresh identity-a from the tracked fixture first.
+            (ARTIFACT_ROOT / "identity-a.json").write_bytes(
+                (FIXTURES / "identity-a.json").read_bytes()
+            )
+            (ARTIFACT_ROOT / "identity-a.json.sha256").write_bytes(
+                (FIXTURES / "identity-a.json.sha256").read_bytes()
+            )
+            relaunch = host.launch(
+                "identity-a", "t-managed", artifact_sha("identity-a")
+            )
+            assert relaunch["ok"] is True, relaunch
+            host.close(relaunch["result"]["sessionId"])
+            host.shutdown()
+            host.assert_stdout_pure()
+        finally:
+            host.kill()
+
+
+def test_profile_quarantined_blocks_takeover_until_process_gone() -> None:
+    dummy = subprocess.Popen(
+        [str(VENV_PY), "-c", "import time; time.sleep(60)"]
+    )
+    try:
+        starttime = proc_starttime_ticks(dummy.pid)
+        assert starttime is not None
+        with fresh_roots() as (profile_root, state_root):
+            fake_session = {
+                "profileId": "t-quarantine",
+                "sessionId": "fake-session",
+                "artifactId": "identity-a",
+                "artifactFileSha256": "0" * 64,
+            }
+            write_quarantine_record(
+                state_root,
+                fake_session,
+                "test quarantine",
+                [
+                    {
+                        "pid": dummy.pid,
+                        "startTimeTicks": starttime,
+                        "processGroup": None,
+                        "role": "browser",
+                    }
+                ],
+            )
+            host = HostProc(profile_root=profile_root, state_root=state_root)
+            try:
+                response = host.launch(
+                    "identity-a", "t-quarantine", artifact_sha("identity-a")
+                )
+                assert response["ok"] is False
+                assert response["error"]["code"] == "profile_quarantined"
+                host.shutdown()
+            finally:
+                host.kill()
+            dummy.kill()
+            dummy.wait()
+            host2 = HostProc(profile_root=profile_root, state_root=state_root)
+            try:
+                launch = host2.launch(
+                    "identity-a", "t-quarantine", artifact_sha("identity-a")
+                )
+                assert launch["ok"] is True, launch
+                host2.close(launch["result"]["sessionId"])
+                host2.shutdown()
+                host2.assert_stdout_pure()
+            finally:
+                host2.kill()
+    finally:
+        if dummy.poll() is None:
+            dummy.kill()
+            dummy.wait()
+
+
+def test_proc_identity_and_quarantine_logic() -> None:
+    dummy = subprocess.Popen(
+        [str(VENV_PY), "-c", "import time; time.sleep(60)"]
+    )
+    try:
+        starttime = proc_starttime_ticks(dummy.pid)
+        assert starttime is not None
+        # Same PID with a different starttime is NOT the original process.
+        assert proc_identity_alive({"pid": dummy.pid, "startTimeTicks": starttime})
+        assert not proc_identity_alive(
+            {"pid": dummy.pid, "startTimeTicks": starttime + 1}
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state_root = Path(tmp)
+            fake_session = {
+                "profileId": "p-unit",
+                "sessionId": "s-unit",
+                "artifactId": "identity-a",
+                "artifactFileSha256": "0" * 64,
+            }
+            record_path = write_quarantine_record(
+                state_root,
+                fake_session,
+                "unit test",
+                [
+                    {
+                        "pid": dummy.pid,
+                        "startTimeTicks": starttime,
+                        "processGroup": None,
+                        "role": "browser",
+                    }
+                ],
+            )
+            assert record_path.exists()
+            record = json.loads(record_path.read_text())
+            assert quarantine_processes_alive(record), "dummy must be alive"
+            check = clear_quarantine_if_stale(state_root, "p-unit")
+            assert check["cleared"] is False
+            assert check["alive"], "still-alive identity must block takeover"
+
+            # Quarantined session keeps the profile lock when release_lock=False.
+            lock_path = Path(tmp) / "p-unit.lock"
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            session_with_lock = dict(fake_session)
+            session_with_lock["lockFd"] = lock_fd
+
+            class FakeHost:
+                pass
+
+            asyncio.run(
+                release_session(FakeHost(), session_with_lock, release_lock=False)
+            )
+            probe_fd = os.open(lock_path, os.O_RDWR)
+            retained = False
+            try:
+                try:
+                    fcntl.flock(probe_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    retained = True
+                else:
+                    fcntl.flock(probe_fd, fcntl.LOCK_UN)
+            finally:
+                os.close(probe_fd)
+            assert retained, "quarantine must retain the profile lock"
+
+            asyncio.run(
+                release_session(FakeHost(), session_with_lock, release_lock=True)
+            )
+            probe_fd = os.open(lock_path, os.O_RDWR)
+            released = False
+            try:
+                fcntl.flock(probe_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                released = True
+                fcntl.flock(probe_fd, fcntl.LOCK_UN)
+            finally:
+                os.close(probe_fd)
+            assert released, "release_lock=True must free the profile lock"
+    finally:
+        if dummy.poll() is None:
+            dummy.kill()
+            dummy.wait()
 
 
 def main() -> int:
