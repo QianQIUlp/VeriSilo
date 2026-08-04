@@ -27,7 +27,6 @@
       "mediaDevices",
       "timezone",
       "utcOffsetMinutes",
-      "fontUniverseWidths",
       "fontNegativeControls",
       "webglVendor",
       "webglRenderer",
@@ -101,7 +100,8 @@
       "window.screenX",
       "window.screenY"
     ],
-    "canonicalJsonRule": "UTF-8, recursively sorted object keys, compact separators (,/:), ensure_ascii=false, allow_nan=false; artifact digest excludes only canonicalDigest; ObservedWebsiteDigest excludes artifactId, internal seeds, canvas, and artifact-supplied font input"
+    "canonicalJsonRule": "UTF-8, recursively sorted object keys, compact separators (,/:), ensure_ascii=false, allow_nan=false; artifact digest excludes only canonicalDigest; ObservedWebsiteDigest excludes artifactId, internal seeds, canvas, and artifact-supplied font input",
+    "fontMode": "inherit"
   },
   "browserRelease": "v152.0.4-beta.28",
   "browserBinding": {
@@ -2771,5 +2771,5 @@
     "proxySecrets": "none supplied",
     "environment": "not recorded"
   },
-  "canonicalDigest": "sha256:83614085254c325623d1f32bbc2ceb2f92c7ed1f90eecf18668139d240c379fc"
+  "canonicalDigest": "sha256:bfd11ea9f6b82ac1188b5ccf90edd2d438ef4cc19c3cfb12311dd35693a896f7"
 }
