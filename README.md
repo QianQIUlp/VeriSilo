@@ -4,6 +4,30 @@ VeriSilo is a Windows-first, open-source browser environment isolation and priva
 
 It creates a new, managed browser data directory for every **Silo**. Browser-owned state—cookies, storage, cache, service workers, permissions, and history—stays in that directory. VeriSilo never imports, clones, or mutates the user's default browser profile.
 
+Current public milestone: [0.1 Identity Isolation Core](docs/milestones/0.1-identity-isolation-core.md). This is a source baseline, not a signed binary release.
+
+## Architecture and roadmap
+
+```text
+Desktop core                 Browser and network               Companion & Native Host
+─────────────────────────    ────────────────────────────      ─────────────────────────
+encrypted Vault              dedicated user-data-dir           optional page observations
+Silo lifecycle               direct · fixed proxy · Mihomo    user-triggered exit checks
+runtime binding              fail-closed launch paths          local redacted reports
+```
+
+The desktop app owns the Silo lifecycle and runtime binding; Chrome or Edge owns the browser files; the optional Companion adds observations and local evidence without becoming the isolation mechanism. Every Silo keeps its own browser state and network profile, and the default browser profile is never imported or modified.
+
+### Roadmap
+
+| Stage                                                                                                  | Status                      |
+| ------------------------------------------------------------------------------------------------------ | --------------------------- |
+| **0.1 source milestone** — identity isolation core works end to end                                    | complete in source, 2026-08 |
+| **Next** — browser-visible fingerprint consistency across Window / iframe / Worker / headers / network | planned, not implemented    |
+| **Gated** — signed Windows distribution, controlled browser engine, stronger environments              | explicit future gates       |
+
+See [the current milestone](docs/milestones/0.1-identity-isolation-core.md) for the exact source scope and [the environment roadmap](docs/environment-roadmap.md) for the stronger layers.
+
 ## What is implemented in this repository
 
 - Tauri v2 desktop foundation with an Argon2id-protected local Silo vault:
@@ -58,7 +82,7 @@ for the exact Chrome, Edge, desktop, Native Host, and evidence-capture operation
 
 ## Product site
 
-The static Astro product site lives in [`apps/site`](apps/site) and includes English and Chinese routes.
+The static Astro product site lives in [`apps/site`](apps/site) and is live at [verisilo.qiu.works](https://verisilo.qiu.works/) with English and Chinese routes.
 
 ```bash
 pnpm site:dev

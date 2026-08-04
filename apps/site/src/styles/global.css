@@ -853,6 +853,125 @@
     font-size: 0.75rem;
   }
 
+  .section--milestone {
+    border-block: 0.0625rem solid var(--ink);
+    background: rgb(255 255 255 / 36%);
+  }
+
+  .milestone-heading {
+    display: grid;
+    align-items: end;
+    gap: var(--space-8) var(--space-16);
+    grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 0.75fr);
+  }
+
+  .milestone-heading .eyebrow {
+    grid-column: 1 / -1;
+  }
+
+  .milestone-heading h2 {
+    max-width: 16ch;
+  }
+
+  .milestone-heading > p:last-child {
+    max-width: 36rem;
+    color: var(--muted);
+    line-height: 1.75;
+  }
+
+  .milestone-grid {
+    display: grid;
+    margin-top: var(--space-12);
+    border-top: 0.0625rem solid var(--ink);
+    border-left: 0.0625rem solid var(--ink);
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .milestone-card {
+    display: grid;
+    align-content: start;
+    min-height: 21rem;
+    padding: var(--space-8) var(--space-6);
+    border-right: 0.0625rem solid var(--ink);
+    border-bottom: 0.0625rem solid var(--ink);
+    background: rgb(255 255 255 / 62%);
+  }
+
+  .milestone-card--closed {
+    background: var(--teal-soft);
+  }
+
+  .milestone-card--gated {
+    background: #fff0d5;
+  }
+
+  .milestone-card--next {
+    background: var(--blue-pale);
+  }
+
+  .milestone-card__label {
+    justify-self: start;
+    padding: 0.3rem var(--space-2);
+    border: 0.0625rem solid currentColor;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.2;
+    text-align: center;
+  }
+
+  .milestone-card--closed .milestone-card__label {
+    color: var(--teal);
+    background: var(--teal-soft);
+  }
+
+  .milestone-card--gated .milestone-card__label {
+    color: #9a4d13;
+    background: #fff0d5;
+  }
+
+  .milestone-card--next .milestone-card__label {
+    color: var(--blue-dark);
+    background: var(--blue-soft);
+  }
+
+  .milestone-card h3 {
+    margin-top: var(--space-5);
+    font-size: 1.35rem;
+  }
+
+  .milestone-card__items {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+    padding: 0;
+    list-style: none;
+  }
+
+  .milestone-card__items li {
+    position: relative;
+    padding-left: var(--space-6);
+    color: var(--ink-soft);
+    font-size: 0.88rem;
+    line-height: 1.6;
+  }
+
+  .milestone-card__items li::before {
+    position: absolute;
+    top: 0.6rem;
+    left: 0;
+    width: 0.5rem;
+    height: 0.0625rem;
+    background: currentColor;
+    content: "";
+  }
+
+  .milestone-link {
+    margin-top: var(--space-8);
+  }
+
   .section {
     padding-block: clamp(var(--space-20), 10vw, 9rem);
     scroll-margin-top: 4.5rem;
@@ -1502,7 +1621,8 @@
 
   @media (max-width: 56rem) {
     .primary-nav {
-      gap: var(--space-5);
+      gap: var(--space-3);
+      font-size: 0.8rem;
     }
 
     .hero {
@@ -1519,10 +1639,19 @@
     }
 
     .section-heading--split,
+    .milestone-heading,
     .boundaries-heading,
     .evidence-layout {
       gap: var(--space-8);
       grid-template-columns: 1fr;
+    }
+
+    .milestone-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .milestone-card {
+      min-height: auto;
     }
 
     .evidence-copy {
