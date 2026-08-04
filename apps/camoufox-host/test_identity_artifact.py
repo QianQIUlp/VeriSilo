@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""Unit tests for the M1.1 identity artifact pipeline.
+
+Runs without pytest: `uv run python test_identity_artifact.py`.
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import re
+import tempfile
+from pathlib import Path
+
+from identity_policy import (
+    ARTIFACT_SCHEMA,
+    OBSERVED_DIGEST_SCHEMA,
+    ArtifactIntegrityError,
+    canonical_digest,
+    canonical_json_bytes,
+    compute_artifact_digest,
+    configured_identity_digest,
+    diff_configs,
+    observed_website_digest,
+    read_bundle_metadata,
+    verify_browser_binding,
+    verify_artifact,
+    verify_artifact_raw,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FIXTURES = REPO_ROOT / "tests" / "fixtures" / "camoufox"
+
+
+def load_fixture(name: str) -> dict:
+    return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def test_canonical_json_deterministic() -> None:
+    a = {"b": 1, "a": [3, 2, {"z": None, "y": True}]}
+    b = {"a": [3, 2, {"y": True, "z": None}], "b": 1}
+    assert canonical_json_bytes(a) == canonical_json_bytes(b)
+    assert canonical_json_bytes(a) == canonical_json_bytes(copy.deepcopy(a))
+
+
+def test_configured_digest_includes_seeds_not_artifactId() -> None:
+    base = {"navigator.userAgent": "x", "canvas:seed": 1}
+    other_seed = dict(base)
+    other_seed["canvas:seed"] = 2
+    assert configured_identity_digest(base) != configured_identity_digest(other_seed)
+    # The digest payload has no artifactId anywhere.
+    assert "artifactId" not in canonical_json_bytes(
+        {"schema": "verisilo-camoufox-configured-identity/v1", "resolvedConfig": base}
+    ).decode()
+
+
+def test_observed_digest_payload_shape() -> None:
+    signals = {"userAgent": "x", "screen": {"width": 1}}
+    assert observed_website_digest(signals) == canonical_digest(
+        {"schema": OBSERVED_DIGEST_SCHEMA, "signals": signals}
+    )
+    # No artifactId and no internal seeds are part of the digest input.
+    payload = canonical_json_bytes(
+        {"schema": OBSERVED_DIGEST_SCHEMA, "signals": signals}
+    ).decode()
+    assert "artifactId" not in payload
+    assert "canvasSeed" not in payload
+
+
+def test_diff_configs() -> None:
+    diff = diff_configs({"a": 1}, {"a": 2, "b": 3})
+    assert diff == {"added": ["b"], "removed": [], "changed": ["a"]}
+
+
+def test_fixtures_pass_strict_validation() -> None:
+    for name in ("identity-a", "identity-b", "identity-c"):
+        artifact = verify_artifact(FIXTURES / f"{name}.json")
+        assert artifact["schema"] == ARTIFACT_SCHEMA
+        assert artifact["configuredIdentityDigest"] == configured_identity_digest(
+            artifact["resolvedConfig"]
+        )
+        assert "screen.availTop" in artifact["resolvedConfig"]
+        assert "screen.availLeft" in artifact["resolvedConfig"]
+        assert "navigator.globalPrivacyControl" in artifact["resolvedConfig"]
+        assert artifact["policy"]["timezoneMode"] == "fixed"
+        assert isinstance(artifact["resolvedConfig"]["timezone"], str)
+
+
+def _expect_rejected(artifact: dict, label: str) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / f"{label}.json"
+        path.write_text(json.dumps(artifact, indent=2) + "\n")
+        (path.with_suffix(".json.sha256")).write_text(
+            f"{__import__('hashlib').sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+        )
+        try:
+            verify_artifact(path)
+        except ArtifactIntegrityError:
+            return
+        raise AssertionError(f"expected rejection for {label}")
+
+
+def test_tamper_modes_rejected() -> None:
+    # digest: mutate config without recomputing canonical digest
+    artifact = load_fixture("identity-a")
+    artifact["resolvedConfig"]["canvas:seed"] = int(
+        artifact["resolvedConfig"]["canvas:seed"]
+    ) + 1
+    _expect_rejected(artifact, "digest")
+
+    # missing required field
+    artifact = load_fixture("identity-a")
+    artifact["resolvedConfig"].pop("screen.availTop")
+    _expect_rejected(artifact, "missing-field")
+
+    # type error
+    artifact = load_fixture("identity-a")
+    artifact["resolvedConfig"]["navigator.hardwareConcurrency"] = "8"
+    _expect_rejected(artifact, "type-error")
+
+    # policy/config mismatch
+    artifact = load_fixture("identity-a")
+    artifact["policy"]["window"] = [999, 999]
+    _expect_rejected(artifact, "policy-mismatch")
+
+    # stableSignalsDeclared/config mismatch
+    artifact = load_fixture("identity-a")
+    artifact["stableSignalsDeclared"]["userAgent"] = "tampered"
+    _expect_rejected(artifact, "declared-mismatch")
+
+    # unknown field
+    artifact = load_fixture("identity-a")
+    artifact["resolvedConfig"]["navigator.sneaky"] = "x"
+    _expect_rejected(artifact, "unknown-field")
+
+    # bad artifactId
+    artifact = load_fixture("identity-a")
+    artifact["artifactId"] = "../escape"
+    _expect_rejected(artifact, "bad-id")
+
+
+def test_sidecar_required() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        artifact = load_fixture("identity-a")
+        path = tmp_path / "no-sidecar.json"
+        path.write_text(json.dumps(artifact, indent=2) + "\n")
+        try:
+            verify_artifact(path)
+        except ArtifactIntegrityError as exc:
+            assert "sidecar missing" in str(exc)
+            return
+        raise AssertionError("missing sidecar should be rejected")
+
+
+def test_mutation_with_recomputed_digest_is_rejected_by_strict_validation() -> None:
+    # Recomputing the self-digest is NOT enough: strict validation also checks
+    # policy/config consistency, so an internal-seed change with a recomputed
+    # digest fails via stableSignalsDeclared mismatch.
+    artifact = load_fixture("identity-a")
+    artifact["resolvedConfig"]["canvas:seed"] = int(
+        artifact["resolvedConfig"]["canvas:seed"]
+    ) + 1
+    artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+    _expect_rejected(artifact, "recomputed-digest")
+
+
+def test_browser_binding_verification() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        bundle = Path(tmp) / "bundle"
+        bundle.mkdir()
+        (bundle / "application.ini").write_text(
+            "[App]\nBuildID=111\nSourceStamp=222\n", encoding="utf-8"
+        )
+        (bundle / "properties.json").write_bytes(b"{}")
+        executable = bundle / "camoufox-bin"
+        metadata = read_bundle_metadata(executable)
+        artifact = load_fixture("identity-a")
+        artifact["browserBinding"] = {
+            **artifact["browserBinding"],
+            **metadata,
+        }
+        lock = {
+            "sha256": artifact["browserBinding"]["archiveSha256"],
+            "sizeBytes": artifact["browserBinding"]["archiveSizeBytes"],
+            "release": artifact["browserRelease"],
+        }
+        installed = artifact["generatorVersions"]
+        verify_browser_binding(artifact, lock, executable, installed)
+
+        artifact["browserBinding"]["buildId"] = "999"
+        try:
+            verify_browser_binding(artifact, lock, executable, installed)
+        except ArtifactIntegrityError:
+            pass
+        else:
+            raise AssertionError("buildId mismatch should be rejected")
+
+
+def test_bool_rejected_for_int_fields() -> None:
+    artifact = load_fixture("identity-a")
+    artifact["resolvedConfig"]["navigator.hardwareConcurrency"] = True
+    artifact["configuredIdentityDigest"] = configured_identity_digest(
+        artifact["resolvedConfig"]
+    )
+    artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+    # Rejection must come from the strict type check, not the digest.
+    _expect_rejected(artifact, "bool-as-int")
+
+
+def test_fonts_list_rejects_non_strings() -> None:
+    artifact = load_fixture("identity-a")
+    artifact["resolvedConfig"]["fonts"] = list(artifact["resolvedConfig"]["fonts"]) + [123]
+    artifact["stableSignalsDeclared"]["fonts"] = artifact["resolvedConfig"]["fonts"]
+    artifact["configuredIdentityDigest"] = configured_identity_digest(
+        artifact["resolvedConfig"]
+    )
+    artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+    _expect_rejected(artifact, "fonts-non-string")
+
+
+def test_nested_unknown_fields_rejected() -> None:
+    cases = [
+        ("policy", lambda a: a["policy"].__setitem__("sneaky", 1)),
+        (
+            "webgl-context",
+            lambda a: a["resolvedConfig"]["webGl:contextAttributes"].__setitem__(
+                "sneaky", True
+            ),
+        ),
+        (
+            "voice",
+            lambda a: a["resolvedConfig"]["voices"][0].__setitem__("sneaky", "x"),
+        ),
+        (
+            "declared-screen",
+            lambda a: a["stableSignalsDeclared"]["screen"].__setitem__("sneaky", 1),
+        ),
+        ("exclusions", lambda a: a["exclusions"].__setitem__("sneaky", "x")),
+        ("binding", lambda a: a["browserBinding"].__setitem__("sneaky", "x")),
+        (
+            "generator",
+            lambda a: a["generatorVersions"].__setitem__("sneaky", "0.0.1"),
+        ),
+    ]
+    for label, mutate in cases:
+        artifact = load_fixture("identity-a")
+        mutate(artifact)
+        artifact["configuredIdentityDigest"] = configured_identity_digest(
+            artifact["resolvedConfig"]
+        )
+        artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+        _expect_rejected(artifact, f"nested-{label}")
+
+
+def test_expected_file_sha_mismatch() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        src = FIXTURES / "identity-a.json"
+        path = Path(tmp) / "identity-a.json"
+        path.write_bytes(src.read_bytes())
+        (path.with_suffix(".json.sha256")).write_text(
+            (FIXTURES / "identity-a.json.sha256").read_text(encoding="utf-8")
+        )
+        try:
+            verify_artifact_raw(path, expected_file_sha="0" * 64)
+        except ArtifactIntegrityError as exc:
+            assert "expected" in str(exc)
+            return
+        raise AssertionError("expected file sha mismatch must be rejected")
+
+
+def test_font_universe_sync_with_probe() -> None:
+    from host_fonts import FONT_UNIVERSE
+
+    probe = (REPO_ROOT / "tests" / "fingerprint-probe" / "probe.html").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r"const FONT_UNIVERSE = \[(.*?)\];", probe, re.DOTALL)
+    assert match is not None, "FONT_UNIVERSE not found in probe.html"
+    names = re.findall(r'"([^"]+)"', match.group(1))
+    assert names == FONT_UNIVERSE, "probe.html FONT_UNIVERSE drifted from host_fonts.py"
+
+
+def main() -> int:
+    tests = [
+        (name, fn)
+        for name, fn in sorted(globals().items())
+        if name.startswith("test_") and callable(fn)
+    ]
+    failed = 0
+    for name, fn in tests:
+        try:
+            fn()
+            print(f"PASS {name}")
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            print(f"FAIL {name}: {exc}")
+    if failed:
+        print(f"{failed}/{len(tests)} tests failed")
+        return 1
+    print(f"all {len(tests)} tests passed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
