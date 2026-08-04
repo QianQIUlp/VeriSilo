@@ -1,7 +1,8 @@
-# VeriSilo M2.0.1 — Standalone Camoufox Host v1 (Linux stdio protocol)
+# VeriSilo M2.0.2 — Standalone Camoufox Host v1 (Linux stdio protocol)
 
-Status: **Host v1 is a runnable Linux prototype with corrected lifecycle and
-persistence evidence. Observations only — `verified: false` /
+Status: **Host v1 is a runnable Linux prototype with corrected lifecycle,
+persistence evidence, version contract, and fail-closed quarantine.
+Observations only — `verified: false` /
 `observed-on-this-host` on every response. It is NOT yet a fully accepted
 product Host: font isolation is not claimed and M2-W (Windows) / M3
 (EngineAdapter/Tauri) are not allowed yet.**
@@ -50,18 +51,26 @@ actual port for later launches in the same process.
 ```text
 idle -> starting -> running -> closing -> exited
                             \-> failed (browser crash)
+                            \-> quarantined (managed process still alive;
+                                 profile lock retained, persistent record)
 ```
 
 Only one session is active at a time (`session_busy` otherwise). Profiles are
 persistent directories guarded by an exclusive `flock`; a concurrent launch of
 the same profile returns `profile_in_use`.
 
-**Lock ordering (M2.0.1):** the profile lock is released LAST. Close/failure
+**Lock ordering (M2.0.2):** the profile lock is released LAST. Close/failure
 paths first stop the monitor, close the Playwright context, terminate and
 CONFIRM the entire managed process tree is gone, shut down the probe server
 (including closing its listening socket) and Xvfb, and only then release the
 flock. A second Host can never take over a profile while the old browser is
-still alive.
+still alive. If termination cannot be confirmed (`processTreeExit.exited !=
+true`), the session enters **quarantined**: the lock is KEPT by the current
+Host, a persistent quarantine record (PID + start-time ticks + process group)
+is written to `stateRoot/quarantine/<profile>.json`, and the state is never
+marked exited. A new Host may only clean the record and take over after every
+recorded PID+start-time identity is gone; otherwise launch returns
+`profile_quarantined`.
 
 ## Launch guarantees (per launch)
 
@@ -83,14 +92,21 @@ still alive.
 7. Managed process identity comes from the supervisor's own
    `supervisor.json` (supervisor PID, child browser PID, start times, process
    groups). The Host never guesses a PID by scanning `/proc` cmdlines.
+   **Every signal is sent only after re-verifying PID + start-time** — a
+   reused PID with a different start-time is never treated as the original
+   process and is never killed.
 8. Probe page reports ObservedWebsiteDigest (no canvas, no internal seeds, no
    artifact-supplied font input; font widths only in `managed` font mode).
+   `managed` mode temporarily launches and probes the browser to measure
+   host-font negative controls; it fails the launch (state never enters
+   `running`) before the launch is accepted — it is NOT a "before browser
+   start" rejection.
 9. First boot writes `verisilo_probe_cookie` (value embeds the session id),
    reads it back via the cookies API and `document.cookie`, and close()
    records `cookies.sqlite` evidence (file + `moz_cookies` row). Later boots
    prove the cookie and bootCount persisted from the previous Host process.
 
-## Font policy (M2.0.1)
+## Font policy (M2.0.2)
 
 `policy.fontMode` is `inherit` or `managed`.
 
@@ -98,8 +114,9 @@ still alive.
   enter ObservedWebsiteDigest. Host-font negative-control failures are
   recorded as evidence (`hostFontMasking`) but do not gate stability.
 - `managed`: font widths enter the digest ONLY if every host negative control
-  is unavailable in the page; otherwise launch fails with
-  `host_font_masking_failed` before acceptance.
+  is unavailable in the page; otherwise the browser is cleaned up and launch
+  fails with `host_font_masking_failed` before the launch is accepted (state
+  never enters `running`). The browser IS temporarily launched and probed.
 
 Current artifacts are `inherit` because host-font masking is NOT solved on
 this host (several host-installed families remain visible through
@@ -112,11 +129,13 @@ managed PIDs + supervisor metadata, exit status/file, processTreeExit,
 cookie evidence, cookie sqlite, fontMode, probe port) and `observed.json`
 (full probe + projection), plus `browser.log`. `shutdown` returns `selfCheck`
 with matches from a secret pattern scan of the Host argv and the stderr log.
+Quarantined sessions additionally write
+`stateRoot/quarantine/<profile>.json` with the surviving process identities.
 
 ## Test results
 
-`apps/camoufox-host/test_host_v1.py` (11/11 passed) and
-`test_identity_artifact.py` (17/17 passed):
+`apps/camoufox-host/test_host_v1.py` (15/15 passed) and
+`test_identity_artifact.py` (19/19 passed):
 
 - hello returns fixed protocol/version binding (`verisilo-camoufox-host/v1`,
   hostVersion 0.1.0, browserRelease v152.0.4-beta.28).
@@ -127,7 +146,8 @@ with matches from a secret pattern scan of the Host argv and the stderr log.
   `cookies.sqlite` contains the `verisilo_probe_cookie` row after close,
   ObservedWebsiteDigest identical across both Host processes.
 - Three Host-managed cold starts of identity-a produce the same
-  ObservedWebsiteDigest (`sha256:6206f58d…96f03`, inherit font mode).
+  ObservedWebsiteDigest (`sha256:70f71b5c…d0ff`, v3 artifact / v2 digest
+  schema, inherit font mode).
 - Concurrent launch of the same profile returns `profile_in_use`.
 - Wrong expected SHA / missing top-level config field / missing NESTED
   required field (policy.canonicalJsonRule) with recomputed digests /
@@ -139,6 +159,15 @@ with matches from a secret pattern scan of the Host argv and the stderr log.
   the browser tree and exit 0; the same profile relaunches.**
 - An oversized (>32 KiB) frame is rejected with `frame_too_large` and the
   Host remains usable.
+- Old v2 artifacts are rejected with `unsupported_schema_version` (an explicit
+  version-contract error, never a plain missing-field error).
+- Managed font masking failure: browser cleaned up, state `failed`, never
+  `running`, same profile relaunches.
+- Quarantine: a profile with a still-alive recorded process identity returns
+  `profile_quarantined`; once that identity (PID + start-time) is gone the
+  stale record is cleared and the profile launches. A reused PID with a
+  different start-time is never treated as the original process, and a
+  quarantined Host keeps the profile lock until release.
 - stdout stayed pure protocol JSON in every test; shutdown selfCheck found no
   artifact seeds or secrets in argv/stderr.
 
