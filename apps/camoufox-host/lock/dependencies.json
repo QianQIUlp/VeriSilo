@@ -1,0 +1,20 @@
+{
+  "schema": "verisilo-camoufox-host-dependencies/v1",
+  "python": "3.12.11",
+  "packages": {
+    "camoufox": {
+      "version": "0.5.4",
+      "source": "https://pypi.org/project/camoufox/0.5.4/",
+      "wheelSha256": "c3f5fc4de0416d0f3363c029267c61718a3fda9e2668f526aff982ae36c30703"
+    },
+    "playwright": {
+      "version": "1.60.0",
+      "source": "https://pypi.org/project/playwright/1.60.0/"
+    },
+    "browserforge": {
+      "version": "1.2.4",
+      "source": "https://pypi.org/project/browserforge/1.2.4/"
+    }
+  },
+  "note": "Transitive resolution and hashes are pinned by uv.lock; browser archive is pinned by lock/camoufox-v152.0.4-beta.28-linux-x86_64.json."
+}
