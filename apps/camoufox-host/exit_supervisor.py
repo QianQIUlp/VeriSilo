@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""Spike-only exit supervisor.
+
+Playwright 1.60's Python API does not expose the browser process or its exit
+code for persistent contexts. This wrapper is passed as executable_path: it
+spawns the real Camoufox binary with the exact arguments Playwright provides,
+hands stdin/stdout/stderr straight through, forwards termination signals, and
+records the real browser process's exit code to VERISILO_EXIT_FILE.
+
+This is spike harness code only. It changes nothing in the production launch
+path and is not part of any EngineAdapter.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import signal
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+
+def main() -> int:
+    real_exe = os.environ.pop("VERISILO_REAL_EXE", None)
+    exit_file = os.environ.pop("VERISILO_EXIT_FILE", None)
+    if not real_exe or not exit_file:
+        print("exit_supervisor: VERISILO_REAL_EXE and VERISILO_EXIT_FILE required", file=sys.stderr)
+        return 2
+
+    child_argv = [real_exe, *sys.argv[1:]]
+    child_env = os.environ.copy()
+    child_env.pop("VERISILO_REAL_EXE", None)
+    child_env.pop("VERISILO_EXIT_FILE", None)
+
+    proc = subprocess.Popen(
+        child_argv,
+        cwd=os.path.dirname(real_exe),
+        stdin=sys.stdin.fileno(),
+        stdout=sys.stdout.fileno(),
+        stderr=sys.stderr.fileno(),
+        env=child_env,
+        # The Playwright driver passes an extra protocol fd to the spawned
+        # process; closing it (Python's default) makes camoufox-bin exit 0
+        # during startup. Inherit all fds like a shell would.
+        close_fds=False,
+        start_new_session=False,
+    )
+
+    def forward(signum: int, _frame) -> None:
+        if proc.poll() is None:
+            proc.send_signal(signum)
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, forward)
+
+    code = proc.wait()
+    try:
+        with open(exit_file, "w", encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "exitCode": code,
+                        "observedAtUtc": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            )
+    except OSError:
+        pass
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
