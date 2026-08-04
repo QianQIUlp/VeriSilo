@@ -19,11 +19,13 @@ import signal
 import subprocess
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 def main() -> int:
     real_exe = os.environ.pop("VERISILO_REAL_EXE", None)
     exit_file = os.environ.pop("VERISILO_EXIT_FILE", None)
+    supervisor_file = os.environ.pop("VERISILO_SUPERVISOR_FILE", None)
     if not real_exe or not exit_file:
         print("exit_supervisor: VERISILO_REAL_EXE and VERISILO_EXIT_FILE required", file=sys.stderr)
         return 2
@@ -32,6 +34,7 @@ def main() -> int:
     child_env = os.environ.copy()
     child_env.pop("VERISILO_REAL_EXE", None)
     child_env.pop("VERISILO_EXIT_FILE", None)
+    child_env.pop("VERISILO_SUPERVISOR_FILE", None)
 
     proc = subprocess.Popen(
         child_argv,
@@ -46,6 +49,26 @@ def main() -> int:
         close_fds=False,
         start_new_session=False,
     )
+
+    if supervisor_file:
+        try:
+            with open(supervisor_file, "w", encoding="utf-8") as fh:
+                fh.write(
+                    json.dumps(
+                        {
+                            "supervisorPid": os.getpid(),
+                            "supervisorStartTimeTicks": starttime_ticks(os.getpid()),
+                            "supervisorProcessGroup": os.getpgid(os.getpid()),
+                            "childPid": proc.pid,
+                            "childStartTimeTicks": starttime_ticks(proc.pid),
+                            "childProcessGroup": os.getpgid(proc.pid),
+                            "observedAtUtc": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    + "\n"
+                )
+        except OSError:
+            pass
 
     def forward(signum: int, _frame) -> None:
         if proc.poll() is None:
@@ -68,6 +91,22 @@ def main() -> int:
     except OSError:
         pass
     return code
+
+
+def starttime_ticks(pid: int) -> int:
+    """Field 22 of /proc/<pid>/stat (starttime in clock ticks)."""
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return -1
+    fields = text.rsplit(")", 1)
+    if len(fields) != 2:
+        return -1
+    parts = fields[1].split()
+    try:
+        return int(parts[19])  # 22nd field overall
+    except (IndexError, ValueError):
+        return -1
 
 
 if __name__ == "__main__":

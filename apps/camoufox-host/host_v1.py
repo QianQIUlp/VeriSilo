@@ -57,14 +57,13 @@ from host_fonts import (
 )
 from run_identity_spike import extract_observed_website_signals
 from run_spike import (
+    COOKIE_NAME,
     DownloadGuard,
     EXECUTABLE,
     REPO_ROOT,
     SUPERVISOR,
     XDG_CACHE_DIR,
-    browser_process,
     ensure_browser_asset,
-    find_pid_by_cmdline,
     install_download_guard,
     installed_versions,
     load_asset_lock,
@@ -80,6 +79,7 @@ HOST_VERSION = "0.1.0"
 MAX_FRAME_BYTES = 32768
 PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+_FRAME_TOO_LARGE = object()
 
 SECRET_PATTERNS = [
     "password=",
@@ -241,12 +241,14 @@ class CamoufoxHost:
         state_root: Path,
         tree_manifest: Path,
         display: Optional[str],
+        probe_port: int = 0,
     ) -> None:
         self.artifact_root = artifact_root.resolve()
         self.profile_root = profile_root.resolve()
         self.state_root = state_root.resolve()
         self.tree_manifest = tree_manifest
         self.display_arg = display
+        self.probe_port = probe_port
         self.playwright: Any = None
         self.lock: dict = {}
         self.executable: Optional[Path] = None
@@ -286,6 +288,7 @@ class CamoufoxHost:
             "profileRoot": str(self.profile_root),
             "stateRoot": str(self.state_root),
             "maxFrameBytes": MAX_FRAME_BYTES,
+            "probePortPolicy": "fixed" if self.probe_port else "ephemeral",
             "browserRelease": self.lock["release"],
             "assetSha256": self.lock["sha256"],
             "treeManifest": str(self.tree_manifest),
@@ -354,7 +357,11 @@ class CamoufoxHost:
             "logFh": log_fh,
             "ctx": None,
             "pid": None,
+            "childPid": None,
+            "supervisorMeta": None,
             "exitFile": session_dir / "exit.json",
+            "exitFileObserved": False,
+            "processTreeExit": None,
             "configuredIdentityDigest": None,
             "observedWebsiteDigest": None,
             "observedSignals": None,
@@ -368,6 +375,10 @@ class CamoufoxHost:
             "bootCountAfter": None,
             "spawnSeconds": None,
             "probeSeconds": None,
+            "fontMode": None,
+            "cookieEvidence": None,
+            "cookieSqlite": None,
+            "probePort": None,
         }
         self.session = session
         _log(
@@ -394,6 +405,10 @@ class CamoufoxHost:
             "bootCountAfter": session["bootCountAfter"],
             "spawnSeconds": session["spawnSeconds"],
             "probeSeconds": session["probeSeconds"],
+            "fontMode": session.get("fontMode"),
+            "managedPids": managed_pids(session),
+            "cookieEvidence": session["cookieEvidence"],
+            "probePort": session.get("probePort"),
         }
 
     async def _launch_browser(self, session: dict, artifact: dict) -> None:
@@ -411,10 +426,18 @@ class CamoufoxHost:
         if not display:
             display, xvfb = start_xvfb()
         session["xvfb"] = xvfb
-        server, probe_url = start_probe_server()
+        server, probe_url = start_probe_server(self.probe_port)
         session["server"] = server
+        # Remember the actual probe port: later launches (same Host process,
+        # or a restarted Host given this port) keep the cookie / localStorage
+        # origin stable.
+        self.probe_port = server.server_address[1]
+        session["probePort"] = self.probe_port
         os.environ["VERISILO_REAL_EXE"] = str(self.executable)
         os.environ["VERISILO_EXIT_FILE"] = str(session["exitFile"])
+        os.environ["VERISILO_SUPERVISOR_FILE"] = str(
+            session["sessionDir"] / "supervisor.json"
+        )
 
         launch_start = time.perf_counter()
         opts = await asyncio.get_event_loop().run_in_executor(
@@ -466,10 +489,34 @@ class CamoufoxHost:
             )
         spawn_seconds = time.perf_counter() - launch_start
 
-        proc, pid = browser_process(ctx)
-        if pid is None:
-            pid = find_pid_by_cmdline(str(session["profileDir"]))
-        session["pid"] = pid
+        # Managed-process identity comes from the supervisor's own status
+        # file (supervisor pid, child browser pid, start times, process
+        # groups). We never guess a pid by scanning /proc cmdlines.
+        supervisor_path = session["sessionDir"] / "supervisor.json"
+        supervisor_meta: Optional[dict] = None
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if supervisor_path.exists():
+                try:
+                    candidate = json.loads(supervisor_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    candidate = None
+                if (
+                    isinstance(candidate, dict)
+                    and isinstance(candidate.get("supervisorPid"), int)
+                    and isinstance(candidate.get("childPid"), int)
+                ):
+                    supervisor_meta = candidate
+                    break
+            await asyncio.sleep(0.1)
+        if supervisor_meta is None:
+            raise ProtocolError(
+                "supervisor_metadata_missing",
+                "supervisor status file missing or invalid",
+            )
+        session["supervisorMeta"] = supervisor_meta
+        session["pid"] = supervisor_meta["supervisorPid"]
+        session["childPid"] = supervisor_meta.get("childPid")
 
         page = await ctx.new_page()
         await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
@@ -488,12 +535,41 @@ class CamoufoxHost:
         session["probeSeconds"] = round(time.perf_counter() - probe_start, 3)
         session["spawnSeconds"] = round(spawn_seconds, 3)
 
+        font_mode = policy.get("fontMode", "inherit")
+        session["fontMode"] = font_mode
+        host_controls_result = {
+            "controlsTested": len(observed.get("hostFontNegativeControls", {})),
+            "allUnavailable": all(
+                available is False
+                for available in observed.get("hostFontNegativeControls", {}).values()
+            ),
+            "failures": [
+                family
+                for family, available in observed.get(
+                    "hostFontNegativeControls", {}
+                ).items()
+                if available is not False
+            ],
+        }
+        if font_mode == "managed" and not host_controls_result["allUnavailable"]:
+            raise ProtocolError(
+                "host_font_masking_failed",
+                "managed font mode requires all host negative controls "
+                "unavailable; masking failed: "
+                + ", ".join(host_controls_result["failures"]),
+            )
+
         boot_before = int(observed.get("bootCount", 0))
         await page.evaluate(f"window.__probe.writeBootCount({boot_before + 1})")
         session["bootCountBefore"] = boot_before
         session["bootCountAfter"] = boot_before + 1
 
-        signals = extract_observed_website_signals(observed)
+        cookie_evidence = await _collect_cookie_evidence(
+            ctx, page, boot_before, session["sessionId"]
+        )
+        session["cookieEvidence"] = cookie_evidence
+
+        signals = extract_observed_website_signals(observed, font_mode)
         session["configuredIdentityDigest"] = disk_digest
         session["observedWebsiteDigest"] = observed_website_digest(signals)
         session["observedSignals"] = signals
@@ -509,6 +585,9 @@ class CamoufoxHost:
             "projection": projection,
             "observedFull": observed,
             "hostFontControls": host_controls,
+            "hostFontMasking": host_controls_result,
+            "fontMode": font_mode,
+            "cookieEvidence": cookie_evidence,
             "verified": False,
             "evidenceClass": "observed-on-this-host",
         }
@@ -524,9 +603,9 @@ class CamoufoxHost:
         write_session_state(session)
 
     async def _monitor_session(self, session: dict) -> None:
-        pid = session.get("pid")
         while not session["stopMonitor"].is_set():
-            if pid is not None and not pid_alive(pid):
+            pids = managed_pids(session)
+            if pids and not all(pid_alive(pid) for pid in pids):
                 await self._fail_session(
                     session,
                     "browser process exited unexpectedly",
@@ -541,10 +620,8 @@ class CamoufoxHost:
         session["state"] = "failed"
         session["failure"] = error
         session["exitStatus"] = read_exit_status(session["exitFile"])
+        session["exitFileObserved"] = session["exitFile"].exists()
         session["stopMonitor"].set()
-        # Release the profile lock FIRST: the failed state must not block a
-        # relaunch of the same profile.
-        release_profile_lock(session)
         if session["monitorTask"] is not None and session["monitorTask"] is not asyncio.current_task():
             try:
                 await asyncio.wait_for(session["monitorTask"], timeout=3)
@@ -557,6 +634,12 @@ class CamoufoxHost:
             except Exception:
                 pass
             session["ctx"] = None
+        # Confirm the whole managed process tree is gone BEFORE releasing the
+        # profile lock, so no second Host can ever touch the same profile
+        # while the old browser is still alive.
+        session["processTreeExit"] = terminate_managed_tree(session, timeout=6)
+        session["pid"] = None
+        session["childPid"] = None
         await release_session(self, session)
         write_session_state(session)
         _log(f"session {session['sessionId']} failed: {error}")
@@ -577,6 +660,7 @@ class CamoufoxHost:
             "configuredIdentityDigest": session["configuredIdentityDigest"],
             "observedWebsiteDigest": session["observedWebsiteDigest"],
             "exitStatus": session["exitStatus"],
+            "exitFileObserved": session.get("exitFileObserved"),
             "failure": session["failure"],
         }
 
@@ -589,6 +673,8 @@ class CamoufoxHost:
                 "sessionId": session["sessionId"],
                 "state": session["state"],
                 "exitStatus": session["exitStatus"],
+                "exitFileObserved": session.get("exitFileObserved"),
+                "processTreeExit": session.get("processTreeExit"),
             }
         session["state"] = "closing"
         session["stopMonitor"].set()
@@ -603,15 +689,18 @@ class CamoufoxHost:
             try:
                 await asyncio.wait_for(ctx.close(), timeout=10)
             except Exception:
-                pid = session.get("pid")
-                if pid:
-                    terminate_exact(pid)
-                try:
-                    await asyncio.wait_for(ctx.close(), timeout=10)
-                except Exception:
-                    pass
+                _log(f"session {session['sessionId']}: ctx.close() raised, terminating tree")
         session["ctx"] = None
+        # close() must CONFIRM the managed process tree is fully gone (and
+        # terminate it if not) before the profile lock is released.
+        session["processTreeExit"] = terminate_managed_tree(session, timeout=8)
+        session["pid"] = None
+        session["childPid"] = None
+        session["exitFileObserved"] = session["exitFile"].exists()
         session["exitStatus"] = read_exit_status(session["exitFile"])
+        session["cookieSqlite"] = read_cookie_sqlite_evidence(
+            session["profileDir"]
+        )
         session["state"] = "exited"
         session["closeSeconds"] = round(time.perf_counter() - close_start, 3)
         await release_session(self, session)
@@ -620,6 +709,9 @@ class CamoufoxHost:
             "sessionId": session["sessionId"],
             "state": session["state"],
             "exitStatus": session["exitStatus"],
+            "exitFileObserved": session["exitFileObserved"],
+            "processTreeExit": session["processTreeExit"],
+            "cookieSqlite": session["cookieSqlite"],
             "closeSeconds": session["closeSeconds"],
         }
 
@@ -646,20 +738,192 @@ def pid_alive(pid: int) -> bool:
     return fields[1].split()[0].strip() != "Z"
 
 
-def terminate_exact(pid: int) -> None:
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    deadline = time.monotonic() + 3
+def process_descendants(pid: int) -> list[int]:
+    """All live process IDs in the tree rooted at pid (pid itself first)."""
+    seen: set[int] = set()
+    stack = [pid]
+    result: list[int] = []
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        result.append(current)
+        try:
+            children = Path(f"/proc/{current}/task/{current}/children").read_text()
+        except OSError:
+            continue
+        for child in children.split():
+            stack.append(int(child))
+    return result
+
+
+def process_tree_alive(pid: Optional[int]) -> bool:
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    return any(pid_alive(candidate) for candidate in process_descendants(pid))
+
+
+def managed_pids(session: dict) -> list[int]:
+    return sorted(
+        {
+            pid
+            for pid in (session.get("pid"), session.get("childPid"))
+            if isinstance(pid, int) and pid > 0
+        }
+    )
+
+
+def terminate_managed_tree(session: dict, timeout: float = 8.0) -> dict:
+    """Terminate every managed supervisor/browser descendant and CONFIRM the
+    tree is gone. Returns evidence; the caller only releases the profile lock
+    after this returns exited=True."""
+    roots = managed_pids(session)
+    if not roots:
+        return {
+            "exited": True,
+            "managedPids": [],
+            "sigterm": False,
+            "sigkill": False,
+        }
+    targets: list[int] = []
+    seen: set[int] = set()
+    for root in roots:
+        for descendant in process_descendants(root):
+            if descendant not in seen:
+                seen.add(descendant)
+                targets.append(descendant)
+    for target in reversed(targets):  # children first, supervisors last
+        try:
+            os.kill(target, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if not pid_alive(pid):
-            return
+        alive = [pid for pid in targets if pid_alive(pid)]
+        if not alive:
+            return {
+                "exited": True,
+                "managedPids": roots,
+                "sigterm": True,
+                "sigkill": False,
+            }
         time.sleep(0.05)
+    for target in alive:
+        try:
+            os.kill(target, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        alive = [pid for pid in targets if pid_alive(pid)]
+        if not alive:
+            return {
+                "exited": True,
+                "managedPids": roots,
+                "sigterm": True,
+                "sigkill": True,
+            }
+        time.sleep(0.05)
+    return {
+        "exited": False,
+        "managedPids": roots,
+        "sigterm": True,
+        "sigkill": True,
+        "remainingPids": alive,
+    }
+
+
+async def _collect_cookie_evidence(
+    ctx: Any,
+    page: Any,
+    boot_before: int,
+    session_id: str,
+) -> dict:
+    """First-boot cookie write + readback; later boots prove the cookie
+    persisted from the previous Host process. Origin is the probe server's,
+    which is fixed across Host restarts in the persistence test."""
+    evidence = {
+        "cookieAbsentBeforeWrite": None,
+        "cookieInApi": None,
+        "cookieOnPage": None,
+        "cookieValueLooksManaged": None,
+    }
+    api_before = await ctx.cookies()
+    cookie_before = any(c["name"] == COOKIE_NAME for c in api_before)
+    if boot_before == 0:
+        # Evidence only, not a hard rejection: after a browser crash a
+        # persistent profile can legitimately hold the cookie while
+        # localStorage (the bootCount origin state) was not flushed.
+        evidence["cookieAbsentBeforeWrite"] = not cookie_before
+        cookie_value = f"m2-{session_id}-cookie"
+        await ctx.add_cookies(
+            [
+                {
+                    "name": COOKIE_NAME,
+                    "value": cookie_value,
+                    "url": page.url.rsplit("/", 1)[0] + "/",
+                    "expires": int(time.time()) + 30 * 86400,
+                }
+            ]
+        )
+        await page.reload(wait_until="domcontentloaded")
+        api_after = await ctx.cookies()
+        page_cookie = await page.evaluate("document.cookie")
+        evidence["cookieInApi"] = any(
+            c["name"] == COOKIE_NAME for c in api_after
+        )
+        evidence["cookieOnPage"] = cookie_value in page_cookie
+        evidence["cookieValueLooksManaged"] = any(
+            c["name"] == COOKIE_NAME
+            and str(c.get("value", "")).startswith("m2-")
+            for c in api_after
+        )
+    else:
+        evidence["cookieAbsentBeforeWrite"] = False
+        evidence["cookieInApi"] = cookie_before
+        page_cookie = await page.evaluate("document.cookie")
+        evidence["cookieOnPage"] = COOKIE_NAME in page_cookie
+        evidence["cookieValueLooksManaged"] = any(
+            c["name"] == COOKIE_NAME
+            and str(c.get("value", "")).startswith("m2-")
+            for c in api_before
+        )
+    return evidence
+
+
+def read_cookie_sqlite_evidence(profile_dir: Path) -> dict:
+    """cookies.sqlite evidence: file presence/size plus a best-effort read of
+    the actual moz_cookies row for the probe cookie (Firefox schema)."""
+    db = profile_dir / "cookies.sqlite"
+    result = {
+        "fileExists": db.exists(),
+        "fileBytes": db.stat().st_size if db.exists() else 0,
+        "cookieNamePresent": None,
+    }
+    if not db.exists():
+        result["cookieNamePresent"] = False
+        return result
     try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+        import sqlite3
+
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT name, host, value FROM moz_cookies WHERE name = ?",
+                (COOKIE_NAME,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 - evidence only, never blocks close
+        result["sqliteReadError"] = f"{type(exc).__name__}: {exc}"
+        result["cookieNamePresent"] = None
+        return result
+    result["cookieNamePresent"] = len(rows) > 0
+    result["cookieRows"] = len(rows)
+    result["hosts"] = sorted({row[1] for row in rows})
+    result["valuesManaged"] = all(str(row[2]).startswith("m2-") for row in rows)
+    return result
 
 
 def read_exit_status(exit_file: Path) -> Optional[int]:
@@ -684,6 +948,14 @@ def write_session_state(session: dict) -> None:
         "failure": session["failure"],
         "bootCountBefore": session["bootCountBefore"],
         "bootCountAfter": session["bootCountAfter"],
+        "fontMode": session.get("fontMode"),
+        "managedPids": managed_pids(session),
+        "supervisorMeta": session.get("supervisorMeta"),
+        "exitFileObserved": session.get("exitFileObserved"),
+        "processTreeExit": session.get("processTreeExit"),
+        "cookieEvidence": session.get("cookieEvidence"),
+        "cookieSqlite": session.get("cookieSqlite"),
+        "probePort": session.get("probePort"),
     }
     (session_dir / "session.json").write_text(json.dumps(payload, indent=2) + "\n")
 
@@ -711,10 +983,13 @@ async def release_session(host: CamoufoxHost, session: dict) -> None:
         except Exception:
             pass
         session["logFh"] = None
-    release_profile_lock(session)
     if session.get("server") is not None:
         try:
             session["server"].shutdown()
+        except Exception:
+            pass
+        try:
+            session["server"].server_close()
         except Exception:
             pass
         session["server"] = None
@@ -724,6 +999,9 @@ async def release_session(host: CamoufoxHost, session: dict) -> None:
         # The host owns the display; clear it so the next launch starts a
         # fresh Xvfb instead of reusing a dead display number.
         os.environ.pop("DISPLAY", None)
+    # The profile lock is released LAST, only after the process tree is
+    # confirmed gone, the context is closed, and server/Xvfb are cleaned up.
+    release_profile_lock(session)
 
 
 # --------------------------------------------------------------------------
@@ -846,17 +1124,37 @@ async def run_host(host: CamoufoxHost) -> int:
 
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
-    stdin_stream = os.fdopen(_STDIN_FD, "rb", buffering=0)
 
     def reader() -> None:
+        """Memory-bounded frame reader: never buffers more than
+        MAX_FRAME_BYTES per frame. Oversized frames are drained to the next
+        LF and reported as one frame_too_large marker."""
         _log("host: reader thread started")
+        buf = bytearray()
+        too_large = False
         try:
-            for line in stdin_stream:
-                _log(f"host: reader got {len(line)} bytes")
-                loop.call_soon_threadsafe(queue.put_nowait, line.rstrip(b"\n"))
+            while True:
+                chunk = os.read(_STDIN_FD, 65536)
+                if not chunk:
+                    break
+                for byte in chunk:
+                    if byte == 0x0A:
+                        if too_large:
+                            loop.call_soon_threadsafe(
+                                queue.put_nowait, _FRAME_TOO_LARGE
+                            )
+                        else:
+                            loop.call_soon_threadsafe(queue.put_nowait, bytes(buf))
+                        buf = bytearray()
+                        too_large = False
+                    elif too_large:
+                        continue
+                    elif len(buf) < MAX_FRAME_BYTES:
+                        buf.append(byte)
+                    else:
+                        too_large = True
         except Exception:
             _log("host: reader thread exception")
-            pass
         finally:
             _log("host: reader thread EOF")
             loop.call_soon_threadsafe(queue.put_nowait, None)
@@ -875,22 +1173,45 @@ async def run_host(host: CamoufoxHost) -> int:
 
     async with async_playwright() as playwright:
         host.set_playwright(playwright)
-        while not shutdown_event.is_set():
-            raw = await queue.get()
+        while True:
+            if shutdown_event.is_set():
+                break
+            get_task = asyncio.ensure_future(queue.get())
+            wait_task = asyncio.ensure_future(shutdown_event.wait())
+            done, pending = await asyncio.wait(
+                {get_task, wait_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+            if shutdown_event.is_set():
+                break
+            raw = get_task.result()
             if raw is None:
                 _log("host: stdin EOF")
                 break
+            if raw is _FRAME_TOO_LARGE:
+                _send(
+                    {
+                        "id": None,
+                        "ok": False,
+                        "error": {
+                            "code": "frame_too_large",
+                            "message": f"frame exceeds {MAX_FRAME_BYTES} bytes",
+                        },
+                    }
+                )
+                continue
             should_shutdown = await handle_frame(host, raw)
             if should_shutdown:
                 break
 
-    _log("host: loop finished, closing active sessions")
-    if host.session is not None and host.session["state"] in (
-        "starting",
-        "running",
-        "closing",
-    ):
-        await host.close(host.session["sessionId"])
+        _log("host: loop finished, closing active sessions")
+        if host.session is not None and host.session["state"] in (
+            "starting",
+            "running",
+            "closing",
+        ):
+            await host.close(host.session["sessionId"])
     _log("host: sessions closed, playwright stopping")
     return 0
 
@@ -925,6 +1246,15 @@ def main() -> int:
         ),
     )
     parser.add_argument("--display", default=None)
+    parser.add_argument(
+        "--probe-port",
+        type=int,
+        default=0,
+        help=(
+            "Probe HTTP server port (0 = ephemeral). A fixed port keeps the "
+            "cookie/localStorage origin stable across Host restarts."
+        ),
+    )
     args = parser.parse_args()
     args.state_root.mkdir(parents=True, exist_ok=True)
     _LOG_FILE = (args.state_root / "host-stderr.log").open("ab")
@@ -934,6 +1264,7 @@ def main() -> int:
         state_root=args.state_root,
         tree_manifest=args.tree_manifest,
         display=args.display,
+        probe_port=args.probe_port,
     )
     return asyncio.run(run_host(host))
 

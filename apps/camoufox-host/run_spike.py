@@ -242,8 +242,8 @@ class ProbeHandler(BaseHTTPRequestHandler):
         pass
 
 
-def start_probe_server() -> tuple[ThreadingHTTPServer, str]:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), ProbeHandler)
+def start_probe_server(port: int = 0) -> tuple[ThreadingHTTPServer, str]:
+    server = ThreadingHTTPServer(("127.0.0.1", port), ProbeHandler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     port = server.server_address[1]

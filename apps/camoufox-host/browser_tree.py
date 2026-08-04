@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 
 TREE_MANIFEST_SCHEMA = "verisilo-camoufox-browser-tree-manifest/v1"
@@ -35,10 +36,38 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _walk_entries(tree_root: Path) -> list[tuple[str, str, Path]]:
+    """Yield (relative_posix, kind, path) for file/symlink/other entries.
+    Directory symlinks are reported as symlinks and never followed, so a
+    symlinked path component can never smuggle a file past verification."""
+    entries: list[tuple[str, str, Path]] = []
+    stack = [tree_root]
+    while stack:
+        current = stack.pop()
+        try:
+            children = sorted(os.scandir(current), key=lambda entry: entry.name)
+        except OSError:
+            continue
+        for entry in children:
+            path = Path(entry.path)
+            rel = path.relative_to(tree_root).as_posix()
+            if entry.is_symlink():
+                entries.append((rel, "symlink", path))
+            elif entry.is_file():
+                entries.append((rel, "file", path))
+            elif entry.is_dir():
+                stack.append(path)
+            else:
+                entries.append((rel, "other", path))
+    return entries
+
+
 def build_tree_manifest(tree_root: Path) -> dict:
-    entries = []
-    for path in sorted(tree_root.rglob("*")):
-        if not path.is_file():
+    entries: list[dict] = []
+    irregular: list[str] = []
+    for rel, kind, path in _walk_entries(tree_root):
+        if kind != "file":
+            irregular.append(f"{rel} ({kind})")
             continue
         rel = path.relative_to(tree_root).as_posix()
         entries.append(
@@ -47,6 +76,10 @@ def build_tree_manifest(tree_root: Path) -> dict:
                 "size": path.stat().st_size,
                 "sha256": sha256_file(path),
             }
+        )
+    if irregular:
+        raise TreeIntegrityError(
+            "tree contains symlink/non-regular entries: " + ", ".join(irregular)
         )
     return {
         "schema": TREE_MANIFEST_SCHEMA,
@@ -66,12 +99,19 @@ def load_tree_manifest(path: Path | str) -> dict:
 
 def verify_tree(tree_root: Path, manifest: dict, error_cap: int = 20) -> dict:
     expected = {entry["path"]: entry for entry in manifest["entries"]}
-    actual_files = {
-        path.relative_to(tree_root).as_posix(): path
-        for path in tree_root.rglob("*")
-        if path.is_file()
-    }
+    actual_files: dict[str, Path] = {}
+    irregular: list[str] = []
+    for rel, kind, path in _walk_entries(tree_root):
+        if kind == "file":
+            actual_files[rel] = path
+        else:
+            irregular.append(f"{rel} ({kind})")
     errors: list[str] = []
+    if irregular:
+        errors.append(
+            "symlink/non-regular entries are rejected: "
+            + ", ".join(irregular[:error_cap])
+        )
     missing = sorted(set(expected) - set(actual_files))
     extra = sorted(set(actual_files) - set(expected))
     if missing:
