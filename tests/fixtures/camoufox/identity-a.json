@@ -1,10 +1,11 @@
 {
-  "schema": "verisilo-camoufox-resolved-identity/v2",
+  "schema": "verisilo-camoufox-resolved-identity/v3",
   "artifactId": "identity-a",
   "policy": {
-    "schema": "verisilo-camoufox-identity-policy/v2",
-    "version": 2,
+    "schema": "verisilo-camoufox-identity-policy/v3",
+    "version": 3,
     "targetOs": "linux",
+    "fontMode": "inherit",
     "window": [
       1280,
       800
@@ -100,8 +101,7 @@
       "window.screenX",
       "window.screenY"
     ],
-    "canonicalJsonRule": "UTF-8, recursively sorted object keys, compact separators (,/:), ensure_ascii=false, allow_nan=false; artifact digest excludes only canonicalDigest; ObservedWebsiteDigest excludes artifactId, internal seeds, canvas, and artifact-supplied font input",
-    "fontMode": "inherit"
+    "canonicalJsonRule": "UTF-8, recursively sorted object keys, compact separators (,/:), ensure_ascii=false, allow_nan=false; artifact digest excludes only canonicalDigest; ObservedWebsiteDigest excludes artifactId, internal seeds, canvas, and artifact-supplied font input"
   },
   "browserRelease": "v152.0.4-beta.28",
   "browserBinding": {
@@ -111,8 +111,8 @@
     "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
     "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018"
   },
-  "generatedBy": "VeriSilo generate_identity.py (M1.1)",
-  "generatedAtUtc": "2026-08-04T06:05:24.485917+00:00",
+  "generatedBy": "VeriSilo generate_identity.py (M2.0.2)",
+  "generatedAtUtc": "2026-08-04T12:58:14.485073Z",
   "generatorVersions": {
     "camoufox": "0.5.4",
     "playwright": "1.60.0",
@@ -2797,5 +2797,5 @@
     "proxySecrets": "none supplied",
     "environment": "not recorded"
   },
-  "canonicalDigest": "sha256:83698aeaef4b1e55d3ca00243f3b5106b6d6032b033a3b1b3cb15bd026bf812e"
+  "canonicalDigest": "sha256:4f6021791337fb8fe55ddf55dc1ed9010c6424c47fd8444082a038db868758e8"
 }
