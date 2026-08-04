@@ -10,6 +10,8 @@ export const links = {
     "https://github.com/QianQIUlp/VeriSilo/blob/main/docs/threat-model.md",
   development:
     "https://github.com/QianQIUlp/VeriSilo/blob/main/docs/development.md",
+  milestone:
+    "https://github.com/QianQIUlp/VeriSilo/blob/main/docs/milestones/0.1-identity-isolation-core.md",
   license: "https://github.com/QianQIUlp/VeriSilo/blob/main/LICENSE",
 } as const;
 
@@ -26,20 +28,21 @@ export const copy = {
     languageLabel: "中文",
     navigation: {
       aria: "Primary navigation",
+      milestone: "Milestone",
       how: "How it works",
       evidence: "Evidence",
       boundaries: "Boundaries",
       source: "Source",
     },
     hero: {
-      eyebrow: "WINDOWS-FIRST · OPEN SOURCE · IN DEVELOPMENT",
+      eyebrow: "WINDOWS-FIRST · OPEN SOURCE · 0.1 SOURCE MILESTONE",
       titleLead: "Keep browser state",
       titleEmphasis: "in a Silo of its own.",
-      body: "VeriSilo launches Chrome or Edge with a separate, managed data directory for every Silo. Cookies, storage, cache, service workers, permissions, and history stay in that environment—not in your default browser profile.",
+      body: "VeriSilo launches Chrome or Edge in a separate, managed environment for every Silo. Browser-owned state stays in its own data directory, while the desktop app manages the Silo lifecycle, runtime binding, and optional network profile without importing or modifying the default browser profile.",
       primaryAction: "Inspect the source",
-      secondaryAction: "See how isolation works",
+      secondaryAction: "View the current milestone",
       releaseNote:
-        "Public development build. No signed installer is available yet.",
+        "The 0.1 source milestone is complete. No signed Windows build is available yet.",
     },
     model: {
       aria: "Diagram showing the default browser profile separated from two VeriSilo data directories",
@@ -81,6 +84,49 @@ export const copy = {
         detail: "Applied is not yet verified",
       },
     ],
+    milestone: {
+      eyebrow: "MILESTONE 01 · 2026-08",
+      title: "The identity-isolation core now works end to end.",
+      intro:
+        "VeriSilo has moved from separate experiments to a connected Windows product skeleton: create a Silo, keep its browser state separate, bind its runtime and network profile, inspect bounded evidence, stop it, and recover it without touching the default browser profile.",
+      groups: [
+        {
+          tone: "closed",
+          label: "IMPLEMENTED",
+          title: "Identity isolation core",
+          items: [
+            "Encrypted local Vault and explicit Silo lifecycle.",
+            "Separate Chrome or Edge data directories with runtime identity binding.",
+            "Per-Silo direct, fixed-proxy, and external Mihomo network profiles.",
+            "Fail-closed behavior for network paths that require a proxy.",
+            "Optional Companion and Native Host evidence with local redacted reports.",
+          ],
+        },
+        {
+          tone: "gated",
+          label: "NOT YET AVAILABLE",
+          title: "Public distribution and stronger environments",
+          items: [
+            "No signed Windows installer or browser-store version yet.",
+            "Fingerprint fields still come from the stock browser.",
+            "Real-machine verification does not yet cover every Windows and virtualization setup.",
+            "Evidence covers documented cases, not every real machine.",
+          ],
+        },
+        {
+          tone: "next",
+          label: "NEXT",
+          title: "Fingerprint consistency",
+          items: [
+            "Keep one Silo stable across restarts.",
+            "Keep Window, iframe, Worker, headers, and network observations consistent.",
+            "Coordinate browser-visible fields through a controlled engine.",
+            "Apply, verify, restore, and fall back per site without claiming undetectability.",
+          ],
+        },
+      ],
+      docsAction: "Read the milestone notes",
+    },
     how: {
       eyebrow: "THE ISOLATION PATH",
       title: "One boundary, three explicit steps.",
@@ -220,19 +266,20 @@ export const copy = {
     languageLabel: "EN",
     navigation: {
       aria: "主导航",
+      milestone: "当前阶段",
       how: "工作原理",
       evidence: "证据模型",
       boundaries: "能力边界",
       source: "源代码",
     },
     hero: {
-      eyebrow: "WINDOWS 优先 · 开源 · 开发中",
+      eyebrow: "WINDOWS 优先 · 开源 · 0.1 源码里程碑",
       titleLead: "把浏览器状态",
       titleEmphasis: "放进各自的 Silo。",
-      body: "VeriSilo 为每个 Silo 启动一套独立、受管理的 Chrome 或 Edge 数据目录。Cookie、存储、缓存、Service Worker、权限与历史记录留在各自环境中，不进入你的默认浏览器 Profile。",
+      body: "VeriSilo 为每个 Silo 启动一套独立、受管理的 Chrome 或 Edge 环境。浏览器状态留在各自的数据目录中，桌面端负责 Silo 的生命周期、运行绑定与可选网络配置，不导入或修改默认浏览器 Profile。",
       primaryAction: "查看源代码",
-      secondaryAction: "了解隔离原理",
-      releaseNote: "项目正在公开开发，暂未提供签名安装包。",
+      secondaryAction: "查看当前阶段",
+      releaseNote: "0.1 源码里程碑已经完成；签名 Windows 构建暂未提供。",
     },
     model: {
       aria: "默认浏览器 Profile 与两个 VeriSilo 独立数据目录的隔离示意图",
@@ -273,6 +320,49 @@ export const copy = {
         detail: "已应用不等于已验证",
       },
     ],
+    milestone: {
+      eyebrow: "MILESTONE 01 · 2026-08",
+      title: "身份隔离核心现已端到端工作。",
+      intro:
+        "VeriSilo 已经从分散的实验能力，进入一套相互连接的 Windows 产品骨架：创建 Silo、隔离浏览器状态、绑定运行环境与网络配置、查看有界证据、停止并恢复环境，同时不触碰默认浏览器 Profile。",
+      groups: [
+        {
+          tone: "closed",
+          label: "已实现",
+          title: "身份隔离核心",
+          items: [
+            "本地加密 Vault 与明确的 Silo 生命周期。",
+            "独立 Chrome / Edge 数据目录与运行身份绑定。",
+            "每个 Silo 独立的直连、固定代理或外部 Mihomo 网络配置。",
+            "对必须使用代理的网络路径采用 fail-closed。",
+            "可选 Companion、Native Host 与本地脱敏证据报告。",
+          ],
+        },
+        {
+          tone: "gated",
+          label: "尚未提供",
+          title: "公开分发与更强环境",
+          items: [
+            "暂无签名 Windows 安装包或商店版本。",
+            "指纹字段仍来自标准浏览器本身。",
+            "真机验证尚未覆盖所有 Windows 与虚拟化组合。",
+            "证据覆盖已记录的场景，而非每一台真实机器。",
+          ],
+        },
+        {
+          tone: "next",
+          label: "下一阶段",
+          title: "浏览器指纹一致性",
+          items: [
+            "同一个 Silo 在重启后保持稳定。",
+            "Window、iframe、Worker、请求头和网络观察之间不互相矛盾。",
+            "通过受控浏览器引擎协调网站可见字段。",
+            "每项控制均支持应用、验证、恢复与按站点回退，不承诺“不可检测”。",
+          ],
+        },
+      ],
+      docsAction: "阅读里程碑说明",
+    },
     how: {
       eyebrow: "隔离路径",
       title: "一道边界，三个明确步骤。",

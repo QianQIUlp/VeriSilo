@@ -28,6 +28,7 @@ const languageHref = locale === "zh" ? "/" : "/zh/";
       </a>
 
       <nav class="primary-nav" aria-label={content.navigation.aria}>
+        <a href="#milestone">{content.navigation.milestone}</a>
         <a href="#how">{content.navigation.how}</a>
         <a href="#evidence">{content.navigation.evidence}</a>
         <a href="#boundaries">{content.navigation.boundaries}</a>
@@ -66,7 +67,7 @@ const languageHref = locale === "zh" ? "/" : "/zh/";
             {content.hero.primaryAction}
             <span aria-hidden="true">↗</span>
           </a>
-          <a class="button button--text" href="#how">
+          <a class="button button--text" href="#milestone">
             {content.hero.secondaryAction}
             <span aria-hidden="true">↓</span>
           </a>
@@ -155,6 +156,41 @@ const languageHref = locale === "zh" ? "/" : "/zh/";
           ))
         }
       </div>
+    </section>
+
+    <section
+      class="section section--milestone page-shell"
+      id="milestone"
+      aria-labelledby="milestone-title"
+    >
+      <div class="milestone-heading">
+        <p class="eyebrow">{content.milestone.eyebrow}</p>
+        <h2 id="milestone-title">{content.milestone.title}</h2>
+        <p>{content.milestone.intro}</p>
+      </div>
+      <div class="milestone-grid">
+        {
+          content.milestone.groups.map((group) => (
+            <article class={`milestone-card milestone-card--${group.tone}`}>
+              <span class="milestone-card__label">{group.label}</span>
+              <h3>{group.title}</h3>
+              <ul class="milestone-card__items">
+                {group.items.map((item) => (
+                  <li>{item}</li>
+                ))}
+              </ul>
+            </article>
+          ))
+        }
+      </div>
+      <a
+        class="text-link milestone-link"
+        href={links.milestone}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {content.milestone.docsAction}<span aria-hidden="true">↗</span>
+      </a>
     </section>
 
     <section class="section section--how page-shell" id="how">
