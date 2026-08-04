@@ -82,7 +82,7 @@ for the exact Chrome, Edge, desktop, Native Host, and evidence-capture operation
 
 ## Product site
 
-The static Astro product site lives in [`apps/site`](apps/site) and includes English and Chinese routes.
+The static Astro product site lives in [`apps/site`](apps/site) and is live at [verisilo.qiu.works](https://verisilo.qiu.works/) with English and Chinese routes.
 
 ```bash
 pnpm site:dev
