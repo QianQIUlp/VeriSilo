@@ -23,7 +23,15 @@ Hardening guarantees (M2-0):
   require `type(value) is bool`.
 - policy / browserBinding / generatorVersions / stableSignalsDeclared /
   exclusions / resolvedConfig (including nested objects and list members) are
-  validated recursively; every nested object rejects unknown fields.
+  validated recursively; every closed object requires ALL declared fields
+  (missing fields are rejected) and rejects unknown fields.
+
+Font policy (M2.0.1):
+
+- policy.fontMode is `inherit` or `managed`. In `inherit` mode
+  fontUniverseWidths are host-bound and are excluded from
+  ObservedWebsiteDigest; only `managed` mode (with all host negative controls
+  unavailable) may include font widths in the digest.
 """
 
 from __future__ import annotations
@@ -58,7 +66,6 @@ STABLE_WEBSITE_SIGNAL_KEYS = [
     "mediaDevices",
     "timezone",
     "utcOffsetMinutes",
-    "fontUniverseWidths",
     "fontNegativeControls",
     "webglVendor",
     "webglRenderer",
@@ -66,6 +73,12 @@ STABLE_WEBSITE_SIGNAL_KEYS = [
     "voices",
     "audioHash",
 ]
+
+# Font-width evidence is only identity-bearing in `managed` font mode, and
+# only when host negative controls all pass. In `inherit` mode font widths are
+# host-bound (the host font set can leak through width measurement), so they
+# never enter ObservedWebsiteDigest.
+MANAGED_FONT_SIGNAL_KEYS = ["fontUniverseWidths"]
 
 SESSION_VARIABLE_SIGNAL_KEYS = [
     "navigatorOnLine",
@@ -118,6 +131,9 @@ def _check_value(value: Any, spec: Any, path: str, errors: list[str]) -> None:
             if type(value) is not dict:
                 errors.append(f"{path}: expected object, got {type(value).__name__}")
                 return
+            for key in spec["keys"]:
+                if key not in value:
+                    errors.append(f"{path}: missing required field {key}")
             for key, item in value.items():
                 if key not in spec["keys"]:
                     errors.append(f"{path}.{key}: unknown field")
@@ -249,6 +265,7 @@ POLICY_SPEC = {
         "schema": STR,
         "version": INT,
         "targetOs": STR,
+        "fontMode": STR,
         "window": {"items": INT, "len": 2},
         "locale": STR,
         "ffVersion": INT,
@@ -417,6 +434,7 @@ def build_projection(
 
 def identity_policy_v2(
     target_os: str = "linux",
+    font_mode: str = "inherit",
     window: tuple[int, int] = (1280, 800),
     locale: str = "en-US",
     ff_version: int = 152,
@@ -426,6 +444,7 @@ def identity_policy_v2(
         "schema": POLICY_SCHEMA,
         "version": 2,
         "targetOs": target_os,
+        "fontMode": font_mode,
         "window": list(window),
         "locale": locale,
         "ffVersion": ff_version,
@@ -479,6 +498,8 @@ def validate_artifact_strict(artifact: dict) -> None:
             errors.append("policy.version must be 2")
         if policy.get("targetOs") not in ("linux", "macos", "windows"):
             errors.append("policy.targetOs unsupported")
+        if policy.get("fontMode") not in ("inherit", "managed"):
+            errors.append("policy.fontMode must be inherit or managed")
         if policy.get("timezoneMode") not in ("fixed", "network-bound"):
             errors.append("policy.timezoneMode must be fixed or network-bound")
         if policy.get("stableWebsiteFields") != STABLE_WEBSITE_SIGNAL_KEYS:

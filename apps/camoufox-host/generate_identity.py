@@ -186,6 +186,16 @@ def main() -> int:
     parser.add_argument("--id", required=True, help="Artifact id, e.g. identity-a")
     parser.add_argument("--rng-seed", type=int, default=None, help="Reproducible generation seed (test-only)")
     parser.add_argument("--os", default="linux", choices=("linux", "macos", "windows"))
+    parser.add_argument(
+        "--font-mode",
+        default="inherit",
+        choices=("inherit", "managed"),
+        help=(
+            "inherit: font widths are host-bound and excluded from "
+            "ObservedWebsiteDigest; managed: font widths enter the digest and "
+            "Host must prove host negative controls are all unavailable"
+        ),
+    )
     parser.add_argument("--window", default="1280x800", help="Outer window size WxH")
     parser.add_argument("--locale", default="en-US")
     parser.add_argument("--ff-version", type=int, default=152)
@@ -227,6 +237,7 @@ def main() -> int:
 
     policy = identity_policy_v2(
         target_os=args.os,
+        font_mode=args.font_mode,
         window=(width, height),
         locale=args.locale,
         ff_version=args.ff_version,

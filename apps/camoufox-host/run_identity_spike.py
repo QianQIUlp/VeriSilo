@@ -102,8 +102,10 @@ def reassemble_camou_config(env: dict) -> dict:
     return json.loads("".join(value for _, value in chunks))
 
 
-def extract_observed_website_signals(observed: dict) -> dict:
-    return {
+def extract_observed_website_signals(
+    observed: dict, font_mode: str = "inherit"
+) -> dict:
+    signals = {
         "userAgent": observed["userAgent"],
         "language": observed["language"],
         "languages": observed["languages"],
@@ -118,7 +120,6 @@ def extract_observed_website_signals(observed: dict) -> dict:
         "mediaDevices": observed["mediaDevices"],
         "timezone": observed["session"]["timezone"],
         "utcOffsetMinutes": observed["session"]["utcOffsetMinutes"],
-        "fontUniverseWidths": observed["fontUniverseWidths"],
         "fontNegativeControls": observed["fontNegativeControls"],
         "webglVendor": observed["webglVendor"],
         "webglRenderer": observed["webglRenderer"],
@@ -126,6 +127,13 @@ def extract_observed_website_signals(observed: dict) -> dict:
         "voices": observed["voices"],
         "audioHash": observed["audioHash"],
     }
+    # In inherit mode font widths are host-bound (the host font set can leak
+    # into width measurement), so they never enter ObservedWebsiteDigest.
+    # Only managed mode, after all host negative controls prove unavailable,
+    # may include them.
+    if font_mode == "managed":
+        signals["fontUniverseWidths"] = observed["fontUniverseWidths"]
+    return signals
 
 
 async def cold_start(
@@ -234,6 +242,28 @@ async def cold_start(
     observed = await page.evaluate("window.__probe.readIdentity()")
     probe_seconds = time.perf_counter() - page_start
 
+    font_mode = artifact["policy"].get("fontMode", "inherit")
+    host_masking = {
+        "controlsTested": len(observed.get("hostFontNegativeControls", {})),
+        "allUnavailable": all(
+            available is False
+            for available in observed.get("hostFontNegativeControls", {}).values()
+        ),
+        "failures": [
+            family
+            for family, available in observed.get(
+                "hostFontNegativeControls", {}
+            ).items()
+            if available is not False
+        ],
+    }
+    if font_mode == "managed" and not host_masking["allUnavailable"]:
+        await ctx.close()
+        raise RuntimeError(
+            "managed font mode requires all host negative controls "
+            "unavailable; masking failed: " + ", ".join(host_masking["failures"])
+        )
+
     close_start = time.perf_counter()
     await ctx.close()
     close_seconds = time.perf_counter() - close_start
@@ -246,7 +276,7 @@ async def cold_start(
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
             exit_code = None
 
-    observed_website_signals = extract_observed_website_signals(observed)
+    observed_website_signals = extract_observed_website_signals(observed, font_mode)
     projection = build_projection(
         artifact["artifactId"],
         run_id_from_dir(run_dir),
@@ -272,23 +302,11 @@ async def cold_start(
         "configUnchanged": config_unchanged,
         "configDiff": config_diff,
         "webdlTripped": bool(DownloadGuard.tripped),
+        "fontMode": font_mode,
         "injectedFontsAllAvailable": all(
             entry.get("available") for entry in observed.get("injectedFonts", [])
         ),
-        "hostFontMasking": {
-            "controlsTested": len(observed.get("hostFontNegativeControls", {})),
-            "allUnavailable": all(
-                available is False
-                for available in observed.get("hostFontNegativeControls", {}).values()
-            ),
-            "failures": [
-                family
-                for family, available in observed.get(
-                    "hostFontNegativeControls", {}
-                ).items()
-                if available is not False
-            ],
-        },
+        "hostFontMasking": host_masking,
         "canvasObserved": {
             "rawHash": observed["canvas"]["rawHash"],
             "exportHash": observed["canvas"]["exportHash"],
@@ -423,6 +441,7 @@ async def cmd_stability(args: argparse.Namespace) -> int:
     report["stability"] = {
         "requestedRuns": args.runs,
         "completedStarts": len(result["starts"]),
+        "fontModeEveryStart": [s["fontMode"] for s in result["starts"]],
         "observedWebsiteDigests": digests,
         "allObservedWebsiteDigestsIdentical": all_identical,
         "stableObservedWebsiteDigest": digests[0] if digests else None,
@@ -480,6 +499,7 @@ async def cmd_separation(args: argparse.Namespace) -> int:
 
     report = base_report("separation", result)
     report["separation"] = {
+        "fontModeEveryStart": [s["fontMode"] for s in result["starts"]],
         "artifacts": [
             {
                 "path": str(paths[i]),
@@ -654,6 +674,7 @@ def base_report(command: str, result: dict) -> dict:
                 "configUnchanged": s["configUnchanged"],
                 "configDiff": s["configDiff"],
                 "webdlTripped": s["webdlTripped"],
+                "fontMode": s["fontMode"],
                 "artifactFileSha256": s["artifactFileSha256"],
                 "injectedFontsAllAvailable": s["injectedFontsAllAvailable"],
                 "hostFontMasking": s["hostFontMasking"],
