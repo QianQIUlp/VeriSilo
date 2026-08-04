@@ -88,7 +88,7 @@ M1_ARTIFACT_DIR = REPO_ROOT / "artifacts" / "camoufox-m1"
 M1_RUNS_DIR = M1_ARTIFACT_DIR / "runs"
 TREE_MANIFEST = REPO_ROOT / "tests" / "fixtures" / "camoufox" / "browser-tree-manifest.json"
 
-REPORT_SCHEMA = "verisilo-camoufox-m1-run-report/v2"
+REPORT_SCHEMA = "verisilo-camoufox-m1-run-report/v3"
 
 
 def reassemble_camou_config(env: dict) -> dict:

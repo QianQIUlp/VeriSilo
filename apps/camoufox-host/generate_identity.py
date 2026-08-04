@@ -42,7 +42,7 @@ from identity_policy import (
     compute_artifact_digest,
     configured_identity_digest,
     diff_configs,
-    identity_policy_v2,
+    identity_policy,
     read_bundle_metadata,
     sha256_hex,
     verify_artifact,
@@ -82,6 +82,7 @@ def complete_resolved_config(
     """Capture one resolved config, then replay launch_options() to a fixpoint
     so the config contains every key Camoufox/BrowserForge could ever add.
     Raises if launch_options ever CHANGES an existing value."""
+    width, height = window
     first = launch_options(
         os=target_os,
         window=window,
@@ -135,6 +136,11 @@ def complete_resolved_config(
     ):
         max_left = max(0, config["screen.width"] - config["screen.availWidth"])
         config["screen.availLeft"] = min(config.get("screen.availLeft", 0), max_left)
+    # The outer window is bound to the policy window; BrowserForge may
+    # otherwise emit different outer dimensions for some seeds, which strict
+    # validation (policy.window == outer dims) would reject.
+    config["window.outerWidth"] = width
+    config["window.outerHeight"] = height
     return config
 
 
@@ -235,7 +241,7 @@ def main() -> int:
     if DownloadGuard.tripped:
         raise SystemExit("unpinned download attempted during generation; aborting")
 
-    policy = identity_policy_v2(
+    policy = identity_policy(
         target_os=args.os,
         font_mode=args.font_mode,
         window=(width, height),
@@ -249,8 +255,10 @@ def main() -> int:
         "policy": policy,
         "browserRelease": RELEASE,
         "browserBinding": browser_binding(lock, executable),
-        "generatedBy": "VeriSilo generate_identity.py (M1.1)",
-        "generatedAtUtc": datetime.now(timezone.utc).isoformat(),
+        "generatedBy": "VeriSilo generate_identity.py (M2.0.2)",
+        "generatedAtUtc": datetime.now(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
         "generatorVersions": {
             "camoufox": dist_version("camoufox"),
             "playwright": dist_version("playwright"),

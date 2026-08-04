@@ -4,15 +4,24 @@ RECURSIVE strict schema.
 
 Schema families:
 
-- IdentityPolicyV2: website-visible signal classification, timezone mode, and
+- IdentityPolicyV3: website-visible signal classification, timezone mode,
+  fontMode (inherit/managed), and
   the exact resolved-config key contract.
-- ResolvedCamoufoxIdentityV2: one resolved identity artifact bound to the
+- ResolvedCamoufoxIdentityV3: one resolved identity artifact bound to the
   verified browser archive (archive SHA, BuildID, SourceStamp,
   properties.json SHA) and generator versions.
-- StableSignalProjectionV2: per-cold-start evidence with ConfiguredIdentityDigest
+- StableSignalProjectionV3: per-cold-start evidence with ConfiguredIdentityDigest
   (config, may include seeds, no artifactId) and ObservedWebsiteDigest
   (website-observed values only: no artifactId, no internal seeds, no canvas,
   no artifact-supplied font input).
+
+Version contract (M2.0.2):
+
+- Artifact/Policy are v3; ObservedWebsiteDigest is v2. Old v2 artifacts are
+  rejected with UnsupportedSchemaVersionError (protocol code
+  unsupported_schema_version), never as a plain missing-field error.
+- generatedBy must be a non-empty string; generatedAtUtc must be strict
+  RFC 3339 UTC normalized to 'Z'.
 
 Hardening guarantees (M2-0):
 
@@ -39,14 +48,15 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-POLICY_SCHEMA = "verisilo-camoufox-identity-policy/v2"
-ARTIFACT_SCHEMA = "verisilo-camoufox-resolved-identity/v2"
-PROJECTION_SCHEMA = "verisilo-camoufox-stable-signal-projection/v2"
+POLICY_SCHEMA = "verisilo-camoufox-identity-policy/v3"
+ARTIFACT_SCHEMA = "verisilo-camoufox-resolved-identity/v3"
+PROJECTION_SCHEMA = "verisilo-camoufox-stable-signal-projection/v3"
 CONFIG_DIGEST_SCHEMA = "verisilo-camoufox-configured-identity/v1"
-OBSERVED_DIGEST_SCHEMA = "verisilo-camoufox-observed-website/v1"
+OBSERVED_DIGEST_SCHEMA = "verisilo-camoufox-observed-website/v2"
 
 # Website-observed signals that must be identical across cold starts of the
 # same artifact. No artifactId, no internal seeds, no canvas, no
@@ -258,8 +268,6 @@ REQUIRED_CONFIG_KEYS: dict[str, Any] = {
     "webGl2:shaderPrecisionFormats": WEBGL_PRECISION_MAP,
     "webGl2:supportedExtensions": SUPPORTED_EXTENSIONS,
 }
-ALLOWED_CONFIG_KEYS = set(REQUIRED_CONFIG_KEYS)
-
 POLICY_SPEC = {
     "keys": {
         "schema": STR,
@@ -355,9 +363,34 @@ ALLOWED_ARTIFACT_KEYS = set(REQUIRED_ARTIFACT_KEYS)
 REQUIRED_BINDING_KEYS = set(BINDING_SPEC["keys"])
 REQUIRED_GENERATOR_VERSIONS = ("camoufox", "playwright", "browserforge")
 
+# Unified closed schema for every top-level artifact field, including the
+# dynamic-key resolvedConfig (its full key set is itself a closed schema).
+TOP_LEVEL_SPEC = {
+    "keys": {
+        "schema": STR,
+        "artifactId": STR,
+        "policy": POLICY_SPEC,
+        "browserRelease": STR,
+        "browserBinding": BINDING_SPEC,
+        "generatedBy": STR,
+        "generatedAtUtc": STR,
+        "generatorVersions": GENERATOR_SPEC,
+        "resolvedConfig": {"keys": REQUIRED_CONFIG_KEYS},
+        "stableSignalsDeclared": DECLARED_SPEC,
+        "exclusions": EXCLUSIONS_SPEC,
+        "configuredIdentityDigest": STR,
+        "canonicalDigest": STR,
+    }
+}
+
 
 class ArtifactIntegrityError(Exception):
     """Raised when an identity artifact fails pre-launch validation."""
+
+
+class UnsupportedSchemaVersionError(ArtifactIntegrityError):
+    """Raised when an artifact uses an older/newer resolved-identity schema
+    version. This is a version contract error, NOT a missing-field error."""
 
 
 # --------------------------------------------------------------------------
@@ -432,7 +465,7 @@ def build_projection(
     }
 
 
-def identity_policy_v2(
+def identity_policy(
     target_os: str = "linux",
     font_mode: str = "inherit",
     window: tuple[int, int] = (1280, 800),
@@ -442,7 +475,7 @@ def identity_policy_v2(
 ) -> dict:
     return {
         "schema": POLICY_SCHEMA,
-        "version": 2,
+        "version": 3,
         "targetOs": target_os,
         "fontMode": font_mode,
         "window": list(window),
@@ -458,6 +491,19 @@ def identity_policy_v2(
     }
 
 
+def _is_rfc3339_utc_z(value: Any) -> bool:
+    """Strict RFC 3339 UTC timestamp normalized to 'Z' (e.g.
+    2026-08-04T06:05:24.485917Z). Offsets other than UTC and non-Z spellings
+    are rejected; writers must normalize to Z."""
+    if type(value) is not str or not value.endswith("Z"):
+        return False
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0)
+
+
 # --------------------------------------------------------------------------
 # Strict validation
 # --------------------------------------------------------------------------
@@ -466,36 +512,39 @@ def identity_policy_v2(
 def validate_artifact_strict(artifact: dict) -> None:
     errors: list[str] = []
 
+    # Unified closed schema: every top-level field (including resolvedConfig's
+    # full 47-key closure) must exist with the exact type; unknown fields and
+    # missing required fields are rejected recursively.
+    _check_value(artifact, TOP_LEVEL_SPEC, "artifact", errors)
+
     if artifact.get("schema") != ARTIFACT_SCHEMA:
         errors.append(f"schema must be {ARTIFACT_SCHEMA!r}")
     artifact_id = artifact.get("artifactId")
     if not isinstance(artifact_id, str) or not ARTIFACT_ID_RE.match(artifact_id):
         errors.append(f"artifactId {artifact_id!r} does not match {ARTIFACT_ID_RE.pattern}")
-
-    unknown = set(artifact) - ALLOWED_ARTIFACT_KEYS
-    if unknown:
-        errors.append("unknown artifact keys: " + ", ".join(sorted(unknown)))
-    missing = REQUIRED_ARTIFACT_KEYS - set(artifact)
-    if missing:
-        errors.append("missing artifact keys: " + ", ".join(sorted(missing)))
-
-    _check_value(artifact.get("policy"), POLICY_SPEC, "policy", errors)
-    _check_value(artifact.get("browserBinding"), BINDING_SPEC, "browserBinding", errors)
-    _check_value(
-        artifact.get("generatorVersions"), GENERATOR_SPEC, "generatorVersions", errors
-    )
-    _check_value(artifact.get("exclusions"), EXCLUSIONS_SPEC, "exclusions", errors)
-    _check_value(
-        artifact.get("stableSignalsDeclared"),
-        DECLARED_SPEC,
-        "stableSignalsDeclared",
-        errors,
-    )
+    generated_by = artifact.get("generatedBy")
+    if type(generated_by) is not str or not generated_by.strip():
+        errors.append("generatedBy must be a non-empty string")
+    if not _is_rfc3339_utc_z(artifact.get("generatedAtUtc")):
+        errors.append("generatedAtUtc must be strict RFC 3339 UTC normalized to Z")
+    browser_release = artifact.get("browserRelease")
+    if type(browser_release) is not str or not browser_release.strip():
+        errors.append("browserRelease must be a non-empty string")
+    for digest_key in ("configuredIdentityDigest", "canonicalDigest"):
+        digest_value = artifact.get(digest_key)
+        if (
+            type(digest_value) is not str
+            or not digest_value.startswith("sha256:")
+            or not HEX64_RE.fullmatch(digest_value[len("sha256:"):])
+        ):
+            errors.append(f"{digest_key} must be sha256:<64 hex chars>")
 
     policy = artifact.get("policy")
     if isinstance(policy, dict):
-        if policy.get("version") != 2:
-            errors.append("policy.version must be 2")
+        if policy.get("schema") != POLICY_SCHEMA:
+            errors.append(f"policy.schema must be {POLICY_SCHEMA!r}")
+        if policy.get("version") != 3:
+            errors.append("policy.version must be 3")
         if policy.get("targetOs") not in ("linux", "macos", "windows"):
             errors.append("policy.targetOs unsupported")
         if policy.get("fontMode") not in ("inherit", "managed"):
@@ -514,18 +563,7 @@ def validate_artifact_strict(artifact: dict) -> None:
             errors.append("policy.requiredConfigKeys does not match the canonical key set")
 
     config = artifact.get("resolvedConfig")
-    if not isinstance(config, dict):
-        errors.append("resolvedConfig must be an object")
-    else:
-        missing_keys = set(REQUIRED_CONFIG_KEYS) - set(config)
-        if missing_keys:
-            errors.append("missing config keys: " + ", ".join(sorted(missing_keys)))
-        unknown_keys = set(config) - ALLOWED_CONFIG_KEYS
-        if unknown_keys:
-            errors.append("unknown config keys: " + ", ".join(sorted(unknown_keys)))
-        for key, spec in REQUIRED_CONFIG_KEYS.items():
-            if key in config:
-                _check_value(config[key], spec, f"resolvedConfig.{key}", errors)
+    if isinstance(config, dict):
         if (
             isinstance(config.get("screen.availTop"), int)
             and isinstance(config.get("screen.availHeight"), int)
@@ -692,10 +730,16 @@ def verify_artifact_raw(
         artifact = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ArtifactIntegrityError(f"artifact unreadable: {exc}") from exc
-    if artifact.get("schema") != ARTIFACT_SCHEMA:
-        raise ArtifactIntegrityError(
-            f"artifact schema mismatch: {artifact.get('schema')!r}"
-        )
+    schema = artifact.get("schema")
+    if schema != ARTIFACT_SCHEMA:
+        if isinstance(schema, str) and schema.startswith(
+            "verisilo-camoufox-resolved-identity/"
+        ):
+            raise UnsupportedSchemaVersionError(
+                f"unsupported artifact schema version: {schema!r}; "
+                f"expected {ARTIFACT_SCHEMA!r}"
+            )
+        raise ArtifactIntegrityError(f"artifact schema mismatch: {schema!r}")
     validate_artifact_strict(artifact)
     expected = artifact.get("canonicalDigest")
     if not expected:
