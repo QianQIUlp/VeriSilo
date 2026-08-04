@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -26,6 +27,11 @@ from identity_policy import (
     verify_browser_binding,
     verify_artifact,
     verify_artifact_raw,
+)
+from browser_tree import (
+    TreeIntegrityError,
+    build_tree_manifest,
+    verify_tree,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -98,6 +104,15 @@ def _expect_rejected(artifact: dict, label: str) -> None:
         except ArtifactIntegrityError:
             return
         raise AssertionError(f"expected rejection for {label}")
+
+
+def _recompute_digests(artifact: dict) -> None:
+    """Recompute both self-digests so rejection must come from strict schema
+    validation, not from a stale digest."""
+    artifact["configuredIdentityDigest"] = configured_identity_digest(
+        artifact["resolvedConfig"]
+    )
+    artifact["canonicalDigest"] = compute_artifact_digest(artifact)
 
 
 def test_tamper_modes_rejected() -> None:
@@ -251,6 +266,76 @@ def test_nested_unknown_fields_rejected() -> None:
         )
         artifact["canonicalDigest"] = compute_artifact_digest(artifact)
         _expect_rejected(artifact, f"nested-{label}")
+
+
+def test_missing_nested_fields_rejected() -> None:
+    cases = [
+        ("policy-canonical-rule", lambda a: a["policy"].pop("canonicalJsonRule")),
+        ("policy-font-mode", lambda a: a["policy"].pop("fontMode")),
+        ("exclusions-tokens", lambda a: a["exclusions"].pop("tokens")),
+        (
+            "webgl-context-alpha",
+            lambda a: a["resolvedConfig"]["webGl:contextAttributes"].pop("alpha"),
+        ),
+        (
+            "voice-field",
+            lambda a: a["resolvedConfig"]["voices"][0].pop("isDefault"),
+        ),
+        (
+            "declared-screen-field",
+            lambda a: a["stableSignalsDeclared"]["screen"].pop("availTop"),
+        ),
+        ("binding-field", lambda a: a["browserBinding"].pop("sourceStamp")),
+        ("generator-field", lambda a: a["generatorVersions"].pop("playwright")),
+        (
+            "declared-voices",
+            lambda a: a["stableSignalsDeclared"].pop("voices"),
+        ),
+    ]
+    for label, mutate in cases:
+        artifact = load_fixture("identity-a")
+        mutate(artifact)
+        _recompute_digests(artifact)
+        _expect_rejected(artifact, f"missing-{label}")
+
+
+def test_fixtures_font_mode_inherit() -> None:
+    for name in ("identity-a", "identity-b", "identity-c"):
+        artifact = verify_artifact(FIXTURES / f"{name}.json")
+        assert artifact["policy"]["fontMode"] == "inherit"
+        assert "fontUniverseWidths" not in artifact["policy"]["stableWebsiteFields"]
+
+
+def test_tree_rejects_symlink_and_non_regular() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        tree = Path(tmp) / "tree"
+        tree.mkdir()
+        (tree / "file.txt").write_text("hello")
+        manifest = build_tree_manifest(tree)
+        assert verify_tree(tree, manifest)["verified"] is True
+
+        # Replacing a regular file with a symlink to identical content must be
+        # rejected: file-type integrity is part of tree integrity.
+        (tree / "file.txt").unlink()
+        target = Path(tmp) / "target.txt"
+        target.write_text("hello")
+        os.symlink(target, tree / "file.txt")
+        try:
+            verify_tree(tree, manifest)
+        except TreeIntegrityError as exc:
+            assert "symlink" in str(exc)
+        else:
+            raise AssertionError("symlinked file must be rejected")
+
+        # A FIFO / non-regular entry must also be rejected.
+        os.unlink(tree / "file.txt")
+        os.mkfifo(tree / "file.txt")
+        try:
+            verify_tree(tree, manifest)
+        except TreeIntegrityError as exc:
+            assert "non-regular" in str(exc) or "symlink" in str(exc)
+        else:
+            raise AssertionError("non-regular entry must be rejected")
 
 
 def test_expected_file_sha_mismatch() -> None:
