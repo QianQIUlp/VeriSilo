@@ -1,8 +1,9 @@
 {
   "schema": "verisilo-camoufox-m2-evidence-manifest/v3",
-  "updatedAtUtc": "2026-08-04T13:01:32+00:00",
-  "codeGitRevision": "15dec54d5673fe82a14630dd612178f546996207",
-  "codeGitRevisionNote": "commit 15dec54 froze the exact code that produced the runs listed here",
+  "updatedAtUtc": "2026-08-08T03:11:55+00:00",
+  "codeGitRevision": "3b5383063ccf04b1b0b47726ca03514d1038774f",
+  "codeTreeHash": "d38767423f101c74721630ed708111047cbc4fae",
+  "codeGitRevisionNote": "commit 3b53830 (M2.0.3, on codex/camoufox-m0-m2-minimal) is an ancestor of this manifest commit and produced the runs listed here. Pre-split commits 0827a1d/0b1cae0 are tree-identical to old 15dec54/149de63 respectively; this branch is self-contained so the revision resolves without the old main objects.",
   "schemaContract": {
     "artifact": "verisilo-camoufox-resolved-identity/v3",
     "policy": "verisilo-camoufox-identity-policy/v3",
@@ -17,16 +18,16 @@
     "scopeNote": "本机兼容性 Gate；不是供应链和网络行为验证",
     "noCamoufoxWebdlAttemptObserved": true,
     "outboundNetworkFullyObserved": false,
-    "latestRecheckRunId": "run-1785848211-53e085e8"
+    "latestRecheckRunId": "run-1786158578-047efb35"
   },
   "m1_1": {
-    "status": "accepted (M2.0.2 rerun, v3 artifacts, inherit fontMode)",
-    "stabilityRunId": "run-1785848308-3bce2bb1",
-    "separationRunId": "run-1785848328-b9bec18c",
-    "tamperRunId": "run-1785848341-c249809a",
-    "stabilityReportSha256": "8ba4d9c2d1501296a41c3b2d3871be79b98759b52fa2ea62311f857788e887fe",
-    "separationReportSha256": "d0bb4c2f2bbbfc18dfc1baa89e9dbb0246cdf9ef45201f173d9330c33794d562",
-    "tamperReportSha256": "06e1e12578d768b3bd48e7328c2607a44a572a2f915ffdfdced29706ebe13bf3",
+    "status": "accepted (M2.0.3 rerun, v3 artifacts, inherit fontMode)",
+    "stabilityRunId": "run-1786158540-228a3340",
+    "separationRunId": "run-1786158560-43ea2bd1",
+    "tamperRunId": "run-1786158573-fef25c08",
+    "stabilityReportSha256": "b15625fdd4835bf6742fed1f6bfdcac4a085d38eecd52c8f8b128f92c9cb323d",
+    "separationReportSha256": "517cfdf576a9e27b310300eb9d492bf6fabaae7c13fc9274f5e826f893d8ff90",
+    "tamperReportSha256": "abb77669c9521318431d79742ac4832af274b08463b708937bc73a4bfd737efc",
     "artifacts": [
       {
         "artifactId": "identity-a",
@@ -130,23 +131,26 @@
       "nestedUnknownFieldsRejected": true,
       "nestedMissingRequiredFieldsRejected": true,
       "oldSchemaVersionExplicitlyRejected": true,
+      "strictJsonParser": "recursive duplicate-key rejection (nested included), NaN/Infinity rejected, top-level must be object -> integrity_rejected",
+      "rfc3339StrictRegex": "YYYY-MM-DDTHH:MM:SS[.fraction]Z only; space/basic-form/missing-seconds/non-UTC rejected",
       "singleReadArtifact": true,
       "expectedArtifactFileSha256Required": true,
       "sidecarRequired": true,
-      "unitTests": "19/19 passed"
+      "unitTests": "21/21 passed"
     }
   },
   "m2Host": {
     "protocol": "verisilo-camoufox-host/v1",
     "hostVersion": "0.1.0",
     "document": "docs/camoufox-host-v1.md",
-    "integrationTests": "15/15 passed",
+    "integrationTests": "19/19 passed",
     "persistenceAcrossHostRestart": true,
     "persistenceEvidence": "fixed probe origin across Host processes; bootCount 0->1->2; cookie via API and document.cookie on both boots; cookies.sqlite moz_cookies row after close",
     "profileLock": true,
     "lockReleasedLastAfterTreeExit": true,
     "quarantineFailClosed": true,
-    "quarantineEvidence": "processTreeExit.exited!=true -> quarantined state, profile lock retained, persistent record with PID/start-time/process group; new Host returns profile_quarantined until every recorded identity is gone",
+    "quarantineEvidence": "processTreeExit.exited!=true -> quarantined state, profile lock retained, persistent record with PID/start-time/process group; tri-state read (absent/valid/invalid): truncated/schema-invalid/unreadable records block takeover; atomic write (temp+fsync+os.replace+dir fsync); write/delete failures fail-closed",
+    "treeExitConfirmsAllCapturedIdentities": "exited=true only when roots AND captured descendants (PID+start-time) are gone; surviving descendants are recorded in remaining and quarantined",
     "processIdentity": "signals sent only after PID+start-time re-verification; reused PID with different start-time never treated as original",
     "crashRecovery": true,
     "sigtermSigintEofCleanup": true,
