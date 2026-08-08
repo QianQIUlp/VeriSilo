@@ -1,0 +1,166 @@
+{
+  "schema": "verisilo-camoufox-m2-evidence-manifest/v3",
+  "updatedAtUtc": "2026-08-08T03:11:55+00:00",
+  "codeGitRevision": "3b5383063ccf04b1b0b47726ca03514d1038774f",
+  "codeTreeHash": "d38767423f101c74721630ed708111047cbc4fae",
+  "codeGitRevisionNote": "commit 3b53830 (M2.0.3, on codex/camoufox-m0-m2-minimal) is an ancestor of this manifest commit and produced the runs listed here. Pre-split commits 0827a1d/0b1cae0 are tree-identical to old 15dec54/149de63 respectively; this branch is self-contained so the revision resolves without the old main objects.",
+  "schemaContract": {
+    "artifact": "verisilo-camoufox-resolved-identity/v3",
+    "policy": "verisilo-camoufox-identity-policy/v3",
+    "projection": "verisilo-camoufox-stable-signal-projection/v3",
+    "observedWebsiteDigest": "verisilo-camoufox-observed-website/v2",
+    "runReport": "verisilo-camoufox-m1-run-report/v3",
+    "oldVersionsRejected": "UnsupportedSchemaVersionError / protocol code unsupported_schema_version; never a plain missing-field error"
+  },
+  "host": "Linux 6.17.0-1021-azure x86_64 (2 cores, machine x86_64)",
+  "m0Gate": {
+    "status": "passed-on-this-host",
+    "scopeNote": "本机兼容性 Gate；不是供应链和网络行为验证",
+    "noCamoufoxWebdlAttemptObserved": true,
+    "outboundNetworkFullyObserved": false,
+    "latestRecheckRunId": "run-1786158578-047efb35"
+  },
+  "m1_1": {
+    "status": "accepted (M2.0.3 rerun, v3 artifacts, inherit fontMode)",
+    "stabilityRunId": "run-1786158540-228a3340",
+    "separationRunId": "run-1786158560-43ea2bd1",
+    "tamperRunId": "run-1786158573-fef25c08",
+    "stabilityReportSha256": "b15625fdd4835bf6742fed1f6bfdcac4a085d38eecd52c8f8b128f92c9cb323d",
+    "separationReportSha256": "517cfdf576a9e27b310300eb9d492bf6fabaae7c13fc9274f5e826f893d8ff90",
+    "tamperReportSha256": "abb77669c9521318431d79742ac4832af274b08463b708937bc73a4bfd737efc",
+    "artifacts": [
+      {
+        "artifactId": "identity-a",
+        "file": "identity-a.json",
+        "schema": "verisilo-camoufox-resolved-identity/v3",
+        "rawFileSha256": "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+        "canonicalDigest": "sha256:4f6021791337fb8fe55ddf55dc1ed9010c6424c47fd8444082a038db868758e8",
+        "configuredIdentityDigest": "sha256:a8f52442aeddf154858ffe306ecbd64315b7419928181ced3104fb5d949be9d6",
+        "observedWebsiteDigest": "sha256:70f71b5ca7ee287a4d5e989086a990264433129615f0ee988aa18c135385d0ff"
+      },
+      {
+        "artifactId": "identity-b",
+        "file": "identity-b.json",
+        "schema": "verisilo-camoufox-resolved-identity/v3",
+        "rawFileSha256": "f142ab0e006a40682a92d2a5b04f88b6a418edf3331084437b672b74dd63b67e",
+        "canonicalDigest": "sha256:0cb8e396d3bd5d6fa3843b7b4444152181e1cc7458de335b4d72ea12b72642f7",
+        "configuredIdentityDigest": "sha256:43ed9d7dd79e29b018d7427c2b0047670035975d8921fbf9e835825d7985177e",
+        "observedWebsiteDigest": "sha256:8559d3e0791b8a203063692b06d8f71cb98f5bfe6cdf5467b61c63a0e94f6324"
+      },
+      {
+        "artifactId": "identity-c",
+        "file": "identity-c.json",
+        "schema": "verisilo-camoufox-resolved-identity/v3",
+        "rawFileSha256": "132b108c488e43b01b206412b954ae4f94260d949d22acc89187076e8d1c7640",
+        "canonicalDigest": "sha256:d6b8ad041720fee91a5488102182cb5e0af36cdefcfac9d8f3c4810eed05713f",
+        "configuredIdentityDigest": "sha256:92235bcd1695319deac5702e488cb845fccff8a9b2a0757ce39f985e62bf4d37",
+        "observedWebsiteDigest": "sha256:f873b3dd6bc6cd872ef70fbef8189d5e4cd566a0cd36003b711a66db76d6de13"
+      }
+    ],
+    "browserBinding": {
+      "archiveSha256": "924f3109ccd6d47cd6a0384d67a345fadf975d48b6319f8dbbd5954c588982bd",
+      "archiveSizeBytes": 663387175,
+      "buildId": "20260719045650",
+      "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7"
+    },
+    "treeManifest": {
+      "file": "browser-tree-manifest.json",
+      "fileCount": 689,
+      "totalBytes": 1284408846,
+      "manifestSha256": "20807dd2ce29084d9efc67a1f687bcfe6fc7b5775c41d5671f4653f9eafbae75"
+    },
+    "stability": {
+      "requestedRuns": 5,
+      "fontModeEveryStart": ["inherit", "inherit", "inherit", "inherit", "inherit"],
+      "allObservedWebsiteDigestsIdentical": true,
+      "stableObservedWebsiteDigest": "sha256:70f71b5ca7ee287a4d5e989086a990264433129615f0ee988aa18c135385d0ff",
+      "configUnchangedEveryStart": true,
+      "exitStatusEveryStart": [0, 0, 0, 0, 0],
+      "exitFileObservedEveryStart": [true, true, true, true, true],
+      "profileFreshEveryStart": [true, true, true, true, true],
+      "artifactFileSha256EveryStart": [
+        "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+        "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+        "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+        "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+        "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e"
+      ]
+    },
+    "separation": {
+      "fontModeEveryStart": ["inherit", "inherit", "inherit"],
+      "allObservedWebsiteDigestsDistinct": true,
+      "configUnchangedEveryStart": true,
+      "exitStatusEveryStart": [0, 0, 0]
+    },
+    "tamper": {
+      "modes": ["digest", "missing-field", "type-error", "policy-mismatch"],
+      "allRejectedBeforeLaunch": true
+    },
+    "canvas": {
+      "stable": false,
+      "excludedFromObservedWebsiteDigest": true,
+      "rawPixelsStableButSeedNoiseNotObservable": true,
+      "exportEncodingSessionVariableAcrossRestarts": true
+    },
+    "fontEvidence": {
+      "fontMode": "inherit",
+      "fontUniverseWidthsInDigest": false,
+      "managedRequiresAllControlsUnavailable": true,
+      "managedSemantics": "browser is temporarily launched and probed; launch fails before running (host_font_masking_failed), not before browser start",
+      "fixedUniverse": true,
+      "fixedUniverseSize": 25,
+      "bogusNegativeControls": true,
+      "hostFontNegativeControls": true,
+      "hostFontMaskingConfirmed": false,
+      "finding": "inherit mode: fontUniverseWidths excluded from ObservedWebsiteDigest; host font masking still fails on this host; font isolation is NOT claimed"
+    },
+    "timezoneMode": "fixed",
+    "fixedFields": [
+      "navigator.globalPrivacyControl",
+      "screen.availTop",
+      "screen.availLeft"
+    ],
+    "strictSchema": {
+      "recursive": true,
+      "unifiedTopLevelClosedSchema": true,
+      "generatedByNonEmptyString": true,
+      "generatedAtUtcRfc3339Z": true,
+      "browserReleaseNonEmptyString": true,
+      "digestFormatSha256Hex": true,
+      "boolRejectedForInt": true,
+      "nestedUnknownFieldsRejected": true,
+      "nestedMissingRequiredFieldsRejected": true,
+      "oldSchemaVersionExplicitlyRejected": true,
+      "strictJsonParser": "recursive duplicate-key rejection (nested included), NaN/Infinity rejected, top-level must be object -> integrity_rejected",
+      "rfc3339StrictRegex": "YYYY-MM-DDTHH:MM:SS[.fraction]Z only; space/basic-form/missing-seconds/non-UTC rejected",
+      "singleReadArtifact": true,
+      "expectedArtifactFileSha256Required": true,
+      "sidecarRequired": true,
+      "unitTests": "21/21 passed"
+    }
+  },
+  "m2Host": {
+    "protocol": "verisilo-camoufox-host/v1",
+    "hostVersion": "0.1.0",
+    "document": "docs/camoufox-host-v1.md",
+    "integrationTests": "19/19 passed",
+    "persistenceAcrossHostRestart": true,
+    "persistenceEvidence": "fixed probe origin across Host processes; bootCount 0->1->2; cookie via API and document.cookie on both boots; cookies.sqlite moz_cookies row after close",
+    "profileLock": true,
+    "lockReleasedLastAfterTreeExit": true,
+    "quarantineFailClosed": true,
+    "quarantineEvidence": "processTreeExit.exited!=true -> quarantined state, profile lock retained, persistent record with PID/start-time/process group; tri-state read (absent/valid/invalid): truncated/schema-invalid/unreadable records block takeover; atomic write (temp+fsync+os.replace+dir fsync); write/delete failures fail-closed",
+    "treeExitConfirmsAllCapturedIdentities": "exited=true only when roots AND captured descendants (PID+start-time) are gone; surviving descendants are recorded in remaining and quarantined",
+    "processIdentity": "signals sent only after PID+start-time re-verification; reused PID with different start-time never treated as original",
+    "crashRecovery": true,
+    "sigtermSigintEofCleanup": true,
+    "boundedFrameReader": true,
+    "oversizedFrameRejected": true,
+    "supervisorMetadata": "supervisorPid/childPid/startTimeTicks/processGroups written by exit_supervisor; no /proc cmdline pid guessing",
+    "treeTamperRejected": true,
+    "treeRejectsSymlinkAndNonRegular": true,
+    "stdoutPureProtocol": true,
+    "status": "runnable Linux prototype; NOT a fully accepted product Host (font isolation unsolved, Windows lifecycle not implemented)"
+  },
+  "note": "原始 Profile 与完整报告位于 gitignored artifacts/ 下；本 manifest 是 tracked 的 sanitized 证据索引。"
+}

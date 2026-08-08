@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>VeriSilo Camoufox probe</title>
+</head>
+<body>
+  <p id="status">probe loaded</p>
+  <script>
+    "use strict";
+    const BOOT_KEY = "verisilo.bootCount";
+    const COOKIE_NAME = "verisilo_probe_cookie";
+
+    // Fixed font probe universe: identical input for every artifact, so font
+    // width differences are engine/seed-level evidence, not artifact-supplied
+    // input differences.
+    const FONT_UNIVERSE = [
+      "Arial", "Arial Black", "Arimo", "Calibri", "Cambria", "Comic Sans MS",
+      "Consolas", "Courier New", "Cousine", "DejaVu Sans", "DejaVu Serif",
+      "Georgia", "Helvetica", "Impact", "Liberation Mono", "Liberation Sans",
+      "Liberation Serif", "Lucida Console", "Noto Sans", "Noto Serif",
+      "Segoe UI", "Tahoma", "Times New Roman", "Trebuchet MS", "Verdana",
+    ];
+    const BOGUS_FONTS = [
+      "VeriSiloBogusFontM2",
+      "DefinitelyNotAFontQz",
+      "NoSuchTypefaceXyZ",
+    ];
+    const FONT_STRINGS = [
+      "The quick brown fox jumps over the lazy dog",
+      "VeriSiloM2 0123456789",
+      "mmmmmmmmmmmmmmmmmmmm",
+    ];
+
+    async function sha256Hex(buffer) {
+      const digest = await crypto.subtle.digest("SHA-256", buffer);
+      return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+
+    function withTimeout(promise, ms, fallback) {
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(fallback), ms);
+        Promise.resolve(promise).then(
+          (value) => {
+            clearTimeout(timer);
+            resolve(value);
+          },
+          () => {
+            clearTimeout(timer);
+            resolve(fallback);
+          }
+        );
+      });
+    }
+
+    async function identityCanvas() {
+      const canvas = document.createElement("canvas");
+      canvas.width = 240;
+      canvas.height = 120;
+      const ctx = canvas.getContext("2d");
+      // Deterministic scene; Camoufox applies per-seed noise on top.
+      ctx.textBaseline = "alphabetic";
+      ctx.font = "16px Arial";
+      ctx.fillStyle = "#e02";
+      ctx.fillRect(10, 10, 60, 40);
+      ctx.strokeStyle = "rgba(0,128,255,0.8)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(120, 60, 40, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#000";
+      ctx.fillText("VeriSilo M1 0123456789", 20, 82);
+      const gradient = ctx.createLinearGradient(0, 0, 240, 120);
+      gradient.addColorStop(0, "#123456");
+      gradient.addColorStop(1, "#abcdef");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(160, 20, 70, 40);
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 3;
+      ctx.fillStyle = "#0a0";
+      ctx.fillRect(30, 30, 20, 20);
+      ctx.restore();
+      const data = ctx.getImageData(0, 0, 240, 120).data;
+      const rawHash = "sha256:" + (await sha256Hex(data));
+      const dataUrl = canvas.toDataURL("image/png");
+      const exportHash = "sha256:" + (await sha256Hex(new TextEncoder().encode(dataUrl)));
+      return { rawHash, exportHash };
+    }
+
+    async function identityAudioHash() {
+      // Offline render: deterministic, needs no autoplay permission.
+      try {
+        if (window.OfflineAudioContext) {
+          const sampleRate = 48000;
+          const duration = 0.15;
+          const length = Math.floor(sampleRate * duration);
+          const ctx = new OfflineAudioContext(1, length, sampleRate);
+          const buffer = ctx.createBuffer(1, length, sampleRate);
+          const channel = buffer.getChannelData(0);
+          for (let i = 0; i < channel.length; i++) {
+            channel[i] =
+              0.2 * Math.sin((2 * Math.PI * 440 * i) / sampleRate) +
+              0.1 * Math.sin((2 * Math.PI * 880 * i) / sampleRate);
+          }
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          source.start();
+          const rendered = await withTimeout(ctx.startRendering(), 4000, null);
+          if (rendered) {
+            const data = rendered.getChannelData(0);
+            const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+            return "sha256:" + (await sha256Hex(bytes));
+          }
+        }
+      } catch (err) {
+        // fall through to the online path
+      }
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return null;
+      return withTimeout(
+        (async () => {
+          const audio = new AudioCtx();
+          try {
+            if (audio.state !== "running") await audio.resume();
+            const sampleRate = audio.sampleRate;
+            const duration = 0.15;
+            const buffer = audio.createBuffer(1, Math.floor(sampleRate * duration), sampleRate);
+            const channel = buffer.getChannelData(0);
+            for (let i = 0; i < channel.length; i++) {
+              channel[i] =
+                0.2 * Math.sin((2 * Math.PI * 440 * i) / sampleRate) +
+                0.1 * Math.sin((2 * Math.PI * 880 * i) / sampleRate);
+            }
+            const source = audio.createBufferSource();
+            source.buffer = buffer;
+            const analyser = audio.createAnalyser();
+            analyser.fftSize = 2048;
+            source.connect(analyser);
+            analyser.connect(audio.destination);
+            source.start();
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            const bins = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(bins);
+            return "sha256:" + (await sha256Hex(bins));
+          } finally {
+            try {
+              await audio.close();
+            } catch (err) {
+              // ignore
+            }
+          }
+        })(),
+        4000,
+        null
+      );
+    }
+
+    function identityFontWidths(fonts) {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const widths = {};
+      for (const family of fonts) {
+        for (const text of FONT_STRINGS) {
+          ctx.font = `16px "${family}"`;
+          widths[`${family}|${text}`] = ctx.measureText(text).width;
+        }
+      }
+      return widths;
+    }
+
+    function identityFontUniverseWidths() {
+      const universe = Array.isArray(window.__probeFontUniverse)
+        ? window.__probeFontUniverse
+        : FONT_UNIVERSE;
+      return identityFontWidths(universe);
+    }
+
+    function identityFontAvailability(fonts) {
+      const result = {};
+      for (const family of fonts) {
+        result[family] = document.fonts.check(`16px "${family}"`);
+      }
+      return result;
+    }
+
+    function identityWebGL() {
+      const canvas = document.createElement("canvas");
+      const gl = canvas.getContext("webgl");
+      if (!gl) return { vendor: null, renderer: null, available: false };
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      const range = (value) => Array.from(value);
+      return {
+        vendor: ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : null,
+        renderer: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : null,
+        available: true,
+        summary: {
+          version: gl.getParameter(gl.VERSION),
+          shadingLanguageVersion: gl.getParameter(gl.SHADING_LANGUAGE_VERSION),
+          maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+          maxRenderbufferSize: gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),
+          maxViewportDims: range(gl.getParameter(gl.MAX_VIEWPORT_DIMS)),
+          aliasedLineWidthRange: range(gl.getParameter(gl.ALIASED_LINE_WIDTH_RANGE)),
+          aliasedPointSizeRange: range(gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)),
+          extensions: (gl.getSupportedExtensions() || []).slice().sort(),
+        },
+      };
+    }
+
+    async function identityMediaDevices() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        return [];
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.map((device) => ({
+        kind: device.kind,
+        label: device.label,
+      }));
+    }
+
+    function identityFonts(fonts) {
+      return fonts.map((family) => ({
+        family,
+        available: document.fonts.check(`16px "${family}"`),
+      }));
+    }
+
+    function identityVoices() {
+      return new Promise((resolve) => {
+        const read = () => {
+          const voices = speechSynthesis.getVoices().map((voice) => ({
+            name: voice.name,
+            lang: voice.lang,
+            localService: voice.localService,
+            voiceURI: voice.voiceURI,
+          }));
+          resolve(voices);
+        };
+        const current = speechSynthesis.getVoices();
+        if (current.length > 0) {
+          read();
+          return;
+        }
+        let settled = false;
+        const finish = () => {
+          if (!settled) {
+            settled = true;
+            read();
+          }
+        };
+        speechSynthesis.onvoiceschanged = finish;
+        setTimeout(finish, 2500);
+      });
+    }
+
+    function identitySession() {
+      return {
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+        utcOffsetMinutes: new Date().getTimezoneOffset(),
+        navigatorOnLine: navigator.onLine,
+        windowScreenX: window.screenX,
+        windowScreenY: window.screenY,
+        documentFontsStatus: document.fonts.status,
+      };
+    }
+
+    function identityUnavailable() {
+      return {
+        deviceMemory: navigator.deviceMemory ?? null,
+        userAgentData: navigator.userAgentData ?? null,
+        windowChrome: window.chrome ?? null,
+      };
+    }
+
+    window.__probe = {
+      read() {
+        return {
+          bootCount: Number(localStorage.getItem(BOOT_KEY) || "0"),
+          cookiePresent: document.cookie
+            .split("; ")
+            .some((c) => c.startsWith(COOKIE_NAME + "=")),
+          userAgent: navigator.userAgent,
+          language: navigator.language,
+          screen: [screen.width, screen.height],
+          devicePixelRatio: window.devicePixelRatio || null,
+          hardwareConcurrency: navigator.hardwareConcurrency || null,
+          webdriver: navigator.webdriver,
+        };
+      },
+      writeBootCount(n) {
+        localStorage.setItem(BOOT_KEY, String(n));
+        return n;
+      },
+      async readIdentity() {
+        const fonts = Array.isArray(window.__probeFonts) ? window.__probeFonts : [];
+        const [canvas, audioHash, voices, mediaDevices] = await Promise.all([
+          withTimeout(identityCanvas(), 3000, null),
+          identityAudioHash(),
+          withTimeout(identityVoices(), 4000, []),
+          withTimeout(identityMediaDevices(), 3000, []),
+        ]);
+        const webgl = identityWebGL();
+        return {
+          userAgent: navigator.userAgent,
+          language: navigator.language,
+          languages: navigator.languages,
+          platform: navigator.platform,
+          oscpu: navigator.oscpu,
+          doNotTrack: navigator.doNotTrack,
+          globalPrivacyControl: navigator.globalPrivacyControl ?? null,
+          screen: {
+            width: screen.width,
+            height: screen.height,
+            availWidth: screen.availWidth,
+            availHeight: screen.availHeight,
+            availTop: screen.availTop,
+            availLeft: screen.availLeft,
+            colorDepth: screen.colorDepth,
+            pixelDepth: screen.pixelDepth,
+          },
+          devicePixelRatio: window.devicePixelRatio ?? null,
+          hardwareConcurrency: navigator.hardwareConcurrency ?? null,
+          historyLength: history.length,
+          bootCount: Number(localStorage.getItem(BOOT_KEY) || "0"),
+          mediaDevices,
+          canvas,
+          audioHash,
+          fontUniverseWidths: identityFontUniverseWidths(),
+          fontNegativeControls: identityFontAvailability(BOGUS_FONTS),
+          injectedFonts: identityFonts(fonts),
+          hostFontNegativeControls: identityFontAvailability(
+            Array.isArray(window.__probeHostFonts) ? window.__probeHostFonts : []
+          ),
+          webglVendor: webgl.vendor,
+          webglRenderer: webgl.renderer,
+          webglSummary: webgl.summary,
+          webglAvailable: webgl.available,
+          fonts: identityFonts(fonts),
+          voices,
+          webdriver: navigator.webdriver,
+          session: identitySession(),
+          unavailable: identityUnavailable(),
+        };
+      },
+    };
+    document.getElementById("status").textContent = "probe ready";
+  </script>
+</body>
+</html>
