@@ -40,6 +40,7 @@ from identity_policy import (
     ARTIFACT_ID_RE,
     ArtifactIntegrityError,
     UnsupportedSchemaVersionError,
+    _strict_json_loads,
     build_projection,
     configured_identity_digest,
     diff_configs,
@@ -337,12 +338,15 @@ class CamoufoxHost:
         # only clean the record and take over after every recorded process
         # identity (PID + starttime) is gone.
         quarantine_check = clear_quarantine_if_stale(self.state_root, profile_id)
-        if quarantine_check["alive"]:
+        if quarantine_check["alive"] or quarantine_check.get("invalid"):
             os.close(lock_fd)
+            reason = quarantine_check.get("invalid") or (
+                "original process is still alive: "
+                + json.dumps(quarantine_check["alive"])
+            )
             raise ProtocolError(
                 "profile_quarantined",
-                f"profile {profile_id} is quarantined and the original "
-                "process is still alive: " + json.dumps(quarantine_check["alive"]),
+                f"profile {profile_id} is quarantined; {reason}",
             )
         if quarantine_check["cleared"]:
             _log(
@@ -679,14 +683,24 @@ class CamoufoxHost:
         written. The session is never marked exited."""
         session["state"] = "quarantined"
         session["failure"] = reason
-        record_path = write_quarantine_record(
-            self.state_root, session, reason, remaining
-        )
-        session["quarantine"] = {
-            "reason": reason,
-            "processes": remaining,
-            "recordPath": str(record_path),
-        }
+        try:
+            record_path = write_quarantine_record(
+                self.state_root, session, reason, remaining
+            )
+            session["quarantine"] = {
+                "reason": reason,
+                "processes": remaining,
+                "recordPath": str(record_path),
+            }
+        except OSError as exc:
+            # Fail-closed: even without a persisted record the lock is kept
+            # and the state is quarantined; the write error is recorded.
+            session["quarantine"] = {
+                "reason": reason,
+                "processes": remaining,
+                "recordPath": None,
+                "writeError": f"{type(exc).__name__}: {exc}",
+            }
         # Clean up server/Xvfb/log fds, but DO NOT release the profile lock.
         await release_session(self, session, release_lock=False)
         write_session_state(session)
@@ -814,7 +828,8 @@ def proc_starttime_ticks(pid: int) -> Optional[int]:
 def proc_identity_alive(identity: dict) -> bool:
     """A process is 'ours' only when BOTH the PID exists AND its starttime
     matches the supervisor-recorded identity. A reused PID with a different
-    starttime is never treated as the original process."""
+    starttime is never treated as the original process. Zombies (state Z)
+    are not running and are not alive."""
     pid = identity.get("pid")
     expected = identity.get("startTimeTicks")
     if not isinstance(pid, int) or pid <= 0:
@@ -822,7 +837,16 @@ def proc_identity_alive(identity: dict) -> bool:
     if not isinstance(expected, int) or expected <= 0:
         return False
     actual = proc_starttime_ticks(pid)
-    return actual is not None and actual == expected
+    if actual is None or actual != expected:
+        return False
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    fields = stat.rsplit(")", 1)
+    if len(fields) != 2:
+        return False
+    return fields[1].split()[0].strip() != "Z"
 
 
 def process_descendants(pid: int) -> list[int]:
@@ -893,13 +917,16 @@ def _identity_matches_live(target: dict) -> bool:
 def terminate_managed_tree(session: dict, timeout: float = 8.0) -> dict:
     """Terminate every managed supervisor/browser descendant and CONFIRM the
     tree is gone. Every signal is sent only after re-verifying the target's
-    PID+starttime identity (no PID-reuse mis-kill). Returns evidence; the
-    caller only releases the profile lock after exited=True."""
+    PID+starttime identity (no PID-reuse mis-kill). exited=True is returned
+    ONLY when every captured PID+starttime identity (roots AND descendants)
+    is gone; surviving descendants are reported in `remaining` so the caller
+    can quarantine instead of releasing the profile lock."""
     roots = [identity for identity in managed_identities(session) if proc_identity_alive(identity)]
     if not roots:
         return {
             "exited": True,
             "managedIdentities": [],
+            "remaining": [],
             "sigterm": False,
             "sigkill": False,
         }
@@ -924,22 +951,36 @@ def terminate_managed_tree(session: dict, timeout: float = 8.0) -> dict:
             pass
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        alive = [identity for identity in roots if proc_identity_alive(identity)]
-        if not alive:
+        alive_targets = [target for target in targets if proc_identity_alive(target)]
+        if not alive_targets:
             return {
                 "exited": True,
                 "managedIdentities": roots,
+                "remaining": [],
                 "sigterm": True,
                 "sigkill": False,
             }
+        # Continuously capture descendants spawned after the first
+        # enumeration while their parent is still alive, so they are also
+        # confirmed gone before exited=true.
+        for base in alive_targets:
+            for descendant_pid in process_descendants(base["pid"]):
+                if descendant_pid in seen:
+                    continue
+                seen.add(descendant_pid)
+                targets.append(
+                    {
+                        "pid": descendant_pid,
+                        "startTimeTicks": proc_starttime_ticks(descendant_pid),
+                    }
+                )
         time.sleep(0.05)
+    # Re-enumerate from every still-alive captured target (an orphaned
+    # descendant can spawn its own children after the root dies).
     kill_targets: list[dict] = []
     seen_kill: set[int] = set()
-    for root in alive:
-        if root["pid"] not in seen_kill:
-            seen_kill.add(root["pid"])
-            kill_targets.append(root)
-        for descendant_pid in process_descendants(root["pid"]):
+    for base in alive_targets:
+        for descendant_pid in process_descendants(base["pid"]):
             if descendant_pid in seen_kill:
                 continue
             seen_kill.add(descendant_pid)
@@ -958,11 +999,12 @@ def terminate_managed_tree(session: dict, timeout: float = 8.0) -> dict:
             pass
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        alive = [identity for identity in roots if proc_identity_alive(identity)]
-        if not alive:
+        alive_targets = [target for target in kill_targets if proc_identity_alive(target)]
+        if not alive_targets:
             return {
                 "exited": True,
                 "managedIdentities": roots,
+                "remaining": [],
                 "sigterm": True,
                 "sigkill": True,
             }
@@ -972,12 +1014,106 @@ def terminate_managed_tree(session: dict, timeout: float = 8.0) -> dict:
         "managedIdentities": roots,
         "sigterm": True,
         "sigkill": True,
-        "remaining": [identity for identity in roots if proc_identity_alive(identity)],
+        "remaining": [
+            target for target in kill_targets if proc_identity_alive(target)
+        ],
     }
 
 
 def quarantine_record_path(state_root: Path, profile_id: str) -> Path:
     return Path(state_root) / "quarantine" / f"{profile_id}.json"
+
+
+QUARANTINE_SCHEMA = "verisilo-camoufox-profile-quarantine/v1"
+QUARANTINE_ALLOWED_KEYS = {
+    "schema",
+    "profileId",
+    "sessionId",
+    "artifactId",
+    "artifactFileSha256",
+    "createdAtUtc",
+    "reason",
+    "processes",
+    "evidenceClass",
+}
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Same-directory temp file + fsync + os.replace + directory fsync, so a
+    crash mid-write can never leave a partially-written quarantine record."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / f"{path.name}.tmp-{uuid.uuid4().hex}"
+    fd: Optional[int] = None
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fd = None
+            fh.write(text.encode("utf-8"))
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+        dir_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except OSError:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _validate_quarantine_record(record: dict) -> list[str]:
+    """Strict closed schema for quarantine records: exact key set, exact
+    types. A record that fails this can never be trusted for takeover."""
+    errors: list[str] = []
+    unknown = set(record) - QUARANTINE_ALLOWED_KEYS
+    if unknown:
+        errors.append("unknown keys: " + ", ".join(sorted(unknown)))
+    if record.get("schema") != QUARANTINE_SCHEMA:
+        errors.append(f"schema must be {QUARANTINE_SCHEMA!r}")
+    for key in ("profileId", "sessionId", "artifactId", "evidenceClass"):
+        if type(record.get(key)) is not str or not record[key]:
+            errors.append(f"{key} must be a non-empty string")
+    if type(record.get("artifactFileSha256")) is not str or not HEX64_RE.fullmatch(
+        record.get("artifactFileSha256", "")
+    ):
+        errors.append("artifactFileSha256 must be 64 hex chars")
+    if type(record.get("createdAtUtc")) is not str or not record["createdAtUtc"]:
+        errors.append("createdAtUtc must be a non-empty string")
+    if type(record.get("reason")) is not str or not record["reason"]:
+        errors.append("reason must be a non-empty string")
+    processes = record.get("processes")
+    if type(processes) is not list:
+        errors.append("processes must be a list")
+    else:
+        for index, proc in enumerate(processes):
+            prefix = f"processes[{index}]"
+            if type(proc) is not dict:
+                errors.append(f"{prefix} must be an object")
+                continue
+            unknown_proc = set(proc) - {"pid", "startTimeTicks", "processGroup", "role"}
+            if unknown_proc:
+                errors.append(
+                    f"{prefix} unknown keys: " + ", ".join(sorted(unknown_proc))
+                )
+            if type(proc.get("pid")) is not int or proc.get("pid", 0) <= 0:
+                errors.append(f"{prefix}.pid must be a positive int")
+            if type(proc.get("startTimeTicks")) is not int or proc.get("startTimeTicks", 0) <= 0:
+                errors.append(f"{prefix}.startTimeTicks must be a positive int")
+            pgrp = proc.get("processGroup")
+            if pgrp is not None and type(pgrp) is not int:
+                errors.append(f"{prefix}.processGroup must be int or null")
+            if type(proc.get("role")) is not str or not proc["role"]:
+                errors.append(f"{prefix}.role must be a non-empty string")
+    return errors
 
 
 def write_quarantine_record(
@@ -988,7 +1124,8 @@ def write_quarantine_record(
 ) -> Path:
     """Persistent, machine-readable quarantine record. A new Host must verify
     every recorded PID+starttime identity is gone before it may clean the
-    record and take over the profile."""
+    record and take over the profile. The write is atomic (temp + fsync +
+    replace); failures raise and the caller stays fail-closed."""
     path = quarantine_record_path(state_root, session["profileId"])
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -1010,19 +1147,29 @@ def write_quarantine_record(
         ],
         "evidenceClass": "observed-on-this-host",
     }
-    path.write_text(json.dumps(payload, indent=2) + "\n")
+    _atomic_write_text(path, json.dumps(payload, indent=2) + "\n")
     return path
 
 
-def read_quarantine_record(state_root: Path, profile_id: str) -> Optional[dict]:
+def read_quarantine_record(
+    state_root: Path, profile_id: str
+) -> tuple[str, Optional[dict], Optional[str]]:
+    """Tri-state read: ('absent'|'valid'|'invalid', record, error). Any
+    existing-but-unreadable or schema-invalid record is 'invalid' and must
+    block takeover — it is never treated as absent."""
     path = quarantine_record_path(state_root, profile_id)
     if not path.exists():
-        return None
+        return "absent", None, None
     try:
-        record = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return record if isinstance(record, dict) else None
+        record = _strict_json_loads(path.read_bytes())
+    except (OSError, ArtifactIntegrityError) as exc:
+        return "invalid", None, f"unreadable quarantine record: {exc}"
+    if type(record) is not dict:
+        return "invalid", None, "quarantine record is not an object"
+    errors = _validate_quarantine_record(record)
+    if errors:
+        return "invalid", None, "invalid quarantine record: " + "; ".join(errors)
+    return "valid", record, None
 
 
 def quarantine_processes_alive(record: dict) -> list[dict]:
@@ -1036,18 +1183,46 @@ def quarantine_processes_alive(record: dict) -> list[dict]:
 def clear_quarantine_if_stale(state_root: Path, profile_id: str) -> dict:
     """A new Host may only clear the quarantine after every recorded process
     identity (PID + starttime) is gone. Otherwise it reports the still-alive
-    identities and the caller must NOT take over the profile."""
-    record = read_quarantine_record(state_root, profile_id)
-    if record is None:
-        return {"recordPresent": False, "cleared": False, "alive": []}
+    identities (or the validation error) and the caller must NOT take over
+    the profile. A file that exists but cannot be validated is fail-closed."""
+    status, record, error = read_quarantine_record(state_root, profile_id)
+    if status == "absent":
+        return {
+            "recordPresent": False,
+            "cleared": False,
+            "alive": [],
+            "invalid": None,
+        }
+    if status == "invalid":
+        return {
+            "recordPresent": True,
+            "cleared": False,
+            "alive": [],
+            "invalid": error,
+        }
     alive = quarantine_processes_alive(record)
     if alive:
-        return {"recordPresent": True, "cleared": False, "alive": alive}
+        return {
+            "recordPresent": True,
+            "cleared": False,
+            "alive": alive,
+            "invalid": None,
+        }
     try:
         quarantine_record_path(state_root, profile_id).unlink()
-    except OSError:
-        pass
-    return {"recordPresent": True, "cleared": True, "alive": []}
+    except OSError as exc:
+        return {
+            "recordPresent": True,
+            "cleared": False,
+            "alive": [],
+            "invalid": f"cannot remove stale quarantine record: {exc}",
+        }
+    return {
+        "recordPresent": True,
+        "cleared": True,
+        "alive": [],
+        "invalid": None,
+    }
 
 
 async def _collect_cookie_evidence(

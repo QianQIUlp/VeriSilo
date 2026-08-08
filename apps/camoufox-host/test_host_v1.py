@@ -27,8 +27,10 @@ from host_v1 import (
     clear_quarantine_if_stale,
     proc_identity_alive,
     proc_starttime_ticks,
+    process_descendants,
     quarantine_processes_alive,
     release_session,
+    terminate_managed_tree,
     write_quarantine_record,
 )
 
@@ -712,6 +714,205 @@ def test_proc_identity_and_quarantine_logic() -> None:
         if dummy.poll() is None:
             dummy.kill()
             dummy.wait()
+
+
+def test_terminate_waits_for_ignored_sigterm_descendant() -> None:
+    """Regression: the managed ROOT exits on SIGTERM while a captured
+    descendant ignores SIGTERM. exited=true must NOT be returned until the
+    descendant is gone too (before the fix this returned exited=true with
+    sigkill=false and leaked the descendant + released the lock)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        marker = Path(tmp) / "child-ready"
+        child_code = (
+            "import signal,time\n"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            f"open({str(marker)!r}, 'w').write('ok')\n"
+            "time.sleep(60)\n"
+        )
+        root_code = (
+            "import subprocess, sys, time\n"
+            f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+            "print(child.pid, flush=True)\n"
+            "time.sleep(60)\n"
+        )
+        root = subprocess.Popen(
+            [str(VENV_PY), "-c", root_code],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        child_pid = 0
+        try:
+            line = root.stdout.readline().strip()
+            child_pid = int(line)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if marker.exists() and child_pid in process_descendants(root.pid):
+                    break
+                time.sleep(0.05)
+            assert marker.exists(), "child never installed SIGTERM ignore"
+            assert child_pid in process_descendants(root.pid), (
+                "child never became a managed descendant"
+            )
+            root_start = proc_starttime_ticks(root.pid)
+            assert root_start is not None
+            session = {
+                "supervisorMeta": {
+                    "supervisorPid": root.pid,
+                    "supervisorStartTimeTicks": root_start,
+                }
+            }
+            result = terminate_managed_tree(session, timeout=1.5)
+            assert result["exited"] is True, result
+            assert result["sigkill"] is True, (
+                "root exited but a SIGTERM-ignoring descendant survived: "
+                f"{result}"
+            )
+            assert result["remaining"] == [], result
+            assert proc_starttime_ticks(child_pid) is None, "descendant still alive"
+        finally:
+            for pid in (child_pid, root.pid):
+                if pid and proc_starttime_ticks(pid) is not None:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            if root.poll() is None:
+                root.kill()
+            root.wait()
+
+
+def test_corrupt_quarantine_blocks_takeover() -> None:
+    with fresh_roots() as (profile_root, state_root):
+        quarantine_dir = state_root / "quarantine"
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+        record = quarantine_dir / "t-corrupt.json"
+        record.write_text('{"schema": "verisilo-camoufox-profile-quarantine/v1"')
+        check = clear_quarantine_if_stale(state_root, "t-corrupt")
+        assert check["recordPresent"] is True
+        assert check["cleared"] is False
+        assert check["invalid"], "corrupt record must be fail-closed"
+
+        # Missing required fields (no processes) must also block.
+        (quarantine_dir / "t-corrupt.json").write_text(
+            json.dumps(
+                {
+                    "schema": "verisilo-camoufox-profile-quarantine/v1",
+                    "profileId": "t-corrupt",
+                }
+            )
+        )
+        check = clear_quarantine_if_stale(state_root, "t-corrupt")
+        assert check["cleared"] is False
+        assert check["invalid"], "schema-invalid record must block takeover"
+
+        host = HostProc(profile_root=profile_root, state_root=state_root)
+        try:
+            response = host.launch(
+                "identity-a", "t-corrupt", artifact_sha("identity-a")
+            )
+            assert response["ok"] is False
+            assert response["error"]["code"] == "profile_quarantined"
+            host.shutdown()
+        finally:
+            host.kill()
+
+
+def test_quarantine_atomic_write_and_invalid_path() -> None:
+    from host_v1 import read_quarantine_record
+
+    dummy = subprocess.Popen(
+        [str(VENV_PY), "-c", "import time; time.sleep(60)"]
+    )
+    try:
+        starttime = proc_starttime_ticks(dummy.pid)
+        with tempfile.TemporaryDirectory() as tmp:
+            state_root = Path(tmp)
+            session = {
+                "profileId": "p-atomic",
+                "sessionId": "s-atomic",
+                "artifactId": "identity-a",
+                "artifactFileSha256": "0" * 64,
+            }
+            record_path = write_quarantine_record(
+                state_root,
+                session,
+                "atomic test",
+                [
+                    {
+                        "pid": dummy.pid,
+                        "startTimeTicks": starttime,
+                        "processGroup": None,
+                        "role": "browser",
+                    }
+                ],
+            )
+            assert record_path.exists()
+            assert not list(record_path.parent.glob("*.tmp-*")), "tmp leftover"
+            status, record, error = read_quarantine_record(state_root, "p-atomic")
+            assert status == "valid" and error is None, (status, error)
+            assert record["processes"][0]["pid"] == dummy.pid
+
+            # An unreadable path (directory in place of the record) is
+            # invalid, not absent.
+            record_path.unlink()
+            record_path.mkdir()
+            (record_path / "junk").write_text("x")
+            status, _, error = read_quarantine_record(state_root, "p-atomic")
+            assert status == "invalid" and error
+            check = clear_quarantine_if_stale(state_root, "p-atomic")
+            assert check["cleared"] is False and check["invalid"]
+
+            # A write into an impossible location raises (fail-closed signal).
+            bad_root = Path(tmp) / "blocked"
+            bad_root.write_text("not a dir")
+            try:
+                write_quarantine_record(
+                    bad_root,
+                    session,
+                    "atomic test",
+                    [{"pid": dummy.pid, "startTimeTicks": starttime, "processGroup": None, "role": "browser"}],
+                )
+            except OSError:
+                pass
+            else:
+                raise AssertionError("write failure must raise (fail-closed)")
+    finally:
+        if dummy.poll() is None:
+            dummy.kill()
+            dummy.wait()
+
+
+def test_artifact_non_object_and_duplicate_key_integrity_rejected() -> None:
+    ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
+    cases = {
+        "identity-array.json": b"[1, 2, 3]",
+        "identity-dup.json": b'{"artifactId":"a","artifactId":"b"}',
+        "identity-nan.json": b'{"generatedAtUtc": NaN}',
+    }
+    for name, raw in cases.items():
+        path = ARTIFACT_ROOT / name
+        path.write_bytes(raw)
+        (ARTIFACT_ROOT / f"{name}.sha256").write_text(
+            f"{hashlib.sha256(raw).hexdigest()}  {name}\n"
+        )
+    with fresh_roots() as (profile_root, state_root):
+        host = HostProc(
+            artifact_root=ARTIFACT_ROOT,
+            profile_root=profile_root,
+            state_root=state_root,
+        )
+        try:
+            for name in cases:
+                response = host.launch(
+                    name[:-5], "t-strict-json", hashlib.sha256((ARTIFACT_ROOT / name).read_bytes()).hexdigest()
+                )
+                assert response["ok"] is False, name
+                assert response["error"]["code"] == "integrity_rejected", (name, response)
+            host.shutdown()
+            host.assert_stdout_pure()
+        finally:
+            host.kill()
 
 
 def main() -> int:

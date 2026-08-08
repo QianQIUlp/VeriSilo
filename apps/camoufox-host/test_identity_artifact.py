@@ -380,6 +380,55 @@ def test_top_level_scalar_closure() -> None:
         assert verify_artifact(path)["generatedAtUtc"].endswith("Z")
 
 
+def test_rfc3339_strict_rejects_lenient_forms() -> None:
+    lenient_values = [
+        "2026-08-04 06:00:00Z",  # space separator
+        "20260804T060000Z",  # basic form
+        "2026-08-04T06:00Z",  # missing seconds
+        "2026-08-04T06:00:00+00:00",  # not normalized to Z
+        "2026-08-04T06:00:00.123Z+02:00",
+    ]
+    for value in lenient_values:
+        artifact = load_fixture("identity-a")
+        artifact["generatedAtUtc"] = value
+        _recompute_digests(artifact)
+        _expect_rejected(artifact, f"rfc3339-{value[:12]}")
+    for value in ("2026-08-04T06:00:00Z", "2026-08-04T06:00:00.123456Z"):
+        artifact = load_fixture("identity-a")
+        artifact["generatedAtUtc"] = value
+        _recompute_digests(artifact)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "valid-z.json"
+            path.write_text(json.dumps(artifact, indent=2) + "\n")
+            (path.with_suffix(".json.sha256")).write_text(
+                f"{__import__('hashlib').sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+            )
+            assert verify_artifact(path)["generatedAtUtc"] == value
+
+
+def test_strict_json_parser_rejects_ambiguity() -> None:
+    cases = [
+        ("duplicate-key", b'{"artifactId":"a","artifactId":"b"}'),
+        ("nan", b'{"generatedAtUtc": NaN}'),
+        ("infinity", b'{"generatedAtUtc": Infinity}'),
+        ("non-object", b'[1,2,3]'),
+        ("nested-duplicate", b'{"policy":{"schema":"x","schema":"y"}}'),
+    ]
+    for label, raw in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / f"{label}.json"
+            path.write_bytes(raw)
+            (path.with_suffix(".json.sha256")).write_text(
+                f"{__import__('hashlib').sha256(raw).hexdigest()}  {path.name}\n"
+            )
+            try:
+                verify_artifact(path)
+            except ArtifactIntegrityError as exc:
+                assert "strict JSON" in str(exc) or "JSON object" in str(exc), exc
+            else:
+                raise AssertionError(f"{label} must be rejected by strict parser")
+
+
 def test_tree_rejects_symlink_and_non_regular() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         tree = Path(tmp) / "tree"

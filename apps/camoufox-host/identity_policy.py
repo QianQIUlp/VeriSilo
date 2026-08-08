@@ -119,6 +119,7 @@ CANONICAL_JSON_RULE = (
 
 ARTIFACT_ID_RE = re.compile(r"^identity-[a-z0-9-]{1,63}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+RFC3339_UTC_Z_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 
 # --------------------------------------------------------------------------
 # Recursive schema primitives (exact type identity, no bool-as-int).
@@ -494,8 +495,10 @@ def identity_policy(
 def _is_rfc3339_utc_z(value: Any) -> bool:
     """Strict RFC 3339 UTC timestamp normalized to 'Z' (e.g.
     2026-08-04T06:05:24.485917Z). Offsets other than UTC and non-Z spellings
-    are rejected; writers must normalize to Z."""
-    if type(value) is not str or not value.endswith("Z"):
+    are rejected; writers must normalize to Z. The explicit regex rejects
+    space separators, basic form, missing seconds, and non-UTC offsets; the
+    date parse then rejects impossible calendar values."""
+    if type(value) is not str or not RFC3339_UTC_Z_RE.fullmatch(value):
         return False
     try:
         parsed = datetime.fromisoformat(value[:-1] + "+00:00")
@@ -707,6 +710,32 @@ def assert_artifact_clean(artifact: dict) -> None:
         )
 
 
+def _strict_json_loads(raw: bytes) -> Any:
+    """Strict JSON parse for the persistent identity format: recursively
+    rejects duplicate object keys and NaN/Infinity constants, so every
+    conforming parser (Python now, Rust later) sees the same object."""
+
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
+    def reject_constant(token: str) -> None:
+        raise ValueError(f"invalid JSON constant: {token}")
+
+    try:
+        return json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=reject_duplicates,
+            parse_constant=reject_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ArtifactIntegrityError(f"artifact is not strict JSON: {exc}") from exc
+
+
 def verify_artifact_raw(
     path: Path | str,
     expected_file_sha: str | None = None,
@@ -726,10 +755,11 @@ def verify_artifact_raw(
         raise ArtifactIntegrityError(
             f"artifact file sha256 mismatch with expected: expected {expected_file_sha}, got {file_sha}"
         )
-    try:
-        artifact = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ArtifactIntegrityError(f"artifact unreadable: {exc}") from exc
+    artifact = _strict_json_loads(raw)
+    if type(artifact) is not dict:
+        raise ArtifactIntegrityError(
+            f"artifact must be a JSON object, got {type(artifact).__name__}"
+        )
     schema = artifact.get("schema")
     if schema != ARTIFACT_SCHEMA:
         if isinstance(schema, str) and schema.startswith(

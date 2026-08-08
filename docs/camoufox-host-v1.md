@@ -1,7 +1,8 @@
-# VeriSilo M2.0.2 — Standalone Camoufox Host v1 (Linux stdio protocol)
+# VeriSilo M2.0.3 — Standalone Camoufox Host v1 (Linux stdio protocol)
 
 Status: **Host v1 is a runnable Linux prototype with corrected lifecycle,
-persistence evidence, version contract, and fail-closed quarantine.
+persistence evidence, version contract, strict JSON/RFC3339 boundaries, and
+fail-closed quarantine.
 Observations only — `verified: false` /
 `observed-on-this-host` on every response. It is NOT yet a fully accepted
 product Host: font isolation is not claimed and M2-W (Windows) / M3
@@ -59,18 +60,27 @@ Only one session is active at a time (`session_busy` otherwise). Profiles are
 persistent directories guarded by an exclusive `flock`; a concurrent launch of
 the same profile returns `profile_in_use`.
 
-**Lock ordering (M2.0.2):** the profile lock is released LAST. Close/failure
+**Lock ordering (M2.0.3):** the profile lock is released LAST. Close/failure
 paths first stop the monitor, close the Playwright context, terminate and
 CONFIRM the entire managed process tree is gone, shut down the probe server
 (including closing its listening socket) and Xvfb, and only then release the
 flock. A second Host can never take over a profile while the old browser is
-still alive. If termination cannot be confirmed (`processTreeExit.exited !=
-true`), the session enters **quarantined**: the lock is KEPT by the current
-Host, a persistent quarantine record (PID + start-time ticks + process group)
-is written to `stateRoot/quarantine/<profile>.json`, and the state is never
-marked exited. A new Host may only clean the record and take over after every
-recorded PID+start-time identity is gone; otherwise launch returns
-`profile_quarantined`.
+still alive. `exited=true` is returned ONLY when every captured
+PID+start-time identity (roots AND descendants) is gone — a root that exits
+while a captured descendant survives does NOT count as a clean exit.
+
+If termination cannot be confirmed (`processTreeExit.exited != true`), the
+session enters **quarantined**: the lock is KEPT by the current Host, a
+persistent quarantine record (PID + start-time ticks + process group,
+including surviving descendants) is written atomically to
+`stateRoot/quarantine/<profile>.json` (same-directory temp file + fsync +
+`os.replace` + directory fsync), and the state is never marked exited.
+Quarantine reads are tri-state (absent / valid / invalid): a file that exists
+but is truncated, schema-invalid, or unreadable is **never** treated as
+absent and blocks takeover (`profile_quarantined`). Write or delete failures
+are fail-closed (the current Host keeps the lock; a stale record that cannot
+be removed blocks the next Host). A new Host may only clean the record and
+take over after every recorded PID+start-time identity is gone.
 
 ## Launch guarantees (per launch)
 
@@ -106,7 +116,7 @@ recorded PID+start-time identity is gone; otherwise launch returns
    records `cookies.sqlite` evidence (file + `moz_cookies` row). Later boots
    prove the cookie and bootCount persisted from the previous Host process.
 
-## Font policy (M2.0.2)
+## Font policy (M2.0.3)
 
 `policy.fontMode` is `inherit` or `managed`.
 
@@ -134,8 +144,8 @@ Quarantined sessions additionally write
 
 ## Test results
 
-`apps/camoufox-host/test_host_v1.py` (15/15 passed) and
-`test_identity_artifact.py` (19/19 passed):
+`apps/camoufox-host/test_host_v1.py` (19/19 passed) and
+`test_identity_artifact.py` (21/21 passed):
 
 - hello returns fixed protocol/version binding (`verisilo-camoufox-host/v1`,
   hostVersion 0.1.0, browserRelease v152.0.4-beta.28).
@@ -168,6 +178,17 @@ Quarantined sessions additionally write
   stale record is cleared and the profile launches. A reused PID with a
   different start-time is never treated as the original process, and a
   quarantined Host keeps the profile lock until release.
+- **Tree-exit regression**: a managed root that exits on SIGTERM while a
+  captured descendant ignores SIGTERM is NOT treated as a clean tree exit —
+  the Host waits, SIGKILLs the survivor, and only then reports
+  `exited=true`/`sigkill=true`. Before this fix the same scenario leaked the
+  descendant and released the lock.
+- **Quarantine robustness**: truncated / schema-invalid / unreadable
+  quarantine files block takeover (`profile_quarantined`), atomic writes
+  leave no partial records, and write/delete failures are fail-closed.
+- **Strict Artifact JSON**: non-object, duplicate keys (nested included), and
+  NaN/Infinity artifacts are rejected with `integrity_rejected` — never an
+  `internal_error`.
 - stdout stayed pure protocol JSON in every test; shutdown selfCheck found no
   artifact seeds or secrets in argv/stderr.
 
@@ -182,6 +203,10 @@ Quarantined sessions additionally write
 3. Raw reports and profiles live under gitignored `artifacts/`; the tracked
    `tests/fixtures/camoufox/evidence-manifest.json` is the sanitized evidence
    index.
+4. Tree confirmation covers every descendant captured while its parent is
+   alive. A descendant spawned by an already-dying root after the last
+   enumeration cannot be attributed without kernel-level ownership (cgroup /
+   Job Object); M2-W must close this with Windows Job Objects.
 
 ## Reproduce
 
