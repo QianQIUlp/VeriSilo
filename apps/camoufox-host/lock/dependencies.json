@@ -16,5 +16,5 @@
       "source": "https://pypi.org/project/browserforge/1.2.4/"
     }
   },
-  "note": "Transitive resolution and hashes are pinned by uv.lock; browser archive is pinned by lock/camoufox-v152.0.4-beta.28-linux-x86_64.json."
+  "note": "Transitive resolution and hashes are pinned by uv.lock; each browser platform archive is pinned by its platform-specific lock file."
 }

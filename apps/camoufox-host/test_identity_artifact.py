@@ -10,6 +10,7 @@ import copy
 import json
 import os
 import re
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -436,6 +437,29 @@ def test_tree_rejects_symlink_and_non_regular() -> None:
         (tree / "file.txt").write_text("hello")
         manifest = build_tree_manifest(tree)
         assert verify_tree(tree, manifest)["verified"] is True
+
+        if os.name == "nt":
+            (tree / "file.txt").unlink()
+            target_dir = Path(tmp) / "target-dir"
+            target_dir.mkdir()
+            junction = tree / "file.txt"
+            result = subprocess.run(
+                ["cmd.exe", "/c", "mklink", "/J", str(junction), str(target_dir)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert result.returncode == 0, result.stderr or result.stdout
+            try:
+                try:
+                    verify_tree(tree, manifest)
+                except TreeIntegrityError as exc:
+                    assert "symlink" in str(exc) or "reparse" in str(exc)
+                else:
+                    raise AssertionError("junction must be rejected")
+            finally:
+                junction.rmdir()
+            return
 
         # Replacing a regular file with a symlink to identical content must be
         # rejected: file-type integrity is part of tree integrity.

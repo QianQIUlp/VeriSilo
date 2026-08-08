@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VeriSilo M2 standalone Camoufox Host v1 (Linux, stdio protocol).
+"""VeriSilo M2 standalone Camoufox Host v1 (stdio protocol).
 
 Protocol: JSON Lines on stdin/stdout, one object per line, LF-terminated.
 Maximum frame size: 32 KiB (requests and responses). stdout carries ONLY
@@ -12,8 +12,8 @@ the caller can never pass arbitrary paths. Roots are fixed at process start
 (--artifact-root, --profile-root, --state-root).
 
 State machine per session: idle -> starting -> running -> closing ->
-exited/failed. Profile directories hold an exclusive flock; a concurrent
-launch of the same profile is rejected with profile_in_use.
+exited/failed. Profile directories hold an exclusive OS file lease; a
+concurrent launch of the same profile is rejected with profile_in_use.
 
 Every response keeps verified:false / observed-on-this-host.
 """
@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import copy
-import fcntl
 import json
 import os
 import re
@@ -43,7 +43,6 @@ from identity_policy import (
     _strict_json_loads,
     build_projection,
     configured_identity_digest,
-    diff_configs,
     observed_website_digest,
     verify_artifact_raw,
     verify_browser_binding,
@@ -52,6 +51,19 @@ from browser_tree import (
     TreeIntegrityError,
     load_tree_manifest,
     verify_tree,
+)
+from host_platform import (
+    IS_WINDOWS,
+    JobHandle,
+    ProfileLock,
+    ensure_no_reparse_points,
+    flush_path,
+    process_creation_time,
+    process_identity_alive as windows_process_identity_alive,
+    probe_supervisor_lock,
+    replace_file_durable,
+    set_binary_stdio,
+    terminate_windows_job,
 )
 from host_fonts import (
     FONT_UNIVERSE,
@@ -69,6 +81,7 @@ from run_spike import (
     install_download_guard,
     installed_versions,
     load_asset_lock,
+    normalize_camou_config_env,
     seed_camoufox_cache,
     start_probe_server,
     start_xvfb,
@@ -101,6 +114,9 @@ SECRET_PATTERNS = [
 ]
 
 
+set_binary_stdio()
+
+
 class ProtocolError(Exception):
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -129,7 +145,12 @@ def _send(obj: dict) -> None:
             },
             separators=(",", ":"),
         ).encode() + b"\n"
-    os.write(_PROTOCOL_FD, frame)
+    view = memoryview(frame)
+    while view:
+        written = os.write(_PROTOCOL_FD, view)
+        if written <= 0:
+            raise OSError("protocol stdout write made no progress")
+        view = view[written:]
 
 
 def _log(message: str) -> None:
@@ -167,8 +188,15 @@ def parse_frame(raw: bytes) -> dict:
             result[key] = value
         return result
 
+    def reject_constants(token: str) -> None:
+        raise ProtocolError("invalid_number", f"invalid JSON constant: {token}")
+
     try:
-        obj = json.loads(text, object_pairs_hook=reject_duplicates)
+        obj = json.loads(
+            text,
+            object_pairs_hook=reject_duplicates,
+            parse_constant=reject_constants,
+        )
     except ProtocolError:
         raise
     except json.JSONDecodeError as exc:
@@ -235,6 +263,21 @@ def validate_request(obj: dict) -> tuple[str, str, dict]:
 # --------------------------------------------------------------------------
 
 
+async def close_context_bounded(ctx: Any, timeout: float) -> bool:
+    """Do not let a stuck Playwright transport block Job-level cleanup."""
+    task = asyncio.create_task(ctx.close())
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+        return True
+    except asyncio.TimeoutError:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+        return False
+    except Exception:
+        return False
+
+
 class CamoufoxHost:
     def __init__(
         self,
@@ -245,9 +288,9 @@ class CamoufoxHost:
         display: Optional[str],
         probe_port: int = 0,
     ) -> None:
-        self.artifact_root = artifact_root.resolve()
-        self.profile_root = profile_root.resolve()
-        self.state_root = state_root.resolve()
+        self.artifact_root = artifact_root.absolute()
+        self.profile_root = profile_root.absolute()
+        self.state_root = state_root.absolute()
         self.tree_manifest = tree_manifest
         self.display_arg = display
         self.probe_port = probe_port
@@ -261,12 +304,18 @@ class CamoufoxHost:
         self.artifact_root.mkdir(parents=True, exist_ok=True)
         self.profile_root.mkdir(parents=True, exist_ok=True)
         self.state_root.mkdir(parents=True, exist_ok=True)
+        ensure_no_reparse_points(self.artifact_root)
+        ensure_no_reparse_points(self.profile_root)
+        ensure_no_reparse_points(self.state_root)
         lock = load_asset_lock()
         if lock.get("digestAgreement") is not True:
             raise SystemExit("asset lock digestAgreement is not true")
         executable = ensure_browser_asset(lock, allow_download=False)
         seed_camoufox_cache(lock, executable)
-        SUPERVISOR.chmod(0o755)
+        if not SUPERVISOR.exists():
+            raise SystemExit(f"missing native supervisor: {SUPERVISOR}")
+        if not IS_WINDOWS:
+            SUPERVISOR.chmod(0o755)
         os.environ["XDG_CACHE_HOME"] = str(XDG_CACHE_DIR)
         install_download_guard()
         DownloadGuard.reset()
@@ -321,25 +370,28 @@ class CamoufoxHost:
         verify_browser_binding(
             artifact, self.lock, self.executable, installed_versions()
         )
-        verify_tree(EXECUTABLE.parent, load_tree_manifest(self.tree_manifest))
+        verify_tree(self.executable.parent, load_tree_manifest(self.tree_manifest))
 
         profile_dir = self.profile_root / profile_id
         profile_dir.mkdir(parents=True, exist_ok=True)
+        ensure_no_reparse_points(profile_dir)
         lock_path = self.profile_root / f"{profile_id}.lock"
-        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            os.close(lock_fd)
+            profile_lock = ProfileLock.acquire(lock_path)
+            if IS_WINDOWS and not probe_supervisor_lock(lock_path):
+                profile_lock.release()
+                raise OSError("supervisor lock byte is already held")
+        except OSError as exc:
             raise ProtocolError(
-                "profile_in_use", f"profile {profile_id} is locked by another session"
-            )
+                "profile_in_use",
+                f"profile {profile_id} is locked by another session: {exc}",
+            ) from exc
         # A prior Host may have quarantined this profile. The new Host may
         # only clean the record and take over after every recorded process
         # identity (PID + starttime) is gone.
         quarantine_check = clear_quarantine_if_stale(self.state_root, profile_id)
         if quarantine_check["alive"] or quarantine_check.get("invalid"):
-            os.close(lock_fd)
+            profile_lock.release()
             reason = quarantine_check.get("invalid") or (
                 "original process is still alive: "
                 + json.dumps(quarantine_check["alive"])
@@ -359,11 +411,12 @@ class CamoufoxHost:
         session_dir.mkdir(parents=True, exist_ok=False)
         browser_log = session_dir / "browser.log"
         log_fh = browser_log.open("ab")
-        os.dup2(log_fh.fileno(), 1)
-        os.dup2(log_fh.fileno(), 2)
-        devnull = os.open(os.devnull, os.O_RDONLY)
-        os.dup2(devnull, 0)
-        os.close(devnull)
+        if not IS_WINDOWS:
+            os.dup2(log_fh.fileno(), 1)
+            os.dup2(log_fh.fileno(), 2)
+            devnull = os.open(os.devnull, os.O_RDONLY)
+            os.dup2(devnull, 0)
+            os.close(devnull)
 
         session = {
             "sessionId": session_id,
@@ -374,12 +427,15 @@ class CamoufoxHost:
             "artifactFileSha256": file_sha,
             "artifactDigest": artifact["canonicalDigest"],
             "state": "starting",
-            "lockFd": lock_fd,
+            "profileLock": profile_lock,
+            "lockFd": profile_lock.handle_value,
             "logFh": log_fh,
             "ctx": None,
             "pid": None,
             "childPid": None,
             "supervisorMeta": None,
+            "managedIdentities": [],
+            "jobHandle": None,
             "exitFile": session_dir / "exit.json",
             "exitFileObserved": False,
             "processTreeExit": None,
@@ -443,9 +499,9 @@ class CamoufoxHost:
         disk_config = copy.deepcopy(artifact["resolvedConfig"])
         disk_digest = configured_identity_digest(disk_config)
 
-        display = self.display_arg or os.environ.get("DISPLAY")
+        display = None if IS_WINDOWS else (self.display_arg or os.environ.get("DISPLAY"))
         xvfb = None
-        if not display:
+        if not IS_WINDOWS and not display:
             display, xvfb = start_xvfb()
         session["xvfb"] = xvfb
         server, probe_url = start_probe_server(self.probe_port)
@@ -460,13 +516,20 @@ class CamoufoxHost:
         os.environ["VERISILO_SUPERVISOR_FILE"] = str(
             session["sessionDir"] / "supervisor.json"
         )
+        if IS_WINDOWS:
+            os.environ["VERISILO_PROFILE_LOCK_PATH"] = str(
+                self.profile_root / f"{session['profileId']}.lock"
+            )
+            os.environ["VERISILO_JOB_NAME"] = (
+                f"Local\\VeriSiloCamoufox-{session['sessionId']}"
+            )
 
         launch_start = time.perf_counter()
         opts = await asyncio.get_event_loop().run_in_executor(
             None,
             partial(
                 launch_options,
-                config=disk_config,
+                 config=copy.deepcopy(disk_config),
                 os=policy["targetOs"],
                 window=window,
                 locale=policy["locale"],
@@ -484,9 +547,10 @@ class CamoufoxHost:
                 i_know_what_im_doing=True,
             ),
         )
-        sent_config = _reassemble_config(opts["env"])
+        sent_config, diff, opts["env"] = normalize_camou_config_env(
+            opts["env"], disk_config
+        )
         sent_digest = configured_identity_digest(sent_config)
-        diff = diff_configs(disk_config, sent_config)
         if (
             sent_digest != disk_digest
             or diff["added"]
@@ -495,7 +559,14 @@ class CamoufoxHost:
         ):
             raise ProtocolError(
                 "config_mutation",
-                "launch_options mutated the disk config: " + json.dumps(diff),
+                "launch_options mutated the disk config: "
+                + json.dumps(
+                    {
+                        "diskDigest": disk_digest,
+                        "sentDigest": sent_digest,
+                        "diff": diff,
+                    }
+                ),
             )
         opts["executable_path"] = str(SUPERVISOR)
 
@@ -512,8 +583,8 @@ class CamoufoxHost:
         spawn_seconds = time.perf_counter() - launch_start
 
         # Managed-process identity comes from the supervisor's own status
-        # file (supervisor pid, child browser pid, start times, process
-        # groups). We never guess a pid by scanning /proc cmdlines.
+        # file. Windows additionally requires a named Job Object; the Host
+        # never treats PID enumeration as process-tree ownership.
         supervisor_path = session["sessionDir"] / "supervisor.json"
         supervisor_meta: Optional[dict] = None
         deadline = time.monotonic() + 5
@@ -527,6 +598,17 @@ class CamoufoxHost:
                     isinstance(candidate, dict)
                     and isinstance(candidate.get("supervisorPid"), int)
                     and isinstance(candidate.get("childPid"), int)
+                    and (
+                        not IS_WINDOWS
+                        or (
+                            isinstance(candidate.get("jobName"), str)
+                            and isinstance(candidate.get("supervisorCreationTime100ns"), int)
+                            and isinstance(candidate.get("childCreationTime100ns"), int)
+                            and candidate.get("jobKillOnClose") is True
+                            and candidate.get("jobAssignmentVerified") is True
+                            and candidate.get("processHandleEvidence") is True
+                        )
+                    )
                 ):
                     supervisor_meta = candidate
                     break
@@ -539,6 +621,14 @@ class CamoufoxHost:
         session["supervisorMeta"] = supervisor_meta
         session["pid"] = supervisor_meta["supervisorPid"]
         session["childPid"] = supervisor_meta.get("childPid")
+        session["managedIdentities"] = managed_identities(session)
+        if IS_WINDOWS:
+            try:
+                session["jobHandle"] = JobHandle.open(supervisor_meta["jobName"])
+            except OSError as exc:
+                raise ProtocolError(
+                    "job_unavailable", f"cannot open supervisor Job Object: {exc}"
+                ) from exc
 
         page = await ctx.new_page()
         await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
@@ -627,9 +717,16 @@ class CamoufoxHost:
     async def _monitor_session(self, session: dict) -> None:
         while not session["stopMonitor"].is_set():
             identities = managed_identities(session)
-            if identities and not all(
+            process_failure = identities and not all(
                 proc_identity_alive(identity) for identity in identities
-            ):
+            )
+            job_failure = False
+            if IS_WINDOWS and session.get("jobHandle") is not None:
+                try:
+                    job_failure = session["jobHandle"].active_process_count() == 0
+                except OSError:
+                    job_failure = True
+            if process_failure or job_failure:
                 await self._fail_session(
                     session,
                     "browser process exited unexpectedly",
@@ -653,10 +750,7 @@ class CamoufoxHost:
                 session["monitorTask"].cancel()
         ctx = session.get("ctx")
         if ctx is not None:
-            try:
-                await asyncio.wait_for(ctx.close(), timeout=5)
-            except Exception:
-                pass
+            await close_context_bounded(ctx, timeout=5)
             session["ctx"] = None
         # Confirm the whole managed process tree is gone BEFORE releasing the
         # profile lock, so no second Host can ever touch the same profile
@@ -683,6 +777,7 @@ class CamoufoxHost:
         written. The session is never marked exited."""
         session["state"] = "quarantined"
         session["failure"] = reason
+        record_path: Optional[Path] = None
         try:
             record_path = write_quarantine_record(
                 self.state_root, session, reason, remaining
@@ -753,10 +848,8 @@ class CamoufoxHost:
         close_start = time.perf_counter()
         ctx = session.get("ctx")
         if ctx is not None:
-            try:
-                await asyncio.wait_for(ctx.close(), timeout=10)
-            except Exception:
-                _log(f"session {session['sessionId']}: ctx.close() raised, terminating tree")
+            if not await close_context_bounded(ctx, timeout=10):
+                _log(f"session {session['sessionId']}: ctx.close() timed out, terminating Job")
         session["ctx"] = None
         # close() must CONFIRM the managed process tree is fully gone (and
         # terminate it if not) before the profile lock is released.
@@ -811,6 +904,8 @@ def _reassemble_config(env: dict) -> dict:
 
 def proc_starttime_ticks(pid: int) -> Optional[int]:
     """Field 22 of /proc/<pid>/stat (starttime in clock ticks)."""
+    if IS_WINDOWS:
+        return None
     try:
         text = Path(f"/proc/{pid}/stat").read_text()
     except OSError:
@@ -830,6 +925,8 @@ def proc_identity_alive(identity: dict) -> bool:
     matches the supervisor-recorded identity. A reused PID with a different
     starttime is never treated as the original process. Zombies (state Z)
     are not running and are not alive."""
+    if IS_WINDOWS:
+        return windows_process_identity_alive(identity)
     pid = identity.get("pid")
     expected = identity.get("startTimeTicks")
     if not isinstance(pid, int) or pid <= 0:
@@ -851,6 +948,8 @@ def proc_identity_alive(identity: dict) -> bool:
 
 def process_descendants(pid: int) -> list[int]:
     """All live process IDs in the tree rooted at pid (pid itself first)."""
+    if IS_WINDOWS:
+        raise RuntimeError("Windows process containment is provided by Job Objects")
     seen: set[int] = set()
     stack = [pid]
     result: list[int] = []
@@ -886,6 +985,24 @@ def managed_identities(session: dict) -> list[dict]:
     meta = session.get("supervisorMeta")
     identities: list[dict] = []
     if isinstance(meta, dict):
+        if IS_WINDOWS:
+            if isinstance(meta.get("supervisorPid"), int):
+                identities.append(
+                    {
+                        "pid": meta["supervisorPid"],
+                        "creationTime100ns": meta.get("supervisorCreationTime100ns"),
+                        "role": "supervisor",
+                    }
+                )
+            if isinstance(meta.get("childPid"), int):
+                identities.append(
+                    {
+                        "pid": meta["childPid"],
+                        "creationTime100ns": meta.get("childCreationTime100ns"),
+                        "role": "browser",
+                    }
+                )
+            return identities
         if isinstance(meta.get("supervisorPid"), int):
             identities.append(
                 {
@@ -908,6 +1025,8 @@ def managed_identities(session: dict) -> list[dict]:
 
 
 def _identity_matches_live(target: dict) -> bool:
+    if IS_WINDOWS:
+        return windows_process_identity_alive(target)
     expected = target.get("startTimeTicks")
     if not isinstance(expected, int) or expected <= 0:
         return False
@@ -921,6 +1040,9 @@ def terminate_managed_tree(session: dict, timeout: float = 8.0) -> dict:
     ONLY when every captured PID+starttime identity (roots AND descendants)
     is gone; surviving descendants are reported in `remaining` so the caller
     can quarantine instead of releasing the profile lock."""
+    if IS_WINDOWS:
+        return terminate_windows_job(session, timeout=timeout)
+
     roots = [identity for identity in managed_identities(session) if proc_identity_alive(identity)]
     if not roots:
         return {
@@ -1051,12 +1173,17 @@ def _atomic_write_text(path: Path, text: str) -> None:
             fh.write(text.encode("utf-8"))
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, path)
-        dir_fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
+        if IS_WINDOWS:
+            flush_path(tmp)
+            replace_file_durable(tmp, path)
+            flush_path(path)
+        else:
+            os.replace(tmp, path)
+            dir_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
     except OSError:
         if fd is not None:
             try:
@@ -1099,18 +1226,30 @@ def _validate_quarantine_record(record: dict) -> list[str]:
             if type(proc) is not dict:
                 errors.append(f"{prefix} must be an object")
                 continue
-            unknown_proc = set(proc) - {"pid", "startTimeTicks", "processGroup", "role"}
+            process_keys = (
+                {"pid", "creationTime100ns", "role"}
+                if IS_WINDOWS
+                else {"pid", "startTimeTicks", "processGroup", "role"}
+            )
+            unknown_proc = set(proc) - process_keys
             if unknown_proc:
                 errors.append(
                     f"{prefix} unknown keys: " + ", ".join(sorted(unknown_proc))
                 )
             if type(proc.get("pid")) is not int or proc.get("pid", 0) <= 0:
                 errors.append(f"{prefix}.pid must be a positive int")
-            if type(proc.get("startTimeTicks")) is not int or proc.get("startTimeTicks", 0) <= 0:
-                errors.append(f"{prefix}.startTimeTicks must be a positive int")
-            pgrp = proc.get("processGroup")
-            if pgrp is not None and type(pgrp) is not int:
-                errors.append(f"{prefix}.processGroup must be int or null")
+            if IS_WINDOWS:
+                if (
+                    type(proc.get("creationTime100ns")) is not int
+                    or proc.get("creationTime100ns", 0) <= 0
+                ):
+                    errors.append(f"{prefix}.creationTime100ns must be a positive int")
+            else:
+                if type(proc.get("startTimeTicks")) is not int or proc.get("startTimeTicks", 0) <= 0:
+                    errors.append(f"{prefix}.startTimeTicks must be a positive int")
+                pgrp = proc.get("processGroup")
+                if pgrp is not None and type(pgrp) is not int:
+                    errors.append(f"{prefix}.processGroup must be int or null")
             if type(proc.get("role")) is not str or not proc["role"]:
                 errors.append(f"{prefix}.role must be a non-empty string")
     return errors
@@ -1137,12 +1276,20 @@ def write_quarantine_record(
         "createdAtUtc": utcnow(),
         "reason": reason,
         "processes": [
-            {
-                "pid": identity.get("pid"),
-                "startTimeTicks": identity.get("startTimeTicks"),
-                "processGroup": identity.get("processGroup"),
-                "role": identity.get("role"),
-            }
+            (
+                {
+                    "pid": identity.get("pid"),
+                    "creationTime100ns": identity.get("creationTime100ns"),
+                    "role": identity.get("role"),
+                }
+                if IS_WINDOWS
+                else {
+                    "pid": identity.get("pid"),
+                    "startTimeTicks": identity.get("startTimeTicks"),
+                    "processGroup": identity.get("processGroup"),
+                    "role": identity.get("role"),
+                }
+            )
             for identity in remaining
         ],
         "evidenceClass": "observed-on-this-host",
@@ -1158,6 +1305,10 @@ def read_quarantine_record(
     existing-but-unreadable or schema-invalid record is 'invalid' and must
     block takeover — it is never treated as absent."""
     path = quarantine_record_path(state_root, profile_id)
+    try:
+        ensure_no_reparse_points(path, allow_missing=True)
+    except OSError as exc:
+        return "invalid", None, f"reparse quarantine path rejected: {exc}"
     if not path.exists():
         return "absent", None, None
     try:
@@ -1341,7 +1492,20 @@ def write_session_state(session: dict) -> None:
         "bootCountAfter": session["bootCountAfter"],
         "fontMode": session.get("fontMode"),
         "managedPids": managed_pids(session),
+        "managedIdentities": session.get("managedIdentities"),
         "supervisorMeta": session.get("supervisorMeta"),
+        "jobObject": (
+            {
+                "name": (session.get("supervisorMeta") or {}).get("jobName"),
+                "activeProcessCount": (
+                    session["jobHandle"].active_process_count()
+                    if IS_WINDOWS and session.get("jobHandle") is not None
+                    else None
+                ),
+            }
+            if IS_WINDOWS
+            else None
+        ),
         "exitFileObserved": session.get("exitFileObserved"),
         "processTreeExit": session.get("processTreeExit"),
         "cookieEvidence": session.get("cookieEvidence"),
@@ -1353,10 +1517,22 @@ def write_session_state(session: dict) -> None:
 
 
 def release_profile_lock(session: dict) -> None:
-    if session.get("lockFd") is not None:
+    profile_lock = session.get("profileLock")
+    if profile_lock is not None:
         try:
-            fcntl.flock(session["lockFd"], fcntl.LOCK_UN)
-            os.close(session["lockFd"])
+            profile_lock.release()
+        except OSError:
+            pass
+        session["lockFd"] = None
+        session["profileLock"] = None
+        return
+    legacy_fd = session.get("lockFd")
+    if legacy_fd is not None and not IS_WINDOWS:
+        import fcntl
+
+        try:
+            fcntl.flock(legacy_fd, fcntl.LOCK_UN)
+            os.close(legacy_fd)
         except OSError:
             pass
         session["lockFd"] = None
@@ -1365,12 +1541,13 @@ def release_profile_lock(session: dict) -> None:
 async def release_session(
     host: CamoufoxHost, session: dict, release_lock: bool = True
 ) -> None:
-    try:
-        os.dup2(_PROTOCOL_FD, 1)
-        os.dup2(_STDERR_FD, 2)
-        os.dup2(_STDIN_FD, 0)
-    except OSError:
-        pass
+    if not IS_WINDOWS:
+        try:
+            os.dup2(_PROTOCOL_FD, 1)
+            os.dup2(_STDERR_FD, 2)
+            os.dup2(_STDIN_FD, 0)
+        except OSError:
+            pass
     if session.get("logFh") is not None:
         try:
             session["logFh"].close()
@@ -1393,6 +1570,22 @@ async def release_session(
         # The host owns the display; clear it so the next launch starts a
         # fresh Xvfb instead of reusing a dead display number.
         os.environ.pop("DISPLAY", None)
+    if IS_WINDOWS:
+        job = session.get("jobHandle")
+        if job is not None:
+            try:
+                job.close()
+            except OSError:
+                pass
+            session["jobHandle"] = None
+        for key in (
+            "VERISILO_REAL_EXE",
+            "VERISILO_EXIT_FILE",
+            "VERISILO_SUPERVISOR_FILE",
+            "VERISILO_PROFILE_LOCK_PATH",
+            "VERISILO_JOB_NAME",
+        ):
+            os.environ.pop(key, None)
     # The profile lock is released LAST, only after the process tree is
     # confirmed gone, the context is closed, and server/Xvfb are cleaned up.
     # Quarantined sessions pass release_lock=False and KEEP the lock.
@@ -1655,7 +1848,11 @@ def main() -> int:
             / "tests"
             / "fixtures"
             / "camoufox"
-            / "browser-tree-manifest.json"
+            / (
+                "browser-tree-manifest-windows.json"
+                if IS_WINDOWS
+                else "browser-tree-manifest.json"
+            )
         ),
     )
     parser.add_argument("--display", default=None)

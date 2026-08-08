@@ -21,6 +21,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from host_platform import IS_WINDOWS, process_creation_time
+
 
 def main() -> int:
     real_exe = os.environ.pop("VERISILO_REAL_EXE", None)
@@ -53,20 +55,25 @@ def main() -> int:
     if supervisor_file:
         try:
             with open(supervisor_file, "w", encoding="utf-8") as fh:
-                fh.write(
-                    json.dumps(
-                        {
-                            "supervisorPid": os.getpid(),
-                            "supervisorStartTimeTicks": starttime_ticks(os.getpid()),
-                            "supervisorProcessGroup": os.getpgid(os.getpid()),
-                            "childPid": proc.pid,
-                            "childStartTimeTicks": starttime_ticks(proc.pid),
-                            "childProcessGroup": os.getpgid(proc.pid),
-                            "observedAtUtc": datetime.now(timezone.utc).isoformat(),
-                        }
-                    )
-                    + "\n"
-                )
+                if IS_WINDOWS:
+                    metadata = {
+                        "supervisorPid": os.getpid(),
+                        "supervisorCreationTime100ns": process_creation_time(os.getpid()),
+                        "childPid": proc.pid,
+                        "childCreationTime100ns": process_creation_time(proc.pid),
+                        "observedAtUtc": datetime.now(timezone.utc).isoformat(),
+                    }
+                else:
+                    metadata = {
+                        "supervisorPid": os.getpid(),
+                        "supervisorStartTimeTicks": starttime_ticks(os.getpid()),
+                        "supervisorProcessGroup": os.getpgid(os.getpid()),
+                        "childPid": proc.pid,
+                        "childStartTimeTicks": starttime_ticks(proc.pid),
+                        "childProcessGroup": os.getpgid(proc.pid),
+                        "observedAtUtc": datetime.now(timezone.utc).isoformat(),
+                    }
+                fh.write(json.dumps(metadata) + "\n")
         except OSError:
             pass
 
@@ -74,7 +81,10 @@ def main() -> int:
         if proc.poll() is None:
             proc.send_signal(signum)
 
-    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signals = (signal.SIGTERM, signal.SIGINT)
+    if not IS_WINDOWS:
+        signals += (signal.SIGHUP,)
+    for sig in signals:
         signal.signal(sig, forward)
 
     code = proc.wait()

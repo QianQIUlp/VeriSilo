@@ -49,6 +49,7 @@ from identity_policy import (
 )
 from run_spike import (
     DownloadGuard,
+    RUNTIME_ONLY_CONFIG_KEYS,
     RELEASE,
     XDG_CACHE_DIR,
     ensure_browser_asset,
@@ -111,6 +112,8 @@ def complete_resolved_config(
             i_know_what_im_doing=True,
         )
         sent = reassemble_camou_config(opts["env"])
+        for key in RUNTIME_ONLY_CONFIG_KEYS:
+            sent.pop(key, None)
         diff = diff_configs(config, sent)
         if diff["added"]:
             for key in diff["added"]:
@@ -280,10 +283,14 @@ def main() -> int:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
-        json.dumps(artifact, indent=2, ensure_ascii=False) + "\n"
+        json.dumps(artifact, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
     sidecar = args.out.with_suffix(args.out.suffix + ".sha256")
-    sidecar.write_text(f"{sha256_hex(args.out.read_bytes())}  {args.out.name}\n")
+    sidecar.write_text(
+        f"{sha256_hex(args.out.read_bytes())}  {args.out.name}\n",
+        encoding="utf-8",
+    )
     verify_artifact(args.out)  # strict validation must pass before handoff
     print(f"artifact written to {args.out}")
     print(f"canonicalDigest={artifact['canonicalDigest']}")

@@ -42,6 +42,8 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, Optional
 
+IS_WINDOWS = os.name == "nt"
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPIKE_ROOT = Path(__file__).resolve().parent
 PROBE_DIR = REPO_ROOT / "tests" / "fingerprint-probe"
@@ -51,18 +53,35 @@ BROWSER_DIR = ARTIFACT_DIR / "browser"
 LOCK_DIR = SPIKE_ROOT / "lock"
 XDG_CACHE_DIR = ARTIFACT_DIR / "xdg-cache"
 CAMOUFOX_INSTALL_DIR = XDG_CACHE_DIR / "camoufox"
-SUPERVISOR = SPIKE_ROOT / "exit_supervisor.py"
+SUPERVISOR = (
+    SPIKE_ROOT
+    / "windows-supervisor"
+    / "target"
+    / "release"
+    / "verisilo-camoufox-supervisor.exe"
+    if IS_WINDOWS
+    else SPIKE_ROOT / "exit_supervisor.py"
+)
 
 RELEASE = "v152.0.4-beta.28"
-PLATFORM = "linux-x86_64"
-ASSET_NAME = "camoufox-152.0.4-beta.28-lin.x86_64.zip"
-EXECUTABLE_REL = "camoufox-bin"
-EXTRACT_DIR = BROWSER_DIR / "camoufox-152.0.4-beta.28-lin-x86_64"
+PLATFORM = "windows-x86_64" if IS_WINDOWS else "linux-x86_64"
+ASSET_NAME = (
+    "camoufox-152.0.4-beta.28-win.x86_64.zip"
+    if IS_WINDOWS
+    else "camoufox-152.0.4-beta.28-lin.x86_64.zip"
+)
+EXECUTABLE_REL = "camoufox.exe" if IS_WINDOWS else "camoufox-bin"
+EXTRACT_DIR = BROWSER_DIR / (
+    "camoufox-152.0.4-beta.28-win-x86_64"
+    if IS_WINDOWS
+    else "camoufox-152.0.4-beta.28-lin-x86_64"
+)
 EXECUTABLE = EXTRACT_DIR / EXECUTABLE_REL
 
 COOKIE_NAME = "verisilo_probe_cookie"
 CYCLES = 3
 SAMPLE_INTERVAL_SECONDS = 0.25
+RUNTIME_ONLY_CONFIG_KEYS = frozenset({"navigator.maxTouchPoints"})
 
 # Secret-like patterns used to scan the spike's own argv, the browser argv
 # snapshots, and the run logs. The per-run cookie value is included as a
@@ -154,8 +173,21 @@ def ensure_browser_asset(lock: dict, allow_download: bool = True) -> Path:
             names = zf.namelist()
             if EXECUTABLE_REL not in names:
                 raise SystemExit(f"executable {EXECUTABLE_REL} missing from archive")
-            zf.extractall(EXTRACT_DIR)
-    EXECUTABLE.chmod(0o755)
+            for name in names:
+                normalized = name.replace("\\", "/")
+                parts = normalized.rstrip("/").split("/")
+                if (
+                    normalized.startswith("/")
+                    or not normalized.rstrip("/")
+                    or any(part in ("", ".", "..") for part in parts)
+                ):
+                    raise SystemExit(f"unsafe archive path: {name!r}")
+                target = (EXTRACT_DIR / normalized).resolve()
+                if EXTRACT_DIR.resolve() not in target.parents and target != EXTRACT_DIR.resolve():
+                    raise SystemExit(f"archive path escapes extraction root: {name!r}")
+                zf.extract(name, EXTRACT_DIR)
+    if not IS_WINDOWS:
+        EXECUTABLE.chmod(0o755)
     return EXECUTABLE
 
 
@@ -173,7 +205,7 @@ def seed_camoufox_cache(
     install_dir = install_dir or CAMOUFOX_INSTALL_DIR
     dest = install_dir / "browsers" / "official" / folder
     version_json = dest / "version.json"
-    if not (dest / "camoufox-bin").exists() or not version_json.exists():
+    if not (dest / EXECUTABLE_REL).exists() or not version_json.exists():
         print(f"seeding camoufox cache from verified archive ({folder}) ...")
         shutil.copytree(EXTRACT_DIR, dest, dirs_exist_ok=True)
         version_json.write_text(
@@ -223,6 +255,41 @@ def install_download_guard() -> bool:
     return True
 
 
+def normalize_camou_config_env(env: dict, disk_config: dict) -> tuple[dict, dict, dict]:
+    """Keep optional BrowserForge runtime fields out of Artifact config.
+
+    Camoufox 0.5.4 may add ``navigator.maxTouchPoints`` on Windows depending
+    on the generated fingerprint.  It is not part of Artifact v3's closed
+    config contract or ObservedWebsiteDigest.  The Host strips only that
+    runtime-only field, rejects every other mutation, and sends the exact
+    disk config back to Camoufox.
+    """
+    chunks = sorted(
+        (int(key.rsplit("_", 1)[1]), value)
+        for key, value in env.items()
+        if key.startswith("CAMOU_CONFIG_")
+    )
+    if not chunks:
+        raise RuntimeError("launch_options returned no CAMOU_CONFIG env chunks")
+    sent = json.loads("".join(value for _, value in chunks))
+    normalized = dict(sent)
+    for key in RUNTIME_ONLY_CONFIG_KEYS:
+        normalized.pop(key, None)
+    from identity_policy import diff_configs
+
+    diff = diff_configs(disk_config, normalized)
+    rewritten = {
+        key: value for key, value in env.items() if not key.startswith("CAMOU_CONFIG_")
+    }
+    config_text = json.dumps(disk_config, ensure_ascii=False, separators=(",", ":"))
+    chunk_size = 2047 if IS_WINDOWS else 32767
+    for index in range(0, len(config_text), chunk_size):
+        rewritten[f"CAMOU_CONFIG_{index // chunk_size + 1}"] = config_text[
+            index : index + chunk_size
+        ]
+    return normalized, diff, rewritten
+
+
 class ProbeHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
@@ -251,6 +318,8 @@ def start_probe_server(port: int = 0) -> tuple[ThreadingHTTPServer, str]:
 
 
 def start_xvfb() -> tuple[str, subprocess.Popen]:
+    if IS_WINDOWS:
+        raise SystemExit("Xvfb is not used on Windows; use the native desktop session")
     xvfb = shutil.which("Xvfb")
     if not xvfb:
         raise SystemExit("Xvfb not found; install xvfb or run under xvfb-run")
@@ -565,6 +634,11 @@ async def run_cycle(
         exit_file.unlink()
     os.environ["VERISILO_REAL_EXE"] = str(executable)
     os.environ["VERISILO_EXIT_FILE"] = str(exit_file)
+    if IS_WINDOWS:
+        os.environ["VERISILO_PROFILE_LOCK_PATH"] = str(
+            user_data_dir.parent / f"{user_data_dir.name}.lock"
+        )
+        os.environ["VERISILO_JOB_NAME"] = f"Local\\VeriSiloM0-{run_dir.name}-{cycle}"
 
     launch_start = time.perf_counter()
     from camoufox import AsyncNewBrowser
@@ -578,9 +652,9 @@ async def run_cycle(
             headless=False,
             executable_path=str(executable),
             user_data_dir=str(user_data_dir),
-            virtual_display=display,
+            virtual_display=display or None,
             ff_version=152,
-            os="linux",
+            os="windows" if IS_WINDOWS else "linux",
             window=(1280, 800),
             firefox_user_prefs={
                 "app.update.auto": False,
@@ -750,7 +824,8 @@ async def main() -> int:
     try:
         executable = ensure_browser_asset(lock)
         cache_seeded = seed_camoufox_cache(lock, executable)
-        SUPERVISOR.chmod(0o755)
+        if not IS_WINDOWS:
+            SUPERVISOR.chmod(0o755)
         os.environ["XDG_CACHE_HOME"] = str(XDG_CACHE_DIR)
         guard_installed = install_download_guard()
         DownloadGuard.reset()
@@ -770,9 +845,9 @@ async def main() -> int:
         profile_files_before = sorted(p.name for p in user_data_dir.iterdir())
 
         display = args.display or os.environ.get("DISPLAY")
-        if not display:
+        if not IS_WINDOWS and not display:
             display, xvfb_proc = start_xvfb()
-        print(f"using display {display}")
+        print("using native Windows desktop" if IS_WINDOWS else f"using display {display}")
 
         cookie_value = f"m0-{run_id}-cookie"
         server, probe_url = start_probe_server()

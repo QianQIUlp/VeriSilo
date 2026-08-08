@@ -25,14 +25,20 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+IS_WINDOWS = os.name == "nt"
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SPIKE_ROOT = Path(__file__).resolve().parent
 LOCK_DIR = SPIKE_ROOT / "lock"
 ARTIFACT_DIR = REPO_ROOT / "artifacts" / "camoufox-m0"
 
 RELEASE = "v152.0.4-beta.28"
-PLATFORM = "linux-x86_64"
-ASSET_NAME = "camoufox-152.0.4-beta.28-lin.x86_64.zip"
+PLATFORM = "windows-x86_64" if IS_WINDOWS else "linux-x86_64"
+ASSET_NAME = (
+    "camoufox-152.0.4-beta.28-win.x86_64.zip"
+    if IS_WINDOWS
+    else "camoufox-152.0.4-beta.28-lin.x86_64.zip"
+)
 URL = (
     "https://github.com/daijro/camoufox/releases/download/"
     f"{RELEASE}/{ASSET_NAME}"
@@ -192,8 +198,13 @@ def main() -> int:
             metadata = fetch_github_asset_metadata()
         except Exception as exc:  # noqa: BLE001 - report the real cause
             raise SystemExit(f"failed to fetch GitHub asset metadata: {exc}")
-        print(f"downloading {ASSET_NAME} (pinned release {RELEASE}) ...")
-        digest, size = download(URL, archive)
+        if archive.exists():
+            print(f"computing local digest for existing {ASSET_NAME} ...")
+            digest = sha256_file(archive)
+            size = archive.stat().st_size
+        else:
+            print(f"downloading {ASSET_NAME} (pinned release {RELEASE}) ...")
+            digest, size = download(URL, archive)
         computed_at = datetime.now(timezone.utc).isoformat()
         record = build_record(digest, size, metadata, computed_at)
         write_lock(record)

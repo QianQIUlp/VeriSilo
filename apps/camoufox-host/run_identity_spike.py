@@ -61,6 +61,7 @@ from browser_tree import (
     load_tree_manifest,
     verify_tree,
 )
+from host_platform import IS_WINDOWS, JobHandle, ProfileLock, process_identity_alive
 from host_fonts import (
     FONT_UNIVERSE,
     host_negative_control_families,
@@ -77,6 +78,7 @@ from run_spike import (
     installed_versions,
     load_asset_lock,
     new_run_id,
+    normalize_camou_config_env,
     seed_camoufox_cache,
     start_probe_server,
     start_xvfb,
@@ -84,9 +86,15 @@ from run_spike import (
     utcnow,
 )
 
-M1_ARTIFACT_DIR = REPO_ROOT / "artifacts" / "camoufox-m1"
+M1_ARTIFACT_DIR = REPO_ROOT / "artifacts" / (
+    "camoufox-m2-windows-gate" if IS_WINDOWS else "camoufox-m1"
+)
 M1_RUNS_DIR = M1_ARTIFACT_DIR / "runs"
-TREE_MANIFEST = REPO_ROOT / "tests" / "fixtures" / "camoufox" / "browser-tree-manifest.json"
+TREE_MANIFEST = REPO_ROOT / "tests" / "fixtures" / "camoufox" / (
+    "browser-tree-manifest-windows.json"
+    if IS_WINDOWS
+    else "browser-tree-manifest.json"
+)
 
 REPORT_SCHEMA = "verisilo-camoufox-m1-run-report/v3"
 
@@ -161,10 +169,22 @@ async def cold_start(
     if profile_pre_existed:
         raise RuntimeError(f"cold start profile already exists: {profile}")
     exit_file = run_dir / f"cold-{index}-exit.json"
+    supervisor_file = run_dir / f"cold-{index}-supervisor.json"
     if exit_file.exists():
         exit_file.unlink()
+    if supervisor_file.exists():
+        supervisor_file.unlink()
+    profile_lock = None
+    if IS_WINDOWS:
+        profile_lock = ProfileLock.acquire(profile.parent / f"{profile.name}.lock")
     os.environ["VERISILO_REAL_EXE"] = str(executable)
     os.environ["VERISILO_EXIT_FILE"] = str(exit_file)
+    os.environ["VERISILO_SUPERVISOR_FILE"] = str(supervisor_file)
+    if IS_WINDOWS:
+        os.environ["VERISILO_PROFILE_LOCK_PATH"] = str(
+            profile.parent / f"{profile.name}.lock"
+        )
+        os.environ["VERISILO_JOB_NAME"] = f"Local\\VeriSiloM1-{run_dir.name}-{index}"
 
     from camoufox import AsyncNewBrowser
     from camoufox import DefaultAddons
@@ -176,7 +196,7 @@ async def cold_start(
         None,
         partial(
             launch_options,
-            config=disk_config,
+             config=copy.deepcopy(disk_config),
             os=policy["targetOs"],
             window=window,
             locale=policy["locale"],
@@ -184,7 +204,7 @@ async def cold_start(
             headless=False,
             executable_path=str(executable),
             user_data_dir=str(profile),
-            virtual_display=display,
+            virtual_display=display or None,
             firefox_user_prefs={
                 "app.update.auto": False,
                 "app.update.enabled": False,
@@ -194,9 +214,10 @@ async def cold_start(
             i_know_what_im_doing=True,
         ),
     )
-    sent_config = reassemble_camou_config(opts["env"])
+    sent_config, config_diff, opts["env"] = normalize_camou_config_env(
+        opts["env"], disk_config
+    )
     sent_digest = configured_identity_digest(sent_config)
-    config_diff = diff_configs(disk_config, sent_config)
     config_unchanged = (
         sent_digest == disk_digest
         and not config_diff["added"]
@@ -267,6 +288,9 @@ async def cold_start(
     close_start = time.perf_counter()
     await ctx.close()
     close_seconds = time.perf_counter() - close_start
+    if profile_lock is not None:
+        profile_lock.release()
+        profile_lock = None
 
     exit_code = None
     exit_file_observed = exit_file.exists()
@@ -275,6 +299,11 @@ async def cold_start(
             exit_code = int(json.loads(exit_file.read_text())["exitCode"])
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
             exit_code = None
+    job_result = job_evidence(supervisor_file) if IS_WINDOWS else None
+    try:
+        supervisor_meta = json.loads(supervisor_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        supervisor_meta = None
 
     observed_website_signals = extract_observed_website_signals(observed, font_mode)
     projection = build_projection(
@@ -295,6 +324,8 @@ async def cold_start(
         "closeSeconds": round(close_seconds, 3),
         "exitStatus": exit_code,
         "exitFileObserved": exit_file_observed,
+        "jobObject": job_result,
+        "supervisorMeta": supervisor_meta,
         "profileDir": str(profile),
         "profilePreExisted": profile_pre_existed,
         "diskConfigDigest": disk_digest,
@@ -331,11 +362,54 @@ def prepare_host() -> tuple[dict, Path]:
         )
     executable = ensure_browser_asset(lock, allow_download=False)
     seed_camoufox_cache(lock, executable)
-    SUPERVISOR.chmod(0o755)
+    if not IS_WINDOWS:
+        SUPERVISOR.chmod(0o755)
     os.environ["XDG_CACHE_HOME"] = str(XDG_CACHE_DIR)
     install_download_guard()
     DownloadGuard.reset()
     return lock, executable
+
+
+def job_evidence(supervisor_path: Path) -> dict:
+    try:
+        metadata = json.loads(supervisor_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"available": False, "metadataObserved": False, "activeProcessCount": None}
+    name = metadata.get("jobName")
+    identities = [
+        {
+            "pid": metadata.get("supervisorPid"),
+            "creationTime100ns": metadata.get("supervisorCreationTime100ns"),
+        },
+        {
+            "pid": metadata.get("childPid"),
+            "creationTime100ns": metadata.get("childCreationTime100ns"),
+        },
+    ]
+    if not isinstance(name, str):
+        return {"available": False, "metadataObserved": True, "activeProcessCount": None}
+    try:
+        job = JobHandle.open(name)
+    except OSError:
+        return {
+            "available": False,
+            "metadataObserved": True,
+            "jobObjectClosed": all(
+                not process_identity_alive(identity) for identity in identities
+            ),
+            "activeProcessCount": 0,
+            "name": name,
+        }
+    try:
+        return {
+            "available": True,
+            "metadataObserved": True,
+            "jobObjectClosed": False,
+            "activeProcessCount": job.active_process_count(),
+            "name": name,
+        }
+    finally:
+        job.close()
 
 
 async def run_cold_starts(
@@ -351,8 +425,8 @@ async def run_cold_starts(
     tree_result = verify_tree(EXECUTABLE.parent, load_tree_manifest(TREE_MANIFEST))
     xvfb_proc: Optional[subprocess.Popen] = None
     server = None
-    display_value = display or os.environ.get("DISPLAY")
-    if not display_value:
+    display_value = None if IS_WINDOWS else (display or os.environ.get("DISPLAY"))
+    if not IS_WINDOWS and not display_value:
         display_value, xvfb_proc = start_xvfb()
     server, probe_url = start_probe_server()
 
@@ -424,6 +498,7 @@ async def cmd_stability(args: argparse.Namespace) -> int:
         and s["exitFileObserved"]
         and not s["profilePreExisted"]
         and s["injectedFontsAllAvailable"]
+        and (s.get("jobObject") or {}).get("activeProcessCount", 0) == 0
         for s in result["starts"]
     )
     runs_complete = len(result["starts"]) == args.runs
@@ -487,6 +562,7 @@ async def cmd_separation(args: argparse.Namespace) -> int:
         and s["exitFileObserved"]
         and not s["profilePreExisted"]
         and s["injectedFontsAllAvailable"]
+        and (s.get("jobObject") or {}).get("activeProcessCount", 0) == 0
         for s in result["starts"]
     )
     runs_complete = len(result["starts"]) == len(paths)
@@ -532,9 +608,15 @@ async def cmd_separation(args: argparse.Namespace) -> int:
 
 
 def _write_with_sidecar(path: Path, artifact: dict) -> None:
-    path.write_text(json.dumps(artifact, indent=2, ensure_ascii=False) + "\n")
+    path.write_text(
+        json.dumps(artifact, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     sidecar = path.with_suffix(path.suffix + ".sha256")
-    sidecar.write_text(f"{sha256_hex(path.read_bytes())}  {path.name}\n")
+    sidecar.write_text(
+        f"{sha256_hex(path.read_bytes())}  {path.name}\n",
+        encoding="utf-8",
+    )
 
 
 async def cmd_tamper(args: argparse.Namespace) -> int:
@@ -667,6 +749,8 @@ def base_report(command: str, result: dict) -> dict:
                 "closeSeconds": s["closeSeconds"],
                 "exitStatus": s["exitStatus"],
                 "exitFileObserved": s["exitFileObserved"],
+                "jobObject": s.get("jobObject"),
+                "supervisorMeta": s.get("supervisorMeta"),
                 "profileDir": s["profileDir"],
                 "profilePreExisted": s["profilePreExisted"],
                 "diskConfigDigest": s["diskConfigDigest"],
@@ -702,9 +786,10 @@ def write_report(run_dir: Path, report: dict) -> None:
     run_dir = Path(run_dir)
     report_bytes = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
     report_path = run_dir / "report.json"
-    report_path.write_text(report_bytes)
+    report_path.write_text(report_bytes, encoding="utf-8")
     (run_dir / "report.sha256").write_text(
-        sha256_hex(report_bytes.encode("utf-8")) + "\n"
+        sha256_hex(report_bytes.encode("utf-8")) + "  report.json\n",
+        encoding="utf-8",
     )
     print(f"report written to {report_path}")
 

@@ -1,0 +1,30 @@
+{
+  "schema": "verisilo-camoufox-browser-asset/v2",
+  "package": "camoufox",
+  "release": "v152.0.4-beta.28",
+  "platform": "windows-x86_64",
+  "pythonPackage": "camoufox==0.5.4",
+  "url": "https://github.com/daijro/camoufox/releases/download/v152.0.4-beta.28/camoufox-152.0.4-beta.28-win.x86_64.zip",
+  "sha256": "386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d",
+  "sizeBytes": 492370020,
+  "githubAsset": {
+    "assetId": 482185262,
+    "name": "camoufox-152.0.4-beta.28-win.x86_64.zip",
+    "url": "https://github.com/daijro/camoufox/releases/download/v152.0.4-beta.28/camoufox-152.0.4-beta.28-win.x86_64.zip",
+    "sizeBytes": 492370020,
+    "officialDigest": "sha256:386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d",
+    "officialDigestAlgorithm": "sha256",
+    "officialDigestHex": "386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d",
+    "metadataSource": "https://api.github.com/repos/daijro/camoufox/releases/tags/v152.0.4-beta.28"
+  },
+  "local": {
+    "sha256": "386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d",
+    "sizeBytes": 492370020,
+    "computedBy": "VeriSilo fetch-browser.py (independent SHA-256 over bytes received)",
+    "computedAtUtc": "2026-08-08T13:23:09.657575+00:00"
+  },
+  "digestAgreement": true,
+  "digestAgreementBasis": "local SHA-256 matches GitHub official digest and local size matches GitHub asset size",
+  "recordedBy": "VeriSilo fetch-browser.py (local digest + GitHub releases API metadata)",
+  "recordedAtUtc": "2026-08-08T13:23:09.657575+00:00"
+}
