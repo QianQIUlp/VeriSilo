@@ -302,11 +302,13 @@ def test_protocol_and_integrity() -> dict:
             marker in stderr_lower
             for marker in ["password", "passwd", "token", "secret", "api_key"]
         ), stderr
+        assert '"stage":"response write"' in stderr, stderr
         return {
             "status": "passed",
             "stdoutPure": True,
             "firstStdoutFrameStrictHelloJson": True,
             "cacheSeedDiagnosticOnStderr": cache_seed_on_stderr,
+            "stageDiagnosticResponseWriteOnStderr": True,
             "stderrSecretFree": True,
         }
     finally:
@@ -822,7 +824,7 @@ def write_gate_report(run_dir: Path, result: dict) -> tuple[str, str]:
 
 
 def test_cookie_sqlite_retry_policy() -> dict:
-    """Deterministically exercise the bounded post-exit SQLite evidence policy."""
+    """Exercise Windows SQLite URI forms and the bounded post-exit policy."""
     with tempfile.TemporaryDirectory(prefix="verisilo-cookie-retry-") as tmp:
         profile_dir = Path(tmp)
         db = profile_dir / "cookies.sqlite"
@@ -838,6 +840,51 @@ def test_cookie_sqlite_retry_policy() -> dict:
             conn.close()
 
         real_connect = sqlite3.connect
+        file_before = db.read_bytes()
+        file_sha_before = hashlib.sha256(file_before).hexdigest()
+        connections: list[dict[str, Any]] = []
+
+        def recording_connect(*args: Any, **kwargs: Any) -> Any:
+            connections.append(
+                {
+                    "database": str(args[0] if args else kwargs.get("database")),
+                    "uri": kwargs.get("uri"),
+                }
+            )
+            return real_connect(*args, **kwargs)
+
+        verbatim_profile = Path("\\\\?\\" + str(profile_dir))
+        with mock.patch.object(
+            sqlite3, "connect", side_effect=recording_connect
+        ):
+            normal = read_cookie_sqlite_evidence(profile_dir)
+            verbatim = read_cookie_sqlite_evidence(verbatim_profile)
+        assert normal["cookieNamePresent"] is True, normal
+        assert verbatim["cookieNamePresent"] is True, verbatim
+        assert normal["valuesManaged"] is True, normal
+        assert verbatim["valuesManaged"] is True, verbatim
+        assert normal["cookieRows"] == verbatim["cookieRows"] == 1
+        assert len(connections) == 2, connections
+        assert all(item["uri"] is True for item in connections), connections
+        assert all("?mode=ro" in item["database"] for item in connections), connections
+        assert connections[0]["database"] == connections[1]["database"], connections
+
+        read_only = real_connect(connections[0]["database"], uri=True)
+        try:
+            try:
+                read_only.execute(
+                    "INSERT INTO moz_cookies(name, host, value) VALUES (?, ?, ?)",
+                    ("read-only-write-must-fail", "127.0.0.1", "blocked"),
+                )
+            except sqlite3.OperationalError:
+                pass
+            else:
+                raise AssertionError("SQLite mode=ro unexpectedly permitted a write")
+        finally:
+            read_only.close()
+        assert db.read_bytes() == file_before
+        file_sha_after = hashlib.sha256(db.read_bytes()).hexdigest()
+        assert file_sha_after == file_sha_before
 
         def run_case(failures: list[BaseException], *, always_fail: bool = False) -> tuple[dict, int, list[float]]:
             calls = 0
@@ -893,6 +940,15 @@ def test_cookie_sqlite_retry_policy() -> dict:
     delay_ms = int(COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS * 1000)
     return {
         "status": "passed",
+        "pathCompatibility": {
+            "normalAndVerbatimReadSameCookie": True,
+            "normalAndVerbatimUriEqual": True,
+            "readOnly": True,
+            "fileBytesUnchanged": True,
+            "fileSha256Before": file_sha_before,
+            "fileSha256After": file_sha_after,
+            "uriForms": ["C:\\", "\\\\?\\C:\\"],
+        },
         "configuration": {
             "maxAttempts": COOKIE_SQLITE_READ_MAX_ATTEMPTS,
             "delayMilliseconds": delay_ms,

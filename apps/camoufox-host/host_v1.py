@@ -36,6 +36,7 @@ from functools import partial
 from pathlib import Path
 from threading import Thread
 from typing import Any, Optional
+from urllib.parse import quote
 
 from identity_policy import (
     ARTIFACT_ID_RE,
@@ -103,6 +104,16 @@ HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 _FRAME_TOO_LARGE = object()
 COOKIE_SQLITE_READ_MAX_ATTEMPTS = 6
 COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS = 0.2
+DIAGNOSTIC_MAX_EVENTS = 128
+DIAGNOSTIC_MAX_LINE_BYTES = 512
+DIAGNOSTIC_STAGES = {
+    "browser/context",
+    "page",
+    "probe",
+    "observed collection",
+    "response write",
+    "close",
+}
 
 SECRET_PATTERNS = [
     "password=",
@@ -138,27 +149,29 @@ _PROTOCOL_FD = os.dup(1)
 _STDERR_FD = os.dup(2)
 _STDIN_FD = os.dup(0)
 _LOG_FILE: Optional[Any] = None
+_DIAGNOSTIC_EVENTS = 0
 
 
 def _send(obj: dict) -> None:
-    frame = json.dumps(
-        obj, ensure_ascii=False, separators=(",", ":")
-    ).encode("utf-8") + b"\n"
-    if len(frame) > MAX_FRAME_BYTES:
+    with _StageDiagnostic("response write"):
         frame = json.dumps(
-            {
-                "id": obj.get("id"),
-                "ok": False,
-                "error": {"code": "response_too_large", "message": "response exceeds 32 KiB"},
-            },
-            separators=(",", ":"),
-        ).encode() + b"\n"
-    view = memoryview(frame)
-    while view:
-        written = os.write(_PROTOCOL_FD, view)
-        if written <= 0:
-            raise OSError("protocol stdout write made no progress")
-        view = view[written:]
+            obj, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8") + b"\n"
+        if len(frame) > MAX_FRAME_BYTES:
+            frame = json.dumps(
+                {
+                    "id": obj.get("id"),
+                    "ok": False,
+                    "error": {"code": "response_too_large", "message": "response exceeds 32 KiB"},
+                },
+                separators=(",", ":"),
+            ).encode() + b"\n"
+        view = memoryview(frame)
+        while view:
+            written = os.write(_PROTOCOL_FD, view)
+            if written <= 0:
+                raise OSError("protocol stdout write made no progress")
+            view = view[written:]
 
 
 def _log(message: str) -> None:
@@ -173,6 +186,50 @@ def _log(message: str) -> None:
             _LOG_FILE.flush()
         except Exception:
             pass
+
+
+def _diagnostic(stage: str, event: str, started: float, failure: str | None = None) -> None:
+    """Write one bounded, secret-free lifecycle diagnostic to stderr only."""
+    global _DIAGNOSTIC_EVENTS
+    if stage not in DIAGNOSTIC_STAGES or _DIAGNOSTIC_EVENTS >= DIAGNOSTIC_MAX_EVENTS:
+        return
+    _DIAGNOSTIC_EVENTS += 1
+    payload: dict[str, Any] = {
+        "kind": "camoufox-host-stage",
+        "stage": stage,
+        "event": event,
+        "durationMs": max(0, int((time.perf_counter() - started) * 1000)),
+    }
+    if failure is not None:
+        payload["failure"] = re.sub(r"[^A-Za-z0-9_.-]", "_", failure)[:64]
+    encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    if len(encoded.encode("utf-8")) > DIAGNOSTIC_MAX_LINE_BYTES:
+        encoded = '{"kind":"camoufox-host-stage","event":"truncated"}'
+    _log("stage-diagnostic " + encoded)
+
+
+class _StageDiagnostic:
+    """Small synchronous context manager usable across async stage bodies."""
+
+    def __init__(self, stage: str) -> None:
+        self.stage = stage
+        self.started = time.perf_counter()
+        self.failure: str | None = None
+
+    def __enter__(self) -> "_StageDiagnostic":
+        _diagnostic(self.stage, "start", self.started)
+        return self
+
+    def fail(self, reason: str) -> None:
+        self.failure = reason
+
+    def __exit__(self, exc_type: Any, _exc: Any, _tb: Any) -> None:
+        if exc_type is not None:
+            _diagnostic(self.stage, "failed", self.started, exc_type.__name__)
+        elif self.failure is not None:
+            _diagnostic(self.stage, "failed", self.started, self.failure)
+        else:
+            _diagnostic(self.stage, "success", self.started)
 
 
 # --------------------------------------------------------------------------
@@ -510,10 +567,6 @@ class CamoufoxHost:
         }
 
     async def _launch_browser(self, session: dict, artifact: dict) -> None:
-        from camoufox import AsyncNewBrowser
-        from camoufox import DefaultAddons
-        from camoufox.utils import launch_options
-
         policy = artifact["policy"]
         window = tuple(policy["window"])
         disk_config = copy.deepcopy(artifact["resolvedConfig"])
@@ -524,7 +577,8 @@ class CamoufoxHost:
         if not IS_WINDOWS and not display:
             display, xvfb = start_xvfb()
         session["xvfb"] = xvfb
-        server, probe_url = start_probe_server(self.probe_port)
+        with _StageDiagnostic("probe"):
+            server, probe_url = start_probe_server(self.probe_port)
         session["server"] = server
         # Remember the actual probe port: later launches (same Host process,
         # or a restarted Host given this port) keep the cookie / localStorage
@@ -544,58 +598,63 @@ class CamoufoxHost:
                 f"Local\\VeriSiloCamoufox-{session['sessionId']}"
             )
 
-        launch_start = time.perf_counter()
-        opts = await asyncio.get_event_loop().run_in_executor(
-            None,
-            partial(
-                launch_options,
-                 config=copy.deepcopy(disk_config),
-                os=policy["targetOs"],
-                window=window,
-                locale=policy["locale"],
-                ff_version=policy["ffVersion"],
-                headless=False,
-                executable_path=str(self.executable),
-                user_data_dir=str(session["profileDir"]),
-                virtual_display=display,
-                firefox_user_prefs=firefox_user_prefs_for_config(disk_config),
-                exclude_addons=[DefaultAddons.UBO],
-                i_know_what_im_doing=True,
-            ),
-        )
-        sent_config, diff, opts["env"] = normalize_camou_config_env(
-            opts["env"], disk_config
-        )
-        sent_digest = configured_identity_digest(sent_config)
-        if (
-            sent_digest != disk_digest
-            or diff["added"]
-            or diff["removed"]
-            or diff["changed"]
-        ):
-            raise ProtocolError(
-                "config_mutation",
-                "launch_options mutated the disk config: "
-                + json.dumps(
-                    {
-                        "diskDigest": disk_digest,
-                        "sentDigest": sent_digest,
-                        "diff": diff,
-                    }
+        with _StageDiagnostic("browser/context"):
+            from camoufox import AsyncNewBrowser
+            from camoufox import DefaultAddons
+            from camoufox.utils import launch_options
+
+            launch_start = time.perf_counter()
+            opts = await asyncio.get_event_loop().run_in_executor(
+                None,
+                partial(
+                    launch_options,
+                    config=copy.deepcopy(disk_config),
+                    os=policy["targetOs"],
+                    window=window,
+                    locale=policy["locale"],
+                    ff_version=policy["ffVersion"],
+                    headless=False,
+                    executable_path=str(self.executable),
+                    user_data_dir=str(session["profileDir"]),
+                    virtual_display=display,
+                    firefox_user_prefs=firefox_user_prefs_for_config(disk_config),
+                    exclude_addons=[DefaultAddons.UBO],
+                    i_know_what_im_doing=True,
                 ),
             )
-        opts["executable_path"] = str(SUPERVISOR)
-
-        ctx = await AsyncNewBrowser(
-            self.playwright,
-            from_options=opts,
-            persistent_context=True,
-        )
-        session["ctx"] = ctx
-        if DownloadGuard.tripped:
-            raise ProtocolError(
-                "webdl_attempted", "unpinned download attempted during launch"
+            sent_config, diff, opts["env"] = normalize_camou_config_env(
+                opts["env"], disk_config
             )
+            sent_digest = configured_identity_digest(sent_config)
+            if (
+                sent_digest != disk_digest
+                or diff["added"]
+                or diff["removed"]
+                or diff["changed"]
+            ):
+                raise ProtocolError(
+                    "config_mutation",
+                    "launch_options mutated the disk config: "
+                    + json.dumps(
+                        {
+                            "diskDigest": disk_digest,
+                            "sentDigest": sent_digest,
+                            "diff": diff,
+                        }
+                    ),
+                )
+            opts["executable_path"] = str(SUPERVISOR)
+
+            ctx = await AsyncNewBrowser(
+                self.playwright,
+                from_options=opts,
+                persistent_context=True,
+            )
+            session["ctx"] = ctx
+            if DownloadGuard.tripped:
+                raise ProtocolError(
+                    "webdl_attempted", "unpinned download attempted during launch"
+                )
         spawn_seconds = time.perf_counter() - launch_start
 
         # Managed-process identity comes from the supervisor's own status
@@ -646,84 +705,89 @@ class CamoufoxHost:
                     "job_unavailable", f"cannot open supervisor Job Object: {exc}"
                 ) from exc
 
-        page = await ctx.new_page()
-        await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
-        fonts = artifact["stableSignalsDeclared"]["fonts"]
-        await page.evaluate(f"window.__probeFonts = {json.dumps(fonts)}")
-        await page.evaluate(
-            f"window.__probeFontUniverse = {json.dumps(FONT_UNIVERSE)}"
-        )
-        host_controls = host_negative_control_families(fonts)
-        await page.evaluate(
-            f"window.__probeHostFonts = {json.dumps(host_controls)}"
-        )
-        await page.evaluate("document.fonts.ready")
-        media_readiness = await wait_for_configured_media_devices(page, disk_config)
-        probe_start = time.perf_counter()
-        observed = await page.evaluate("window.__probe.readIdentity()")
-        session["probeSeconds"] = round(time.perf_counter() - probe_start, 3)
-        session["spawnSeconds"] = round(spawn_seconds, 3)
+        with _StageDiagnostic("page"):
+            page = await ctx.new_page()
 
-        font_mode = policy.get("fontMode", "inherit")
-        session["fontMode"] = font_mode
-        host_controls_result = {
-            "controlsTested": len(observed.get("hostFontNegativeControls", {})),
-            "allUnavailable": all(
-                available is False
-                for available in observed.get("hostFontNegativeControls", {}).values()
-            ),
-            "failures": [
-                family
-                for family, available in observed.get(
-                    "hostFontNegativeControls", {}
-                ).items()
-                if available is not False
-            ],
-        }
-        if font_mode == "managed" and not host_controls_result["allUnavailable"]:
-            raise ProtocolError(
-                "host_font_masking_failed",
-                "managed font mode requires all host negative controls "
-                "unavailable; masking failed: "
-                + ", ".join(host_controls_result["failures"]),
+        with _StageDiagnostic("probe"):
+            await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
+            fonts = artifact["stableSignalsDeclared"]["fonts"]
+            await page.evaluate(f"window.__probeFonts = {json.dumps(fonts)}")
+            await page.evaluate(
+                f"window.__probeFontUniverse = {json.dumps(FONT_UNIVERSE)}"
+            )
+            host_controls = host_negative_control_families(fonts)
+            await page.evaluate(
+                f"window.__probeHostFonts = {json.dumps(host_controls)}"
             )
 
-        boot_before = int(observed.get("bootCount", 0))
-        await page.evaluate(f"window.__probe.writeBootCount({boot_before + 1})")
-        session["bootCountBefore"] = boot_before
-        session["bootCountAfter"] = boot_before + 1
+        with _StageDiagnostic("observed collection"):
+            await page.evaluate("document.fonts.ready")
+            media_readiness = await wait_for_configured_media_devices(page, disk_config)
+            probe_start = time.perf_counter()
+            observed = await page.evaluate("window.__probe.readIdentity()")
+            session["probeSeconds"] = round(time.perf_counter() - probe_start, 3)
+            session["spawnSeconds"] = round(spawn_seconds, 3)
 
-        cookie_evidence = await _collect_cookie_evidence(
-            ctx, page, boot_before, session["sessionId"]
-        )
-        session["cookieEvidence"] = cookie_evidence
+            font_mode = policy.get("fontMode", "inherit")
+            session["fontMode"] = font_mode
+            host_controls_result = {
+                "controlsTested": len(observed.get("hostFontNegativeControls", {})),
+                "allUnavailable": all(
+                    available is False
+                    for available in observed.get("hostFontNegativeControls", {}).values()
+                ),
+                "failures": [
+                    family
+                    for family, available in observed.get(
+                        "hostFontNegativeControls", {}
+                    ).items()
+                    if available is not False
+                ],
+            }
+            if font_mode == "managed" and not host_controls_result["allUnavailable"]:
+                raise ProtocolError(
+                    "host_font_masking_failed",
+                    "managed font mode requires all host negative controls "
+                    "unavailable; masking failed: "
+                    + ", ".join(host_controls_result["failures"]),
+                )
 
-        signals = extract_observed_website_signals(observed, font_mode)
-        session["configuredIdentityDigest"] = disk_digest
-        session["observedWebsiteDigest"] = observed_website_digest(signals)
-        session["observedSignals"] = signals
-        projection = build_projection(
-            artifact["artifactId"],
-            session["sessionId"],
-            1,
-            disk_digest,
-            signals,
-        )
-        observed_payload = {
-            "generatedAtUtc": utcnow(),
-            "projection": projection,
-            "observedFull": observed,
-            "hostFontControls": host_controls,
-            "hostFontMasking": host_controls_result,
-            "mediaDeviceReadiness": media_readiness,
-            "fontMode": font_mode,
-            "cookieEvidence": cookie_evidence,
-            "verified": False,
-            "evidenceClass": "observed-on-this-host",
-        }
-        (session["sessionDir"] / "observed.json").write_text(
-            json.dumps(observed_payload, indent=2) + "\n"
-        )
+            boot_before = int(observed.get("bootCount", 0))
+            await page.evaluate(f"window.__probe.writeBootCount({boot_before + 1})")
+            session["bootCountBefore"] = boot_before
+            session["bootCountAfter"] = boot_before + 1
+
+            cookie_evidence = await _collect_cookie_evidence(
+                ctx, page, boot_before, session["sessionId"]
+            )
+            session["cookieEvidence"] = cookie_evidence
+
+            signals = extract_observed_website_signals(observed, font_mode)
+            session["configuredIdentityDigest"] = disk_digest
+            session["observedWebsiteDigest"] = observed_website_digest(signals)
+            session["observedSignals"] = signals
+            projection = build_projection(
+                artifact["artifactId"],
+                session["sessionId"],
+                1,
+                disk_digest,
+                signals,
+            )
+            observed_payload = {
+                "generatedAtUtc": utcnow(),
+                "projection": projection,
+                "observedFull": observed,
+                "hostFontControls": host_controls,
+                "hostFontMasking": host_controls_result,
+                "mediaDeviceReadiness": media_readiness,
+                "fontMode": font_mode,
+                "cookieEvidence": cookie_evidence,
+                "verified": False,
+                "evidenceClass": "observed-on-this-host",
+            }
+            (session["sessionDir"] / "observed.json").write_text(
+                json.dumps(observed_payload, indent=2) + "\n"
+            )
 
         session["state"] = "running"
         session["stopMonitor"] = asyncio.Event()
@@ -756,6 +820,12 @@ class CamoufoxHost:
                 pass
 
     async def _fail_session(self, session: dict, error: str) -> None:
+        with _StageDiagnostic("close") as diagnostic:
+            await self._fail_session_impl(session, error, diagnostic)
+
+    async def _fail_session_impl(
+        self, session: dict, error: str, diagnostic: _StageDiagnostic
+    ) -> None:
         session["state"] = "failed"
         session["failure"] = error
         session["exitStatus"] = read_exit_status(session["exitFile"])
@@ -775,6 +845,7 @@ class CamoufoxHost:
         # while the old browser is still alive.
         session["processTreeExit"] = terminate_managed_tree(session, timeout=6)
         if not session["processTreeExit"].get("exited", False):
+            diagnostic.fail("managed_process_tree_not_exited")
             await self._quarantine_session(
                 session,
                 f"{error}; managed process tree did not exit",
@@ -858,6 +929,12 @@ class CamoufoxHost:
                 "processTreeExit": session.get("processTreeExit"),
                 "quarantine": session.get("quarantine"),
             }
+        with _StageDiagnostic("close") as diagnostic:
+            return await self._close_active_session(session, diagnostic)
+
+    async def _close_active_session(
+        self, session: dict, diagnostic: _StageDiagnostic
+    ) -> dict:
         session["state"] = "closing"
         session["stopMonitor"].set()
         if session["monitorTask"] is not None:
@@ -875,6 +952,7 @@ class CamoufoxHost:
         # terminate it if not) before the profile lock is released.
         session["processTreeExit"] = terminate_managed_tree(session, timeout=8)
         if not session["processTreeExit"].get("exited", False):
+            diagnostic.fail("managed_process_tree_not_exited")
             await self._quarantine_session(
                 session,
                 "close: managed process tree did not exit",
@@ -1454,6 +1532,31 @@ async def _collect_cookie_evidence(
     return evidence
 
 
+def _sqlite_read_uri(path: Path) -> str:
+    r"""Build a read-only SQLite URI without changing the Profile path.
+
+    Python's Windows sqlite URI parser accepts a drive-letter URI, but the
+    Host can receive a Win32 verbatim Profile root (``\\?\C:\...``) from the
+    desktop.  The verbatim prefix is a filesystem spelling, not part of the
+    SQLite URI authority, so normalize only the URI copy and leave all
+    Profile ownership/path state untouched.
+    """
+    raw = os.fspath(path)
+    if os.name == "nt":
+        raw = os.path.abspath(raw)
+        if raw.startswith("\\\\?\\UNC\\"):
+            raw = "//" + raw[8:].replace("\\", "/")
+        elif raw.startswith("\\\\?\\"):
+            raw = raw[4:].replace("\\", "/")
+        elif raw.startswith("\\\\"):
+            raw = "//" + raw[2:].replace("\\", "/")
+        else:
+            raw = raw.replace("\\", "/")
+    else:
+        raw = os.path.abspath(raw)
+    return "file:" + quote(raw, safe="/:") + "?mode=ro"
+
+
 def read_cookie_sqlite_evidence(profile_dir: Path) -> dict:
     """cookies.sqlite evidence: file presence/size plus a best-effort read of
     the actual moz_cookies row for the probe cookie (Firefox schema).
@@ -1483,10 +1586,11 @@ def read_cookie_sqlite_evidence(profile_dir: Path) -> dict:
 
     max_attempts = COOKIE_SQLITE_READ_MAX_ATTEMPTS if IS_WINDOWS else 1
     rows = None
+    read_uri = _sqlite_read_uri(db)
     for attempt in range(1, max_attempts + 1):
         result["sqliteReadAttempts"] = attempt
         try:
-            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            conn = sqlite3.connect(read_uri, uri=True)
             try:
                 rows = conn.execute(
                     "SELECT name, host, value FROM moz_cookies WHERE name = ?",

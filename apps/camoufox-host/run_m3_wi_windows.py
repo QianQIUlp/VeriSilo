@@ -510,7 +510,21 @@ def parse_sqlite_retry_regression(
             },
         },
     }
-    if value != expected:
+    path_compatibility = value.get("pathCompatibility")
+    if (
+        not isinstance(path_compatibility, dict)
+        or path_compatibility.get("normalAndVerbatimReadSameCookie") is not True
+        or path_compatibility.get("normalAndVerbatimUriEqual") is not True
+        or path_compatibility.get("readOnly") is not True
+        or path_compatibility.get("fileBytesUnchanged") is not True
+        or not re.fullmatch(r"[0-9a-f]{64}", path_compatibility.get("fileSha256Before", ""))
+        or path_compatibility.get("fileSha256After")
+        != path_compatibility.get("fileSha256Before")
+    ):
+        raise RuntimeError(f"SQLite URI path regression receipt changed: {value}")
+    if any(key not in value for key in expected):
+        raise RuntimeError(f"SQLite retry regression receipt is incomplete: {value}")
+    if any(value[key] != expected[key] for key in expected):
         raise RuntimeError(f"SQLite retry regression receipt changed: {value}")
     value["outputSha256"] = hashlib.sha256(output.encode("utf-8")).hexdigest()
     return value
@@ -575,6 +589,7 @@ def parse_windows_host_regression(
         protocol.get("stdoutPure") is not True
         or protocol.get("firstStdoutFrameStrictHelloJson") is not True
         or protocol.get("cacheSeedDiagnosticOnStderr") is not True
+        or protocol.get("stageDiagnosticResponseWriteOnStderr") is not True
         or protocol.get("stderrSecretFree") is not True
     ):
         raise RuntimeError("empty-cache Host stdout/stderr regression did not pass")
@@ -603,6 +618,7 @@ def parse_windows_host_regression(
         "passed": 10,
         "emptyCacheFirstHelloJson": True,
         "cacheDiagnosticStderrSecretFree": True,
+        "stageDiagnosticResponseWriteOnStderr": True,
         "outputSha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
         "summaryRelativePath": summary_path.relative_to(REPO_ROOT).as_posix(),
         "summarySha256": summary_sha,

@@ -527,6 +527,7 @@ fn active_snapshot(runtime: &RuntimeManager, app_root: &Path) -> Value {
         "runtimeRecord": serde_json::to_value(&runtime.record).unwrap(),
         "session": session,
         "observed": observed,
+        "stageDiagnostics": stage_diagnostics(app_root),
     })
 }
 
@@ -537,6 +538,47 @@ fn session_after_stop(app_root: &Path, session_id: &str) -> Value {
         .join("session.json");
     serde_json::from_slice(&fs::read(path).expect("read stopped Host session state"))
         .expect("parse stopped Host session state")
+}
+
+fn stage_diagnostics(app_root: &Path) -> Vec<Value> {
+    let path = app_root.join("camoufox/state/host-stderr.log");
+    fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| line.strip_prefix("stage-diagnostic "))
+        .filter_map(|payload| serde_json::from_str(payload).ok())
+        .collect()
+}
+
+fn assert_stage_diagnostics(diagnostics: &Value) {
+    let entries = diagnostics
+        .as_array()
+        .expect("Host stage diagnostics array");
+    for stage in [
+        "browser/context",
+        "page",
+        "probe",
+        "observed collection",
+        "response write",
+        "close",
+    ] {
+        assert!(
+            entries.iter().any(|entry| {
+                entry.get("stage").and_then(Value::as_str) == Some(stage)
+                    && entry.get("event").and_then(Value::as_str) == Some("success")
+            }),
+            "missing successful Host stage diagnostic for {stage}: {entries:?}"
+        );
+    }
+    assert!(
+        entries.iter().all(|entry| {
+            entry.get("kind").and_then(Value::as_str) == Some("camoufox-host-stage")
+                && serde_json::to_string(entry)
+                    .map(|encoded| encoded.len() <= 512)
+                    .unwrap_or(false)
+        }),
+        "Host stage diagnostics must remain bounded and typed"
+    );
 }
 
 fn json_u32_array(value: &Value, pointer: &str) -> Vec<u32> {
@@ -741,6 +783,258 @@ fn scenario_root(run_dir: &Path, name: &str, repo_root: &Path) -> PathBuf {
     let root = run_dir.join(name).join("app");
     copy_artifact(repo_root, &root);
     root
+}
+
+#[test]
+#[ignore = "requires native Windows interactive desktop and pinned real Camoufox asset"]
+fn m3_wi_windows_r1_runtime_manager_five_cycle_soak() {
+    assert_eq!(required_env("VERISILO_M3_WI_ALLOW_REAL_BROWSER"), "1");
+    let run_id = required_env("VERISILO_M3_WI_RUN_ID");
+    let code_revision = required_env("VERISILO_M3_WI_CODE_REVISION");
+    let code_tree = required_env("VERISILO_M3_WI_CODE_TREE");
+    let branch = required_env("VERISILO_M3_WI_BRANCH");
+    let tree_raw_sha256 = required_env("VERISILO_M3_WI_TREE_RAW_SHA256");
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .expect("canonical repository root");
+    let run_dir = repo_root
+        .join("artifacts/camoufox-m3-wi-windows-gate/runs")
+        .join(&run_id);
+    assert!(!run_dir.exists(), "M3-WI R1 run-id already exists");
+    fs::create_dir_all(&run_dir).expect("create unique M3-WI R1 run root");
+    let cache_root = run_dir.join("cache");
+    fs::create_dir_all(&cache_root).expect("create run-owned Camoufox cache root");
+    let _cache_environment = EnvironmentGuard::set("VERISILO_CAMOUFOX_CACHE_DIR", &cache_root);
+
+    let reservation = TcpListener::bind("127.0.0.1:0").expect("reserve bounded probe port");
+    let probe_port = reservation
+        .local_addr()
+        .expect("reserved probe address")
+        .port();
+    drop(reservation);
+
+    let deriver_called = Arc::new(AtomicBool::new(false));
+    let deriver = SentinelDeriver {
+        called: Arc::clone(&deriver_called),
+    };
+    let mut unrelated = ExactChildGuard::start();
+    let unrelated_pid = unrelated.pid();
+    let root = scenario_root(&run_dir, "r1-reliability-soak", &repo_root);
+    let silo = silo_for(&root, ARTIFACT_SHA256);
+    let adapter = adapter_for(
+        &repo_root,
+        probe_port,
+        BROWSER_RELEASE,
+        BROWSER_ASSET_SHA256,
+        &tree_raw_sha256,
+    );
+    let mut cycles = Vec::new();
+    let mut owned_pids = BTreeSet::new();
+    let mut secret_values = Vec::new();
+    let mut secret_text = Vec::new();
+    let mut stable_digest: Option<Value> = None;
+    let mut stable_profile: Option<Value> = None;
+
+    for cycle in 1..=5_u64 {
+        let mut guard = launch_real(&root, adapter.clone(), &silo, &deriver)
+            .unwrap_or_else(|error| panic!("launch R1 reliability cycle {cycle}: {error}"));
+        let running = active_snapshot(&guard.runtime, &root);
+        assert_running_evidence(&running);
+        assert_eq!(
+            running
+                .pointer("/session/bootCountBefore")
+                .and_then(Value::as_u64),
+            Some(cycle - 1)
+        );
+        assert_eq!(
+            running
+                .pointer("/session/bootCountAfter")
+                .and_then(Value::as_u64),
+            Some(cycle)
+        );
+        for pointer in [
+            "/session/cookieEvidence/cookieInApi",
+            "/session/cookieEvidence/cookieOnPage",
+            "/session/cookieEvidence/cookieValueLooksManaged",
+        ] {
+            assert_eq!(
+                running.pointer(pointer).and_then(Value::as_bool),
+                Some(true),
+                "R1 cycle {cycle} missing cookie evidence at {pointer}"
+            );
+        }
+        if let Some(expected) = stable_digest.as_ref() {
+            assert_eq!(
+                running.get("observedWebsiteDigest"),
+                Some(expected),
+                "ObservedWebsiteDigest drifted in R1 cycle {cycle}"
+            );
+        } else {
+            stable_digest = running.get("observedWebsiteDigest").cloned();
+        }
+        if let Some(expected) = stable_profile.as_ref() {
+            assert_eq!(running.get("profileId"), Some(expected));
+        } else {
+            stable_profile = running.get("profileId").cloned();
+        }
+
+        let host_pid = running["hostPid"].as_u64().expect("R1 Host PID") as u32;
+        let managed = json_u32_array(&running, "/session/managedPids");
+        let session_id = running["sessionId"]
+            .as_str()
+            .expect("R1 Host session ID")
+            .to_owned();
+        owned_pids.insert(host_pid);
+        owned_pids.extend(managed.iter().copied());
+
+        let stopped_activation = guard
+            .runtime
+            .stop_managed_camoufox(silo.id)
+            .unwrap_or_else(|error| panic!("close R1 reliability cycle {cycle}: {error}"));
+        assert_eq!(stopped_activation.state, RuntimeState::Stopped);
+        assert!(guard.runtime.profile_lease.is_none());
+        let stopped = session_after_stop(&root, &session_id);
+        assert_clean_stop(&stopped, host_pid, &managed);
+        assert_eq!(stopped.get("exitStatus").and_then(Value::as_i64), Some(0));
+        assert_eq!(
+            stopped.get("exitFileObserved").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            stopped
+                .pointer("/processTreeExit/job/activeProcessCount")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
+        for pointer in [
+            "/cookieSqlite/fileExists",
+            "/cookieSqlite/cookieNamePresent",
+            "/cookieSqlite/valuesManaged",
+        ] {
+            assert_eq!(
+                stopped.pointer(pointer).and_then(Value::as_bool),
+                Some(true),
+                "R1 cycle {cycle} missing SQLite evidence at {pointer}"
+            );
+        }
+        assert_eq!(
+            stopped
+                .pointer("/cookieSqlite/sqliteRetryExhausted")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert!(stopped.pointer("/cookieSqlite/sqliteReadError").is_none());
+
+        let diagnostics = json!(stage_diagnostics(&root));
+        assert_stage_diagnostics(&diagnostics);
+        secret_values.push(running.clone());
+        secret_values.push(stopped.clone());
+        secret_text.push(serde_json::to_string(&diagnostics).expect("serialize R1 diagnostics"));
+        cycles.push(json!({
+            "cycle": cycle,
+            "running": running,
+            "closeReceipt": stopped,
+            "profileId": running["profileId"],
+            "sessionId": session_id,
+            "hostPid": host_pid,
+            "managedPids": managed,
+            "bootCountBefore": running.pointer("/session/bootCountBefore"),
+            "bootCountAfter": running.pointer("/session/bootCountAfter"),
+            "observedWebsiteDigest": running["observedWebsiteDigest"],
+            "cookieApi": running["session"]["cookieEvidence"],
+            "pageCookie": running["session"]["cookieEvidence"]["cookieOnPage"],
+            "sqlite": stopped["cookieSqlite"],
+            "close": {
+                "exitStatus": stopped["exitStatus"],
+                "exitFile": stopped["exitFileObserved"],
+                "jobActiveProcessCount": stopped["processTreeExit"]["job"]["activeProcessCount"],
+                "processTreeExited": stopped["processTreeExit"]["exited"],
+            },
+            "stageDiagnostics": diagnostics,
+            "verified": false,
+            "evidenceClass": "observed-on-this-windows-host",
+        }));
+        unrelated.assert_alive();
+    }
+
+    assert!(!deriver_called.load(Ordering::SeqCst));
+    for value in &cycles {
+        secret_values.push(value.clone());
+    }
+    let secret_refs = secret_values.iter().collect::<Vec<_>>();
+    let secret_scan = scan_secret_surfaces(&secret_refs, &secret_text);
+    assert_eq!(
+        secret_scan
+            .get("matches")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(0)
+    );
+
+    let residual_owned = wait_for_pids_dead(
+        &owned_pids.iter().copied().collect::<Vec<_>>(),
+        Duration::from_secs(30),
+    );
+    assert!(residual_owned.is_empty(), "R1 left owned processes alive");
+    unrelated.assert_alive();
+
+    let report = json!({
+        "schema": "verisilo-camoufox-m3-wi-r1-windows-runtime-evidence/v1",
+        "status": "passed",
+        "runId": run_id,
+        "codeGitRevision": code_revision,
+        "codeTreeHash": code_tree,
+        "branch": branch,
+        "integrationPath": "test-only-real-host",
+        "productionPackageVerified": false,
+        "shipped": false,
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host",
+        "fixedInputs": {
+            "artifactId": ARTIFACT_ID,
+            "artifactFileSha256": ARTIFACT_SHA256,
+            "browserRelease": BROWSER_RELEASE,
+            "browserAssetSha256": BROWSER_ASSET_SHA256,
+            "browserTreeManifestRawSha256": tree_raw_sha256,
+            "browserTreeManifestCanonicalSha256": TREE_CANONICAL_SHA256,
+            "probePort": probe_port,
+        },
+        "sameProfile": true,
+        "cycleCount": 5,
+        "launchTimeoutSeconds": 120,
+        "closeTimeoutSeconds": 10,
+        "cycles": cycles,
+        "observedWebsiteDigestStable": true,
+        "secretScan": secret_scan,
+        "unrelatedSentinel": {
+            "pid": unrelated_pid,
+            "survivedAllLifecycleOperations": true,
+        },
+        "residualProcessCheck": {
+            "ownedPids": owned_pids,
+            "aliveOwnedPids": residual_owned,
+        },
+        "semanticBoundary": {
+            "launchPath": "RuntimeManager.launch_with_identity_deriver -> test-only adapter plan -> spawn_camoufox_host -> CamoufoxHostJsonlV1",
+            "closePath": "RuntimeManager.stop_managed_camoufox -> Host close -> Host shutdown -> exact child wait",
+            "launchExecutable": "uv-resolved-locked-python-interpreter",
+            "hostEntrypoint": "apps/camoufox-host/host_v1.py",
+            "typedHostArgvRecorded": true,
+            "argvContainsProxyArguments": false,
+            "argvContainsSecrets": false,
+            "verifiedAdapter": null,
+            "productionPackageVerified": false,
+        },
+    });
+    let report_path = run_dir.join("r1-runtime-evidence.json");
+    fs::write(
+        &report_path,
+        serde_json::to_vec_pretty(&report).expect("serialize M3-WI R1 runtime evidence"),
+    )
+    .expect("write M3-WI R1 runtime evidence");
+    println!("m3-wi-r1-run-id={run_id}");
+    println!("m3-wi-r1-runtime-evidence={}", report_path.display());
 }
 
 #[test]
