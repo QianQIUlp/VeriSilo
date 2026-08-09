@@ -1,2 +1,4 @@
 * text=auto eol=lf
 *.ps1 text eol=crlf
+tests/fixtures/camoufox/identity-win-*.json -text
+tests/fixtures/camoufox/identity-win-*.json.sha256 -text
