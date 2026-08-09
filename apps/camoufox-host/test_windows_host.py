@@ -8,6 +8,7 @@ it never changes the Linux fixture or evidence manifest.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -983,6 +984,201 @@ def test_cookie_sqlite_retry_policy() -> dict:
     }
 
 
+def test_close_context_regression() -> dict:
+    """Exercise typed close outcomes and ownership without a real browser."""
+
+    class NormalContext:
+        async def close(self) -> None:
+            return None
+
+    class TimeoutContext:
+        async def close(self) -> None:
+            raise asyncio.TimeoutError
+
+    class ExceptionContext:
+        async def close(self) -> None:
+            raise RuntimeError("R2-CLOSE-SECRET-SENTINEL")
+
+    class NeverContext:
+        async def close(self) -> None:
+            await asyncio.sleep(60)
+
+    async def direct_outcomes() -> dict[str, dict[str, str]]:
+        return {
+            "success": (
+                await host_v1.close_context_bounded(NormalContext(), timeout=0.2)
+            ).as_dict(),
+            "timeout": (
+                await host_v1.close_context_bounded(NeverContext(), timeout=0.01)
+            ).as_dict(),
+            "exception": (
+                await host_v1.close_context_bounded(ExceptionContext(), timeout=0.2)
+            ).as_dict(),
+        }
+
+    direct = asyncio.run(direct_outcomes())
+    assert direct["success"]["status"] == "success"
+    assert direct["timeout"]["status"] == "timeout"
+    assert direct["exception"] == {"status": "exception", "exceptionType": "RuntimeError"}
+
+    async def run_composition() -> list[dict]:
+        records: list[dict] = []
+        released: set[str] = set()
+        quarantined: set[str] = set()
+
+        async def fake_release(_host: Any, session: dict, release_lock: bool = True) -> None:
+            if release_lock:
+                released.add(session["case"])
+
+        async def fake_quarantine(
+            session: dict, _reason: str, _remaining: list[dict]
+        ) -> None:
+            quarantined.add(session["case"])
+            session["state"] = "quarantined"
+            session["quarantine"] = {"reason": "fake-process-tree-not-exited"}
+
+        def fake_diagnostic(
+            stage: str,
+            event: str,
+            _started: float,
+            failure: str | None = None,
+            *,
+            phase: str | None = None,
+            outcome: str | None = None,
+        ) -> None:
+            records.append(
+                {
+                    "stage": stage,
+                    "event": event,
+                    "failure": failure,
+                    "phase": phase,
+                    "outcome": outcome,
+                }
+            )
+
+        async def one_case(name: str, context: Any, tree: dict) -> dict:
+            with tempfile.TemporaryDirectory(prefix="verisilo-r2-close-") as raw_root:
+                root = Path(raw_root)
+                exit_file = root / "exit.json"
+                exit_file.write_text('{"exitCode":0}\n', encoding="utf-8")
+                session = {
+                    "case": name,
+                    "sessionId": f"fake-{name}",
+                    "state": "running",
+                    "stopMonitor": asyncio.Event(),
+                    "monitorTask": None,
+                    "ctx": context,
+                    "page": None,
+                    "exitFile": exit_file,
+                    "exitFileObserved": False,
+                    "exitStatus": None,
+                    "processTreeExit": None,
+                    "profileDir": root / "profile",
+                    "cookieSqlite": None,
+                    "contextClose": None,
+                    "closeOutcome": None,
+                    "pid": 101,
+                    "childPid": 102,
+                    "server": None,
+                    "xvfb": None,
+                    "logFh": None,
+                    "profileLock": object(),
+                    "lockFd": 1,
+                    "supervisorMeta": None,
+                    "managedIdentities": [],
+                    "jobHandle": None,
+                    "quarantine": None,
+                }
+                host = host_v1.CamoufoxHost.__new__(host_v1.CamoufoxHost)
+                before = len(records)
+                with mock.patch.object(host_v1, "_diagnostic", side_effect=fake_diagnostic), \
+                    mock.patch.object(host_v1, "terminate_managed_tree", return_value=tree), \
+                    mock.patch.object(
+                        host_v1,
+                        "read_cookie_sqlite_evidence",
+                        return_value={
+                            "fileExists": True,
+                            "cookieNamePresent": True,
+                            "sqliteRetryExhausted": False,
+                        },
+                    ), \
+                    mock.patch.object(host_v1, "release_session", side_effect=fake_release), \
+                    mock.patch.object(host_v1, "write_session_state"), \
+                    mock.patch.object(host, "_quarantine_session", side_effect=fake_quarantine):
+                    with host_v1._StageDiagnostic("close") as diagnostic:
+                        receipt = await host._close_active_session(session, diagnostic)
+                case_records = records[before:]
+                encoded = json.dumps(case_records, separators=(",", ":"))
+                assert "R2-CLOSE-SECRET-SENTINEL" not in encoded
+                return {
+                    "case": name,
+                    "state": session["state"],
+                    "receipt": receipt,
+                    "released": name in released,
+                    "quarantined": name in quarantined,
+                    "diagnostics": case_records,
+                }
+
+        return [
+            await one_case(
+                "normal",
+                NormalContext(),
+                {"exited": True, "managedIdentities": [], "sigterm": False, "sigkill": False},
+            ),
+            await one_case(
+                "timeout",
+                TimeoutContext(),
+                {"exited": True, "managedIdentities": [], "sigterm": False, "sigkill": False},
+            ),
+            await one_case(
+                "exception",
+                ExceptionContext(),
+                {"exited": True, "managedIdentities": [], "sigterm": False, "sigkill": False},
+            ),
+            await one_case(
+                "job-not-exited",
+                NormalContext(),
+                {
+                    "exited": False,
+                    "managedIdentities": [{"pid": 1234, "role": "browser"}],
+                    "remaining": [{"pid": 1234, "role": "browser"}],
+                    "sigterm": True,
+                    "sigkill": True,
+                },
+            ),
+        ]
+
+    cases = asyncio.run(run_composition())
+    by_name = {case["case"]: case for case in cases}
+    assert by_name["normal"]["state"] == "exited"
+    assert by_name["normal"]["released"] is True
+    assert by_name["normal"]["receipt"]["closeOutcome"]["status"] == "success"
+    assert by_name["timeout"]["state"] == "failed"
+    assert by_name["timeout"]["released"] is True
+    assert by_name["timeout"]["receipt"]["contextClose"]["ctx"]["status"] == "timeout"
+    assert by_name["timeout"]["receipt"]["closeOutcome"]["status"] == "failed"
+    assert by_name["exception"]["state"] == "failed"
+    assert by_name["exception"]["receipt"]["contextClose"]["ctx"] == {
+        "status": "exception",
+        "exceptionType": "RuntimeError",
+    }
+    assert by_name["job-not-exited"]["state"] == "quarantined"
+    assert by_name["job-not-exited"]["released"] is False
+    assert by_name["job-not-exited"]["quarantined"] is True
+    assert by_name["job-not-exited"]["receipt"]["closeOutcome"]["status"] == "failed"
+    assert any(
+        entry.get("phase") == "forced-job-cleanup"
+        and entry.get("outcome") == "failed"
+        for entry in by_name["job-not-exited"]["diagnostics"]
+    )
+    return {
+        "status": "passed",
+        "directOutcomes": direct,
+        "cases": cases,
+        "secretFree": True,
+    }
+
+
 TESTS: list[tuple[str, Callable[[], dict]]] = [
     ("protocol", test_protocol_and_integrity),
     ("persistence", test_persistence),
@@ -998,6 +1194,10 @@ TESTS: list[tuple[str, Callable[[], dict]]] = [
 
 
 def main() -> int:
+    if "--close-context-regression" in sys.argv[1:]:
+        result = test_close_context_regression()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
     if not IS_WINDOWS:
         print("M2-W requires a real Windows host")
         return 2
@@ -1062,6 +1262,9 @@ def main() -> int:
 if __name__ == "__main__":
     if sys.argv[1:] == ["--cookie-sqlite-retry-regression"]:
         print(json.dumps(test_cookie_sqlite_retry_policy(), sort_keys=True))
+        raise SystemExit(0)
+    if sys.argv[1:] == ["--close-context-regression"]:
+        print(json.dumps(test_close_context_regression(), sort_keys=True))
         raise SystemExit(0)
     if sys.argv[1:]:
         raise SystemExit("unsupported arguments")

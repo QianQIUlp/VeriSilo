@@ -32,6 +32,7 @@ import signal
 import sys
 import time
 import uuid
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from threading import Thread
@@ -106,9 +107,12 @@ COOKIE_SQLITE_READ_MAX_ATTEMPTS = 6
 COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS = 0.2
 # Stage diagnostics are deliberately sampled once per stage/phase.  The Host
 # must remain responsive even when a caller captures stderr without draining
-# it while it performs a long status poll (for example, crash recovery).
-DIAGNOSTIC_MAX_EVENTS = 12
-DIAGNOSTIC_MAX_BYTES = 2048
+# it while it performs a long status poll (for example, crash recovery).  A
+# reserved close budget prevents an earlier noisy stage from hiding the
+# terminal lifecycle outcome.
+DIAGNOSTIC_MAX_EVENTS = 20
+DIAGNOSTIC_MAX_BYTES = 3072
+DIAGNOSTIC_CLOSE_RESERVE_BYTES = 1024
 DIAGNOSTIC_MAX_LINE_BYTES = 512
 DIAGNOSTIC_STAGES = {
     "browser/context",
@@ -158,6 +162,24 @@ _DIAGNOSTIC_BYTES = 0
 _DIAGNOSTIC_STAGE_EVENTS: dict[str, set[str]] = {}
 
 
+@dataclass(frozen=True)
+class ContextCloseOutcome:
+    """Secret-free, bounded result for one Playwright close operation."""
+
+    status: str
+    exception_type: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.status not in {"success", "timeout", "exception"}:
+            raise ValueError("invalid context close outcome")
+
+    def as_dict(self) -> dict[str, str]:
+        result = {"status": self.status}
+        if self.exception_type is not None:
+            result["exceptionType"] = self.exception_type
+        return result
+
+
 def _send(obj: dict) -> None:
     with _StageDiagnostic("response write"):
         frame = json.dumps(
@@ -194,14 +216,25 @@ def _log(message: str) -> None:
             pass
 
 
-def _diagnostic(stage: str, event: str, started: float, failure: str | None = None) -> None:
+def _diagnostic(
+    stage: str,
+    event: str,
+    started: float,
+    failure: str | None = None,
+    *,
+    phase: str | None = None,
+    outcome: str | None = None,
+) -> None:
     """Write one bounded, secret-free lifecycle diagnostic to stderr only."""
     global _DIAGNOSTIC_BYTES, _DIAGNOSTIC_EVENTS
-    if stage not in DIAGNOSTIC_STAGES or _DIAGNOSTIC_EVENTS >= DIAGNOSTIC_MAX_EVENTS:
+    if stage not in DIAGNOSTIC_STAGES:
+        return
+    if _DIAGNOSTIC_EVENTS >= DIAGNOSTIC_MAX_EVENTS:
         return
     stage_events = _DIAGNOSTIC_STAGE_EVENTS.setdefault(stage, set())
-    phase = "terminal" if event in {"success", "failed"} else event
-    if phase in stage_events:
+    event_key = "terminal" if event in {"success", "failed"} else event
+    dedupe_key = f"{phase or 'stage'}:{event_key}"
+    if dedupe_key in stage_events:
         return
     payload: dict[str, Any] = {
         "kind": "camoufox-host-stage",
@@ -209,6 +242,10 @@ def _diagnostic(stage: str, event: str, started: float, failure: str | None = No
         "event": event,
         "durationMs": max(0, int((time.perf_counter() - started) * 1000)),
     }
+    if phase is not None:
+        payload["phase"] = re.sub(r"[^A-Za-z0-9_.-]", "_", phase)[:64]
+    if outcome is not None:
+        payload["outcome"] = re.sub(r"[^A-Za-z0-9_.-]", "_", outcome)[:64]
     if failure is not None:
         payload["failure"] = re.sub(r"[^A-Za-z0-9_.-]", "_", failure)[:64]
     encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
@@ -216,9 +253,14 @@ def _diagnostic(stage: str, event: str, started: float, failure: str | None = No
         encoded = '{"kind":"camoufox-host-stage","event":"truncated"}'
     line = "stage-diagnostic " + encoded + "\n"
     line_bytes = len(line.encode("utf-8"))
-    if _DIAGNOSTIC_BYTES + line_bytes > DIAGNOSTIC_MAX_BYTES:
+    reserved_floor = (
+        DIAGNOSTIC_CLOSE_RESERVE_BYTES
+        if stage != "close"
+        else 0
+    )
+    if _DIAGNOSTIC_BYTES + line_bytes > DIAGNOSTIC_MAX_BYTES - reserved_floor:
         return
-    stage_events.add(phase)
+    stage_events.add(dedupe_key)
     _DIAGNOSTIC_EVENTS += 1
     _DIAGNOSTIC_BYTES += line_bytes
     _log(line.rstrip("\n"))
@@ -344,19 +386,32 @@ def validate_request(obj: dict) -> tuple[str, str, dict]:
 # --------------------------------------------------------------------------
 
 
-async def close_context_bounded(ctx: Any, timeout: float) -> bool:
-    """Do not let a stuck Playwright transport block Job-level cleanup."""
+def _consume_task_result(task: asyncio.Task) -> None:
+    """Consume a detached close task without exposing its exception."""
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        task.result()
+
+
+async def close_context_bounded(ctx: Any, timeout: float) -> ContextCloseOutcome:
+    """Close a Playwright object without exceeding its bounded wait."""
     task = asyncio.create_task(ctx.close())
     try:
         await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
-        return True
+        return ContextCloseOutcome("success")
     except asyncio.TimeoutError:
         task.cancel()
+        # A third-party transport may ignore cancellation.  Do not await it
+        # without a bound: Job/process ownership is handled by the caller.
         with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
-        return False
-    except Exception:
-        return False
+            await asyncio.wait_for(asyncio.shield(task), timeout=0.25)
+        if not task.done():
+            task.add_done_callback(_consume_task_result)
+        return ContextCloseOutcome("timeout")
+    except Exception as exc:  # noqa: BLE001 - only the sanitized type escapes
+        return ContextCloseOutcome(
+            "exception",
+            re.sub(r"[^A-Za-z0-9_.-]", "_", type(exc).__name__)[:64],
+        )
 
 
 class CamoufoxHost:
@@ -522,6 +577,7 @@ class CamoufoxHost:
             "lockFd": profile_lock.handle_value,
             "logFh": log_fh,
             "ctx": None,
+            "page": None,
             "pid": None,
             "childPid": None,
             "supervisorMeta": None,
@@ -546,6 +602,8 @@ class CamoufoxHost:
             "fontMode": None,
             "cookieEvidence": None,
             "cookieSqlite": None,
+            "contextClose": None,
+            "closeOutcome": None,
             "probePort": None,
             "quarantine": None,
         }
@@ -723,6 +781,7 @@ class CamoufoxHost:
 
         with _StageDiagnostic("page"):
             page = await ctx.new_page()
+            session["page"] = page
 
         with _StageDiagnostic("probe"):
             await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
@@ -839,11 +898,98 @@ class CamoufoxHost:
         with _StageDiagnostic("close") as diagnostic:
             await self._fail_session_impl(session, error, diagnostic)
 
+    async def _close_playwright_objects(
+        self, session: dict, timeout: float
+    ) -> dict[str, dict[str, str]]:
+        """Close page then context inside one bounded lifecycle budget."""
+        deadline = time.monotonic() + timeout
+        outcomes: dict[str, dict[str, str]] = {}
+        for key, phase in (("page", "page.close"), ("ctx", "ctx.close")):
+            target = session.get(key)
+            phase_started = time.perf_counter()
+            _diagnostic("close", "start", phase_started, phase=phase)
+            if target is None:
+                outcome = {"status": "not_present"}
+            else:
+                remaining = max(0.01, deadline - time.monotonic())
+                operation_timeout = min(2.0, remaining) if key == "page" else remaining
+                bounded = await close_context_bounded(target, operation_timeout)
+                outcome = bounded.as_dict()
+            outcomes[key] = outcome
+            _diagnostic(
+                "close",
+                "result",
+                phase_started,
+                phase=phase,
+                outcome=outcome["status"],
+                failure=(
+                    f"{key}_close_{outcome['status']}"
+                    if outcome["status"] not in {"success", "not_present"}
+                    else None
+                ),
+            )
+            session[key] = None
+        session["contextClose"] = outcomes
+        return outcomes
+
+    @staticmethod
+    def _forced_job_cleanup_status(process_tree_exit: dict) -> str:
+        forced = bool(
+            process_tree_exit.get("sigkill")
+            or (process_tree_exit.get("job") or {}).get("terminateJobObject")
+        )
+        if not process_tree_exit.get("exited", False):
+            return "failed"
+        return "performed" if forced else "not_needed"
+
+    @staticmethod
+    def _graceful_process_exit_status(
+        process_tree_exit: dict, exit_file_observed: bool, exit_status: Optional[int]
+    ) -> str:
+        forced = bool(
+            process_tree_exit.get("sigkill")
+            or (process_tree_exit.get("job") or {}).get("terminateJobObject")
+        )
+        if not process_tree_exit.get("exited", False):
+            return "failed"
+        if forced:
+            return "forced"
+        return "success" if exit_file_observed and exit_status == 0 else "failed"
+
+    @staticmethod
+    def _close_receipt(
+        session: dict,
+        *,
+        process_status: str,
+        forced_status: str,
+        sqlite_status: str,
+        force_failed: bool = False,
+    ) -> dict:
+        context_close = session.get("contextClose") or {}
+        context_ok = all(
+            value.get("status") in {"success", "not_present"}
+            for value in context_close.values()
+        )
+        clean = (
+            not force_failed
+            and context_ok
+            and process_status == "success"
+            and forced_status == "not_needed"
+        )
+        return {
+            "status": "success" if clean else "failed",
+            "contextClose": context_close,
+            "gracefulProcessExit": {"status": process_status},
+            "forcedJobCleanup": {"status": forced_status},
+            "sqliteEvidence": {"status": sqlite_status},
+        }
+
     async def _fail_session_impl(
         self, session: dict, error: str, diagnostic: _StageDiagnostic
     ) -> None:
         session["state"] = "failed"
         session["failure"] = error
+        diagnostic.fail("session_failed")
         session["exitStatus"] = read_exit_status(session["exitFile"])
         session["exitFileObserved"] = session["exitFile"].exists()
         session["stopMonitor"].set()
@@ -852,16 +998,44 @@ class CamoufoxHost:
                 await asyncio.wait_for(session["monitorTask"], timeout=3)
             except asyncio.TimeoutError:
                 session["monitorTask"].cancel()
-        ctx = session.get("ctx")
-        if ctx is not None:
-            await close_context_bounded(ctx, timeout=5)
-            session["ctx"] = None
+        await self._close_playwright_objects(session, timeout=5)
         # Confirm the whole managed process tree is gone BEFORE releasing the
         # profile lock, so no second Host can ever touch the same profile
         # while the old browser is still alive.
         session["processTreeExit"] = terminate_managed_tree(session, timeout=6)
+        forced_status = self._forced_job_cleanup_status(session["processTreeExit"])
         if not session["processTreeExit"].get("exited", False):
             diagnostic.fail("managed_process_tree_not_exited")
+            _diagnostic(
+                "close",
+                "result",
+                time.perf_counter(),
+                phase="graceful-process-exit",
+                outcome="failed",
+                failure="managed_process_tree_not_exited",
+            )
+            _diagnostic(
+                "close",
+                "result",
+                time.perf_counter(),
+                phase="forced-job-cleanup",
+                outcome=forced_status,
+                failure="managed_process_tree_not_exited",
+            )
+            _diagnostic(
+                "close",
+                "result",
+                time.perf_counter(),
+                phase="sqlite-evidence",
+                outcome="not_collected",
+            )
+            session["closeOutcome"] = self._close_receipt(
+                session,
+                process_status="failed",
+                forced_status=forced_status,
+                sqlite_status="not_collected",
+                force_failed=True,
+            )
             await self._quarantine_session(
                 session,
                 f"{error}; managed process tree did not exit",
@@ -870,6 +1044,38 @@ class CamoufoxHost:
             return
         session["pid"] = None
         session["childPid"] = None
+        session["exitFileObserved"] = session["exitFile"].exists()
+        session["exitStatus"] = read_exit_status(session["exitFile"])
+        session["cookieSqlite"] = None
+        _diagnostic(
+            "close",
+            "result",
+            time.perf_counter(),
+            phase="graceful-process-exit",
+            outcome="failed",
+            failure="session_failed",
+        )
+        _diagnostic(
+            "close",
+            "result",
+            time.perf_counter(),
+            phase="forced-job-cleanup",
+            outcome=forced_status,
+        )
+        _diagnostic(
+            "close",
+            "result",
+            time.perf_counter(),
+            phase="sqlite-evidence",
+            outcome="not_collected",
+        )
+        session["closeOutcome"] = self._close_receipt(
+            session,
+            process_status="failed",
+            forced_status=forced_status,
+            sqlite_status="not_collected",
+            force_failed=True,
+        )
         await release_session(self, session)
         write_session_state(session)
         _log(f"session {session['sessionId']} failed: {error}")
@@ -928,6 +1134,8 @@ class CamoufoxHost:
             "exitFileObserved": session.get("exitFileObserved"),
             "quarantine": session.get("quarantine"),
             "failure": session["failure"],
+            "contextClose": session.get("contextClose"),
+            "closeOutcome": session.get("closeOutcome"),
             "verified": False,
             "evidenceClass": "observed-on-this-host",
         }
@@ -943,6 +1151,9 @@ class CamoufoxHost:
                 "exitStatus": session["exitStatus"],
                 "exitFileObserved": session.get("exitFileObserved"),
                 "processTreeExit": session.get("processTreeExit"),
+                "cookieSqlite": session.get("cookieSqlite"),
+                "contextClose": session.get("contextClose"),
+                "closeOutcome": session.get("closeOutcome"),
                 "quarantine": session.get("quarantine"),
             }
         with _StageDiagnostic("close") as diagnostic:
@@ -959,16 +1170,50 @@ class CamoufoxHost:
             except asyncio.TimeoutError:
                 session["monitorTask"].cancel()
         close_start = time.perf_counter()
-        ctx = session.get("ctx")
-        if ctx is not None:
-            if not await close_context_bounded(ctx, timeout=10):
-                _log(f"session {session['sessionId']}: ctx.close() timed out, terminating Job")
-        session["ctx"] = None
+        await self._close_playwright_objects(session, timeout=10)
         # close() must CONFIRM the managed process tree is fully gone (and
         # terminate it if not) before the profile lock is released.
         session["processTreeExit"] = terminate_managed_tree(session, timeout=8)
+        forced_status = self._forced_job_cleanup_status(session["processTreeExit"])
+        session["exitFileObserved"] = session["exitFile"].exists()
+        session["exitStatus"] = read_exit_status(session["exitFile"])
+        process_status = self._graceful_process_exit_status(
+            session["processTreeExit"],
+            session["exitFileObserved"],
+            session["exitStatus"],
+        )
+        _diagnostic(
+            "close",
+            "result",
+            close_start,
+            phase="graceful-process-exit",
+            outcome=process_status,
+            failure=(None if process_status == "success" else process_status),
+        )
+        _diagnostic(
+            "close",
+            "result",
+            close_start,
+            phase="forced-job-cleanup",
+            outcome=forced_status,
+            failure=(None if forced_status == "not_needed" else forced_status),
+        )
         if not session["processTreeExit"].get("exited", False):
             diagnostic.fail("managed_process_tree_not_exited")
+            session["closeOutcome"] = self._close_receipt(
+                session,
+                process_status=process_status,
+                forced_status=forced_status,
+                sqlite_status="not_collected",
+                force_failed=True,
+            )
+            _diagnostic(
+                "close",
+                "result",
+                close_start,
+                phase="sqlite-evidence",
+                outcome="not_collected",
+            )
             await self._quarantine_session(
                 session,
                 "close: managed process tree did not exit",
@@ -980,17 +1225,56 @@ class CamoufoxHost:
                 "exitStatus": session["exitStatus"],
                 "exitFileObserved": session.get("exitFileObserved"),
                 "processTreeExit": session["processTreeExit"],
+                "contextClose": session.get("contextClose"),
+                "closeOutcome": session.get("closeOutcome"),
                 "quarantine": session.get("quarantine"),
                 "closeSeconds": round(time.perf_counter() - close_start, 3),
             }
         session["pid"] = None
         session["childPid"] = None
-        session["exitFileObserved"] = session["exitFile"].exists()
-        session["exitStatus"] = read_exit_status(session["exitFile"])
         session["cookieSqlite"] = read_cookie_sqlite_evidence(
             session["profileDir"]
         )
-        session["state"] = "exited"
+        sqlite_status = (
+            "available"
+            if session["cookieSqlite"].get("fileExists")
+            and session["cookieSqlite"].get("cookieNamePresent")
+            and "sqliteReadError" not in session["cookieSqlite"]
+            and not session["cookieSqlite"].get("sqliteRetryExhausted", False)
+            else "unavailable"
+        )
+        _diagnostic(
+            "close",
+            "result",
+            close_start,
+            phase="sqlite-evidence",
+            outcome=sqlite_status,
+            failure=(None if sqlite_status == "available" else sqlite_status),
+        )
+        session["closeOutcome"] = self._close_receipt(
+            session,
+            process_status=process_status,
+            forced_status=forced_status,
+            sqlite_status=sqlite_status,
+        )
+        if session["closeOutcome"]["status"] != "success":
+            diagnostic.fail("close_not_clean")
+            session["state"] = "failed"
+            session["failure"] = (
+                "close: "
+                + next(
+                    (
+                        f"{name}_{value.get('status')}"
+                        for name, value in session["contextClose"].items()
+                        if value.get("status") not in {"success", "not_present"}
+                    ),
+                    process_status
+                    if process_status != "success"
+                    else forced_status,
+                )
+            )
+        else:
+            session["state"] = "exited"
         session["closeSeconds"] = round(time.perf_counter() - close_start, 3)
         await release_session(self, session)
         write_session_state(session)
@@ -1001,6 +1285,8 @@ class CamoufoxHost:
             "exitFileObserved": session["exitFileObserved"],
             "processTreeExit": session["processTreeExit"],
             "cookieSqlite": session["cookieSqlite"],
+            "contextClose": session["contextClose"],
+            "closeOutcome": session["closeOutcome"],
             "closeSeconds": session["closeSeconds"],
         }
 
@@ -1676,6 +1962,8 @@ def write_session_state(session: dict) -> None:
         "processTreeExit": session.get("processTreeExit"),
         "cookieEvidence": session.get("cookieEvidence"),
         "cookieSqlite": session.get("cookieSqlite"),
+        "contextClose": session.get("contextClose"),
+        "closeOutcome": session.get("closeOutcome"),
         "probePort": session.get("probePort"),
         "quarantine": session.get("quarantine"),
     }

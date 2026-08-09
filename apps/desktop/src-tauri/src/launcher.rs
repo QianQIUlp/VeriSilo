@@ -250,6 +250,10 @@ struct CamoufoxHostStatusResult {
     #[serde(default)]
     failure: Option<String>,
     #[serde(default)]
+    context_close: Option<Value>,
+    #[serde(default)]
+    close_outcome: Option<Value>,
+    #[serde(default)]
     verified: Option<bool>,
     #[serde(default)]
     evidence_class: Option<String>,
@@ -269,6 +273,10 @@ struct CamoufoxHostCloseResult {
     process_tree_exit: Option<Value>,
     #[serde(default)]
     cookie_sqlite: Option<Value>,
+    #[serde(default)]
+    context_close: Option<Value>,
+    #[serde(default)]
+    close_outcome: Option<Value>,
     #[serde(default)]
     quarantine: Option<Value>,
     #[serde(default)]
@@ -2985,11 +2993,41 @@ fn validate_camoufox_host_close(
         .and_then(|value| value.get("exited"))
         .and_then(Value::as_bool)
         == Some(true);
+    let typed_close_is_clean = close
+        .close_outcome
+        .as_ref()
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str)
+        == Some("success")
+        && close
+            .close_outcome
+            .as_ref()
+            .and_then(|value| value.pointer("/contextClose/ctx/status"))
+            .and_then(Value::as_str)
+            == Some("success")
+        && close
+            .close_outcome
+            .as_ref()
+            .and_then(|value| value.pointer("/contextClose/page/status"))
+            .is_some_and(|status| matches!(status.as_str(), Some("success") | Some("not_present")))
+        && close
+            .close_outcome
+            .as_ref()
+            .and_then(|value| value.pointer("/gracefulProcessExit/status"))
+            .and_then(Value::as_str)
+            == Some("success")
+        && close
+            .close_outcome
+            .as_ref()
+            .and_then(|value| value.pointer("/forcedJobCleanup/status"))
+            .and_then(Value::as_str)
+            == Some("not_needed");
     if close.session_id != session_id
         || close.state != "exited"
         || close.exit_status != Some(0)
         || close.exit_file_observed != Some(true)
         || !tree_exited
+        || !typed_close_is_clean
         || close.quarantine.is_some()
     {
         return Err(LauncherError::RuntimeReceipt(format!(
@@ -4823,6 +4861,20 @@ process.stdin.on('end', () => {
                 exit_file_observed: Some(true),
                 process_tree_exit: Some(serde_json::json!({"exited": tree_exited})),
                 cookie_sqlite: None,
+                context_close: Some(serde_json::json!({
+                    "page": {"status": "not_present"},
+                    "ctx": {"status": "success"}
+                })),
+                close_outcome: Some(serde_json::json!({
+                    "status": "success",
+                    "contextClose": {
+                        "page": {"status": "not_present"},
+                        "ctx": {"status": "success"}
+                    },
+                    "gracefulProcessExit": {"status": "success"},
+                    "forcedJobCleanup": {"status": "not_needed"},
+                    "sqliteEvidence": {"status": "unavailable"}
+                })),
                 quarantine,
                 close_seconds: None,
             }

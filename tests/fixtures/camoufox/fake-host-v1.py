@@ -237,13 +237,33 @@ def main() -> int:
                 "exitStatus": 0,
                 "exitFileObserved": True,
                 "processTreeExit": {"exited": True, "managedIdentities": []},
+                "contextClose": {
+                    "page": {"status": "not_present"},
+                    "ctx": {"status": "success"},
+                },
+                "closeOutcome": {
+                    "status": "success",
+                    "contextClose": {
+                        "page": {"status": "not_present"},
+                        "ctx": {"status": "success"},
+                    },
+                    "gracefulProcessExit": {"status": "success"},
+                    "forcedJobCleanup": {"status": "not_needed"},
+                    "sqliteEvidence": {"status": "unavailable"},
+                },
                 "quarantine": None,
             }
             if mode == "quarantined":
                 close["state"] = "quarantined"
                 close["quarantine"] = {"reason": "fake quarantine"}
+                close["closeOutcome"]["status"] = "failed"
+                close["closeOutcome"]["gracefulProcessExit"]["status"] = "failed"
+                close["closeOutcome"]["forcedJobCleanup"]["status"] = "failed"
             elif mode == "tree-exit-false":
                 close["processTreeExit"] = {"exited": False, "managedIdentities": [1234]}
+                close["closeOutcome"]["status"] = "failed"
+                close["closeOutcome"]["gracefulProcessExit"]["status"] = "failed"
+                close["closeOutcome"]["forcedJobCleanup"]["status"] = "failed"
             response(request_id, close)
         elif command == "shutdown":
             response(

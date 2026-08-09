@@ -730,6 +730,85 @@ fn assert_clean_stop(stopped: &Value, host_pid: u32, managed_pids: &[u32]) {
     );
 }
 
+fn assert_r2_clean_close(stopped: &Value) {
+    assert_eq!(stopped.get("state").and_then(Value::as_str), Some("exited"));
+    assert_eq!(
+        stopped
+            .pointer("/closeOutcome/status")
+            .and_then(Value::as_str),
+        Some("success")
+    );
+    assert_eq!(
+        stopped
+            .pointer("/closeOutcome/contextClose/ctx/status")
+            .and_then(Value::as_str),
+        Some("success")
+    );
+    assert!(matches!(
+        stopped
+            .pointer("/closeOutcome/contextClose/page/status")
+            .and_then(Value::as_str),
+        Some("success") | Some("not_present")
+    ));
+    assert_eq!(
+        stopped
+            .pointer("/closeOutcome/gracefulProcessExit/status")
+            .and_then(Value::as_str),
+        Some("success")
+    );
+    assert_eq!(
+        stopped
+            .pointer("/closeOutcome/forcedJobCleanup/status")
+            .and_then(Value::as_str),
+        Some("not_needed")
+    );
+    assert_eq!(
+        stopped
+            .pointer("/processTreeExit/exited")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        stopped
+            .pointer("/processTreeExit/sigkill")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
+        stopped
+            .pointer("/processTreeExit/job/terminateJobObject")
+            .and_then(Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
+        stopped
+            .pointer("/processTreeExit/job/activeProcessCount")
+            .and_then(Value::as_u64),
+        Some(0)
+    );
+}
+
+fn assert_r2_diagnostics(diagnostics: &Value) {
+    assert_stage_diagnostics(diagnostics);
+    let entries = diagnostics.as_array().expect("R2 diagnostics array");
+    for (phase, expected_event, expected_outcome) in [
+        ("ctx.close", "result", "success"),
+        ("graceful-process-exit", "result", "success"),
+        ("forced-job-cleanup", "result", "not_needed"),
+        ("sqlite-evidence", "result", "available"),
+    ] {
+        assert!(
+            entries.iter().any(|entry| {
+                entry.get("stage").and_then(Value::as_str) == Some("close")
+                    && entry.get("phase").and_then(Value::as_str) == Some(phase)
+                    && entry.get("event").and_then(Value::as_str) == Some(expected_event)
+                    && entry.get("outcome").and_then(Value::as_str) == Some(expected_outcome)
+            }),
+            "missing R2 close diagnostic {phase}: {entries:?}"
+        );
+    }
+}
+
 fn scan_secret_surfaces(values: &[&Value], extra: &[String]) -> Value {
     let artifact: Value = serde_json::from_slice(
         &fs::read(required_env("VERISILO_M3_WI_ARTIFACT_PATH"))
@@ -1035,6 +1114,264 @@ fn m3_wi_windows_r1_runtime_manager_five_cycle_soak() {
     .expect("write M3-WI R1 runtime evidence");
     println!("m3-wi-r1-run-id={run_id}");
     println!("m3-wi-r1-runtime-evidence={}", report_path.display());
+}
+
+#[test]
+#[ignore = "requires native Windows interactive desktop and pinned real Camoufox asset"]
+fn m3_wi_windows_r2_runtime_manager_ten_cycle_clean_close_soak() {
+    assert_eq!(required_env("VERISILO_M3_WI_ALLOW_REAL_BROWSER"), "1");
+    let run_id = required_env("VERISILO_M3_WI_RUN_ID");
+    let code_revision = required_env("VERISILO_M3_WI_CODE_REVISION");
+    let code_tree = required_env("VERISILO_M3_WI_CODE_TREE");
+    let branch = required_env("VERISILO_M3_WI_BRANCH");
+    let tree_raw_sha256 = required_env("VERISILO_M3_WI_TREE_RAW_SHA256");
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .expect("canonical repository root");
+    let run_dir = repo_root
+        .join("artifacts/camoufox-m3-wi-windows-gate/runs")
+        .join(&run_id);
+    assert!(!run_dir.exists(), "M3-WI R2 run-id already exists");
+    fs::create_dir_all(&run_dir).expect("create unique M3-WI R2 run root");
+    let cache_root = run_dir.join("cache");
+    fs::create_dir_all(&cache_root).expect("create run-owned Camoufox cache root");
+    let _cache_environment = EnvironmentGuard::set("VERISILO_CAMOUFOX_CACHE_DIR", &cache_root);
+
+    let reservation = TcpListener::bind("127.0.0.1:0").expect("reserve bounded probe port");
+    let probe_port = reservation
+        .local_addr()
+        .expect("reserved probe address")
+        .port();
+    drop(reservation);
+
+    let deriver_called = Arc::new(AtomicBool::new(false));
+    let deriver = SentinelDeriver {
+        called: Arc::clone(&deriver_called),
+    };
+    let mut unrelated = ExactChildGuard::start();
+    let unrelated_pid = unrelated.pid();
+    let root = scenario_root(&run_dir, "r2-reliability-soak", &repo_root);
+    let silo = silo_for(&root, ARTIFACT_SHA256);
+    let adapter = adapter_for(
+        &repo_root,
+        probe_port,
+        BROWSER_RELEASE,
+        BROWSER_ASSET_SHA256,
+        &tree_raw_sha256,
+    );
+    let mut cycles = Vec::new();
+    let mut owned_pids = BTreeSet::new();
+    let mut secret_values = Vec::new();
+    let mut secret_text = Vec::new();
+    let mut stable_digest: Option<Value> = None;
+    let mut stable_profile: Option<Value> = None;
+
+    for cycle in 1..=10_u64 {
+        let mut guard = launch_real(&root, adapter.clone(), &silo, &deriver)
+            .unwrap_or_else(|error| panic!("launch R2 reliability cycle {cycle}: {error}"));
+        let running = active_snapshot(&guard.runtime, &root);
+        assert_running_evidence(&running);
+        assert_eq!(
+            running
+                .pointer("/session/bootCountBefore")
+                .and_then(Value::as_u64),
+            Some(cycle - 1)
+        );
+        assert_eq!(
+            running
+                .pointer("/session/bootCountAfter")
+                .and_then(Value::as_u64),
+            Some(cycle)
+        );
+        for pointer in [
+            "/session/cookieEvidence/cookieInApi",
+            "/session/cookieEvidence/cookieOnPage",
+            "/session/cookieEvidence/cookieValueLooksManaged",
+        ] {
+            assert_eq!(
+                running.pointer(pointer).and_then(Value::as_bool),
+                Some(true),
+                "R2 cycle {cycle} missing cookie evidence at {pointer}"
+            );
+        }
+        if let Some(expected) = stable_digest.as_ref() {
+            assert_eq!(
+                running.get("observedWebsiteDigest"),
+                Some(expected),
+                "ObservedWebsiteDigest drifted in R2 cycle {cycle}"
+            );
+        } else {
+            stable_digest = running.get("observedWebsiteDigest").cloned();
+        }
+        if let Some(expected) = stable_profile.as_ref() {
+            assert_eq!(running.get("profileId"), Some(expected));
+        } else {
+            stable_profile = running.get("profileId").cloned();
+        }
+
+        let host_pid = running["hostPid"].as_u64().expect("R2 Host PID") as u32;
+        let managed = json_u32_array(&running, "/session/managedPids");
+        let session_id = running["sessionId"]
+            .as_str()
+            .expect("R2 Host session ID")
+            .to_owned();
+        owned_pids.insert(host_pid);
+        owned_pids.extend(managed.iter().copied());
+
+        let stopped_activation = guard
+            .runtime
+            .stop_managed_camoufox(silo.id)
+            .unwrap_or_else(|error| panic!("close R2 reliability cycle {cycle}: {error}"));
+        assert_eq!(stopped_activation.state, RuntimeState::Stopped);
+        assert!(guard.runtime.profile_lease.is_none());
+        let stopped = session_after_stop(&root, &session_id);
+        assert_clean_stop(&stopped, host_pid, &managed);
+        assert_r2_clean_close(&stopped);
+        assert_eq!(stopped.get("exitStatus").and_then(Value::as_i64), Some(0));
+        assert_eq!(
+            stopped.get("exitFileObserved").and_then(Value::as_bool),
+            Some(true)
+        );
+        for pointer in [
+            "/cookieSqlite/fileExists",
+            "/cookieSqlite/cookieNamePresent",
+            "/cookieSqlite/valuesManaged",
+        ] {
+            assert_eq!(
+                stopped.pointer(pointer).and_then(Value::as_bool),
+                Some(true),
+                "R2 cycle {cycle} missing SQLite evidence at {pointer}"
+            );
+        }
+        assert_eq!(
+            stopped
+                .pointer("/cookieSqlite/sqliteRetryExhausted")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert!(stopped.pointer("/cookieSqlite/sqliteReadError").is_none());
+
+        let diagnostics = json!(stage_diagnostics(&root));
+        assert_r2_diagnostics(&diagnostics);
+        secret_values.push(running.clone());
+        secret_values.push(stopped.clone());
+        secret_text.push(serde_json::to_string(&diagnostics).expect("serialize R2 diagnostics"));
+        cycles.push(json!({
+            "cycle": cycle,
+            "running": running,
+            "closeReceipt": stopped,
+            "profileId": running["profileId"],
+            "sessionId": session_id,
+            "hostPid": host_pid,
+            "managedPids": managed,
+            "bootCountBefore": cycle - 1,
+            "bootCountAfter": cycle,
+            "observedWebsiteDigest": running["observedWebsiteDigest"],
+            "cookieApi": running["session"]["cookieEvidence"],
+            "pageCookie": running["session"]["cookieEvidence"]["cookieOnPage"],
+            "sqlite": stopped["cookieSqlite"],
+            "close": {
+                "exitStatus": stopped["exitStatus"],
+                "exitFile": stopped["exitFileObserved"],
+                "jobActiveProcessCount": stopped["processTreeExit"]["job"]["activeProcessCount"],
+                "processTreeExited": stopped["processTreeExit"]["exited"],
+                "sigkill": stopped["processTreeExit"]["sigkill"],
+                "terminateJobObject": stopped["processTreeExit"]["job"]["terminateJobObject"],
+                "closeOutcome": stopped["closeOutcome"],
+            },
+            "stageDiagnostics": diagnostics,
+            "verified": false,
+            "evidenceClass": "observed-on-this-windows-host",
+        }));
+        unrelated.assert_alive();
+    }
+
+    assert!(!deriver_called.load(Ordering::SeqCst));
+    for value in &cycles {
+        secret_values.push(value.clone());
+    }
+    let secret_refs = secret_values.iter().collect::<Vec<_>>();
+    let secret_scan = scan_secret_surfaces(&secret_refs, &secret_text);
+    assert_eq!(
+        secret_scan
+            .get("matches")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(0)
+    );
+
+    let residual_owned = wait_for_pids_dead(
+        &owned_pids.iter().copied().collect::<Vec<_>>(),
+        Duration::from_secs(30),
+    );
+    assert!(residual_owned.is_empty(), "R2 left owned processes alive");
+    unrelated.assert_alive();
+
+    let report = json!({
+        "schema": "verisilo-camoufox-m3-wi-r2-windows-runtime-evidence/v1",
+        "status": "passed",
+        "runId": run_id,
+        "codeGitRevision": code_revision,
+        "codeTreeHash": code_tree,
+        "branch": branch,
+        "integrationPath": "test-only-real-host",
+        "productionPackageVerified": false,
+        "shipped": false,
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host",
+        "fixedInputs": {
+            "artifactId": ARTIFACT_ID,
+            "artifactFileSha256": ARTIFACT_SHA256,
+            "browserRelease": BROWSER_RELEASE,
+            "browserAssetSha256": BROWSER_ASSET_SHA256,
+            "browserTreeManifestRawSha256": tree_raw_sha256,
+            "browserTreeManifestCanonicalSha256": TREE_CANONICAL_SHA256,
+            "probePort": probe_port,
+        },
+        "sameProfile": true,
+        "cycleCount": 10,
+        "launchTimeoutSeconds": 120,
+        "closeTimeoutSeconds": 10,
+        "forcedCleanupObserved": false,
+        "closeLifecycle": {
+            "allContextCloses": true,
+            "allGracefulProcessExits": true,
+            "forcedCleanupCount": 0,
+            "sigkillCount": 0,
+            "terminateJobObjectCount": 0,
+        },
+        "cycles": cycles,
+        "observedWebsiteDigestStable": true,
+        "secretScan": secret_scan,
+        "unrelatedSentinel": {
+            "pid": unrelated_pid,
+            "survivedAllLifecycleOperations": true,
+        },
+        "residualProcessCheck": {
+            "ownedPids": owned_pids,
+            "aliveOwnedPids": residual_owned,
+        },
+        "semanticBoundary": {
+            "launchPath": "RuntimeManager.launch_with_identity_deriver -> test-only adapter plan -> spawn_camoufox_host -> CamoufoxHostJsonlV1",
+            "closePath": "RuntimeManager.stop_managed_camoufox -> Host close(page -> ctx) -> Host shutdown -> exact child wait",
+            "launchExecutable": "uv-resolved-locked-python-interpreter",
+            "hostEntrypoint": "apps/camoufox-host/host_v1.py",
+            "typedHostArgvRecorded": true,
+            "argvContainsProxyArguments": false,
+            "argvContainsSecrets": false,
+            "verifiedAdapter": null,
+            "productionPackageVerified": false,
+        },
+    });
+    let report_path = run_dir.join("r2-runtime-evidence.json");
+    fs::write(
+        &report_path,
+        serde_json::to_vec_pretty(&report).expect("serialize M3-WI R2 runtime evidence"),
+    )
+    .expect("write M3-WI R2 runtime evidence");
+    println!("m3-wi-r2-run-id={run_id}");
+    println!("m3-wi-r2-runtime-evidence={}", report_path.display());
 }
 
 #[test]
