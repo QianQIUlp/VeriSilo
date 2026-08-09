@@ -414,7 +414,6 @@ def run_gate(args: argparse.Namespace) -> int:
     run_dir = RUNS_ROOT / run_id
     if run_dir.exists():
         raise RuntimeError(f"run-id already exists: {run_id}")
-    run_dir.mkdir(parents=True, exist_ok=False)
 
     commands: list[dict[str, Any]] = []
     engine_verify = run([tools["pnpm"], "engine:verify"], timeout=120)
