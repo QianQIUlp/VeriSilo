@@ -11,6 +11,7 @@ downloads, signs, or publishes anything.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import importlib.metadata
 import json
@@ -22,6 +23,7 @@ import subprocess
 import sys
 import time
 import uuid
+from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 
@@ -141,7 +143,48 @@ def git(*args: str, check: bool = True) -> str:
     return completed.stdout.strip()
 
 
-def require_clean_checkpoint() -> tuple[str, str, str]:
+def windows_session() -> tuple[int, str, int]:
+    session = wintypes.DWORD()
+    if not ctypes.windll.kernel32.ProcessIdToSessionId(
+        os.getpid(), ctypes.byref(session)
+    ):
+        raise OSError(ctypes.get_last_error(), "ProcessIdToSessionId failed")
+    query = ctypes.windll.wtsapi32.WTSQuerySessionInformationW
+    query.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    query.restype = wintypes.BOOL
+    free = ctypes.windll.wtsapi32.WTSFreeMemory
+    free.argtypes = [ctypes.c_void_p]
+    free.restype = None
+
+    def query_value(info_class: int, *, string: bool) -> str | int:
+        buffer = ctypes.c_void_p()
+        returned = wintypes.DWORD()
+        if not query(None, session.value, info_class, ctypes.byref(buffer), ctypes.byref(returned)):
+            raise OSError(ctypes.get_last_error(), "WTSQuerySessionInformationW failed")
+        try:
+            if string:
+                return ctypes.wstring_at(buffer.value)
+            if returned.value < ctypes.sizeof(wintypes.DWORD):
+                raise RuntimeError("WTS connect-state response was truncated")
+            return ctypes.cast(buffer, ctypes.POINTER(wintypes.DWORD)).contents.value
+        finally:
+            free(buffer)
+
+    # WTSWinStationName=6; WTSConnectState=8; WTSActive=0.
+    return (
+        session.value,
+        str(query_value(6, string=True)),
+        int(query_value(8, string=False)),
+    )
+
+
+def require_clean_checkpoint() -> tuple[str, str, str, str]:
     if os.name != "nt" or platform.system() != "Windows":
         raise RuntimeError("M3-WI requires native Windows")
     if Path.cwd().resolve() != REPO_ROOT.resolve():
@@ -162,19 +205,14 @@ def require_clean_checkpoint() -> tuple[str, str, str]:
     if ancestor.returncode != 0:
         raise RuntimeError("M3-WI code revision is not a descendant of the frozen checkpoint")
     tree = git("show", "-s", "--format=%T", revision)
-    session_name = os.environ.get("SESSIONNAME", "")
-    if not session_name or session_name.lower() == "services":
+    current_session_id, session_name, connect_state = windows_session()
+    if current_session_id == 0 or connect_state != 0 or session_name.lower() == "services":
         raise RuntimeError("M3-WI requires an interactive console/RDP session")
-    return revision, tree, branch
+    return revision, tree, branch, session_name
 
 
 def session_id() -> int:
-    import ctypes
-
-    value = ctypes.c_uint32()
-    if not ctypes.windll.kernel32.ProcessIdToSessionId(os.getpid(), ctypes.byref(value)):
-        raise OSError(ctypes.get_last_error(), "ProcessIdToSessionId failed")
-    return int(value.value)
+    return windows_session()[0]
 
 
 def target_processes() -> list[dict[str, Any]]:
@@ -351,7 +389,7 @@ def parse_engine_verify(output: str) -> dict[str, Any]:
 
 
 def run_gate(args: argparse.Namespace) -> int:
-    revision, tree, branch = require_clean_checkpoint()
+    revision, tree, branch, session_name = require_clean_checkpoint()
     if target_processes():
         raise RuntimeError("Camoufox/Firefox/supervisor process exists before M3-WI")
     fixed_inputs = fixed_input_preflight()
@@ -542,7 +580,7 @@ def run_gate(args: argparse.Namespace) -> int:
         "windowsRelease": platform.win32_ver()[0],
         "windowsVersion": platform.win32_ver()[1],
         "architecture": platform.machine(),
-        "sessionName": os.environ.get("SESSIONNAME"),
+        "sessionName": session_name,
         "sessionId": session_id(),
         "python": sys.version.split()[0],
         "uv": version(["uv", "--version"]),
