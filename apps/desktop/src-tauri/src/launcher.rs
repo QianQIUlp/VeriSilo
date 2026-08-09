@@ -4212,8 +4212,20 @@ process.stdin.on('end', () => {
             wire = host.transport.wire_snapshot.clone();
         }
         let evidence = RuntimeEngineEvidence::configured(EngineAdapterId::Camoufox, true);
+        let runtime_record = RuntimeRecord {
+            silo_id: Uuid::new_v4(),
+            pid: 1234,
+            started_at: Utc::now(),
+            last_seen_at: Utc::now(),
+            state: RuntimeState::Running,
+        };
+        let runtime_record_path = root.join("runtime-record.json");
+        write_runtime_record(&runtime_record_path, &runtime_record)
+            .expect("persisted runtime record");
+        let persisted_runtime_record =
+            fs::read_to_string(&runtime_record_path).expect("read persisted runtime record");
         let surfaces = format!(
-            "argv={} plan={} wire={} evidence={}",
+            "argv={} plan={} wire={} evidence={} record={}",
             arguments
                 .iter()
                 .map(|argument| argument.to_string_lossy())
@@ -4222,6 +4234,7 @@ process.stdin.on('end', () => {
             serde_json::to_string(&plan).expect("plan JSON"),
             String::from_utf8_lossy(&wire.concat()),
             serde_json::to_string(&evidence).expect("evidence JSON"),
+            persisted_runtime_record,
         );
         for sentinel in sentinels {
             assert!(
