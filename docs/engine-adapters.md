@@ -10,6 +10,12 @@ The authoritative implementation is
 `apps/desktop/src-tauri/src/engine.rs`. The package schema and deliberately
 non-installable example are in `apps/desktop/src-tauri/resources`.
 
+## Camoufox branch boundary
+
+The accepted standalone Camoufox Host and v3 Identity Artifact currently live only on `codex/camoufox-m0-m2-minimal` and [Draft PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). They establish a Linux prototype execution path, not an implementation of this desktop adapter contract: `main` does not package that Host, Tauri does not launch it, and its JSON Lines protocol is not the desktop bootstrap or receipt protocol described below.
+
+The order is deliberate. Native Windows M2-W must first validate Artifact replay, Persistent Profile continuity, file locking, process ownership with Job Objects, reparse-point handling, and binary stdio. Only after that Gate may M3 version the package entrypoint and map Host launch/status/close evidence into the existing bootstrap, receipt, fallback, and capability-state model. No protocol or schema mapping is implied by the current prototype. See [the Camoufox program status](camoufox-program-status.md).
+
 ## Adapter and capability contract
 
 Every adapter exposes descriptor/version/channel, capability negotiation,
@@ -81,6 +87,8 @@ engine-package.json
 bin/chromium.exe       # controlled-chromium only
 bin/camoufox.exe       # camoufox only
 ```
+
+This raw-executable layout is the current desktop contract, not an accepted layout for the standalone Camoufox Host. M3 must explicitly define whether the package entrypoint is the Host, how its fixed Python/runtime assets are represented, and how bootstrap and receipts are bound; documentation must not silently treat `bin/camoufox.exe` as that integration.
 
 Manifest schema version 2 is defined by
 `engine-package.schema.json`. The loader rejects relative roots, traversal,
@@ -219,7 +227,7 @@ constraints, strict evidence phases, and site fallback.
 ## External release blockers
 
 V0.7 cannot be called a shipped controlled browser until separately supplied
-and audited work provides licensed reproducible Chromium/Camoufox artifacts,
+and audited work provides licensed reproducible Chromium/Camoufox release artifacts,
 patch sources, SBOM and license review, protected signing service and public
 certificate pin, update hosting and rollback retention, secure token transport
 integration, real Window/iframe/Dedicated Worker consistency evidence,
@@ -230,3 +238,5 @@ must never be presented as those artifacts or evidence.
 In particular, this source tree still has no real signed engine artifact or
 signer pin. Production external-engine launch therefore remains blocked even
 though the receipt transport and fake-engine E2E harness exist.
+
+The branch-scoped Camoufox archive, tree manifest, Artifact fixtures, and Linux run evidence do not remove these shipping blockers. They are inputs to M2-W and later M3 design, not a signed package or publisher identity.
