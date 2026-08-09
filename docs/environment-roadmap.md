@@ -4,12 +4,12 @@
 
 VeriSilo 不把浏览器扩展当作全部产品，也不把独立 `user-data-dir` 当作环境隔离的终点。产品正式采用四层实现：
 
-| 层级           | 版本      | 状态         | 主要边界                                                 |
-| -------------- | --------- | ------------ | -------------------------------------------------------- |
-| 独立 Silo      | V0.1–V0.6 | 基线部分实现 | 独立浏览器 Profile、网站数据、权限、历史和启动级网络配置 |
-| 受控浏览器引擎 | V0.7      | 已列入路线   | 协调浏览器可见信号、引擎网络能力和跨上下文一致性         |
-| 本地虚拟环境   | V0.8      | 已列入路线   | 独立操作系统、字体、设备视图和每环境网络出口             |
-| 自托管远程环境 | V0.9      | 已列入路线   | 远程浏览器会话、独立网络栈、持久环境和生命周期审计       |
+| 层级           | 版本      | 状态                                | 主要边界                                                 |
+| -------------- | --------- | ----------------------------------- | -------------------------------------------------------- |
+| 独立 Silo      | V0.1–V0.6 | 基线部分实现                        | 独立浏览器 Profile、网站数据、权限、历史和启动级网络配置 |
+| 受控浏览器引擎 | V0.7      | Linux 原型已验收；Windows/M3 待完成 | 协调浏览器可见信号、引擎网络能力和跨上下文一致性         |
+| 本地虚拟环境   | V0.8      | 已列入路线                          | 独立操作系统、字体、设备视图和每环境网络出口             |
+| 自托管远程环境 | V0.9      | 已列入路线                          | 远程浏览器会话、独立网络栈、持久环境和生命周期审计       |
 
 这些层级是可选能力。轻量用户可以只用扩展或独立 Silo；需要更强边界的用户可以逐级升级。界面必须始终区分“当前可用”“已列入路线”“已配置”“已应用”和“已验证”。
 
@@ -42,30 +42,34 @@ V0.5 不再只有路线文字：contracts、Companion 与桌面 UI 共享版本�
 
 以下资料用于学习产品分层、更新机制、配置一致性和环境生命周期；它们的营销描述不自动成为 VeriSilo 的能力证据。
 
-| 来源                                                                                                              | 可借鉴的思路                                                         | VeriSilo 的约束                                                 |
-| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------- |
-| [GoLogin Orbita](https://gologin.com/docs/orbita-browser)                                                         | 将修改过的 Chromium 作为可持续更新的浏览器产品，而不是一次性脚本注入 | 每个字段仍需跨上下文验证；不复述“不可检测”等营销结论            |
-| [GoLogin Cloud Browser](https://gologin.com/docs/api-reference/cloud-browser/what-is-gologin-cloud-browser)       | 持久远程 Profile、远程会话和自动化连接的生命周期模型                 | V0.9 默认面向用户自托管节点，不建立默认 VeriSilo 公有云         |
-| [Multilogin Mimic / Stealthfox](https://multilogin.com/help/cn_CN/how-to-use-mimic-and-stealthfox)                | 多引擎适配、主引擎与遗留引擎的维护分级                               | 每个引擎独立发布兼容矩阵和维护状态                              |
-| [Multilogin X 功能说明](https://multilogin.com/help/en_US/introduction-to-multilogin-x/multilogin-x-top-features) | Profile 模板、代理绑定、本地或云端存储的产品结构                     | 默认仍为本地优先；任何远端存储都需要单独威胁模型和明确选择      |
-| [Multilogin Cloud Phones](https://multilogin.com/help/en_US/how-to-create-mobile-profiles)                        | 当浏览器字段控制不够时，直接提供完整操作系统环境                     | 移动或真实设备环境不进入 V0.8 首版，待 V0.9 后单独评估          |
-| [Donut Browser](https://github.com/zhom/donutbrowser)                                                             | Profile、代理、浏览器引擎与本地自动化入口的产品编排                  | AGPL-3.0 代码不得复制进 MPL-2.0 核心，只能独立实现通用思想      |
-| [Camoufox](https://github.com/daijro/camoufox)                                                                    | Firefox 引擎级控制、配置注入和 BrowserForge 分布                     | 仅作为可选 MPL 适配器原型；维护缺口和一致性风险必须在 UI 中可见 |
-| [BrowserForge](https://github.com/daijro/browserforge)                                                            | 按现实分布生成互相约束的请求头与浏览器特征模板                       | 固定版本、记录来源；模板先经过规则约束和验证，不能盲目随机化    |
-| [FingerprintJS](https://github.com/fingerprintjs/fingerprintjs)                                                   | 模块化采集器、错误容忍和稳定信号提取                                 | 哈希不是绝对身份；采集只用于解释与回归验证                      |
-| [CreepJS](https://github.com/abrahamjuliot/creepjs)                                                               | 跨 Window、iframe、Worker 和渲染信号寻找自相矛盾                     | 只借鉴矛盾规则与测试结构，不把单站结果当成“不可检测”证明        |
+| 来源                                                                                                              | 可借鉴的思路                                                         | VeriSilo 的约束                                                                            |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [GoLogin Orbita](https://gologin.com/docs/orbita-browser)                                                         | 将修改过的 Chromium 作为可持续更新的浏览器产品，而不是一次性脚本注入 | 每个字段仍需跨上下文验证；不复述“不可检测”等营销结论                                       |
+| [GoLogin Cloud Browser](https://gologin.com/docs/api-reference/cloud-browser/what-is-gologin-cloud-browser)       | 持久远程 Profile、远程会话和自动化连接的生命周期模型                 | V0.9 默认面向用户自托管节点，不建立默认 VeriSilo 公有云                                    |
+| [Multilogin Mimic / Stealthfox](https://multilogin.com/help/cn_CN/how-to-use-mimic-and-stealthfox)                | 多引擎适配、主引擎与遗留引擎的维护分级                               | 每个引擎独立发布兼容矩阵和维护状态                                                         |
+| [Multilogin X 功能说明](https://multilogin.com/help/en_US/introduction-to-multilogin-x/multilogin-x-top-features) | Profile 模板、代理绑定、本地或云端存储的产品结构                     | 默认仍为本地优先；任何远端存储都需要单独威胁模型和明确选择                                 |
+| [Multilogin Cloud Phones](https://multilogin.com/help/en_US/how-to-create-mobile-profiles)                        | 当浏览器字段控制不够时，直接提供完整操作系统环境                     | 移动或真实设备环境不进入 V0.8 首版，待 V0.9 后单独评估                                     |
+| [Donut Browser](https://github.com/zhom/donutbrowser)                                                             | Profile、代理、浏览器引擎与本地自动化入口的产品编排                  | AGPL-3.0 代码不得复制进 MPL-2.0 核心，只能独立实现通用思想                                 |
+| [Camoufox](https://github.com/daijro/camoufox)                                                                    | Firefox 引擎级控制、配置注入和 BrowserForge 分布                     | 当前第一条 Managed Engine 路线；固定资产、逐阶段取证，维护缺口和一致性风险必须在 UI 中可见 |
+| [BrowserForge](https://github.com/daijro/browserforge)                                                            | 按现实分布生成互相约束的请求头与浏览器特征模板                       | 固定版本、记录来源；模板先经过规则约束和验证，不能盲目随机化                               |
+| [FingerprintJS](https://github.com/fingerprintjs/fingerprintjs)                                                   | 模块化采集器、错误容忍和稳定信号提取                                 | 哈希不是绝对身份；采集只用于解释与回归验证                                                 |
+| [CreepJS](https://github.com/abrahamjuliot/creepjs)                                                               | 跨 Window、iframe、Worker 和渲染信号寻找自相矛盾                     | 只借鉴矛盾规则与测试结构，不把单站结果当成“不可检测”证明                                   |
 
 任何第三方兼容代码都要先记录版本、许可证、归属、修改和 SBOM 条目。
 
 ## V0.7：受控浏览器引擎
 
+### 当前优先级
+
+Standard Silo 仍是长期产品基础层，但当前工程优先级是关闭缺失的指纹执行风险。V0.7 采用 Camoufox-first：先在 Linux 完成 `Resolved Identity Artifact → standalone Host → Persistent Profile → probe evidence`，再在原生 Windows 完成 M2-W，最后由 M3 接入既有 EngineAdapter/Tauri。当前分支证据、Gate 和未验证边界见[Camoufox Managed Engine 状态](camoufox-program-status.md)，路线原因见[Camoufox-first 决策](camoufox-managed-engine-decision.md)。
+
+Controlled Chromium 不再与 Camoufox 并行开发。只有 Chromium 专属 API/扩展生态成为明确需求、需要直接控制 Chromium TLS/QUIC 或 V8 行为、Camoufox 无法满足兼容性/维护/分发要求，或项目资源足以承担长期 patch 与多平台构建时，才重新评估。
+
 ### 交付范围
 
 1. 冻结 `EngineAdapter` 接口：安装、更新、签名验证、启动参数、身份模板、能力探测、健康检查和回滚。
 2. 继续把 Chrome/Edge Stable 作为 `stock-chromium` 基线适配器；它只承诺独立 Profile 和受支持的启动配置。
-3. 建立两个并行可行性轨道：
-   - 受控 Chromium 构建，用于评估 Canvas、WebGL、字体、请求头、TLS 与 QUIC 的引擎级控制成本。
-   - Camoufox 可选适配器原型，用于验证多引擎接口和 MPL 分发流程，不默认捆绑。
+3. 完成一条 Camoufox Managed Engine 垂直路径：固定 Firefox 系引擎资产、生成和重放约束型 Artifact、持久化 Profile、严格 Host 生命周期、原生 Windows Gate，以及随后与 EngineAdapter 的显式协议映射。它不是 Chrome 模拟，也不因 Linux 原型通过而默认捆绑。
 4. 冻结约束型身份模板：操作系统、浏览器版本、UA/UA-CH、语言、时区、屏幕、渲染、字体、媒体设备和网络设置必须满足显式规则。
 5. 所有控制采用 `observe → apply → verify → restore`。长期种子不进入页面主世界；页面只接收短期派生令牌或已经约束的配置。
 6. 引擎包必须支持签名校验、锁定版本、可复现元数据、SBOM、许可证清单、增量更新失败回滚和紧急禁用。
