@@ -394,12 +394,21 @@ def run_gate(args: argparse.Namespace) -> int:
         raise RuntimeError("Camoufox/Firefox/supervisor process exists before M3-WI")
     fixed_inputs = fixed_input_preflight()
     protected_hashes = protected_preflight(revision)
-    uv_path = shutil.which("uv")
-    if not uv_path:
-        raise RuntimeError("uv executable is unavailable")
+    resolved_tools: dict[str, str] = {}
+    for tool in ["uv", "pnpm", "cargo", "rustc", "node"]:
+        path = shutil.which(tool)
+        if not path:
+            raise RuntimeError(f"required executable/shim is unavailable: {tool}")
+        resolved_tools[tool] = path
+    tool_versions = {
+        tool: version([path, "--version"]) for tool, path in resolved_tools.items()
+    }
+    uv_path = resolved_tools["uv"]
+    pnpm_path = resolved_tools["pnpm"]
+    cargo_path = resolved_tools["cargo"]
     locked_python = run(
         [
-            "uv", "run", "--frozen", "--offline", "--project",
+            uv_path, "run", "--frozen", "--offline", "--project",
             str(HOST_DIR), "python", "-c", "import sys; print(sys.executable)",
         ],
         timeout=120,
@@ -426,7 +435,7 @@ def run_gate(args: argparse.Namespace) -> int:
         raise RuntimeError(f"run-id already exists: {run_id}")
 
     command_results: list[dict[str, Any]] = []
-    engine_verify = run(["pnpm", "engine:verify"], timeout=120)
+    engine_verify = run([pnpm_path, "engine:verify"], timeout=120)
     engine_verify_json = parse_engine_verify(engine_verify.stdout)
     command_results.append(command_receipt("pnpm engine:verify", engine_verify))
 
@@ -434,7 +443,7 @@ def run_gate(args: argparse.Namespace) -> int:
         (
             "M3-0 Host framing/failure regression",
             [
-                "cargo", "test", "--locked", "--manifest-path",
+                cargo_path, "test", "--locked", "--manifest-path",
                 "apps/desktop/src-tauri/Cargo.toml", "fake_camoufox_host_", "--",
                 "--test-threads=1",
             ],
@@ -442,7 +451,7 @@ def run_gate(args: argparse.Namespace) -> int:
         (
             "Camoufox Direct-only regression",
             [
-                "cargo", "test", "--locked", "--manifest-path",
+                cargo_path, "test", "--locked", "--manifest-path",
                 "apps/desktop/src-tauri/Cargo.toml",
                 "camoufox_runtime_manager_rejects_non_direct_network_before_spawn",
                 "--", "--test-threads=1",
@@ -451,7 +460,7 @@ def run_gate(args: argparse.Namespace) -> int:
         (
             "typed fixed probe-port regression",
             [
-                "cargo", "test", "--locked", "--manifest-path",
+                cargo_path, "test", "--locked", "--manifest-path",
                 "apps/desktop/src-tauri/Cargo.toml",
                 "camoufox_host_hello_binds_typed_fixed_probe_port",
                 "--", "--test-threads=1",
@@ -462,7 +471,7 @@ def run_gate(args: argparse.Namespace) -> int:
         command_results.append(command_receipt(label, completed))
 
     real_command = [
-        "cargo",
+        cargo_path,
         "test",
         "--locked",
         "--manifest-path",
@@ -528,13 +537,16 @@ def run_gate(args: argparse.Namespace) -> int:
     # Full required regression matrix runs after the real receipt.  Any code
     # change needed to repair it invalidates this run and must be rerun.
     validation_commands = [
-        ("pnpm check", ["pnpm", "check"], REPO_ROOT, 600),
-        ("pnpm test", ["pnpm", "test"], REPO_ROOT, 600),
-        ("pnpm build", ["pnpm", "build"], REPO_ROOT, 600),
+        ("pnpm check", [pnpm_path, "check"], REPO_ROOT, 600),
+        ("pnpm test", [pnpm_path, "test"], REPO_ROOT, 600),
+        ("pnpm build", [pnpm_path, "build"], REPO_ROOT, 600),
         (
             "cargo fmt --check",
             [
-                "cargo", "fmt", "--manifest-path", "apps/desktop/src-tauri/Cargo.toml",
+                cargo_path,
+                "fmt",
+                "--manifest-path",
+                "apps/desktop/src-tauri/Cargo.toml",
                 "--", "--check",
             ],
             REPO_ROOT,
@@ -543,7 +555,7 @@ def run_gate(args: argparse.Namespace) -> int:
         (
             "cargo test --locked",
             [
-                "cargo", "test", "--locked", "--manifest-path",
+                cargo_path, "test", "--locked", "--manifest-path",
                 "apps/desktop/src-tauri/Cargo.toml",
             ],
             REPO_ROOT,
@@ -552,7 +564,7 @@ def run_gate(args: argparse.Namespace) -> int:
         (
             "cargo clippy --locked -D warnings",
             [
-                "cargo", "clippy", "--locked", "--manifest-path",
+                cargo_path, "clippy", "--locked", "--manifest-path",
                 "apps/desktop/src-tauri/Cargo.toml", "--all-targets", "--", "-D", "warnings",
             ],
             REPO_ROOT,
@@ -560,7 +572,14 @@ def run_gate(args: argparse.Namespace) -> int:
         ),
         (
             "Artifact 25/25",
-            ["uv", "run", "--frozen", "--offline", "python", "test_identity_artifact.py"],
+            [
+                uv_path,
+                "run",
+                "--frozen",
+                "--offline",
+                "python",
+                "test_identity_artifact.py",
+            ],
             HOST_DIR,
             300,
         ),
@@ -583,11 +602,11 @@ def run_gate(args: argparse.Namespace) -> int:
         "sessionName": session_name,
         "sessionId": session_id(),
         "python": sys.version.split()[0],
-        "uv": version(["uv", "--version"]),
-        "rustc": version(["rustc", "--version"]),
-        "cargo": version(["cargo", "--version"]),
-        "node": version(["node", "--version"]),
-        "pnpm": version(["pnpm", "--version"]),
+        "uv": tool_versions["uv"],
+        "rustc": tool_versions["rustc"],
+        "cargo": tool_versions["cargo"],
+        "node": tool_versions["node"],
+        "pnpm": tool_versions["pnpm"],
     }
     gates = [
         {"id": number, "status": "passed", "evidence": evidence}
