@@ -164,6 +164,74 @@ def freeze(run_id: str) -> None:
         or report.get("protectedAcceptedFiles", {}).get("unchangedFromStartCheckpoint") is not True
     ):
         raise RuntimeError("security/residual/download/protected-file receipt failed closed")
+    host_delta = report.get("authorizedHostDelta", {})
+    windows_host = report.get("windowsHostRegression", {})
+    if (
+        host_delta.get("path") != "apps/camoufox-host/host_v1.py"
+        or host_delta.get("baseGitRevision")
+        != "aefa294e85e6fd05a0c8749ab1afacf6ab06becb"
+        or host_delta.get("baseSha256")
+        != "777781258ec45dbf0553d0aca0fd1df52cc1e3637a197a802b71865287f59d6e"
+        or host_delta.get("currentSha256")
+        != report.get("fixedInputs", {}).get("hostSource", {}).get("sha256")
+        or host_delta.get("currentSha256")
+        != sha256_file(REPO_ROOT / "apps/camoufox-host/host_v1.py")
+        or host_delta.get("changeClass") != "stdout-purity-only"
+        or host_delta.get("protocolSemanticsUnchanged") is not True
+        or host_delta.get("artifactSemanticsUnchanged") is not True
+        or host_delta.get("m2wAcceptedManifestRewritten") is not False
+        or host_delta.get("windowsHostRegressionPassed") is not True
+        or host_delta.get("regressionTestPath")
+        != "apps/camoufox-host/test_windows_host.py"
+        or host_delta.get("regressionTestSha256")
+        != sha256_file(REPO_ROOT / "apps/camoufox-host/test_windows_host.py")
+        or windows_host.get("status") != "passed"
+        or windows_host.get("testCount") != 10
+        or windows_host.get("passed") != 10
+        or windows_host.get("emptyCacheFirstHelloJson") is not True
+        or windows_host.get("cacheDiagnosticStderrSecretFree") is not True
+        or windows_host.get("emptyCacheInitiallyAbsent") is not True
+        or windows_host.get("cacheSeededFromVerifiedArchive") is not True
+    ):
+        raise RuntimeError("authorized Host delta/Windows Host 10/10 receipt is invalid")
+    windows_commands = [
+        command
+        for command in commands
+        if command.get("label") == "Windows Host 10/10 empty-cache regression"
+    ]
+    if (
+        len(windows_commands) != 1
+        or windows_commands[0].get("counts", {}).get("windowsHostTests") != 10
+        or windows_commands[0].get("outputSha256") != windows_host.get("outputSha256")
+    ):
+        raise RuntimeError("Windows Host command output/count binding is invalid")
+    for key in ["summaryRelativePath", "summarySidecarRelativePath"]:
+        path = (REPO_ROOT / windows_host[key]).resolve()
+        if not path.is_file() or not path.is_relative_to(run_dir.resolve()):
+            raise RuntimeError(f"Windows Host {key} escaped the M3-WI run")
+    if (
+        sha256_file(REPO_ROOT / windows_host["summaryRelativePath"])
+        != windows_host.get("summarySha256")
+        or sha256_file(REPO_ROOT / windows_host["summarySidecarRelativePath"])
+        != windows_host.get("summarySidecarSha256")
+    ):
+        raise RuntimeError("Windows Host summary/sidecar hash binding is invalid")
+    windows_reports = windows_host.get("reports")
+    if (
+        not isinstance(windows_reports, list)
+        or len(windows_reports) != 10
+        or len({receipt.get("name") for receipt in windows_reports}) != 10
+        or len({receipt.get("runId") for receipt in windows_reports}) != 10
+    ):
+        raise RuntimeError("Windows Host receipt must bind exactly ten reports")
+    for receipt in windows_reports:
+        path = (REPO_ROOT / receipt["relativePath"]).resolve()
+        if (
+            not path.is_file()
+            or not path.is_relative_to(run_dir.resolve())
+            or sha256_file(path) != receipt.get("sha256")
+        ):
+            raise RuntimeError("Windows Host child report hash binding is invalid")
     semantic_boundary = runtime.get("semanticBoundary", {})
     if (
         semantic_boundary.get("launchExecutable")
@@ -271,10 +339,13 @@ def freeze(run_id: str) -> None:
             "downloadGuardAttemptObserved": False,
         },
         "protectedAcceptedFiles": report["protectedAcceptedFiles"],
+        "authorizedHostDelta": host_delta,
+        "windowsHostRegression": windows_host,
         "boundaries": [
             "No trusted signer pin or signed Host package exists.",
             "The integration-only adapter is absent from production builds.",
             "The test-only plan launches the uv-resolved locked Python interpreter as the exact Host child and records its typed host_v1.py argv.",
+            "The only authorized Host source delta redirects cache-seed diagnostics from protocol stdout to stderr and is covered by a run-owned empty-cache Windows Host 10/10 regression.",
             "No UI, installer, proxy injection, site fallback, Controlled Chromium, or virtualization backend was opened.",
             "Evidence is observed on this Windows host; verifiedAdapter remains null and verified remains false.",
         ],

@@ -321,7 +321,10 @@ class CamoufoxHost:
             os.environ.get("VERISILO_CAMOUFOX_CACHE_DIR", str(XDG_CACHE_DIR))
         )
         install_dir = configure_camoufox_cache(cache_root)
-        seed_camoufox_cache(lock, executable, install_dir=install_dir)
+        # The Host stdout is the strict JSONL transport. Cache seeding is a
+        # startup diagnostic and must never become a protocol frame.
+        with contextlib.redirect_stdout(sys.stderr):
+            seed_camoufox_cache(lock, executable, install_dir=install_dir)
         if not SUPERVISOR.exists():
             raise SystemExit(f"missing native supervisor: {SUPERVISOR}")
         if not IS_WINDOWS:

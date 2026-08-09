@@ -26,6 +26,8 @@
     "validation",
     "security",
     "protectedAcceptedFiles",
+    "authorizedHostDelta",
+    "windowsHostRegression",
     "boundaries"
   ],
   "properties": {
@@ -335,6 +337,99 @@
             "$ref": "#/$defs/sha256"
           }
         }
+      }
+    },
+    "authorizedHostDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "baseGitRevision",
+        "baseSha256",
+        "currentSha256",
+        "changeClass",
+        "protocolSemanticsUnchanged",
+        "artifactSemanticsUnchanged",
+        "m2wAcceptedManifestRewritten",
+        "regressionTestPath",
+        "regressionTestSha256",
+        "windowsHostRegressionPassed"
+      ],
+      "properties": {
+        "path": { "const": "apps/camoufox-host/host_v1.py" },
+        "baseGitRevision": { "$ref": "#/$defs/gitObject" },
+        "baseSha256": { "$ref": "#/$defs/sha256" },
+        "currentSha256": { "$ref": "#/$defs/sha256" },
+        "changeClass": { "const": "stdout-purity-only" },
+        "protocolSemanticsUnchanged": { "const": true },
+        "artifactSemanticsUnchanged": { "const": true },
+        "m2wAcceptedManifestRewritten": { "const": false },
+        "regressionTestPath": { "const": "apps/camoufox-host/test_windows_host.py" },
+        "regressionTestSha256": { "$ref": "#/$defs/sha256" },
+        "windowsHostRegressionPassed": { "const": true }
+      }
+    },
+    "windowsHostRegression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "testCount",
+        "passed",
+        "emptyCacheFirstHelloJson",
+        "cacheDiagnosticStderrSecretFree",
+        "outputSha256",
+        "summaryRelativePath",
+        "summarySha256",
+        "summarySidecarRelativePath",
+        "summarySidecarSha256",
+        "reports",
+        "emptyCacheRelativePath",
+        "emptyCacheInitiallyAbsent",
+        "cacheSeededFromVerifiedArchive"
+      ],
+      "properties": {
+        "status": { "const": "passed" },
+        "testCount": { "const": 10 },
+        "passed": { "const": 10 },
+        "emptyCacheFirstHelloJson": { "const": true },
+        "cacheDiagnosticStderrSecretFree": { "const": true },
+        "outputSha256": { "$ref": "#/$defs/sha256" },
+        "summaryRelativePath": {
+          "type": "string",
+          "pattern": "^artifacts/camoufox-m3-wi-windows-gate/runs/"
+        },
+        "summarySha256": { "$ref": "#/$defs/sha256" },
+        "summarySidecarRelativePath": {
+          "type": "string",
+          "pattern": "^artifacts/camoufox-m3-wi-windows-gate/runs/"
+        },
+        "summarySidecarSha256": { "$ref": "#/$defs/sha256" },
+        "reports": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "runId", "relativePath", "sha256"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "runId": { "type": "string", "pattern": "^run-[0-9]+-[0-9a-f]{8}$" },
+              "relativePath": {
+                "type": "string",
+                "pattern": "^artifacts/camoufox-m3-wi-windows-gate/runs/"
+              },
+              "sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        },
+        "emptyCacheRelativePath": {
+          "type": "string",
+          "pattern": "^artifacts/camoufox-m3-wi-windows-gate/runs/"
+        },
+        "emptyCacheInitiallyAbsent": { "const": true },
+        "cacheSeededFromVerifiedArchive": { "const": true }
       }
     },
     "boundaries": {

@@ -66,9 +66,24 @@ ARTIFACT_SIDECAR = FIXTURES / "identity-win-a.json.sha256"
 ASSET_LOCK = HOST_DIR / "lock" / "camoufox-v152.0.4-beta.28-windows-x86_64.json"
 UV_LOCK = HOST_DIR / "uv.lock"
 HOST_SOURCE = HOST_DIR / "host_v1.py"
+HOST_SOURCE_RELATIVE = "apps/camoufox-host/host_v1.py"
+WINDOWS_HOST_TEST = HOST_DIR / "test_windows_host.py"
+WINDOWS_HOST_TEST_RELATIVE = "apps/camoufox-host/test_windows_host.py"
+EXPECTED_BASE_HOST_SHA256 = (
+    "777781258ec45dbf0553d0aca0fd1df52cc1e3637a197a802b71865287f59d6e"
+)
 PROTECTED_PATHS = [
+    "apps/camoufox-host/browser_tree.py",
+    "apps/camoufox-host/exit_supervisor.py",
+    "apps/camoufox-host/host_platform.py",
     "apps/camoufox-host/identity_policy.py",
-    "apps/camoufox-host/host_v1.py",
+    "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-windows-x86_64.json",
+    "apps/camoufox-host/run_identity_spike.py",
+    "apps/camoufox-host/run_spike.py",
+    "apps/camoufox-host/uv.lock",
+    "apps/camoufox-host/windows-supervisor/Cargo.lock",
+    "apps/camoufox-host/windows-supervisor/Cargo.toml",
+    "apps/camoufox-host/windows-supervisor/src/main.rs",
     "tests/fixtures/camoufox/browser-tree-manifest.json",
     "tests/fixtures/camoufox/browser-tree-manifest-windows.json",
     "tests/fixtures/camoufox/evidence-manifest.json",
@@ -265,6 +280,7 @@ def fixed_input_preflight() -> dict[str, Any]:
         ASSET_LOCK,
         UV_LOCK,
         HOST_SOURCE,
+        WINDOWS_HOST_TEST,
     ]:
         if not path.exists():
             raise RuntimeError(f"fixed input is missing: {path}")
@@ -347,6 +363,59 @@ def protected_preflight(revision: str) -> dict[str, str]:
     }
 
 
+def git_blob_sha256(revision: str, path: str) -> str:
+    completed = subprocess.run(
+        ["git", "show", f"{revision}:{path}"],
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"cannot read {path} at {revision}")
+    return hashlib.sha256(completed.stdout).hexdigest()
+
+
+def authorized_host_delta(revision: str) -> dict[str, Any]:
+    base_sha = git_blob_sha256(START_CHECKPOINT, HOST_SOURCE_RELATIVE)
+    if base_sha != EXPECTED_BASE_HOST_SHA256:
+        raise RuntimeError("frozen base Host source SHA changed")
+    diff = git(
+        "diff",
+        "--unified=0",
+        f"{START_CHECKPOINT}..{revision}",
+        "--",
+        HOST_SOURCE_RELATIVE,
+    )
+    changed_lines = [
+        line
+        for line in diff.splitlines()
+        if (line.startswith("+") and not line.startswith("+++"))
+        or (line.startswith("-") and not line.startswith("---"))
+    ]
+    expected_lines = [
+        "-        seed_camoufox_cache(lock, executable, install_dir=install_dir)",
+        "+        # The Host stdout is the strict JSONL transport. Cache seeding is a",
+        "+        # startup diagnostic and must never become a protocol frame.",
+        "+        with contextlib.redirect_stdout(sys.stderr):",
+        "+            seed_camoufox_cache(lock, executable, install_dir=install_dir)",
+    ]
+    if changed_lines != expected_lines:
+        raise RuntimeError("Host delta is not the authorized stdout-purity-only patch")
+    return {
+        "path": HOST_SOURCE_RELATIVE,
+        "baseGitRevision": START_CHECKPOINT,
+        "baseSha256": base_sha,
+        "currentSha256": sha256_file(HOST_SOURCE),
+        "changeClass": "stdout-purity-only",
+        "protocolSemanticsUnchanged": True,
+        "artifactSemanticsUnchanged": True,
+        "m2wAcceptedManifestRewritten": False,
+        "regressionTestPath": WINDOWS_HOST_TEST_RELATIVE,
+        "regressionTestSha256": sha256_file(WINDOWS_HOST_TEST),
+    }
+
+
 def command_receipt(label: str, completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
     output = completed.stdout or ""
     plain_output = re.sub(r"\x1b\[[0-9;]*m", "", output)
@@ -365,6 +434,9 @@ def command_receipt(label: str, completed: subprocess.CompletedProcess[str]) -> 
     python_tests.extend(re.findall(r"all (\d+) tests passed", plain_output))
     if python_tests:
         counts["pythonTests"] = max(map(int, python_tests))
+    windows_host_tests = re.findall(r"^PASS .+ run-id=run-", plain_output, re.MULTILINE)
+    if windows_host_tests:
+        counts["windowsHostTests"] = len(windows_host_tests)
     return {
         "label": label,
         "exitCode": completed.returncode,
@@ -388,12 +460,80 @@ def parse_engine_verify(output: str) -> dict[str, Any]:
     return value
 
 
+def parse_windows_host_regression(
+    completed: subprocess.CompletedProcess[str], runs_root: Path
+) -> dict[str, Any]:
+    output = completed.stdout or ""
+    summary_match = re.search(r"^summary-file=(.+)$", output, re.MULTILINE)
+    sha_match = re.search(r"^summary-sha256=([0-9a-f]{64})$", output, re.MULTILINE)
+    if not summary_match or not sha_match:
+        raise RuntimeError("Windows Host regression did not emit summary bindings")
+    summary_path = (REPO_ROOT / summary_match.group(1).strip()).resolve()
+    if not summary_path.is_file() or not summary_path.is_relative_to(runs_root.resolve()):
+        raise RuntimeError("Windows Host regression summary escaped its run-owned root")
+    summary_sha = sha256_file(summary_path)
+    if summary_sha != sha_match.group(1):
+        raise RuntimeError("Windows Host regression summary SHA mismatch")
+    sidecar = summary_path.with_suffix(".sha256")
+    if (
+        not sidecar.is_file()
+        or sidecar.read_text(encoding="utf-8").split()[0] != summary_sha
+    ):
+        raise RuntimeError("Windows Host regression summary sidecar mismatch")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    results = summary.get("results", {})
+    if (
+        summary.get("status") != "passed"
+        or not isinstance(results, dict)
+        or len(results) != 10
+        or any(result.get("status") != "passed" for result in results.values())
+    ):
+        raise RuntimeError("Windows Host regression is not 10/10 passed")
+    protocol = results.get("protocol", {})
+    if (
+        protocol.get("stdoutPure") is not True
+        or protocol.get("firstStdoutFrameStrictHelloJson") is not True
+        or protocol.get("cacheSeedDiagnosticOnStderr") is not True
+        or protocol.get("stderrSecretFree") is not True
+    ):
+        raise RuntimeError("empty-cache Host stdout/stderr regression did not pass")
+    reports = []
+    for name, result in sorted(results.items()):
+        report_path = (REPO_ROOT / result["reportFile"]).resolve()
+        if not report_path.is_file() or not report_path.is_relative_to(runs_root.resolve()):
+            raise RuntimeError(f"Windows Host report escaped its run-owned root: {name}")
+        if sha256_file(report_path) != result["reportSha256"]:
+            raise RuntimeError(f"Windows Host report SHA mismatch: {name}")
+        reports.append(
+            {
+                "name": name,
+                "runId": result["runId"],
+                "relativePath": report_path.relative_to(REPO_ROOT).as_posix(),
+                "sha256": result["reportSha256"],
+            }
+        )
+    return {
+        "status": "passed",
+        "testCount": 10,
+        "passed": 10,
+        "emptyCacheFirstHelloJson": True,
+        "cacheDiagnosticStderrSecretFree": True,
+        "outputSha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
+        "summaryRelativePath": summary_path.relative_to(REPO_ROOT).as_posix(),
+        "summarySha256": summary_sha,
+        "summarySidecarRelativePath": sidecar.relative_to(REPO_ROOT).as_posix(),
+        "summarySidecarSha256": sha256_file(sidecar),
+        "reports": reports,
+    }
+
+
 def run_gate(args: argparse.Namespace) -> int:
     revision, tree, branch, session_name = require_clean_checkpoint()
     if target_processes():
         raise RuntimeError("Camoufox/Firefox/supervisor process exists before M3-WI")
     fixed_inputs = fixed_input_preflight()
     protected_hashes = protected_preflight(revision)
+    host_delta = authorized_host_delta(revision)
     resolved_tools: dict[str, str] = {}
     for tool in ["uv", "pnpm", "cargo", "rustc", "node"]:
         path = shutil.which(tool)
@@ -534,6 +674,47 @@ def run_gate(args: argparse.Namespace) -> int:
     ):
         raise RuntimeError("real Rust runtime evidence failed its binding/secret/residual checks")
 
+    windows_host_root = run_dir / "windows-host-regression"
+    windows_host_runs = windows_host_root / "runs"
+    windows_host_temp = windows_host_root / "temp"
+    windows_host_cache = windows_host_root / "empty-cache"
+    windows_host_runs.mkdir(parents=True, exist_ok=False)
+    windows_host_temp.mkdir(parents=True, exist_ok=False)
+    if windows_host_cache.exists():
+        raise RuntimeError("Windows Host regression cache must start absent")
+    windows_host_env = os.environ.copy()
+    windows_host_env.update(
+        {
+            "VERISILO_WINDOWS_HOST_EMPTY_CACHE": str(windows_host_cache),
+            "VERISILO_WINDOWS_HOST_RUNS_ROOT": str(windows_host_runs),
+            "TEMP": str(windows_host_temp),
+            "TMP": str(windows_host_temp),
+        }
+    )
+    windows_host = run(
+        [str(locked_python_path), str(WINDOWS_HOST_TEST)],
+        cwd=HOST_DIR,
+        env=windows_host_env,
+        timeout=3600,
+    )
+    windows_host_command = command_receipt(
+        "Windows Host 10/10 empty-cache regression", windows_host
+    )
+    if windows_host_command["counts"].get("windowsHostTests") != 10:
+        raise RuntimeError("Windows Host regression output did not contain 10 PASS receipts")
+    command_results.append(windows_host_command)
+    windows_host_receipt = parse_windows_host_regression(windows_host, windows_host_runs)
+    if not windows_host_cache.is_dir():
+        raise RuntimeError("Windows Host regression did not seed its run-owned empty cache")
+    windows_host_receipt.update(
+        {
+            "emptyCacheRelativePath": windows_host_cache.relative_to(REPO_ROOT).as_posix(),
+            "emptyCacheInitiallyAbsent": True,
+            "cacheSeededFromVerifiedArchive": True,
+        }
+    )
+    host_delta["windowsHostRegressionPassed"] = True
+
     # Full required regression matrix runs after the real receipt.  Any code
     # change needed to repair it invalidates this run and must be rerun.
     validation_commands = [
@@ -625,8 +806,8 @@ def run_gate(args: argparse.Namespace) -> int:
             (12, "Direct success + FixedProxy/PAC/Host proxy argv rejection regression"),
             (13, "six-class sentinel scan across argv/wire/evidence/log surfaces"),
             (14, "hostLaunch observed; generic receipts N/A; verifiedAdapter null"),
-            (15, "full JS/Rust/Artifact regression matrix"),
-            (16, "report, sidecars, code/tree binding, protected-file hashes"),
+            (15, "Windows Host 10/10 + full JS/Rust/Artifact regression matrix"),
+            (16, "report, sidecars, code/tree binding, authorized Host delta, protected hashes"),
         ]
     ]
     report = {
@@ -654,6 +835,8 @@ def run_gate(args: argparse.Namespace) -> int:
             "unchangedFromStartCheckpoint": True,
             "sha256": protected_hashes,
         },
+        "authorizedHostDelta": host_delta,
+        "windowsHostRegression": windows_host_receipt,
         "downloadGuard": {
             "offlineUv": True,
             "hostWebdlGuardFailClosed": True,

@@ -38,7 +38,12 @@ TREE_MANIFEST = FIXTURES / "browser-tree-manifest-windows.json"
 ARTIFACT = FIXTURES / "identity-win-a.json"
 ARTIFACT_B = FIXTURES / "identity-win-b.json"
 ARTIFACT_C = FIXTURES / "identity-win-c.json"
-RUNS_ROOT = REPO_ROOT / "artifacts" / "camoufox-m2-windows-gate" / "runs"
+RUNS_ROOT = Path(
+    os.environ.get(
+        "VERISILO_WINDOWS_HOST_RUNS_ROOT",
+        REPO_ROOT / "artifacts" / "camoufox-m2-windows-gate" / "runs",
+    )
+)
 
 
 def artifact_sha(path: Path) -> str:
@@ -177,6 +182,11 @@ class HostProc:
             parsed = json.loads(line)
             assert isinstance(parsed, dict)
 
+    def stderr_text(self) -> str:
+        if self.proc.poll() is None or self.proc.stderr is None:
+            raise RuntimeError("Host stderr is available only after exact child exit")
+        return self.proc.stderr.read().decode("utf-8", errors="replace")
+
 
 def fresh_roots() -> tuple[tempfile.TemporaryDirectory[str], Path, Path]:
     tmp = tempfile.TemporaryDirectory(prefix="verisilo-m2w-")
@@ -271,7 +281,25 @@ def test_protocol_and_integrity() -> dict:
         shutdown = host.shutdown()
         assert shutdown["ok"] is True
         host.assert_stdout_pure()
-        return {"status": "passed", "stdoutPure": True}
+        stderr = host.stderr_text()
+        cache_seed_required = bool(
+            os.environ.get("VERISILO_WINDOWS_HOST_EMPTY_CACHE")
+        )
+        cache_seed_on_stderr = "seeding camoufox cache from verified archive" in stderr
+        if cache_seed_required:
+            assert cache_seed_on_stderr, stderr
+        stderr_lower = stderr.lower()
+        assert not any(
+            marker in stderr_lower
+            for marker in ["password", "passwd", "token", "secret", "api_key"]
+        ), stderr
+        return {
+            "status": "passed",
+            "stdoutPure": True,
+            "firstStdoutFrameStrictHelloJson": True,
+            "cacheSeedDiagnosticOnStderr": cache_seed_on_stderr,
+            "stderrSecretFree": True,
+        }
     finally:
         host.kill()
         cleanup_temp(tmp)
@@ -802,6 +830,13 @@ def main() -> int:
     if not IS_WINDOWS:
         print("M2-W requires a real Windows host")
         return 2
+    empty_cache = os.environ.get("VERISILO_WINDOWS_HOST_EMPTY_CACHE")
+    if empty_cache:
+        cache_root = Path(empty_cache).resolve()
+        if cache_root.exists():
+            raise RuntimeError("required empty Windows Host regression cache already exists")
+        cache_root.parent.mkdir(parents=True, exist_ok=True)
+        os.environ["VERISILO_CAMOUFOX_CACHE_DIR"] = str(cache_root)
     RUNS_ROOT.mkdir(parents=True, exist_ok=True)
     results: dict[str, dict] = {}
     failed = 0
