@@ -166,6 +166,44 @@ def observed_media_device_counts(devices: list[dict]) -> dict[str, int]:
     return counts
 
 
+async def wait_for_configured_media_devices(
+    page: Any, config: dict, timeout_seconds: float = 8.0
+) -> dict:
+    """Bounded readiness wait before the full website observation.
+
+    A fresh Windows Firefox process can expose the configured fake media
+    backend a short time after the first enumerateDevices() call. This wait
+    does not change the digest payload: the subsequent complete probe remains
+    authoritative and must independently match the Artifact counts.
+    """
+
+    expected = expected_media_device_counts(config)
+    deadline = time.monotonic() + timeout_seconds
+    attempts: list[dict] = []
+    while True:
+        devices = await page.evaluate(
+            """async () => {
+                if (!navigator.mediaDevices?.enumerateDevices) return [];
+                return (await navigator.mediaDevices.enumerateDevices()).map(
+                    device => ({kind: device.kind, label: device.label})
+                );
+            }"""
+        )
+        observed = observed_media_device_counts(devices)
+        attempts.append({"counts": observed, "matched": observed == expected})
+        if observed == expected or time.monotonic() >= deadline:
+            return {
+                "expectedCounts": expected,
+                "attempts": attempts,
+                "matched": observed == expected,
+                "waitSeconds": round(
+                    max(0.0, timeout_seconds - max(0.0, deadline - time.monotonic())),
+                    3,
+                ),
+            }
+        await page.wait_for_timeout(250)
+
+
 async def cold_start(
     playwright: Any,
     artifact_path: Path,
@@ -277,6 +315,7 @@ async def cold_start(
         f"window.__probeHostFonts = {json.dumps(host_controls)}"
     )
     await page.evaluate("document.fonts.ready")
+    media_readiness = await wait_for_configured_media_devices(page, disk_config)
     page_start = time.perf_counter()
     observed = await page.evaluate("window.__probe.readIdentity()")
     probe_seconds = time.perf_counter() - page_start
@@ -360,6 +399,7 @@ async def cold_start(
             entry.get("available") for entry in observed.get("injectedFonts", [])
         ),
         "hostFontMasking": host_masking,
+        "mediaDeviceReadiness": media_readiness,
         "expectedMediaDeviceCounts": expected_media_counts,
         "observedMediaDeviceCounts": observed_media_counts,
         "mediaDevicesMatchConfigured": observed_media_counts == expected_media_counts,
@@ -805,6 +845,7 @@ def base_report(command: str, result: dict) -> dict:
                 "artifactFileSha256": s["artifactFileSha256"],
                 "injectedFontsAllAvailable": s["injectedFontsAllAvailable"],
                 "hostFontMasking": s["hostFontMasking"],
+                "mediaDeviceReadiness": s["mediaDeviceReadiness"],
                 "expectedMediaDeviceCounts": s["expectedMediaDeviceCounts"],
                 "observedMediaDeviceCounts": s["observedMediaDeviceCounts"],
                 "mediaDevicesMatchConfigured": s["mediaDevicesMatchConfigured"],

@@ -430,6 +430,7 @@ def main() -> int:
         "rootFix": [
             "bind platformdirs Windows LocalAppData override before Camoufox import",
             "pair Firefox synthetic media backend with deterministic media permission behavior when Artifact media devices are enabled",
+            "bounded-wait for configured media-device enumeration before the authoritative full website observation",
             "require observed media-device counts to match Artifact configuration",
         ],
         "postSyncCounterexampleRunId": stability["runId"],

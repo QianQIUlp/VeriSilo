@@ -69,7 +69,10 @@ from host_fonts import (
     FONT_UNIVERSE,
     host_negative_control_families,
 )
-from run_identity_spike import extract_observed_website_signals
+from run_identity_spike import (
+    extract_observed_website_signals,
+    wait_for_configured_media_devices,
+)
 from run_spike import (
     COOKIE_NAME,
     configure_camoufox_cache,
@@ -643,6 +646,7 @@ class CamoufoxHost:
             f"window.__probeHostFonts = {json.dumps(host_controls)}"
         )
         await page.evaluate("document.fonts.ready")
+        media_readiness = await wait_for_configured_media_devices(page, disk_config)
         probe_start = time.perf_counter()
         observed = await page.evaluate("window.__probe.readIdentity()")
         session["probeSeconds"] = round(time.perf_counter() - probe_start, 3)
@@ -699,6 +703,7 @@ class CamoufoxHost:
             "observedFull": observed,
             "hostFontControls": host_controls,
             "hostFontMasking": host_controls_result,
+            "mediaDeviceReadiness": media_readiness,
             "fontMode": font_mode,
             "cookieEvidence": cookie_evidence,
             "verified": False,
