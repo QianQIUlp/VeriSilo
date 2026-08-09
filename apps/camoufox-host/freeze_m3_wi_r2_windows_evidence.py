@@ -105,15 +105,20 @@ def freeze(run_id: str) -> None:
     report_sidecar = run_dir / "r2-report.sha256"
     summary_path = run_dir / "r2-summary.json"
     summary_sidecar = run_dir / "r2-summary.sha256"
-    runtime_path = run_dir / "r2-runtime-evidence.json"
-    for path in [report_path, report_sidecar, summary_path, summary_sidecar, runtime_path, R2_SCHEMA]:
+    for path in [report_path, report_sidecar, summary_path, summary_sidecar, R2_SCHEMA]:
         if not path.is_file():
             raise RuntimeError(f"required R2 receipt is missing: {path}")
     report_receipt = sidecar_receipt(report_path, report_sidecar, run_dir)
     summary_receipt = sidecar_receipt(summary_path, summary_sidecar, run_dir)
     report = json.loads(report_path.read_text(encoding="utf-8"))
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    runtime_path = (REPO_ROOT / report["runtimeEvidencePath"]).resolve()
+    raw_runtime_path = (REPO_ROOT / report["rawRuntimeEvidencePath"]).resolve()
+    for path in [runtime_path, raw_runtime_path]:
+        if not path.is_file() or not path.is_relative_to(run_dir.resolve()):
+            raise RuntimeError(f"R2 runtime receipt escaped or is missing: {path}")
     runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    raw_runtime = json.loads(raw_runtime_path.read_text(encoding="utf-8"))
 
     revision = git("rev-parse", "HEAD")
     tree = git("show", "-s", "--format=%T", revision)
@@ -121,18 +126,20 @@ def freeze(run_id: str) -> None:
     if (
         report.get("status") != "passed"
         or report.get("runId") != run_id
-        or report.get("receiptCommit") != revision
-        or report.get("receiptTree") != tree
-        or report.get("codeGitRevision") != revision
-        or report.get("codeTreeHash") != tree
+        or report.get("finalizationCommit") != revision
+        or report.get("finalizationTree") != tree
         or report.get("branch") != branch
         or summary.get("reportSha256") != report_receipt["sha256"]
-        or summary.get("codeGitRevision") != revision
-        or summary.get("codeTreeHash") != tree
-        or runtime.get("codeGitRevision") != revision
-        or runtime.get("codeTreeHash") != tree
+        or summary.get("finalizationCommit") != revision
+        or summary.get("finalizationTree") != tree
+        or summary.get("codeGitRevision") != report.get("receiptCommit")
+        or summary.get("codeTreeHash") != report.get("receiptTree")
+        or runtime.get("codeGitRevision") != report.get("receiptCommit")
+        or runtime.get("codeTreeHash") != report.get("receiptTree")
+        or raw_runtime.get("codeGitRevision") != report.get("receiptCommit")
+        or raw_runtime.get("codeTreeHash") != report.get("receiptTree")
     ):
-        raise RuntimeError("R2 report/summary/runtime does not bind the current clean receipt commit")
+        raise RuntimeError("R2 report/summary/runtime does not bind soak and finalization receipts")
     if (
         report.get("integrationPath") != "test-only-real-host"
         or report.get("productionPackageVerified") is not False
@@ -145,7 +152,7 @@ def freeze(run_id: str) -> None:
         or report.get("failureHistory", {}).get("singleTenCycleSoak") is not True
     ):
         raise RuntimeError("R2 report crossed the frozen execution boundary")
-    validate_r2_runtime(runtime, revision, tree)
+    validate_r2_runtime(runtime, report["receiptCommit"], report["receiptTree"])
     commands = report.get("commands")
     if not isinstance(commands, list) or any(item.get("exitCode") != 0 for item in commands):
         raise RuntimeError("one or more R2 validation commands failed")
@@ -191,10 +198,12 @@ def freeze(run_id: str) -> None:
         "status": "execution-passed-awaiting-main-brain-gate",
         "runId": run_id,
         "startCheckpoint": START_CHECKPOINT,
-        "receiptCommit": revision,
-        "receiptTree": tree,
-        "codeGitRevision": revision,
-        "codeTreeHash": tree,
+        "receiptCommit": report["receiptCommit"],
+        "receiptTree": report["receiptTree"],
+        "codeGitRevision": report["codeGitRevision"],
+        "codeTreeHash": report["codeTreeHash"],
+        "finalizationCommit": revision,
+        "finalizationTree": tree,
         "branch": branch,
         "integrationPath": "test-only-real-host",
         "productionPackageVerified": False,
@@ -207,6 +216,7 @@ def freeze(run_id: str) -> None:
             "report": report_receipt,
             "summary": summary_receipt,
             "runtime": file_receipt(runtime_path),
+            "rawRuntime": file_receipt(raw_runtime_path),
             "cycles": cycle_receipts,
         },
         "r2Runtime": {

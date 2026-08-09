@@ -6,7 +6,8 @@
   "additionalProperties": false,
   "required": [
     "schema", "generatedAtUtc", "status", "runId", "startCheckpoint",
-    "receiptCommit", "receiptTree", "codeGitRevision", "codeTreeHash", "branch",
+    "receiptCommit", "receiptTree", "codeGitRevision", "codeTreeHash",
+    "finalizationCommit", "finalizationTree", "branch",
     "integrationPath", "productionPackageVerified", "productionVerifierFailClosed",
     "shipped", "verified", "evidenceClass", "fixedInputs", "receipts", "r2Runtime",
     "validation", "security", "failureHistory", "boundaries"
@@ -21,6 +22,8 @@
     "receiptTree": { "$ref": "#/$defs/gitObject" },
     "codeGitRevision": { "$ref": "#/$defs/gitObject" },
     "codeTreeHash": { "$ref": "#/$defs/gitObject" },
+    "finalizationCommit": { "$ref": "#/$defs/gitObject" },
+    "finalizationTree": { "$ref": "#/$defs/gitObject" },
     "branch": { "const": "codex/camoufox-m3-engine-adapter" },
     "integrationPath": { "const": "test-only-real-host" },
     "productionPackageVerified": { "const": false },
@@ -47,11 +50,12 @@
     },
     "receipts": {
       "type": "object",
-      "required": ["report", "summary", "runtime", "cycles"],
+      "required": ["report", "summary", "runtime", "rawRuntime", "cycles"],
       "properties": {
         "report": { "$ref": "#/$defs/sidecarReceipt" },
         "summary": { "$ref": "#/$defs/sidecarReceipt" },
         "runtime": { "$ref": "#/$defs/fileReceipt" },
+        "rawRuntime": { "$ref": "#/$defs/fileReceipt" },
         "cycles": {
           "type": "array", "minItems": 10, "maxItems": 10,
           "items": { "$ref": "#/$defs/sidecarReceipt" }

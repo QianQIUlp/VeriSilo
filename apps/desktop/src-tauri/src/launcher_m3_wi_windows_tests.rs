@@ -542,12 +542,20 @@ fn session_after_stop(app_root: &Path, session_id: &str) -> Value {
 
 fn stage_diagnostics(app_root: &Path) -> Vec<Value> {
     let path = app_root.join("camoufox/state/host-stderr.log");
-    fs::read_to_string(path)
+    let entries = fs::read_to_string(path)
         .unwrap_or_default()
         .lines()
         .filter_map(|line| line.strip_prefix("stage-diagnostic "))
         .filter_map(|payload| serde_json::from_str(payload).ok())
-        .collect()
+        .collect::<Vec<Value>>();
+    let start = entries
+        .iter()
+        .rposition(|entry| {
+            entry.get("stage").and_then(Value::as_str) == Some("response write")
+                && entry.get("event").and_then(Value::as_str) == Some("start")
+        })
+        .unwrap_or(0);
+    entries.into_iter().skip(start).collect()
 }
 
 fn assert_stage_diagnostics(diagnostics: &Value) {
