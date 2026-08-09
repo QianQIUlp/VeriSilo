@@ -72,12 +72,14 @@ from host_fonts import (
 from run_identity_spike import extract_observed_website_signals
 from run_spike import (
     COOKIE_NAME,
+    configure_camoufox_cache,
     DownloadGuard,
     EXECUTABLE,
     REPO_ROOT,
     SUPERVISOR,
     XDG_CACHE_DIR,
     ensure_browser_asset,
+    firefox_user_prefs_for_config,
     install_download_guard,
     installed_versions,
     load_asset_lock,
@@ -311,12 +313,15 @@ class CamoufoxHost:
         if lock.get("digestAgreement") is not True:
             raise SystemExit("asset lock digestAgreement is not true")
         executable = ensure_browser_asset(lock, allow_download=False)
-        seed_camoufox_cache(lock, executable)
+        cache_root = Path(
+            os.environ.get("VERISILO_CAMOUFOX_CACHE_DIR", str(XDG_CACHE_DIR))
+        )
+        install_dir = configure_camoufox_cache(cache_root)
+        seed_camoufox_cache(lock, executable, install_dir=install_dir)
         if not SUPERVISOR.exists():
             raise SystemExit(f"missing native supervisor: {SUPERVISOR}")
         if not IS_WINDOWS:
             SUPERVISOR.chmod(0o755)
-        os.environ["XDG_CACHE_HOME"] = str(XDG_CACHE_DIR)
         install_download_guard()
         DownloadGuard.reset()
         self.lock = lock
@@ -538,11 +543,7 @@ class CamoufoxHost:
                 executable_path=str(self.executable),
                 user_data_dir=str(session["profileDir"]),
                 virtual_display=display,
-                firefox_user_prefs={
-                    "app.update.auto": False,
-                    "app.update.enabled": False,
-                    "browser.shell.checkDefaultBrowser": False,
-                },
+                firefox_user_prefs=firefox_user_prefs_for_config(disk_config),
                 exclude_addons=[DefaultAddons.UBO],
                 i_know_what_im_doing=True,
             ),

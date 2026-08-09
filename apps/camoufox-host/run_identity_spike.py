@@ -67,13 +67,14 @@ from host_fonts import (
     host_negative_control_families,
 )
 from run_spike import (
-    CAMOUFOX_INSTALL_DIR,
+    configure_camoufox_cache,
     DownloadGuard,
     EXECUTABLE,
     REPO_ROOT,
     SUPERVISOR,
     XDG_CACHE_DIR,
     ensure_browser_asset,
+    firefox_user_prefs_for_config,
     install_download_guard,
     installed_versions,
     load_asset_lock,
@@ -144,6 +145,27 @@ def extract_observed_website_signals(
     return signals
 
 
+def expected_media_device_counts(config: dict) -> dict[str, int]:
+    """Translate the artifact's Camoufox media policy into probe counts."""
+
+    if config.get("mediaDevices:enabled") is not True:
+        return {"audioinput": 0, "videoinput": 0, "audiooutput": 0}
+    return {
+        "audioinput": int(config.get("mediaDevices:micros", 0)),
+        "videoinput": int(config.get("mediaDevices:webcams", 0)),
+        "audiooutput": int(config.get("mediaDevices:speakers", 0)),
+    }
+
+
+def observed_media_device_counts(devices: list[dict]) -> dict[str, int]:
+    counts = {"audioinput": 0, "videoinput": 0, "audiooutput": 0}
+    for device in devices:
+        kind = device.get("kind")
+        if kind in counts:
+            counts[kind] += 1
+    return counts
+
+
 async def cold_start(
     playwright: Any,
     artifact_path: Path,
@@ -205,11 +227,7 @@ async def cold_start(
             executable_path=str(executable),
             user_data_dir=str(profile),
             virtual_display=display or None,
-            firefox_user_prefs={
-                "app.update.auto": False,
-                "app.update.enabled": False,
-                "browser.shell.checkDefaultBrowser": False,
-            },
+            firefox_user_prefs=firefox_user_prefs_for_config(disk_config),
             exclude_addons=[DefaultAddons.UBO],
             i_know_what_im_doing=True,
         ),
@@ -306,6 +324,10 @@ async def cold_start(
         supervisor_meta = None
 
     observed_website_signals = extract_observed_website_signals(observed, font_mode)
+    expected_media_counts = expected_media_device_counts(disk_config)
+    observed_media_counts = observed_media_device_counts(
+        observed_website_signals["mediaDevices"]
+    )
     projection = build_projection(
         artifact["artifactId"],
         run_id_from_dir(run_dir),
@@ -338,6 +360,9 @@ async def cold_start(
             entry.get("available") for entry in observed.get("injectedFonts", [])
         ),
         "hostFontMasking": host_masking,
+        "expectedMediaDeviceCounts": expected_media_counts,
+        "observedMediaDeviceCounts": observed_media_counts,
+        "mediaDevicesMatchConfigured": observed_media_counts == expected_media_counts,
         "canvasObserved": {
             "rawHash": observed["canvas"]["rawHash"],
             "exportHash": observed["canvas"]["exportHash"],
@@ -353,7 +378,7 @@ def run_id_from_dir(run_dir: Path) -> str:
     return run_dir.name
 
 
-def prepare_host() -> tuple[dict, Path]:
+def prepare_host() -> tuple[dict, Path, dict]:
     lock = load_asset_lock()
     if lock.get("digestAgreement") is not True:
         raise SystemExit(
@@ -362,13 +387,20 @@ def prepare_host() -> tuple[dict, Path]:
         )
     executable = ensure_browser_asset(lock, allow_download=False)
     cache_root = Path(os.environ.get("VERISILO_CAMOUFOX_CACHE_DIR", str(XDG_CACHE_DIR)))
-    seed_camoufox_cache(lock, executable, install_dir=cache_root / "camoufox")
+    was_empty = not cache_root.exists() or not any(cache_root.iterdir())
+    install_dir = configure_camoufox_cache(cache_root)
+    seeded = seed_camoufox_cache(lock, executable, install_dir=install_dir)
     if not IS_WINDOWS:
         SUPERVISOR.chmod(0o755)
-    os.environ["XDG_CACHE_HOME"] = str(cache_root)
     install_download_guard()
     DownloadGuard.reset()
-    return lock, executable
+    return lock, executable, {
+        "controlled": True,
+        "root": str(cache_root.resolve()),
+        "camoufoxInstallDir": str(install_dir),
+        "wasEmptyBeforeSeed": was_empty,
+        "seededFromVerifiedArchive": seeded,
+    }
 
 
 def job_evidence(supervisor_path: Path) -> dict:
@@ -422,7 +454,7 @@ async def run_cold_starts(
     run_dir = M1_RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
 
-    lock, executable = prepare_host()
+    lock, executable, cache = prepare_host()
     tree_result = verify_tree(EXECUTABLE.parent, load_tree_manifest(TREE_MANIFEST))
     xvfb_proc: Optional[subprocess.Popen] = None
     server = None
@@ -477,6 +509,7 @@ async def run_cold_starts(
             "assetSha256": lock["sha256"],
             "digestAgreement": lock["digestAgreement"],
         },
+        "cache": cache,
         "treeVerification": tree_result,
         "starts": starts,
         "failure": failure,
@@ -499,6 +532,7 @@ async def cmd_stability(args: argparse.Namespace) -> int:
         and s["exitFileObserved"]
         and not s["profilePreExisted"]
         and s["injectedFontsAllAvailable"]
+        and s["mediaDevicesMatchConfigured"]
         and (s.get("jobObject") or {}).get("activeProcessCount", 0) == 0
         for s in result["starts"]
     )
@@ -522,6 +556,9 @@ async def cmd_stability(args: argparse.Namespace) -> int:
         "allObservedWebsiteDigestsIdentical": all_identical,
         "stableObservedWebsiteDigest": digests[0] if digests else None,
         "configUnchangedEveryStart": configs_unchanged,
+        "mediaDevicesMatchConfiguredEveryStart": [
+            s["mediaDevicesMatchConfigured"] for s in result["starts"]
+        ],
         "diskReloadedEveryStart": same_artifact_every_start,
         "artifactFileSha256EveryStart": artifact_shas,
         "exitStatusEveryStart": [s["exitStatus"] for s in result["starts"]],
@@ -563,6 +600,7 @@ async def cmd_separation(args: argparse.Namespace) -> int:
         and s["exitFileObserved"]
         and not s["profilePreExisted"]
         and s["injectedFontsAllAvailable"]
+        and s["mediaDevicesMatchConfigured"]
         and (s.get("jobObject") or {}).get("activeProcessCount", 0) == 0
         for s in result["starts"]
     )
@@ -589,6 +627,9 @@ async def cmd_separation(args: argparse.Namespace) -> int:
         "observedWebsiteDigests": digests,
         "allObservedWebsiteDigestsDistinct": distinct,
         "configUnchangedEveryStart": configs_unchanged,
+        "mediaDevicesMatchConfiguredEveryStart": [
+            s["mediaDevicesMatchConfigured"] for s in result["starts"]
+        ],
         "exitStatusEveryStart": [s["exitStatus"] for s in result["starts"]],
         "exitFileObservedEveryStart": [s["exitFileObserved"] for s in result["starts"]],
         "profileFreshEveryStart": [
@@ -727,6 +768,7 @@ def base_report(command: str, result: dict) -> dict:
             "display": result["display"],
             "xvfbOwnedBySpike": result["xvfbOwnedBySpike"],
             "assetLock": result["lock"],
+            "controlledCache": result["cache"],
             "failure": result["failure"],
             "treeVerification": result["treeVerification"],
         },
@@ -763,6 +805,9 @@ def base_report(command: str, result: dict) -> dict:
                 "artifactFileSha256": s["artifactFileSha256"],
                 "injectedFontsAllAvailable": s["injectedFontsAllAvailable"],
                 "hostFontMasking": s["hostFontMasking"],
+                "expectedMediaDeviceCounts": s["expectedMediaDeviceCounts"],
+                "observedMediaDeviceCounts": s["observedMediaDeviceCounts"],
+                "mediaDevicesMatchConfigured": s["mediaDevicesMatchConfigured"],
                 "canvasObserved": s["canvasObserved"],
                 "sessionVariable": s["sessionVariable"],
                 "unavailable": s["unavailable"],

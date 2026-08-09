@@ -33,9 +33,6 @@ from pathlib import Path
 
 import numpy as np
 
-from camoufox import DefaultAddons
-from camoufox.utils import launch_options
-
 from identity_policy import (
     ARTIFACT_SCHEMA,
     assert_artifact_clean,
@@ -48,6 +45,7 @@ from identity_policy import (
     verify_artifact,
 )
 from run_spike import (
+    configure_camoufox_cache,
     DownloadGuard,
     RUNTIME_ONLY_CONFIG_KEYS,
     RELEASE,
@@ -83,6 +81,9 @@ def complete_resolved_config(
     """Capture one resolved config, then replay launch_options() to a fixpoint
     so the config contains every key Camoufox/BrowserForge could ever add.
     Raises if launch_options ever CHANGES an existing value."""
+    from camoufox import DefaultAddons
+    from camoufox.utils import launch_options
+
     width, height = window
     first = launch_options(
         os=target_os,
@@ -224,8 +225,8 @@ def main() -> int:
         )
     executable = ensure_browser_asset(lock, allow_download=False)
     cache_dir = (args.cache_dir or XDG_CACHE_DIR).resolve()
-    seed_camoufox_cache(lock, executable, install_dir=cache_dir / "camoufox")
-    os.environ["XDG_CACHE_HOME"] = str(cache_dir)
+    install_dir = configure_camoufox_cache(cache_dir)
+    seed_camoufox_cache(lock, executable, install_dir=install_dir)
     install_download_guard()
     DownloadGuard.reset()
 

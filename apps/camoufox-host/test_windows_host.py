@@ -812,7 +812,17 @@ def main() -> int:
         "status": "passed" if failed == 0 else "failed",
     }
     summary_path = RUNS_ROOT / f"summary-{int(time.time())}.json"
-    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    summary_bytes = (json.dumps(summary, indent=2, ensure_ascii=False) + "\n").encode(
+        "utf-8"
+    )
+    summary_path.write_bytes(summary_bytes)
+    summary_sha = hashlib.sha256(summary_bytes).hexdigest()
+    summary_sidecar = summary_path.with_suffix(".sha256")
+    summary_sidecar.write_text(
+        f"{summary_sha}  {summary_path.name}\n", encoding="utf-8"
+    )
+    print(f"summary-file={summary_path.relative_to(REPO_ROOT).as_posix()}")
+    print(f"summary-sha256={summary_sha}")
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 1 if failed else 0
 

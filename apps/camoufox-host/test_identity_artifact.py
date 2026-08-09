@@ -36,6 +36,11 @@ from browser_tree import (
     build_tree_manifest,
     verify_tree,
 )
+from run_identity_spike import (
+    expected_media_device_counts,
+    observed_media_device_counts,
+)
+from run_spike import firefox_user_prefs_for_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "camoufox"
@@ -109,6 +114,27 @@ def test_observed_digest_payload_shape() -> None:
     ).decode()
     assert "artifactId" not in payload
     assert "canvasSeed" not in payload
+
+
+def test_windows_media_device_policy_is_deterministic() -> None:
+    config = {
+        "mediaDevices:enabled": True,
+        "mediaDevices:micros": 1,
+        "mediaDevices:webcams": 1,
+        "mediaDevices:speakers": 0,
+    }
+    assert expected_media_device_counts(config) == {
+        "audioinput": 1,
+        "videoinput": 1,
+        "audiooutput": 0,
+    }
+    assert observed_media_device_counts(
+        [{"kind": "videoinput"}, {"kind": "audioinput"}]
+    ) == expected_media_device_counts(config)
+    if os.name == "nt":
+        assert firefox_user_prefs_for_config(config)[
+            "media.navigator.streams.fake"
+        ] is True
 
 
 def test_diff_configs() -> None:

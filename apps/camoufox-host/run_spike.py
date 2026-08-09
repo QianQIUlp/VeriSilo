@@ -205,6 +205,7 @@ def seed_camoufox_cache(
     install_dir = install_dir or CAMOUFOX_INSTALL_DIR
     dest = install_dir / "browsers" / "official" / folder
     version_json = dest / "version.json"
+    seeded = False
     if not (dest / EXECUTABLE_REL).exists() or not version_json.exists():
         print(f"seeding camoufox cache from verified archive ({folder}) ...")
         shutil.copytree(EXTRACT_DIR, dest, dirs_exist_ok=True)
@@ -220,6 +221,7 @@ def seed_camoufox_cache(
             )
             + "\n"
         )
+        seeded = True
     config_path = install_dir / "config.json"
     config = {}
     if config_path.exists():
@@ -227,7 +229,51 @@ def seed_camoufox_cache(
     config["active_version"] = f"browsers/official/{folder}"
     config_path.write_text(json.dumps(config, indent=2) + "\n")
     (install_dir / ".0.5_FLAG").touch()
-    return True
+    return seeded
+
+
+def configure_camoufox_cache(cache_root: Path) -> Path:
+    """Bind Camoufox's package cache to an explicit root before import.
+
+    ``XDG_CACHE_HOME`` does not affect platformdirs on Windows. The supported
+    platformdirs override is required there; otherwise an apparently fresh
+    evidence cache is only a side copy while Camoufox still reads the user's
+    warm LocalAppData cache.
+    """
+
+    cache_root = Path(cache_root).resolve()
+    if IS_WINDOWS:
+        os.environ["WIN_PD_OVERRIDE_LOCAL_APPDATA"] = str(cache_root)
+        from platformdirs import user_cache_dir
+
+        install_dir = Path(user_cache_dir("camoufox")).resolve()
+    else:
+        os.environ["XDG_CACHE_HOME"] = str(cache_root)
+        install_dir = cache_root / "camoufox"
+
+    pkgman = sys.modules.get("camoufox.pkgman")
+    if pkgman is not None and Path(pkgman.INSTALL_DIR).resolve() != install_dir:
+        raise RuntimeError(
+            "Camoufox was imported before the controlled cache was configured: "
+            f"loaded={Path(pkgman.INSTALL_DIR).resolve()} expected={install_dir}"
+        )
+    return install_dir
+
+
+def firefox_user_prefs_for_config(config: Optional[dict] = None) -> dict:
+    """Return deterministic runtime prefs shared by Host and evidence runs."""
+
+    prefs = {
+        "app.update.auto": False,
+        "app.update.enabled": False,
+        "browser.shell.checkDefaultBrowser": False,
+    }
+    if IS_WINDOWS and config and config.get("mediaDevices:enabled") is True:
+        # Windows/RDP hardware enumeration can disappear between launches.
+        # Firefox's synthetic stream backend makes the artifact-requested
+        # Camoufox media-device counts independent of transient host devices.
+        prefs["media.navigator.streams.fake"] = True
+    return prefs
 
 
 class DownloadGuard:
@@ -656,11 +702,7 @@ async def run_cycle(
             ff_version=152,
             os="windows" if IS_WINDOWS else "linux",
             window=(1280, 800),
-            firefox_user_prefs={
-                "app.update.auto": False,
-                "app.update.enabled": False,
-                "browser.shell.checkDefaultBrowser": False,
-            },
+            firefox_user_prefs=firefox_user_prefs_for_config(),
             exclude_addons=[DefaultAddons.UBO],
             i_know_what_im_doing=True,
         ),
@@ -819,14 +861,18 @@ async def main() -> int:
     xvfb_proc: Optional[subprocess.Popen] = None
     guard_installed = False
     cache_seeded = False
+    install_dir: Optional[Path] = None
     display = ""
 
     try:
         executable = ensure_browser_asset(lock)
-        cache_seeded = seed_camoufox_cache(lock, executable)
+        cache_root = Path(
+            os.environ.get("VERISILO_CAMOUFOX_CACHE_DIR", str(XDG_CACHE_DIR))
+        )
+        install_dir = configure_camoufox_cache(cache_root)
+        cache_seeded = seed_camoufox_cache(lock, executable, install_dir=install_dir)
         if not IS_WINDOWS:
             SUPERVISOR.chmod(0o755)
-        os.environ["XDG_CACHE_HOME"] = str(XDG_CACHE_DIR)
         guard_installed = install_download_guard()
         DownloadGuard.reset()
 
@@ -1012,7 +1058,7 @@ async def main() -> int:
             "runDir": str(run_dir),
             "profilePreExisted": profile_pre_existed,
             "profileFilesBeforeCount": len(profile_files_before),
-            "camoufoxCache": str(CAMOUFOX_INSTALL_DIR),
+            "camoufoxCache": str(install_dir) if install_dir else None,
             "cacheSeededFromVerifiedAsset": cache_seeded,
             "downloadGuard": "webdl patched to raise; any unpinned download fails the run",
         },
