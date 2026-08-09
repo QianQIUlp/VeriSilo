@@ -170,6 +170,39 @@ def preserved_windows_host_receipt(finalization_revision: str) -> dict[str, Any]
     return receipt
 
 
+def r2_host_matrix_history(run_dir: Path) -> list[dict[str, Any]]:
+    roots = sorted(REPO_ROOT.glob("artifacts/r2-host-regression-fcb3383a*"))
+    roots.extend(sorted(run_dir.glob("r2-final-windows-host-regression")))
+    history: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for root in roots:
+        root = root.resolve()
+        if root in seen or not root.is_dir():
+            continue
+        seen.add(root)
+        summaries = sorted(root.rglob("summary-*.json"))
+        if len(summaries) != 1:
+            continue
+        summary_path = summaries[0]
+        value = json.loads(summary_path.read_text(encoding="utf-8"))
+        results = value.get("results", {})
+        history.append(
+            {
+                "rootRelativePath": root.relative_to(REPO_ROOT).as_posix(),
+                "summaryRelativePath": summary_path.relative_to(REPO_ROOT).as_posix(),
+                "summarySha256": sha256_file(summary_path),
+                "status": value.get("status"),
+                "failedTests": sorted(
+                    name
+                    for name, result in results.items()
+                    if result.get("status") != "passed"
+                ),
+                "testCount": len(results),
+            }
+        )
+    return history
+
+
 def run_finalization(run_id: str) -> int:
     finalization_revision, finalization_tree, session_name, session_id = clean_receipt_start()
     run_dir = RUNS_ROOT / run_id
@@ -226,6 +259,7 @@ def run_finalization(run_id: str) -> int:
         "status": "preserved-zero-cycle-runner-setup-failure",
         "realBrowserStarted": False,
     }
+    history["r2HostMatrixAttempts"] = r2_host_matrix_history(run_dir)
 
     commands: list[dict[str, Any]] = [
         {
