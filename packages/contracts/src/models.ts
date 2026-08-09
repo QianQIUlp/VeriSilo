@@ -376,6 +376,7 @@ export const runtimeEngineEvidenceSchema = z
     verifiedAdapter: engineAdapterIdSchema.nullable(),
     packageVerification: runtimeEvidenceStateSchema,
     bootstrapDelivery: runtimeEvidenceStateSchema,
+    hostLaunch: runtimeEvidenceStateSchema,
     runtimeReceipts: runtimeEvidenceStateSchema,
     restoreReceipt: runtimeEvidenceStateSchema,
     capabilities: z.array(engineCapabilityStateSchema).max(17),
@@ -405,6 +406,21 @@ export const runtimeEngineEvidenceSchema = z
         path: ["verifiedAdapter"],
         message:
           "Runtime adapter verification requires a matching launch and verified protocol evidence.",
+      });
+    }
+    if (
+      evidence.configuredAdapter === "camoufox" &&
+      (evidence.verifiedAdapter !== null ||
+        evidence.bootstrapDelivery === "verified" ||
+        evidence.runtimeReceipts === "verified" ||
+        evidence.restoreReceipt === "verified" ||
+        evidence.hostLaunch === "verified")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["hostLaunch"],
+        message:
+          "M3-0 Camoufox Host evidence remains observed-on-this-host and cannot become generic runtime verification.",
       });
     }
     const phases = evidence.phaseReceipts.map((receipt) => receipt.phase);

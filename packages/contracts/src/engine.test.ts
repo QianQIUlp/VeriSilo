@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  camoufoxArtifactBindingV1Schema,
+  camoufoxHostPackageManifestSchema,
+  camoufoxHostPackageTreeManifestSchema,
   derivedIdentityTokenSchema,
   engineCapabilityStateSchema,
   enginePackageManifestSchema,
@@ -164,6 +167,85 @@ describe("EngineAdapter contracts", () => {
     ).toThrow();
   });
 
+  it("binds Camoufox Host v3 packages to a raw entrypoint and tree", () => {
+    const manifest = {
+      schemaVersion: 3,
+      engineId: "camoufox",
+      engineVersion: "152.0.4-beta.28",
+      channel: "experimental",
+      platform: "windows-x64",
+      artifactSha256: "a".repeat(64),
+      signature: {
+        algorithm: "cms-detached-sha256",
+        keyId: "b".repeat(64),
+        value: "A".repeat(256),
+      },
+      capabilities: [
+        "identity_template",
+        "ua_ua_ch",
+        "language_timezone",
+        "screen",
+        "canvas",
+        "webgl",
+        "fonts",
+        "media_devices",
+        "request_headers",
+        "window",
+        "iframe",
+        "dedicated_worker",
+      ],
+      entrypoint: {
+        kind: "camoufox-host-v1",
+        relativePath: "host/camoufox-host.exe",
+        protocol: "verisilo-camoufox-host/v1",
+        sha256: "a".repeat(64),
+      },
+      treeManifest: {
+        relativePath: "package-tree.json",
+        sha256: "c".repeat(64),
+      },
+      hostVersion: "0.1.0",
+      browserAssetSha256: "d".repeat(64),
+    };
+    expect(camoufoxHostPackageManifestSchema.parse(manifest).entrypoint.kind).toBe(
+      "camoufox-host-v1",
+    );
+    expect(enginePackageManifestSchema.parse(manifest).engineId).toBe(
+      "camoufox",
+    );
+    expect(() =>
+      enginePackageManifestSchema.parse({
+        ...manifest,
+        artifactSha256: "e".repeat(64),
+      }),
+    ).toThrow(/artifactSha256/);
+    expect(() =>
+      enginePackageManifestSchema.parse({
+        ...manifest,
+        capabilities: ["identity_template", "site_fallback"],
+      }),
+    ).toThrow(/site_fallback/);
+    expect(() =>
+      enginePackageManifestSchema.parse({
+        ...manifest,
+        entrypoint: { ...manifest.entrypoint, protocol: "native-bootstrap-v1" },
+      }),
+    ).toThrow();
+    expect(() =>
+      enginePackageManifestSchema.parse({
+        ...manifest,
+        schemaVersion: 2,
+        executableRelativePath: "bin/camoufox.exe",
+      }),
+    ).toThrow();
+    expect(
+      camoufoxHostPackageTreeManifestSchema.parse({
+        schema: "verisilo-camoufox-host-package-tree/v1",
+        entries: [{ path: "host/camoufox-host.exe", sha256: "a".repeat(64) }],
+      }).entries.length,
+    ).toBe(1);
+  });
+
   it("allows only short-lived opaque seed-handle derivation contexts", () => {
     const issuedAt = "2026-07-28T00:00:00.000Z";
     expect(
@@ -223,6 +305,37 @@ describe("EngineAdapter contracts", () => {
         fallbackRules: [],
       }),
     ).toThrow(/Firefox/);
+    const firefoxTemplate = {
+      ...template,
+      browser: {
+        ...template.browser,
+        family: "firefox" as const,
+        majorVersion: 152,
+        userAgent:
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+        uaCh: null,
+      },
+      network: { ...template.network, proxyRequired: false },
+    };
+    expect(
+      siloEngineConfigSchema.parse({
+        adapter: "camoufox",
+        identityTemplate: firefoxTemplate,
+        fallbackRules: [],
+        artifactBinding: {
+          artifactId: "identity-camoufox-m3",
+          artifactFileSha256: "a".repeat(64),
+          schema: "verisilo-camoufox-resolved-identity/v3",
+        },
+      }).artifactBinding?.artifactId,
+    ).toBe("identity-camoufox-m3");
+    expect(() =>
+      camoufoxArtifactBindingV1Schema.parse({
+        artifactId: "identity-Camoufox",
+        artifactFileSha256: "a".repeat(64),
+        schema: "verisilo-camoufox-resolved-identity/v3",
+      }),
+    ).toThrow();
     expect(() =>
       siloEngineConfigSchema.parse({
         adapter: "controlled-chromium",

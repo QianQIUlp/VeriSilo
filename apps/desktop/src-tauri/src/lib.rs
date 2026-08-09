@@ -1950,7 +1950,7 @@ fn execute_environment_backend(
                 .to_owned(),
         );
     }
-    if environment_runtime_has_active_silo(&state)?
+    if environment_runtime_has_active_silo(state)?
         && !matches!(
             request.operation(),
             EnvironmentOperation::Stop | EnvironmentOperation::Health | EnvironmentOperation::Logs
@@ -1966,7 +1966,7 @@ fn execute_environment_backend(
             .flatten()
     });
     if let Some(distribution) = target_distribution {
-        prepare_wsl_distribution(&state, &distribution, &[request.operation()])?;
+        prepare_wsl_distribution(state, &distribution, &[request.operation()])?;
     }
     let mut environments = state
         .environments
@@ -2769,6 +2769,20 @@ fn stop_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActivat
             environment_runtime.wsl_distribution = None;
             environment_runtime.reconciled = true;
             environment_runtime.recovery_blocked = false;
+            publish_runtime_status(&state, &activation, &vault_status);
+            Ok(activation)
+        }
+        SiloExecutionTarget::Local
+            if silo.engine.adapter_id(&silo.browser.kind) == EngineAdapterId::Camoufox =>
+        {
+            drop(vault);
+            let mut runtime = state
+                .runtime
+                .lock()
+                .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+            let activation = runtime
+                .stop_managed_camoufox(silo_id)
+                .map_err(|error| error.to_string())?;
             publish_runtime_status(&state, &activation, &vault_status);
             Ok(activation)
         }

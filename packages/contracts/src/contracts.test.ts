@@ -209,6 +209,7 @@ describe("VeriSilo contracts", () => {
       verifiedAdapter: null,
       packageVerification: "verified",
       bootstrapDelivery: "applied",
+      hostLaunch: "not_applicable",
       runtimeReceipts: "not_requested",
       restoreReceipt: "not_requested",
       capabilities: [],
@@ -223,6 +224,27 @@ describe("VeriSilo contracts", () => {
         verifiedAdapter: "controlled-chromium",
       }),
     ).toThrow(/protocol evidence/);
+
+    const camoufoxEvidence = runtimeEngineEvidenceSchema.parse({
+      configuredAdapter: "camoufox",
+      launchedAdapter: "camoufox",
+      verifiedAdapter: null,
+      packageVerification: "verified",
+      bootstrapDelivery: "not_applicable",
+      hostLaunch: "observed",
+      runtimeReceipts: "not_applicable",
+      restoreReceipt: "not_applicable",
+      capabilities: [],
+      phaseReceipts: [],
+      fallbackReceipts: [],
+    });
+    expect(camoufoxEvidence.hostLaunch).toBe("observed");
+    expect(() =>
+      runtimeEngineEvidenceSchema.parse({
+        ...camoufoxEvidence,
+        hostLaunch: "verified",
+      }),
+    ).toThrow(/M3-0 Camoufox Host/);
   });
 
   it("strictly exposes sanitized ordered per-capability runtime receipts", () => {
@@ -240,6 +262,7 @@ describe("VeriSilo contracts", () => {
       verifiedAdapter: "controlled-chromium",
       packageVerification: "verified",
       bootstrapDelivery: "verified",
+      hostLaunch: "not_applicable",
       runtimeReceipts: "verified",
       restoreReceipt: "not_requested",
       capabilities: [capability],

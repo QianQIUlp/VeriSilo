@@ -1,7 +1,7 @@
 use std::{
     ffi::OsString,
     fs,
-    io::Write,
+    io::{BufReader, Read, Write},
     net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
@@ -15,6 +15,7 @@ use std::{
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -28,11 +29,13 @@ use crate::vault::chromium_profile_sentinel_exists;
 use crate::{
     engine::{
         production_engine_adapter, read_engine_bootstrap_ack_frame,
-        read_engine_runtime_receipt_frame, write_engine_bootstrap_frame, EngineBootstrapAck,
-        EngineBootstrapAckExpectation, EngineBootstrapEnvelope, EngineControlExecution,
-        EngineHealthState, EngineLaunchPlan, EngineLaunchRequest, EngineRuntimeReceiptExpectation,
-        EngineRuntimeReceiptFrame, IdentityDerivationContext, IdentityTokenDeriver,
-        DEFAULT_SESSION_TOKEN_LIFETIME_MINUTES,
+        read_engine_runtime_receipt_frame, strict_json_from_slice, write_engine_bootstrap_frame,
+        CamoufoxHostLaunch, CamoufoxHostRoots, EngineBootstrapAck, EngineBootstrapAckExpectation,
+        EngineBootstrapEnvelope, EngineCapabilityOperation, EngineCapabilityState,
+        EngineControlExecution, EngineHealthState, EngineLaunchPlan, EngineLaunchRequest,
+        EngineRuntimeReceiptExpectation, EngineRuntimeReceiptFrame, EngineTransport,
+        IdentityDerivationContext, IdentityTokenDeriver, CAMOUFOX_HOST_PROTOCOL,
+        DEFAULT_SESSION_TOKEN_LIFETIME_MINUTES, MAX_CAMOUFOX_HOST_FRAME_BYTES,
     },
     mihomo,
     native_host::{
@@ -95,9 +98,31 @@ enum RuntimeNetworkFailure {
     Credentials,
 }
 
-struct EngineRuntimeProtocol {
-    receiver: mpsc::Receiver<EngineProtocolEvent>,
-    execution: EngineControlExecution,
+enum EngineRuntimeProtocol {
+    Native {
+        receiver: mpsc::Receiver<EngineProtocolEvent>,
+        execution: EngineControlExecution,
+    },
+    CamoufoxHost(Box<CamoufoxHostRuntime>),
+}
+
+impl EngineRuntimeProtocol {
+    #[cfg(test)]
+    fn native_execution(&self) -> Option<&EngineControlExecution> {
+        match self {
+            Self::Native { execution, .. } => Some(execution),
+            Self::CamoufoxHost(_) => None,
+        }
+    }
+}
+
+struct CamoufoxHostRuntime {
+    transport: CamoufoxHostTransport,
+    session_id: String,
+    binding: CamoufoxHostLaunch,
+    observed_website_digest: Option<String>,
+    evidence_class: String,
+    closed_confirmed: bool,
 }
 
 enum EngineProtocolEvent {
@@ -109,6 +134,294 @@ struct SpawnedEngine {
     child: Child,
     bootstrap_ack: Option<EngineBootstrapAck>,
     runtime: Option<EngineRuntimeProtocol>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostResponse {
+    id: Option<String>,
+    ok: bool,
+    #[serde(default)]
+    result: Option<Value>,
+    #[serde(default)]
+    error: Option<CamoufoxHostError>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostError {
+    code: String,
+    message: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostHello {
+    protocol: String,
+    host_version: String,
+    #[serde(default)]
+    python_version: Option<String>,
+    artifact_root: String,
+    profile_root: String,
+    state_root: String,
+    max_frame_bytes: usize,
+    probe_port_policy: String,
+    browser_release: String,
+    asset_sha256: String,
+    tree_manifest: String,
+    tree_manifest_sha256: String,
+    platform: String,
+    state: String,
+    verified: bool,
+    evidence_class: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostLaunchResult {
+    session_id: String,
+    state: String,
+    artifact_id: String,
+    profile_id: String,
+    artifact_file_sha256: String,
+    #[serde(default)]
+    configured_identity_digest: Option<String>,
+    #[serde(default)]
+    observed_website_digest: Option<String>,
+    #[serde(default)]
+    boot_count_before: Option<u64>,
+    #[serde(default)]
+    boot_count_after: Option<u64>,
+    #[serde(default)]
+    spawn_seconds: Option<f64>,
+    #[serde(default)]
+    probe_seconds: Option<f64>,
+    #[serde(default)]
+    font_mode: Option<String>,
+    #[serde(default)]
+    managed_pids: Option<Vec<u32>>,
+    #[serde(default)]
+    cookie_evidence: Option<Value>,
+    #[serde(default)]
+    probe_port: Option<u16>,
+    #[serde(default)]
+    verified: Option<bool>,
+    #[serde(default)]
+    evidence_class: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostStatusResult {
+    state: String,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    artifact_id: Option<String>,
+    #[serde(default)]
+    profile_id: Option<String>,
+    #[serde(default)]
+    artifact_file_sha256: Option<String>,
+    #[serde(default)]
+    configured_identity_digest: Option<String>,
+    #[serde(default)]
+    observed_website_digest: Option<String>,
+    #[serde(default)]
+    exit_status: Option<i32>,
+    #[serde(default)]
+    exit_file_observed: Option<bool>,
+    #[serde(default)]
+    quarantine: Option<Value>,
+    #[serde(default)]
+    failure: Option<String>,
+    #[serde(default)]
+    verified: Option<bool>,
+    #[serde(default)]
+    evidence_class: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostCloseResult {
+    session_id: String,
+    state: String,
+    #[serde(default)]
+    exit_status: Option<i32>,
+    #[serde(default)]
+    exit_file_observed: Option<bool>,
+    #[serde(default)]
+    process_tree_exit: Option<Value>,
+    #[serde(default)]
+    cookie_sqlite: Option<Value>,
+    #[serde(default)]
+    quarantine: Option<Value>,
+    #[serde(default)]
+    close_seconds: Option<f64>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostSelfCheck {
+    argv_matches: Vec<String>,
+    stderr_log_matches: Vec<String>,
+    patterns_checked: u64,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostShutdownResult {
+    state: String,
+    #[serde(default)]
+    sessions_closed: Option<u64>,
+    self_check: CamoufoxHostSelfCheck,
+}
+
+struct CamoufoxHostTransport {
+    stdin: ChildStdin,
+    receiver: mpsc::Receiver<Result<CamoufoxHostResponse, String>>,
+    next_request_id: u64,
+    #[cfg(test)]
+    wire_snapshot: Vec<Vec<u8>>,
+}
+
+impl CamoufoxHostTransport {
+    fn attach(child: &mut Child) -> Result<Self, LauncherError> {
+        let stdin = child.stdin.take().ok_or_else(|| {
+            LauncherError::Bootstrap(
+                "Camoufox Host child did not expose its exact stdin pipe".to_owned(),
+            )
+        })?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            LauncherError::Bootstrap(
+                "Camoufox Host child did not expose its exact stdout pipe".to_owned(),
+            )
+        })?;
+        let (sender, receiver) = mpsc::sync_channel(32);
+        thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            loop {
+                match read_camoufox_host_frame(&mut reader) {
+                    Ok(Some(frame)) => {
+                        let response = strict_json_from_slice::<CamoufoxHostResponse>(&frame)
+                            .map_err(|error| error.to_string());
+                        let terminal = response.is_err();
+                        if sender.send(response).is_err() || terminal {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = sender.send(Err(
+                            "Camoufox Host stdout reached EOF before a response".to_owned(),
+                        ));
+                        break;
+                    }
+                    Err(error) => {
+                        let _ = sender.send(Err(error));
+                        break;
+                    }
+                }
+            }
+        });
+        Ok(Self {
+            stdin,
+            receiver,
+            next_request_id: 1,
+            #[cfg(test)]
+            wire_snapshot: Vec::new(),
+        })
+    }
+
+    fn request(
+        &mut self,
+        command: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, LauncherError> {
+        let request_id = format!("m3-{}", self.next_request_id);
+        self.next_request_id = self.next_request_id.checked_add(1).ok_or_else(|| {
+            LauncherError::RuntimeReceipt("Camoufox Host request ID exhausted its bound".to_owned())
+        })?;
+        let body = serde_json::to_vec(&json!({
+            "id": request_id,
+            "command": command,
+            "params": params,
+        }))
+        .map_err(|error| LauncherError::RuntimeReceipt(error.to_string()))?;
+        if body.is_empty() || body.len() > MAX_CAMOUFOX_HOST_FRAME_BYTES {
+            return Err(LauncherError::RuntimeReceipt(
+                "Camoufox Host request exceeded the 32 KiB frame bound".to_owned(),
+            ));
+        }
+        #[cfg(test)]
+        self.wire_snapshot.push(body.clone());
+        self.stdin
+            .write_all(&body)
+            .and_then(|_| self.stdin.write_all(b"\n"))
+            .and_then(|_| self.stdin.flush())
+            .map_err(|error| {
+                LauncherError::RuntimeReceipt(format!("Host request write failed: {error}"))
+            })?;
+        let response = self
+            .receiver
+            .recv_timeout(timeout)
+            .map_err(|error| {
+                LauncherError::RuntimeReceipt(format!(
+                    "Camoufox Host response timeout/EOF: {error}"
+                ))
+            })?
+            .map_err(LauncherError::RuntimeReceipt)?;
+        if response.id.as_deref() != Some(request_id.as_str()) {
+            return Err(LauncherError::RuntimeReceipt(
+                "Camoufox Host response ID did not match the outstanding request".to_owned(),
+            ));
+        }
+        if response.ok {
+            if response.error.is_some() || response.result.is_none() {
+                return Err(LauncherError::RuntimeReceipt(
+                    "Camoufox Host success response has an invalid result/error shape".to_owned(),
+                ));
+            }
+            Ok(response.result.expect("checked Host result"))
+        } else {
+            if response.result.is_some() || response.error.is_none() {
+                return Err(LauncherError::RuntimeReceipt(
+                    "Camoufox Host error response has an invalid result/error shape".to_owned(),
+                ));
+            }
+            let error = response.error.expect("checked Host error");
+            Err(LauncherError::RuntimeReceipt(format!(
+                "Camoufox Host rejected {command}: {} ({})",
+                error.message, error.code
+            )))
+        }
+    }
+}
+
+fn read_camoufox_host_frame<R: Read>(reader: &mut R) -> Result<Option<Vec<u8>>, String> {
+    let mut frame = Vec::with_capacity(MAX_CAMOUFOX_HOST_FRAME_BYTES);
+    let mut byte = [0_u8; 1];
+    loop {
+        match reader.read(&mut byte) {
+            Ok(0) if frame.is_empty() => return Ok(None),
+            Ok(0) => return Err("Camoufox Host emitted a partial frame before EOF".to_owned()),
+            Ok(_) => {
+                if byte[0] == b'\n' {
+                    return Ok(Some(frame));
+                }
+                frame.push(byte[0]);
+                if frame.len() > MAX_CAMOUFOX_HOST_FRAME_BYTES {
+                    return Err("Camoufox Host emitted a frame over 32 KiB".to_owned());
+                }
+            }
+            Err(error) => return Err(format!("Camoufox Host stdout read failed: {error}")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,6 +508,166 @@ impl RuntimeManager {
             activation,
             ..Self::default()
         }
+    }
+
+    fn camoufox_host_roots(&self) -> Option<CamoufoxHostRoots> {
+        let app_root = self.record_path.as_ref()?.parent()?.parent()?;
+        let managed_root = app_root.join("camoufox");
+        Some(CamoufoxHostRoots {
+            artifact_root: managed_root.join("artifacts"),
+            profile_root: managed_root.join("profiles"),
+            state_root: managed_root.join("state"),
+        })
+    }
+
+    /// Stop only a Camoufox Host child owned by this RuntimeManager. The Host
+    /// close acknowledgement and the exact child exit are both required before
+    /// releasing the Profile lease or publishing `stopped`.
+    pub fn stop_managed_camoufox(
+        &mut self,
+        silo_id: Uuid,
+    ) -> Result<RuntimeActivation, LauncherError> {
+        self.refresh();
+        if self
+            .activation
+            .as_ref()
+            .and_then(|activation| activation.active_silo_id)
+            != Some(silo_id)
+        {
+            return Err(LauncherError::InvalidNetwork(
+                "the requested Silo is not the active local runtime".to_owned(),
+            ));
+        }
+
+        let host_result = (|| -> Result<(), LauncherError> {
+            let Some(EngineRuntimeProtocol::CamoufoxHost(host)) = self.engine_runtime.as_mut()
+            else {
+                return Err(LauncherError::RuntimeReceipt(
+                    "the active Silo is not backed by a Camoufox Host session".to_owned(),
+                ));
+            };
+            let session_id = host.session_id.clone();
+            let binding = host.binding.clone();
+            let close_value = host.transport.request(
+                "close",
+                json!({ "sessionId": session_id }),
+                ENGINE_INITIAL_RECEIPT_TIMEOUT,
+            )?;
+            let close: CamoufoxHostCloseResult =
+                serde_json::from_value(close_value).map_err(|error| {
+                    LauncherError::RuntimeReceipt(format!(
+                        "invalid Camoufox Host close response: {error}"
+                    ))
+                })?;
+            validate_camoufox_host_close(&close, &binding, &session_id)?;
+
+            let shutdown_value =
+                host.transport
+                    .request("shutdown", json!({}), ENGINE_INITIAL_RECEIPT_TIMEOUT)?;
+            let shutdown: CamoufoxHostShutdownResult = serde_json::from_value(shutdown_value)
+                .map_err(|error| {
+                    LauncherError::RuntimeReceipt(format!(
+                        "invalid Camoufox Host shutdown response: {error}"
+                    ))
+                })?;
+            validate_camoufox_host_shutdown(&shutdown)?;
+            host.closed_confirmed = true;
+            Ok(())
+        })();
+        if let Err(error) = host_result {
+            self.mark_camoufox_host_failure(error.to_string());
+            return Err(error);
+        }
+
+        let deadline = Instant::now() + ENGINE_INITIAL_RECEIPT_TIMEOUT;
+        let exit_result = (|| -> Result<std::process::ExitStatus, LauncherError> {
+            loop {
+                let status = self
+                    .child
+                    .as_mut()
+                    .ok_or_else(|| {
+                        LauncherError::RuntimeReceipt(
+                            "Camoufox Host child handle disappeared before exact exit confirmation"
+                                .to_owned(),
+                        )
+                    })?
+                    .try_wait()
+                    .map_err(|error| LauncherError::RuntimeReceipt(error.to_string()))?;
+                if let Some(status) = status {
+                    break Ok(status);
+                }
+                if Instant::now() >= deadline {
+                    break Err(LauncherError::RuntimeReceipt(
+                        "Camoufox Host close acknowledged but the exact Host child did not exit within the bounded wait"
+                            .to_owned(),
+                    ));
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        })();
+        let exit_status = match exit_result {
+            Ok(status) => status,
+            Err(error) => {
+                self.mark_camoufox_host_failure(error.to_string());
+                return Err(error);
+            }
+        };
+        if !exit_status.success() {
+            let error = LauncherError::RuntimeReceipt(format!(
+                "Camoufox Host exact child exited unsuccessfully: {exit_status}"
+            ));
+            self.mark_camoufox_host_failure(error.to_string());
+            return Err(error);
+        }
+
+        let runtime_binding = self
+            .health_context
+            .as_ref()
+            .map(|context| (context.silo.id, context.runtime_id));
+        if let Some((runtime_silo_id, runtime_id)) = runtime_binding {
+            self.shutdown_relay_for_runtime(runtime_silo_id, runtime_id);
+        }
+        self.child = None;
+        self.engine_runtime = None;
+        self.profile_lease = None;
+        self.health_context = None;
+        let mut activation = self
+            .activation
+            .clone()
+            .unwrap_or_else(RuntimeActivation::idle);
+        activation.active_silo_id = None;
+        activation.state = RuntimeState::Stopped;
+        activation.updated_at = Utc::now();
+        activation.message = Some(
+            "Camoufox Host close, shutdown, process-tree exit, and exact child wait were confirmed; Profile ownership was released."
+                .to_owned(),
+        );
+        if let Some(evidence) = activation.engine_evidence.as_mut() {
+            evidence.host_launch = RuntimeEvidenceState::Observed;
+            evidence.bootstrap_delivery = RuntimeEvidenceState::NotApplicable;
+            evidence.runtime_receipts = RuntimeEvidenceState::NotApplicable;
+            evidence.restore_receipt = RuntimeEvidenceState::NotApplicable;
+            evidence.verified_adapter = None;
+        }
+        self.activation = Some(activation.clone());
+        self.persist_current_record(RuntimeState::Stopped);
+        Ok(activation)
+    }
+
+    fn mark_camoufox_host_failure(&mut self, message: String) {
+        if let Some(activation) = self.activation.as_mut() {
+            activation.state = RuntimeState::VerificationFailed;
+            activation.updated_at = Utc::now();
+            activation.message = Some(message);
+            if let Some(evidence) = activation.engine_evidence.as_mut() {
+                evidence.host_launch = RuntimeEvidenceState::Failed;
+                evidence.bootstrap_delivery = RuntimeEvidenceState::NotApplicable;
+                evidence.runtime_receipts = RuntimeEvidenceState::NotApplicable;
+                evidence.restore_receipt = RuntimeEvidenceState::NotApplicable;
+                evidence.verified_adapter = None;
+            }
+        }
+        self.persist_current_record(RuntimeState::VerificationFailed);
     }
 
     pub fn recorded_silo_id(&self) -> Option<Uuid> {
@@ -293,10 +766,13 @@ impl RuntimeManager {
         }
         if process_alive && profile_locked {
             engine_evidence.launched_adapter = Some(configured_adapter);
-            if externally_packaged {
+            if externally_packaged && configured_adapter != crate::engine::EngineAdapterId::Camoufox
+            {
                 engine_evidence.bootstrap_delivery = RuntimeEvidenceState::Unavailable;
                 engine_evidence.runtime_receipts = RuntimeEvidenceState::Unavailable;
                 engine_evidence.restore_receipt = RuntimeEvidenceState::Unavailable;
+            } else if configured_adapter == crate::engine::EngineAdapterId::Camoufox {
+                engine_evidence.host_launch = RuntimeEvidenceState::Unavailable;
             }
             if state == RuntimeState::Running {
                 if let Some(binding) = silo.network_profile.external_mihomo_binding() {
@@ -679,8 +1155,18 @@ impl RuntimeManager {
             network_evidence: Some(network_evidence.clone()),
         });
 
+        let mut runtime_profile_directories = managed_profile_directories.to_vec();
+        if configured_adapter == crate::engine::EngineAdapterId::Camoufox {
+            if let Some(roots) = self.camoufox_host_roots() {
+                runtime_profile_directories.push(
+                    roots
+                        .profile_root
+                        .join(format!("silo-{}", silo.id.simple())),
+                );
+            }
+        }
         let profile_lease = match BrowserProfileLease::acquire_for_runtime(
-            managed_profile_directories,
+            &runtime_profile_directories,
             Path::new(&silo.profile_directory),
         ) {
             Ok(lease) => lease,
@@ -718,54 +1204,60 @@ impl RuntimeManager {
         let session_id = Uuid::new_v4();
         let issued_at = Utc::now();
         let mut engine_request = EngineLaunchRequest {
+            silo_id: Some(silo.id),
             session_id,
             profile_directory: silo.engine_profile_directory(),
             identity: silo.engine.identity_template().cloned(),
             derived_token: None,
             fallback_rules: silo.engine.fallback_rules().to_vec(),
+            camoufox_artifact_binding: silo.engine.camoufox_artifact_binding().cloned(),
+            camoufox_roots: self.camoufox_host_roots(),
         };
-        if let Some(identity) = engine_request.identity.as_ref() {
-            let deriver = identity_deriver.ok_or_else(|| {
-                let error = LauncherError::Engine(
-                    "controlled engine launch requires an unlocked Vault seed deriver".to_owned(),
+        if configured_adapter != crate::engine::EngineAdapterId::Camoufox {
+            if let Some(identity) = engine_request.identity.as_ref() {
+                let deriver = identity_deriver.ok_or_else(|| {
+                    let error = LauncherError::Engine(
+                        "controlled engine launch requires an unlocked Vault seed deriver"
+                            .to_owned(),
+                    );
+                    self.activation = Some(RuntimeActivation {
+                        active_silo_id: None,
+                        state: RuntimeState::VerificationFailed,
+                        updated_at: Utc::now(),
+                        message: Some(error.to_string()),
+                        browser_verification: browser_verification.clone(),
+                        engine_evidence: Some(engine_evidence.clone()),
+                        network_evidence: Some(network_evidence.clone()),
+                    });
+                    error
+                })?;
+                let context = IdentityDerivationContext {
+                    silo_id: silo.id,
+                    seed_reference: silo.seed_reference,
+                    template_id: identity.template_id,
+                    session_id,
+                    issued_at,
+                    expires_at: issued_at
+                        + ChronoDuration::minutes(DEFAULT_SESSION_TOKEN_LIFETIME_MINUTES),
+                };
+                engine_request.derived_token = Some(
+                    adapter
+                        .derive_identity_token(&context, deriver)
+                        .map_err(|error| {
+                            let error = LauncherError::Engine(error.to_string());
+                            self.activation = Some(RuntimeActivation {
+                                active_silo_id: None,
+                                state: RuntimeState::VerificationFailed,
+                                updated_at: Utc::now(),
+                                message: Some(error.to_string()),
+                                browser_verification: browser_verification.clone(),
+                                engine_evidence: Some(engine_evidence.clone()),
+                                network_evidence: Some(network_evidence.clone()),
+                            });
+                            error
+                        })?,
                 );
-                self.activation = Some(RuntimeActivation {
-                    active_silo_id: None,
-                    state: RuntimeState::VerificationFailed,
-                    updated_at: Utc::now(),
-                    message: Some(error.to_string()),
-                    browser_verification: browser_verification.clone(),
-                    engine_evidence: Some(engine_evidence.clone()),
-                    network_evidence: Some(network_evidence.clone()),
-                });
-                error
-            })?;
-            let context = IdentityDerivationContext {
-                silo_id: silo.id,
-                seed_reference: silo.seed_reference,
-                template_id: identity.template_id,
-                session_id,
-                issued_at,
-                expires_at: issued_at
-                    + ChronoDuration::minutes(DEFAULT_SESSION_TOKEN_LIFETIME_MINUTES),
-            };
-            engine_request.derived_token = Some(
-                adapter
-                    .derive_identity_token(&context, deriver)
-                    .map_err(|error| {
-                        let error = LauncherError::Engine(error.to_string());
-                        self.activation = Some(RuntimeActivation {
-                            active_silo_id: None,
-                            state: RuntimeState::VerificationFailed,
-                            updated_at: Utc::now(),
-                            message: Some(error.to_string()),
-                            browser_verification: browser_verification.clone(),
-                            engine_evidence: Some(engine_evidence.clone()),
-                            network_evidence: Some(network_evidence.clone()),
-                        });
-                        error
-                    })?,
-            );
+            }
         }
         let engine_plan = adapter.launch_plan(&engine_request).map_err(|error| {
             let error = LauncherError::Engine(error.to_string());
@@ -948,18 +1440,26 @@ impl RuntimeManager {
                     &error,
                     LauncherError::Bootstrap(_) | LauncherError::RuntimeReceipt(_)
                 );
-                match &error {
-                    LauncherError::Bootstrap(_) => {
-                        engine_evidence.bootstrap_delivery = RuntimeEvidenceState::Failed;
-                        engine_evidence.runtime_receipts = RuntimeEvidenceState::NotRequested;
+                if engine_plan.transport == EngineTransport::CamoufoxHostJsonlV1 {
+                    engine_evidence.launched_adapter = Some(configured_adapter);
+                    engine_evidence.host_launch = RuntimeEvidenceState::Failed;
+                    engine_evidence.bootstrap_delivery = RuntimeEvidenceState::NotApplicable;
+                    engine_evidence.runtime_receipts = RuntimeEvidenceState::NotApplicable;
+                    engine_evidence.restore_receipt = RuntimeEvidenceState::NotApplicable;
+                } else {
+                    match &error {
+                        LauncherError::Bootstrap(_) => {
+                            engine_evidence.bootstrap_delivery = RuntimeEvidenceState::Failed;
+                            engine_evidence.runtime_receipts = RuntimeEvidenceState::NotRequested;
+                        }
+                        LauncherError::RuntimeReceipt(_) => {
+                            engine_evidence.launched_adapter = Some(configured_adapter);
+                            engine_evidence.bootstrap_delivery = RuntimeEvidenceState::Verified;
+                            engine_evidence.runtime_receipts = RuntimeEvidenceState::Failed;
+                            engine_evidence.restore_receipt = RuntimeEvidenceState::Unavailable;
+                        }
+                        _ => {}
                     }
-                    LauncherError::RuntimeReceipt(_) => {
-                        engine_evidence.launched_adapter = Some(configured_adapter);
-                        engine_evidence.bootstrap_delivery = RuntimeEvidenceState::Verified;
-                        engine_evidence.runtime_receipts = RuntimeEvidenceState::Failed;
-                        engine_evidence.restore_receipt = RuntimeEvidenceState::Unavailable;
-                    }
-                    _ => {}
                 }
                 self.activation = Some(RuntimeActivation {
                     active_silo_id: None,
@@ -1009,7 +1509,9 @@ impl RuntimeManager {
             }
         }
 
-        if externally_packaged && bootstrap_ack.is_none() {
+        let uses_native_bootstrap = engine_plan.transport == EngineTransport::NativeBootstrapV1;
+        let uses_camoufox_host = engine_plan.transport == EngineTransport::CamoufoxHostJsonlV1;
+        if uses_native_bootstrap && bootstrap_ack.is_none() {
             terminate_just_spawned_child(&mut child);
             engine_evidence.bootstrap_delivery = RuntimeEvidenceState::Failed;
             network_evidence.browser_routing = RuntimeEvidenceState::Failed;
@@ -1027,7 +1529,7 @@ impl RuntimeManager {
             });
             return Err(error);
         }
-        if externally_packaged && runtime.is_none() {
+        if uses_native_bootstrap && runtime.is_none() {
             terminate_just_spawned_child(&mut child);
             engine_evidence.bootstrap_delivery = RuntimeEvidenceState::Verified;
             engine_evidence.runtime_receipts = RuntimeEvidenceState::Failed;
@@ -1050,13 +1552,67 @@ impl RuntimeManager {
 
         let pid = child.id();
         engine_evidence.launched_adapter = Some(configured_adapter);
-        if externally_packaged {
+        if uses_native_bootstrap {
             engine_evidence.bootstrap_delivery = RuntimeEvidenceState::Verified;
-            let execution = runtime.as_ref().expect("checked controlled runtime stream");
+            let EngineRuntimeProtocol::Native { execution, .. } =
+                runtime.as_ref().expect("checked controlled runtime stream")
+            else {
+                unreachable!("native transport must carry native runtime protocol")
+            };
             engine_evidence.runtime_receipts = RuntimeEvidenceState::Verified;
             engine_evidence.restore_receipt = RuntimeEvidenceState::NotRequested;
             engine_evidence.verified_adapter = Some(configured_adapter);
-            engine_evidence.sync_control_execution(&execution.execution);
+            engine_evidence.sync_control_execution(execution);
+        } else if uses_camoufox_host {
+            let host_runtime = runtime.as_ref().and_then(|runtime| match runtime {
+                EngineRuntimeProtocol::CamoufoxHost(host) => Some(host),
+                EngineRuntimeProtocol::Native { .. } => None,
+            });
+            if host_runtime.is_none() {
+                terminate_just_spawned_child(&mut child);
+                engine_evidence.host_launch = RuntimeEvidenceState::Failed;
+                network_evidence.browser_routing = RuntimeEvidenceState::Failed;
+                let error = LauncherError::RuntimeReceipt(
+                    "Camoufox Host launch returned without its bound JSONL session".to_owned(),
+                );
+                self.activation = Some(RuntimeActivation {
+                    active_silo_id: None,
+                    state: RuntimeState::VerificationFailed,
+                    updated_at: Utc::now(),
+                    message: Some(error.to_string()),
+                    browser_verification: browser_verification.clone(),
+                    engine_evidence: Some(engine_evidence),
+                    network_evidence: Some(network_evidence),
+                });
+                return Err(error);
+            }
+            engine_evidence.host_launch = RuntimeEvidenceState::Observed;
+            engine_evidence.bootstrap_delivery = RuntimeEvidenceState::NotApplicable;
+            engine_evidence.runtime_receipts = RuntimeEvidenceState::NotApplicable;
+            engine_evidence.restore_receipt = RuntimeEvidenceState::NotApplicable;
+            engine_evidence.verified_adapter = None;
+            apply_camoufox_host_capability_evidence(
+                &mut engine_evidence,
+                &engine_plan.capabilities,
+                host_runtime.expect("checked Camoufox Host runtime"),
+            )
+            .map_err(|error| {
+                terminate_just_spawned_child(&mut child);
+                let error = LauncherError::RuntimeReceipt(error);
+                self.activation = Some(RuntimeActivation {
+                    active_silo_id: None,
+                    state: RuntimeState::VerificationFailed,
+                    updated_at: Utc::now(),
+                    message: Some(error.to_string()),
+                    browser_verification: browser_verification.clone(),
+                    engine_evidence: Some(engine_evidence.clone()),
+                    network_evidence: Some({
+                        network_evidence.browser_routing = RuntimeEvidenceState::Failed;
+                        network_evidence.clone()
+                    }),
+                });
+                error
+            })?;
         }
         network_evidence.browser_routing = RuntimeEvidenceState::Applied;
         let started_at = Utc::now();
@@ -1363,21 +1919,22 @@ impl RuntimeManager {
         let mut changed = false;
         let mut failure = None;
         let mut snapshot = None;
-        if let Some(runtime) = self.engine_runtime.as_mut() {
+        if let Some(EngineRuntimeProtocol::Native {
+            receiver,
+            execution,
+        }) = self.engine_runtime.as_mut()
+        {
             loop {
                 let event = if let Some(deadline) = deadline {
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     if remaining.is_zero() {
                         break;
                     }
-                    match runtime
-                        .receiver
-                        .recv_timeout(remaining.min(Duration::from_millis(20)))
-                    {
+                    match receiver.recv_timeout(remaining.min(Duration::from_millis(20))) {
                         Ok(event) => Some(event),
                         Err(mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(mpsc::RecvTimeoutError::Disconnected) => {
-                            if !child_exited && !runtime.execution.restore_complete() {
+                            if !child_exited && !execution.restore_complete() {
                                 failure = Some(
                                     "controlled engine runtime receipt channel closed while the process was still active"
                                         .to_owned(),
@@ -1387,11 +1944,11 @@ impl RuntimeManager {
                         }
                     }
                 } else {
-                    match runtime.receiver.try_recv() {
+                    match receiver.try_recv() {
                         Ok(event) => Some(event),
                         Err(mpsc::TryRecvError::Empty) => None,
                         Err(mpsc::TryRecvError::Disconnected) => {
-                            if !child_exited && !runtime.execution.restore_complete() {
+                            if !child_exited && !execution.restore_complete() {
                                 failure = Some(
                                     "controlled engine runtime receipt channel closed while the process was still active"
                                         .to_owned(),
@@ -1406,9 +1963,8 @@ impl RuntimeManager {
                 };
                 match event {
                     EngineProtocolEvent::Receipt(Ok(frame)) => {
-                        if let Err(error) = runtime
-                            .execution
-                            .apply_runtime_receipt(frame.receipt, frame.issued_at)
+                        if let Err(error) =
+                            execution.apply_runtime_receipt(frame.receipt, frame.issued_at)
                         {
                             failure = Some(error.to_string());
                             break;
@@ -1429,13 +1985,13 @@ impl RuntimeManager {
                 }
             }
             if let Some(reason) = failure.as_deref() {
-                runtime.execution.fail_active_capabilities(
+                execution.fail_active_capabilities(
                     &format!("runtime receipt protocol failed: {reason}"),
                     Utc::now(),
                 );
             }
             if changed || failure.is_some() {
-                snapshot = Some(runtime.execution.clone());
+                snapshot = Some(execution.clone());
             }
         }
 
@@ -1481,6 +2037,52 @@ impl RuntimeManager {
         }
     }
 
+    fn probe_camoufox_host_status(&mut self, deadline: Instant, persist_runtime_record: bool) {
+        let Some(EngineRuntimeProtocol::CamoufoxHost(host)) = self.engine_runtime.as_mut() else {
+            return;
+        };
+        let timeout = deadline
+            .saturating_duration_since(Instant::now())
+            .min(ENGINE_INITIAL_RECEIPT_TIMEOUT);
+        if timeout.is_zero() {
+            return;
+        }
+        let session_id = host.session_id.clone();
+        let binding = host.binding.clone();
+        let result = host
+            .transport
+            .request("status", json!({ "sessionId": session_id }), timeout)
+            .and_then(|value| {
+                serde_json::from_value::<CamoufoxHostStatusResult>(value).map_err(|error| {
+                    LauncherError::RuntimeReceipt(format!(
+                        "invalid Camoufox Host watchdog status response: {error}"
+                    ))
+                })
+            })
+            .and_then(|status| {
+                validate_camoufox_host_status_binding(&status, &session_id, &binding)
+                    .map(|_| status)
+            });
+        match result {
+            Ok(status) => {
+                host.observed_website_digest = status.observed_website_digest;
+            }
+            Err(error) => {
+                self.mark_camoufox_host_failure(format!(
+                    "Camoufox Host watchdog status failed closed: {error}"
+                ));
+            }
+        }
+        if persist_runtime_record
+            && self
+                .activation
+                .as_ref()
+                .is_some_and(|activation| activation.state == RuntimeState::Running)
+        {
+            self.persist_current_record(RuntimeState::Running);
+        }
+    }
+
     fn refresh(&mut self) {
         let cancelled = AtomicBool::new(false);
         self.refresh_until(
@@ -1507,29 +2109,50 @@ impl RuntimeManager {
             child_exited,
             persist_runtime_record,
         );
+        if !child_exited {
+            self.probe_camoufox_host_status(deadline, persist_runtime_record);
+        }
         if child_exited {
             let mut restore_missing = false;
             let mut restore_verified = false;
-            if let Some(mut runtime) = self.engine_runtime.take() {
-                if !normal_exit || !runtime.execution.restore_complete() {
-                    restore_missing = true;
-                    runtime.execution.fail_active_capabilities(
-                        "controlled engine did not exit normally with a bound Restore receipt",
-                        Utc::now(),
-                    );
-                }
-                if let Some(evidence) = self
-                    .activation
-                    .as_mut()
-                    .and_then(|activation| activation.engine_evidence.as_mut())
-                {
-                    evidence.sync_control_execution(&runtime.execution);
-                    if restore_missing {
-                        evidence.restore_receipt = RuntimeEvidenceState::Failed;
-                        evidence.verified_adapter = None;
-                    } else {
-                        evidence.restore_receipt = RuntimeEvidenceState::Verified;
-                        restore_verified = true;
+            let mut camoufox_host_exit_unconfirmed = false;
+            if let Some(runtime) = self.engine_runtime.take() {
+                match runtime {
+                    EngineRuntimeProtocol::Native { mut execution, .. } => {
+                        if !normal_exit || !execution.restore_complete() {
+                            restore_missing = true;
+                            execution.fail_active_capabilities(
+                                "controlled engine did not exit normally with a bound Restore receipt",
+                                Utc::now(),
+                            );
+                        }
+                        if let Some(evidence) = self
+                            .activation
+                            .as_mut()
+                            .and_then(|activation| activation.engine_evidence.as_mut())
+                        {
+                            evidence.sync_control_execution(&execution);
+                            if restore_missing {
+                                evidence.restore_receipt = RuntimeEvidenceState::Failed;
+                                evidence.verified_adapter = None;
+                            } else {
+                                evidence.restore_receipt = RuntimeEvidenceState::Verified;
+                                restore_verified = true;
+                            }
+                        }
+                    }
+                    EngineRuntimeProtocol::CamoufoxHost(host) => {
+                        if !host.closed_confirmed {
+                            camoufox_host_exit_unconfirmed = true;
+                            if let Some(evidence) = self
+                                .activation
+                                .as_mut()
+                                .and_then(|activation| activation.engine_evidence.as_mut())
+                            {
+                                evidence.host_launch = RuntimeEvidenceState::Failed;
+                                evidence.verified_adapter = None;
+                            }
+                        }
                     }
                 }
             } else if let Some(evidence) = self
@@ -1569,6 +2192,28 @@ impl RuntimeManager {
                 self.shutdown_relay_for_runtime(silo_id, runtime_id);
             }
             self.child = None;
+            if camoufox_host_exit_unconfirmed {
+                let engine_evidence = self
+                    .activation
+                    .as_ref()
+                    .and_then(|activation| activation.engine_evidence.clone());
+                self.activation = Some(RuntimeActivation {
+                    active_silo_id: relay_binding.map(|binding| binding.0),
+                    state: RuntimeState::VerificationFailed,
+                    updated_at: Utc::now(),
+                    message: Some(
+                        "Camoufox Host exited before close/shutdown and exact process-tree confirmation; profile ownership remains held fail-closed."
+                            .to_owned(),
+                    ),
+                    browser_verification,
+                    engine_evidence,
+                    network_evidence,
+                });
+                if persist_runtime_record {
+                    self.persist_current_record(RuntimeState::VerificationFailed);
+                }
+                return;
+            }
             self.profile_lease = None;
             self.health_context = None;
             self.activation = Some(RuntimeActivation {
@@ -1866,6 +2511,14 @@ fn spawn_engine_child(
     arguments: &[OsString],
     bootstrap: Option<&EngineBootstrapEnvelope>,
 ) -> Result<SpawnedEngine, LauncherError> {
+    if plan.transport == EngineTransport::CamoufoxHostJsonlV1 {
+        if bootstrap.is_some() {
+            return Err(LauncherError::Engine(
+                "Camoufox Host transport cannot carry a native bootstrap envelope".to_owned(),
+            ));
+        }
+        return spawn_camoufox_host(plan, arguments);
+    }
     let mut child = spawn_engine_child_with(
         plan,
         arguments,
@@ -1930,10 +2583,302 @@ fn spawn_engine_child(
     Ok(SpawnedEngine {
         child,
         bootstrap_ack: Some(ack),
-        runtime: Some(EngineRuntimeProtocol {
+        runtime: Some(EngineRuntimeProtocol::Native {
             receiver,
             execution,
         }),
+    })
+}
+
+fn spawn_camoufox_host(
+    plan: &EngineLaunchPlan,
+    arguments: &[OsString],
+) -> Result<SpawnedEngine, LauncherError> {
+    let binding = plan.camoufox_host.as_ref().ok_or_else(|| {
+        LauncherError::Engine(
+            "Camoufox Host transport has no typed artifact/profile/package binding".to_owned(),
+        )
+    })?;
+    if plan.adapter.id != crate::engine::EngineAdapterId::Camoufox
+        || binding.protocol != CAMOUFOX_HOST_PROTOCOL
+        || plan.shell
+    {
+        return Err(LauncherError::Engine(
+            "Camoufox Host transport has an invalid adapter, protocol, or shell boundary"
+                .to_owned(),
+        ));
+    }
+    let mut command = Command::new(&plan.executable_path);
+    command.args(arguments);
+    command.stdin(Stdio::piped());
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::null());
+    let mut child = command.spawn().map_err(LauncherError::Spawn)?;
+    let mut transport = match CamoufoxHostTransport::attach(&mut child) {
+        Ok(transport) => transport,
+        Err(error) => {
+            terminate_just_spawned_child(&mut child);
+            return Err(error);
+        }
+    };
+    let hello_value = match transport.request("hello", json!({}), ENGINE_BOOTSTRAP_ACK_TIMEOUT) {
+        Ok(value) => value,
+        Err(error) => {
+            terminate_just_spawned_child(&mut child);
+            return Err(error);
+        }
+    };
+    let hello: CamoufoxHostHello = match serde_json::from_value(hello_value)
+        .map_err(|error| {
+            LauncherError::RuntimeReceipt(format!("invalid Camoufox Host hello: {error}"))
+        })
+        .and_then(|hello| validate_camoufox_host_hello(&hello, binding, arguments).map(|_| hello))
+    {
+        Ok(hello) => hello,
+        Err(error) => {
+            terminate_just_spawned_child(&mut child);
+            return Err(error);
+        }
+    };
+    let launch_value = match transport.request(
+        "launch",
+        json!({
+            "artifactId": binding.artifact_id,
+            "profileId": binding.profile_id,
+            "expectedArtifactFileSha256": binding.artifact_file_sha256,
+        }),
+        ENGINE_INITIAL_RECEIPT_TIMEOUT,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            terminate_just_spawned_child(&mut child);
+            return Err(error);
+        }
+    };
+    let launch: CamoufoxHostLaunchResult = match serde_json::from_value(launch_value)
+        .map_err(|error| {
+            LauncherError::RuntimeReceipt(format!("invalid Camoufox Host launch response: {error}"))
+        })
+        .and_then(|launch| validate_camoufox_host_launch(&launch, binding).map(|_| launch))
+    {
+        Ok(launch) => launch,
+        Err(error) => {
+            terminate_just_spawned_child(&mut child);
+            return Err(error);
+        }
+    };
+    let status_value = match transport.request(
+        "status",
+        json!({ "sessionId": launch.session_id }),
+        ENGINE_INITIAL_RECEIPT_TIMEOUT,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            terminate_just_spawned_child(&mut child);
+            return Err(error);
+        }
+    };
+    let status: CamoufoxHostStatusResult = match serde_json::from_value(status_value)
+        .map_err(|error| {
+            LauncherError::RuntimeReceipt(format!("invalid Camoufox Host status response: {error}"))
+        })
+        .and_then(|status| validate_camoufox_host_status(&status, &launch, binding).map(|_| status))
+    {
+        Ok(status) => status,
+        Err(error) => {
+            terminate_just_spawned_child(&mut child);
+            return Err(error);
+        }
+    };
+    let _ = status;
+    Ok(SpawnedEngine {
+        child,
+        bootstrap_ack: None,
+        runtime: Some(EngineRuntimeProtocol::CamoufoxHost(Box::new(
+            CamoufoxHostRuntime {
+                transport,
+                session_id: launch.session_id,
+                binding: binding.clone(),
+                observed_website_digest: launch.observed_website_digest,
+                evidence_class: launch
+                    .evidence_class
+                    .or(Some(hello.evidence_class))
+                    .unwrap_or_else(|| "observed-on-this-host".to_owned()),
+                closed_confirmed: false,
+            },
+        ))),
+    })
+}
+
+fn validate_camoufox_host_hello(
+    hello: &CamoufoxHostHello,
+    binding: &CamoufoxHostLaunch,
+    arguments: &[OsString],
+) -> Result<(), LauncherError> {
+    let expected_roots = ["--artifact-root", "--profile-root", "--state-root"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, label)| {
+            arguments
+                .iter()
+                .position(|argument| argument == label)
+                .and_then(|position| arguments.get(position + 1))
+                .map(|value| value.to_string_lossy().into_owned())
+                .ok_or_else(|| {
+                    LauncherError::RuntimeReceipt(format!(
+                        "Camoufox Host arguments are missing {label}"
+                    ))
+                })
+                .map(|root| (index, root))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if hello.protocol != binding.protocol
+        || hello.host_version != binding.host_version
+        || hello.platform != binding.platform
+        || hello.browser_release != binding.browser_release
+        || hello.asset_sha256 != binding.browser_asset_sha256
+        || hello.tree_manifest_sha256 != binding.tree_manifest_sha256
+        || hello.max_frame_bytes != MAX_CAMOUFOX_HOST_FRAME_BYTES
+        || hello.probe_port_policy != "ephemeral"
+        || hello.state != "idle"
+        || hello.verified
+        || hello.evidence_class != "observed-on-this-host"
+        || canonical_host_path(&hello.tree_manifest)?
+            != canonical_host_path(&binding.tree_manifest_path.to_string_lossy())?
+        || hello.artifact_root != expected_roots[0].1
+        || hello.profile_root != expected_roots[1].1
+        || hello.state_root != expected_roots[2].1
+    {
+        return Err(LauncherError::RuntimeReceipt(
+            "Camoufox Host hello did not match protocol, version, platform, asset, tree, roots, or honest evidence bindings"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_camoufox_host_launch(
+    launch: &CamoufoxHostLaunchResult,
+    binding: &CamoufoxHostLaunch,
+) -> Result<(), LauncherError> {
+    if launch.state != "running"
+        || launch.artifact_id != binding.artifact_id
+        || launch.profile_id != binding.profile_id
+        || launch.artifact_file_sha256 != binding.artifact_file_sha256
+        || launch.observed_website_digest.is_none()
+        || launch.verified != Some(false)
+        || launch.evidence_class.as_deref() != Some("observed-on-this-host")
+    {
+        return Err(LauncherError::RuntimeReceipt(
+            "Camoufox Host launch response did not prove the bound Artifact/profile or honest running state"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_camoufox_host_status(
+    status: &CamoufoxHostStatusResult,
+    launch: &CamoufoxHostLaunchResult,
+    binding: &CamoufoxHostLaunch,
+) -> Result<(), LauncherError> {
+    validate_camoufox_host_status_binding(status, &launch.session_id, binding)
+}
+
+fn validate_camoufox_host_status_binding(
+    status: &CamoufoxHostStatusResult,
+    session_id: &str,
+    binding: &CamoufoxHostLaunch,
+) -> Result<(), LauncherError> {
+    if status.state != "running"
+        || status.session_id.as_deref() != Some(session_id)
+        || status.artifact_id.as_deref() != Some(binding.artifact_id.as_str())
+        || status.profile_id.as_deref() != Some(binding.profile_id.as_str())
+        || status.artifact_file_sha256.as_deref() != Some(binding.artifact_file_sha256.as_str())
+        || status.observed_website_digest.is_none()
+        || status.verified != Some(false)
+        || status.evidence_class.as_deref() != Some("observed-on-this-host")
+        || status.quarantine.is_some()
+        || status.failure.is_some()
+    {
+        return Err(LauncherError::RuntimeReceipt(
+            "Camoufox Host status response did not preserve the exact running binding".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_camoufox_host_close(
+    close: &CamoufoxHostCloseResult,
+    binding: &CamoufoxHostLaunch,
+    session_id: &str,
+) -> Result<(), LauncherError> {
+    let tree_exited = close
+        .process_tree_exit
+        .as_ref()
+        .and_then(|value| value.get("exited"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    if close.session_id != session_id
+        || close.state != "exited"
+        || close.exit_status != Some(0)
+        || close.exit_file_observed != Some(true)
+        || !tree_exited
+        || close.quarantine.is_some()
+    {
+        return Err(LauncherError::RuntimeReceipt(format!(
+            "Camoufox Host close did not confirm an exited, non-quarantined exact process tree for {}",
+            binding.profile_id
+        )));
+    }
+    Ok(())
+}
+
+fn validate_camoufox_host_shutdown(
+    shutdown: &CamoufoxHostShutdownResult,
+) -> Result<(), LauncherError> {
+    if shutdown.state != "shutdown"
+        || !shutdown.self_check.argv_matches.is_empty()
+        || !shutdown.self_check.stderr_log_matches.is_empty()
+    {
+        return Err(LauncherError::RuntimeReceipt(
+            "Camoufox Host shutdown self-check did not pass".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn apply_camoufox_host_capability_evidence(
+    evidence: &mut RuntimeEngineEvidence,
+    plan: &[EngineCapabilityState],
+    host: &CamoufoxHostRuntime,
+) -> Result<(), String> {
+    let mut capabilities = plan.to_vec();
+    let host_evidence = format!(
+        "camoufox-host/v1 running; evidenceClass={}",
+        host.evidence_class
+    );
+    for capability in &mut capabilities {
+        if capability.operation == EngineCapabilityOperation::Configured {
+            capability
+                .transition(
+                    crate::engine::EngineCapabilityOperation::Applied,
+                    vec![host_evidence.clone()],
+                    Utc::now(),
+                )
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    evidence.capabilities = capabilities;
+    Ok(())
+}
+
+fn canonical_host_path(value: &str) -> Result<PathBuf, LauncherError> {
+    let path = PathBuf::from(value);
+    path.canonicalize().map_err(|error| {
+        LauncherError::RuntimeReceipt(format!(
+            "Camoufox Host binding path is not resolvable: {error}"
+        ))
     })
 }
 
@@ -2339,7 +3284,7 @@ fn preflight_proxy(
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsString, fs, net::TcpListener, path::PathBuf};
+    use std::{ffi::OsString, fs, io::Cursor, net::TcpListener, path::PathBuf};
 
     #[cfg(unix)]
     use std::{
@@ -2368,12 +3313,12 @@ mod tests {
     #[cfg(unix)]
     use crate::domain::{ExternalMihomoBinding, ProxyScheme};
     use crate::engine::{
-        BrowserFamily, DerivedIdentityToken, EngineAdapterId, EngineBootstrapEnvelope,
-        EngineCapabilityAvailability, EngineCapabilityId, EngineCapabilityOperation,
-        EngineCapabilityState, EngineChannel, EngineControlPhase, EngineControlPlan,
-        EngineDescriptor, EngineLaunchPackageVerification, EngineLaunchPlan, IdentityDelivery,
-        IdentityDeliveryRequirement, IdentityTemplate, SiteFallbackAction, SiteFallbackPolicy,
-        SiteFallbackRule, ENGINE_CONTRACT_VERSION,
+        BrowserFamily, CamoufoxHostLaunch, DerivedIdentityToken, EngineAdapterId,
+        EngineBootstrapEnvelope, EngineCapabilityAvailability, EngineCapabilityId,
+        EngineCapabilityOperation, EngineCapabilityState, EngineChannel, EngineControlPhase,
+        EngineControlPlan, EngineDescriptor, EngineLaunchPackageVerification, EngineLaunchPlan,
+        EngineTransport, IdentityDelivery, IdentityDeliveryRequirement, IdentityTemplate,
+        SiteFallbackAction, SiteFallbackPolicy, SiteFallbackRule, ENGINE_CONTRACT_VERSION,
     };
     use crate::native_host::{
         NativeDnsObservation, NativeDnsState, NativeDnssecState, NativeIpExitObservation,
@@ -2689,6 +3634,7 @@ mod tests {
                 externally_packaged: true,
                 emergency_disabled: false,
             },
+            transport: EngineTransport::NativeBootstrapV1,
             executable_path,
             arguments: vec!["--verisilo-control-channel=stdio-v1".to_owned()],
             profile_directory: std::env::temp_dir().join("verisilo-controlled-profile"),
@@ -2700,6 +3646,7 @@ mod tests {
                 expires_at: Utc::now() + chrono::Duration::minutes(30),
             }),
             control: None,
+            camoufox_host: None,
             package_verification: None,
         }
     }
@@ -2797,6 +3744,7 @@ mod tests {
                 externally_packaged: true,
                 emergency_disabled: false,
             },
+            transport: EngineTransport::NativeBootstrapV1,
             executable_path: PathBuf::from("node"),
             arguments: Vec::new(),
             profile_directory: std::env::temp_dir().join("verisilo-protocol-profile"),
@@ -2808,6 +3756,7 @@ mod tests {
                 expires_at: token.expires_at,
             }),
             control: Some(control),
+            camoufox_host: None,
             package_verification: Some(EngineLaunchPackageVerification {
                 verifier_id: "test-command-e2e".to_owned(),
                 artifact_sha256: "a".repeat(64),
@@ -2976,6 +3925,270 @@ process.stdin.on('end', () => {
     }
 
     #[test]
+    fn fake_camoufox_host_jsonl_launch_close_shutdown_is_bound_and_secret_free() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-camoufox-host-test-{}", Uuid::new_v4()));
+        let artifact_root = root.join("artifacts");
+        let profile_root = root.join("profiles");
+        let state_root = root.join("state");
+        fs::create_dir_all(&artifact_root).expect("fake artifact root");
+        fs::create_dir_all(&profile_root).expect("fake profile root");
+        fs::create_dir_all(&state_root).expect("fake state root");
+        let tree_manifest_path = root.join("package-tree.json");
+        fs::write(&tree_manifest_path, b"{\"schema\":\"fake\"}\n").expect("fake tree");
+        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../tests/fixtures/camoufox/fake-host-v1.py");
+        let platform = if cfg!(target_os = "windows") {
+            "windows-x64"
+        } else {
+            "linux-x64"
+        };
+        let binding = CamoufoxHostLaunch {
+            protocol: super::CAMOUFOX_HOST_PROTOCOL.to_owned(),
+            host_version: "0.1.0".to_owned(),
+            platform: platform.to_owned(),
+            artifact_id: "identity-m3-fake".to_owned(),
+            artifact_file_sha256: "a".repeat(64),
+            profile_id: "silo-22222222222222222222222222222222".to_owned(),
+            browser_release: "152.0.4-beta.28".to_owned(),
+            browser_asset_sha256: "b".repeat(64),
+            tree_manifest_path: tree_manifest_path.clone(),
+            tree_manifest_sha256:
+                "5d8f88f833ac9cc590b1b154fa37f48834b848881dca0472726c950433517275".to_owned(),
+        };
+        let python = if cfg!(target_os = "windows") {
+            "python"
+        } else {
+            "python3"
+        };
+        let arguments = vec![
+            OsString::from("-u"),
+            OsString::from(script.to_string_lossy().into_owned()),
+            OsString::from("--artifact-root"),
+            OsString::from(artifact_root.to_string_lossy().into_owned()),
+            OsString::from("--profile-root"),
+            OsString::from(profile_root.to_string_lossy().into_owned()),
+            OsString::from("--state-root"),
+            OsString::from(state_root.to_string_lossy().into_owned()),
+            OsString::from("--tree-manifest"),
+            OsString::from(tree_manifest_path.to_string_lossy().into_owned()),
+        ];
+        for argument in &arguments {
+            let argument = argument.to_string_lossy();
+            assert!(!argument.contains("seed"));
+            assert!(!argument.contains("token"));
+            assert!(!argument.contains("secret"));
+            assert!(!argument.contains("proxy"));
+        }
+        let plan = EngineLaunchPlan {
+            adapter: EngineDescriptor {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                id: EngineAdapterId::Camoufox,
+                adapter_version: "m3-test".to_owned(),
+                engine_version: binding.browser_release.clone(),
+                channel: EngineChannel::Experimental,
+                browser_family: BrowserFamily::Firefox,
+                platform: binding.platform.clone(),
+                externally_packaged: true,
+                emergency_disabled: false,
+            },
+            transport: EngineTransport::CamoufoxHostJsonlV1,
+            executable_path: PathBuf::from(python),
+            arguments: arguments
+                .iter()
+                .map(|value| value.to_string_lossy().into_owned())
+                .collect(),
+            profile_directory: profile_root.join(&binding.profile_id),
+            shell: false,
+            capabilities: Vec::new(),
+            identity_delivery: None,
+            control: None,
+            camoufox_host: Some(binding.clone()),
+            package_verification: None,
+        };
+        let mut spawned = super::spawn_camoufox_host(&plan, &arguments).expect("fake Host launch");
+        {
+            let super::EngineRuntimeProtocol::CamoufoxHost(host) =
+                spawned.runtime.as_mut().expect("Host runtime")
+            else {
+                panic!("fake Host did not use the Host transport");
+            };
+            assert_eq!(host.session_id, "11111111-1111-4111-8111-111111111111");
+            assert_eq!(host.binding.artifact_id, binding.artifact_id);
+            let close_value = host
+                .transport
+                .request(
+                    "close",
+                    serde_json::json!({ "sessionId": host.session_id }),
+                    super::ENGINE_INITIAL_RECEIPT_TIMEOUT,
+                )
+                .expect("fake Host close");
+            let close: super::CamoufoxHostCloseResult =
+                serde_json::from_value(close_value).expect("close response");
+            super::validate_camoufox_host_close(&close, &binding, &host.session_id)
+                .expect("close binding");
+            host.closed_confirmed = true;
+            let shutdown_value = host
+                .transport
+                .request(
+                    "shutdown",
+                    serde_json::json!({}),
+                    super::ENGINE_INITIAL_RECEIPT_TIMEOUT,
+                )
+                .expect("fake Host shutdown");
+            let shutdown: super::CamoufoxHostShutdownResult =
+                serde_json::from_value(shutdown_value).expect("shutdown response");
+            super::validate_camoufox_host_shutdown(&shutdown).expect("shutdown self-check");
+            for wire in &host.transport.wire_snapshot {
+                let wire = String::from_utf8_lossy(wire);
+                assert!(!wire.contains("seed"));
+                assert!(!wire.contains("token"));
+                assert!(!wire.contains("secret"));
+                assert!(!wire.contains("proxy"));
+            }
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let status = loop {
+            if let Some(status) = spawned.child.try_wait().expect("wait fake Host") {
+                break status;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "fake Host child did not exit"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert!(status.success());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn camoufox_host_jsonl_framing_and_quarantine_fail_closed() {
+        let mut empty = Cursor::new(Vec::<u8>::new());
+        assert!(matches!(
+            super::read_camoufox_host_frame(&mut empty),
+            Ok(None)
+        ));
+
+        let mut partial = Cursor::new(br#"{"id":"m3-1"}"#.to_vec());
+        assert!(super::read_camoufox_host_frame(&mut partial).is_err());
+
+        let mut oversized = Cursor::new(vec![b'x'; super::MAX_CAMOUFOX_HOST_FRAME_BYTES + 1]);
+        assert!(super::read_camoufox_host_frame(&mut oversized)
+            .expect_err("oversized Host frame")
+            .contains("32 KiB"));
+
+        let mut duplicate = Cursor::new(
+            br#"{"id":"m3-1","id":"m3-2"}
+"#
+            .to_vec(),
+        );
+        let frame = super::read_camoufox_host_frame(&mut duplicate)
+            .expect("duplicate frame read")
+            .expect("duplicate frame");
+        assert!(
+            crate::engine::strict_json_from_slice::<super::CamoufoxHostResponse>(&frame).is_err()
+        );
+
+        let binding = CamoufoxHostLaunch {
+            protocol: super::CAMOUFOX_HOST_PROTOCOL.to_owned(),
+            host_version: "0.1.0".to_owned(),
+            platform: "windows-x64".to_owned(),
+            artifact_id: "identity-m3-fake".to_owned(),
+            artifact_file_sha256: "a".repeat(64),
+            profile_id: "silo-fake".to_owned(),
+            browser_release: "152.0.4-beta.28".to_owned(),
+            browser_asset_sha256: "b".repeat(64),
+            tree_manifest_path: PathBuf::from("C:\\verisilo\\tree.json"),
+            tree_manifest_sha256: "c".repeat(64),
+        };
+        let close = |tree_exited: bool, quarantine: Option<serde_json::Value>| {
+            super::CamoufoxHostCloseResult {
+                session_id: "session-fake".to_owned(),
+                state: "exited".to_owned(),
+                exit_status: Some(0),
+                exit_file_observed: Some(true),
+                process_tree_exit: Some(serde_json::json!({"exited": tree_exited})),
+                cookie_sqlite: None,
+                quarantine,
+                close_seconds: None,
+            }
+        };
+        assert!(
+            super::validate_camoufox_host_close(&close(true, None), &binding, "session-fake")
+                .is_ok()
+        );
+        assert!(
+            super::validate_camoufox_host_close(&close(false, None), &binding, "session-fake")
+                .is_err()
+        );
+        assert!(super::validate_camoufox_host_close(
+            &close(true, Some(serde_json::json!({"reason":"quarantined"}))),
+            &binding,
+            "session-fake"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn fake_camoufox_host_timeout_and_early_exit_fail_closed() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-camoufox-host-failure-{}", Uuid::new_v4()));
+        let artifact_root = root.join("artifacts");
+        let profile_root = root.join("profiles");
+        let state_root = root.join("state");
+        fs::create_dir_all(&artifact_root).expect("fake artifact root");
+        fs::create_dir_all(&profile_root).expect("fake profile root");
+        fs::create_dir_all(&state_root).expect("fake state root");
+        let tree_manifest_path = root.join("package-tree.json");
+        fs::write(&tree_manifest_path, b"{\"schema\":\"fake\"}\n").expect("fake tree");
+        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../tests/fixtures/camoufox/fake-host-v1.py");
+        let python = if cfg!(target_os = "windows") {
+            "python"
+        } else {
+            "python3"
+        };
+
+        for (mode, expected) in [("timeout", "timeout"), ("eof", "eof")] {
+            let arguments = vec![
+                std::ffi::OsString::from("-u"),
+                std::ffi::OsString::from(script.to_string_lossy().into_owned()),
+                std::ffi::OsString::from("--artifact-root"),
+                std::ffi::OsString::from(artifact_root.to_string_lossy().into_owned()),
+                std::ffi::OsString::from("--profile-root"),
+                std::ffi::OsString::from(profile_root.to_string_lossy().into_owned()),
+                std::ffi::OsString::from("--state-root"),
+                std::ffi::OsString::from(state_root.to_string_lossy().into_owned()),
+                std::ffi::OsString::from("--tree-manifest"),
+                std::ffi::OsString::from(tree_manifest_path.to_string_lossy().into_owned()),
+                std::ffi::OsString::from("--mode"),
+                std::ffi::OsString::from(mode),
+            ];
+            let mut child = std::process::Command::new(python)
+                .args(&arguments)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("start fake Host failure mode");
+            let mut transport = super::CamoufoxHostTransport::attach(&mut child)
+                .expect("attach fake Host failure mode");
+            let error = transport
+                .request(
+                    "hello",
+                    serde_json::json!({}),
+                    std::time::Duration::from_millis(50),
+                )
+                .expect_err("failure mode must not return a Host response");
+            assert!(error.to_string().to_ascii_lowercase().contains(expected));
+            drop(transport);
+            super::terminate_just_spawned_child(&mut child);
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn fake_controlled_command_completes_bound_bootstrap_ack_e2e() {
         let _reservation = reserve_fake_controlled_engine_test();
         let (plan, envelope, arguments) = protocol_fixture();
@@ -2988,16 +4201,18 @@ process.stdin.on('end', () => {
             ack.package.artifact_sha256,
             envelope.package.artifact_sha256
         );
-        assert!(spawned
-            .runtime
-            .as_ref()
-            .is_some_and(|runtime| runtime.execution.launch_evidence_complete()));
+        assert!(spawned.runtime.as_ref().is_some_and(|runtime| matches!(
+            runtime,
+            super::EngineRuntimeProtocol::Native { execution, .. }
+                if execution.launch_evidence_complete()
+        )));
         assert_eq!(
             spawned
                 .runtime
                 .as_ref()
                 .expect("runtime protocol")
-                .execution
+                .native_execution()
+                .expect("native runtime")
                 .phase_receipts
                 .len(),
             3
@@ -3016,7 +4231,9 @@ process.stdin.on('end', () => {
         engine_evidence.bootstrap_delivery = RuntimeEvidenceState::Verified;
         engine_evidence.runtime_receipts = RuntimeEvidenceState::Verified;
         if let Some(runtime) = spawned.runtime.as_ref() {
-            engine_evidence.sync_control_execution(&runtime.execution);
+            if let Some(execution) = runtime.native_execution() {
+                engine_evidence.sync_control_execution(execution);
+            }
         }
         RuntimeManager {
             child: Some(spawned.child),

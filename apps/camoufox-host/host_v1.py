@@ -24,6 +24,7 @@ import argparse
 import asyncio
 import contextlib
 import copy
+import hashlib
 import json
 import os
 import re
@@ -296,7 +297,7 @@ class CamoufoxHost:
         self.artifact_root = artifact_root.absolute()
         self.profile_root = profile_root.absolute()
         self.state_root = state_root.absolute()
-        self.tree_manifest = tree_manifest
+        self.tree_manifest = tree_manifest.absolute()
         self.display_arg = display
         self.probe_port = probe_port
         self.playwright: Any = None
@@ -351,6 +352,10 @@ class CamoufoxHost:
             "browserRelease": self.lock["release"],
             "assetSha256": self.lock["sha256"],
             "treeManifest": str(self.tree_manifest),
+            "treeManifestSha256": hashlib.sha256(
+                self.tree_manifest.read_bytes()
+            ).hexdigest(),
+            "platform": "windows-x64" if IS_WINDOWS else "linux-x64",
             "state": self._state(),
             "verified": False,
             "evidenceClass": "observed-on-this-host",
@@ -495,6 +500,8 @@ class CamoufoxHost:
             "managedPids": managed_pids(session),
             "cookieEvidence": session["cookieEvidence"],
             "probePort": session.get("probePort"),
+            "verified": False,
+            "evidenceClass": "observed-on-this-host",
         }
 
     async def _launch_browser(self, session: dict, artifact: dict) -> None:
@@ -829,6 +836,8 @@ class CamoufoxHost:
             "exitFileObserved": session.get("exitFileObserved"),
             "quarantine": session.get("quarantine"),
             "failure": session["failure"],
+            "verified": False,
+            "evidenceClass": "observed-on-this-host",
         }
 
     async def close(self, session_id: str) -> dict:

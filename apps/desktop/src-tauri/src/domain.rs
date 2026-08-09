@@ -952,6 +952,7 @@ pub struct RuntimeEngineEvidence {
     pub verified_adapter: Option<EngineAdapterId>,
     pub package_verification: RuntimeEvidenceState,
     pub bootstrap_delivery: RuntimeEvidenceState,
+    pub host_launch: RuntimeEvidenceState,
     pub runtime_receipts: RuntimeEvidenceState,
     pub restore_receipt: RuntimeEvidenceState,
     pub capabilities: Vec<EngineCapabilityState>,
@@ -961,6 +962,8 @@ pub struct RuntimeEngineEvidence {
 
 impl RuntimeEngineEvidence {
     pub fn configured(adapter: EngineAdapterId, externally_packaged: bool) -> Self {
+        let camoufox_host = adapter == EngineAdapterId::Camoufox;
+        let native_control = externally_packaged && !camoufox_host;
         Self {
             configured_adapter: adapter,
             launched_adapter: None,
@@ -970,17 +973,22 @@ impl RuntimeEngineEvidence {
             } else {
                 RuntimeEvidenceState::NotApplicable
             },
-            bootstrap_delivery: if externally_packaged {
+            bootstrap_delivery: if native_control {
                 RuntimeEvidenceState::NotRequested
             } else {
                 RuntimeEvidenceState::NotApplicable
             },
-            runtime_receipts: if externally_packaged {
+            host_launch: if camoufox_host {
                 RuntimeEvidenceState::NotRequested
             } else {
                 RuntimeEvidenceState::NotApplicable
             },
-            restore_receipt: if externally_packaged {
+            runtime_receipts: if native_control {
+                RuntimeEvidenceState::NotRequested
+            } else {
+                RuntimeEvidenceState::NotApplicable
+            },
+            restore_receipt: if native_control {
                 RuntimeEvidenceState::NotRequested
             } else {
                 RuntimeEvidenceState::NotApplicable
