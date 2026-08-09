@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import copy
 from functools import partial
 import json
@@ -61,7 +62,13 @@ from browser_tree import (
     load_tree_manifest,
     verify_tree,
 )
-from host_platform import IS_WINDOWS, JobHandle, ProfileLock, process_identity_alive
+from host_platform import (
+    IS_WINDOWS,
+    JobHandle,
+    ProfileLock,
+    process_identity_alive,
+    terminate_windows_job,
+)
 from host_fonts import (
     FONT_UNIVERSE,
     host_negative_control_families,
@@ -204,6 +211,75 @@ async def wait_for_configured_media_devices(
         await page.wait_for_timeout(250)
 
 
+async def close_identity_context_bounded(
+    ctx: Any, supervisor_file: Path, timeout_seconds: float = 15.0
+) -> dict:
+    """Bound evidence-side context close and fall back to the named Job."""
+
+    task = asyncio.create_task(ctx.close())
+    started = time.perf_counter()
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+        return {
+            "graceful": True,
+            "timedOut": False,
+            "jobTermination": None,
+            "seconds": round(time.perf_counter() - started, 3),
+        }
+    except asyncio.TimeoutError:
+        if not IS_WINDOWS:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.wait_for(task, timeout=3)
+            raise RuntimeError("identity evidence context close timed out")
+
+        try:
+            metadata = json.loads(supervisor_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            task.cancel()
+            raise RuntimeError(
+                "identity evidence context close timed out without valid supervisor metadata"
+            ) from exc
+        identities = [
+            {
+                "pid": metadata.get("supervisorPid"),
+                "creationTime100ns": metadata.get("supervisorCreationTime100ns"),
+                "role": "supervisor",
+            },
+            {
+                "pid": metadata.get("childPid"),
+                "creationTime100ns": metadata.get("childCreationTime100ns"),
+                "role": "browser",
+            },
+        ]
+        job_result = terminate_windows_job(
+            {
+                "jobHandle": None,
+                "supervisorMeta": metadata,
+                "managedIdentities": identities,
+                "ctx": ctx,
+                "pid": metadata.get("supervisorPid"),
+            },
+            timeout=5,
+        )
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=3)
+        except (asyncio.TimeoutError, Exception):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.wait_for(task, timeout=3)
+        if not job_result.get("exited", False):
+            raise RuntimeError(
+                "identity evidence context close timed out and named Job remained active"
+            )
+        return {
+            "graceful": False,
+            "timedOut": True,
+            "jobTermination": job_result,
+            "seconds": round(time.perf_counter() - started, 3),
+        }
+
+
 async def cold_start(
     playwright: Any,
     artifact_path: Path,
@@ -343,7 +419,7 @@ async def cold_start(
         )
 
     close_start = time.perf_counter()
-    await ctx.close()
+    context_close = await close_identity_context_bounded(ctx, supervisor_file)
     close_seconds = time.perf_counter() - close_start
     if profile_lock is not None:
         profile_lock.release()
@@ -383,6 +459,7 @@ async def cold_start(
         "spawnSeconds": round(spawn_seconds, 3),
         "probeSeconds": round(probe_seconds, 3),
         "closeSeconds": round(close_seconds, 3),
+        "contextClose": context_close,
         "exitStatus": exit_code,
         "exitFileObserved": exit_file_observed,
         "jobObject": job_result,
@@ -830,6 +907,7 @@ def base_report(command: str, result: dict) -> dict:
                 "spawnSeconds": s["spawnSeconds"],
                 "probeSeconds": s["probeSeconds"],
                 "closeSeconds": s["closeSeconds"],
+                "contextClose": s["contextClose"],
                 "exitStatus": s["exitStatus"],
                 "exitFileObserved": s["exitFileObserved"],
                 "jobObject": s.get("jobObject"),
