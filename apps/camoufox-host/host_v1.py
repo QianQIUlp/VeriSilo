@@ -104,7 +104,11 @@ HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 _FRAME_TOO_LARGE = object()
 COOKIE_SQLITE_READ_MAX_ATTEMPTS = 6
 COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS = 0.2
-DIAGNOSTIC_MAX_EVENTS = 128
+# Stage diagnostics are deliberately sampled once per stage/phase.  The Host
+# must remain responsive even when a caller captures stderr without draining
+# it while it performs a long status poll (for example, crash recovery).
+DIAGNOSTIC_MAX_EVENTS = 12
+DIAGNOSTIC_MAX_BYTES = 2048
 DIAGNOSTIC_MAX_LINE_BYTES = 512
 DIAGNOSTIC_STAGES = {
     "browser/context",
@@ -150,6 +154,8 @@ _STDERR_FD = os.dup(2)
 _STDIN_FD = os.dup(0)
 _LOG_FILE: Optional[Any] = None
 _DIAGNOSTIC_EVENTS = 0
+_DIAGNOSTIC_BYTES = 0
+_DIAGNOSTIC_STAGE_EVENTS: dict[str, set[str]] = {}
 
 
 def _send(obj: dict) -> None:
@@ -190,10 +196,13 @@ def _log(message: str) -> None:
 
 def _diagnostic(stage: str, event: str, started: float, failure: str | None = None) -> None:
     """Write one bounded, secret-free lifecycle diagnostic to stderr only."""
-    global _DIAGNOSTIC_EVENTS
+    global _DIAGNOSTIC_BYTES, _DIAGNOSTIC_EVENTS
     if stage not in DIAGNOSTIC_STAGES or _DIAGNOSTIC_EVENTS >= DIAGNOSTIC_MAX_EVENTS:
         return
-    _DIAGNOSTIC_EVENTS += 1
+    stage_events = _DIAGNOSTIC_STAGE_EVENTS.setdefault(stage, set())
+    phase = "terminal" if event in {"success", "failed"} else event
+    if phase in stage_events:
+        return
     payload: dict[str, Any] = {
         "kind": "camoufox-host-stage",
         "stage": stage,
@@ -205,7 +214,14 @@ def _diagnostic(stage: str, event: str, started: float, failure: str | None = No
     encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
     if len(encoded.encode("utf-8")) > DIAGNOSTIC_MAX_LINE_BYTES:
         encoded = '{"kind":"camoufox-host-stage","event":"truncated"}'
-    _log("stage-diagnostic " + encoded)
+    line = "stage-diagnostic " + encoded + "\n"
+    line_bytes = len(line.encode("utf-8"))
+    if _DIAGNOSTIC_BYTES + line_bytes > DIAGNOSTIC_MAX_BYTES:
+        return
+    stage_events.add(phase)
+    _DIAGNOSTIC_EVENTS += 1
+    _DIAGNOSTIC_BYTES += line_bytes
+    _log(line.rstrip("\n"))
 
 
 class _StageDiagnostic:
