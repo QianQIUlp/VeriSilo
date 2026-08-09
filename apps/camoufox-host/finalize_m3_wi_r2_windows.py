@@ -203,7 +203,9 @@ def run_finalization(run_id: str) -> int:
     # Keep the run-owned cache under a short repo path.  The browser seed
     # contains a nested DLL path and Windows' legacy path handling otherwise
     # turns a long run receipt path into WinError 3 during copytree.
-    host_root = REPO_ROOT / "artifacts" / f"r2-host-regression-{run_id.rsplit('-', 1)[-1]}"
+    host_root = REPO_ROOT / "artifacts" / (
+        f"r2-host-regression-{run_id.rsplit('-', 1)[-1]}-{finalization_revision[-8:]}"
+    )
     host_runs = host_root / "runs"
     host_temp = host_root / "temp"
     host_cache = host_root / "empty-cache"
