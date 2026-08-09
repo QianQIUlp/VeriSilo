@@ -407,11 +407,30 @@ def test_profile_lock_and_crash_recovery() -> dict:
         status = None
         while time.monotonic() < deadline:
             status = host2.status(session_id)
-            if status.get("ok") and status["result"]["state"] == "failed":
+            if (
+                status.get("ok")
+                and status["result"]["state"] == "failed"
+                and status["result"].get("closeOutcome") is not None
+                and status["result"].get("processTreeExit", {}).get("exited") is True
+            ):
                 break
             time.sleep(0.5)
-        assert status and status["result"]["state"] == "failed", status
-        relaunch = host2.launch(ARTIFACT, "windows-crash")
+        assert (
+            status
+            and status["result"]["state"] == "failed"
+            and status["result"].get("closeOutcome") is not None
+            and status["result"].get("processTreeExit", {}).get("exited") is True
+        ), status
+        relaunch = None
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            candidate = host2.launch(ARTIFACT, "windows-crash")
+            if candidate.get("ok") is True:
+                relaunch = candidate
+                break
+            assert candidate.get("error", {}).get("code") == "profile_in_use", candidate
+            time.sleep(0.1)
+        assert relaunch is not None
         assert relaunch["ok"] is True, relaunch
         host2.close(relaunch["result"]["sessionId"])
         host2.shutdown()
