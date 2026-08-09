@@ -1,8 +1,32 @@
 # VeriSilo
 
-VeriSilo is a Windows-first, open-source browser environment isolation and privacy-auditing platform for Chrome and Edge.
+VeriSilo is a local-first, open-source platform for managing persistent browser identities, network policy, and privacy evidence. Its current Windows desktop baseline uses stock Chrome and Edge with an independent browser data directory for each Silo.
 
 It creates a new, managed browser data directory for every **Silo**. Browser-owned state—cookies, storage, cache, service workers, permissions, and history—stays in that directory. VeriSilo never imports, clones, or mutates the user's default browser profile.
+
+Current public milestone: [0.1 Identity Isolation Core](docs/milestones/0.1-identity-isolation-core.md). This is a source baseline, not a signed binary release.
+
+## Architecture and roadmap
+
+```text
+Desktop core                 Browser and network               Companion & Native Host
+─────────────────────────    ────────────────────────────      ─────────────────────────
+encrypted Vault              dedicated user-data-dir           optional page observations
+Silo lifecycle               direct · fixed proxy · Mihomo    user-triggered exit checks
+runtime binding              fail-closed launch paths          local redacted reports
+```
+
+The desktop app owns the Silo lifecycle and runtime binding; Chrome or Edge owns the browser files; the optional Companion adds observations and local evidence without becoming the isolation mechanism. Every Silo keeps its own browser state and network profile, and the default browser profile is never imported or modified.
+
+### Roadmap
+
+| Stage                                                                                                  | Status                      |
+| ------------------------------------------------------------------------------------------------------ | --------------------------- |
+| **0.1 source milestone** — identity isolation core works end to end                                    | complete in source, 2026-08 |
+| **Next** — browser-visible fingerprint consistency across Window / iframe / Worker / headers / network | planned, not implemented    |
+| **Gated** — signed Windows distribution, controlled browser engine, stronger environments              | explicit future gates       |
+
+See [the current milestone](docs/milestones/0.1-identity-isolation-core.md) for the exact source scope and [the environment roadmap](docs/environment-roadmap.md) for the stronger layers.
 
 ## What is implemented in this repository
 
@@ -27,13 +51,24 @@ It creates a new, managed browser data directory for every **Silo**. Browser-own
   release gate. Candidate builds also emit a lockfile-to-package-metadata
   license evidence report; every component remains pending explicit human
   license review.
-- Four implemented control layers with explicit runtime gates: independent Silos; V0.7 stock and signed external EngineAdapters; V0.8 WSL/Sandbox/Hyper-V providers; and a V0.9 pinned self-hosted Remote Agent control plane.
+- Four control-plane layers represented in code, each with independent runtime and release gates: independent Silos; V0.7 stock plus a signed-external-package EngineAdapter contract with no accepted production package; V0.8 WSL/Sandbox/Hyper-V providers; and a V0.9 pinned self-hosted Remote Agent control plane.
 
 Network identity design and exact Phase 1/2/3 boundaries are documented in [network identity providers](docs/network-identity-providers.md).
 
 ## Important boundary
 
 The stock Chrome/Edge launcher provides browser-state separation and transparent privacy controls; it does not change TLS fingerprints or real hardware. Controlled-engine, local-environment, and self-hosted remote control paths now exist in the repository, but their actual availability remains gated by signed engine artifacts, supported Windows/virtualization hosts, legal guest images, and a real remote Provider. VeriSilo does **not** claim device impersonation, fraud bypass, universal Worker/Service Worker modification, or undetectability. See [the environment roadmap](docs/environment-roadmap.md).
+
+## Identity platform direction
+
+The durable product model, current engine choice, Agent workflow, and changing delivery state are recorded separately:
+
+- [Identity platform north star](docs/identity-platform-north-star.md) defines Standard, Managed, and Isolated Silos and separates Profile, Fingerprint, and Environment concerns.
+- [Camoufox-first Managed Engine decision](docs/camoufox-managed-engine-decision.md) explains why current engineering risk is being retired with a pinned Camoufox/BrowserForge execution layer before broader engine work.
+- [Agent operating model](docs/agent-operating-model.md) defines how architecture, execution, evidence, and stage Gates are delegated and reviewed.
+- [Camoufox program status](docs/camoufox-program-status.md) is the only mutable checkpoint page for this workstream.
+
+An accepted standalone Linux Camoufox Host and v3 Identity Artifact currently exist on the dedicated branch and [Draft PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). They are not part of `main`, a shipped engine package, or the Tauri desktop integration yet. Native Windows validation is the next Gate.
 
 ## Quick start
 
@@ -58,7 +93,7 @@ for the exact Chrome, Edge, desktop, Native Host, and evidence-capture operation
 
 ## Product site
 
-The static Astro product site lives in [`apps/site`](apps/site) and includes English and Chinese routes.
+The static Astro product site lives in [`apps/site`](apps/site) and is live at [verisilo.qiu.works](https://verisilo.qiu.works/) with English and Chinese routes.
 
 ```bash
 pnpm site:dev
