@@ -1,7 +1,8 @@
 # VeriSilo M2-W Windows Manual Gate
 
-Status: Execution Agent candidate evidence frozen; main-brain Gate review is
-still pending. Every result remains
+Status: **Main-brain Gate Accepted on 2026-08-09.** The accepted evidence
+checkpoint is `1bf0854e4fac7142baef9792967851593b804912`; PR #10 later merged the
+standalone work into `main` at `8de389db366d1d9ff510b1e885fab7f49a89aad0`. Every result remains
 `verified: false` and uses `evidenceClass: observed-on-this-windows-host`.
 This gate covers the standalone Camoufox Host only. It does not authorize
 Tauri, EngineAdapter, desktop UI, installers, product protocol integration,

@@ -61,7 +61,7 @@ V0.5 不再只有路线文字：contracts、Companion 与桌面 UI 共享版本�
 
 ### 当前优先级
 
-Standard Silo 仍是长期产品基础层，但当前工程优先级是关闭缺失的指纹执行风险。V0.7 采用 Camoufox-first：先在 Linux 完成 `Resolved Identity Artifact → standalone Host → Persistent Profile → probe evidence`，再在原生 Windows 完成 M2-W，最后由 M3 接入既有 EngineAdapter/Tauri。当前分支证据、Gate 和未验证边界见[Camoufox Managed Engine 状态](camoufox-program-status.md)，路线原因见[Camoufox-first 决策](camoufox-managed-engine-decision.md)。
+Standard Silo 仍是长期产品基础层，但当前工程优先级是关闭缺失的指纹执行风险。V0.7 采用 Camoufox-first：Linux 的 `Resolved Identity Artifact → standalone Host → Persistent Profile → probe evidence` 与原生 Windows M2-W 已 Accepted；当前由 [M3-0](camoufox-m3-engine-adapter-task.md) 接入既有 EngineAdapter/Tauri contract，之后再做独立的原生 Windows 桌面 Gate。当前证据、Gate 和未验证边界见[Camoufox Managed Engine 状态](camoufox-program-status.md)，路线原因见[Camoufox-first 决策](camoufox-managed-engine-decision.md)。
 
 Controlled Chromium 不再与 Camoufox 并行开发。只有 Chromium 专属 API/扩展生态成为明确需求、需要直接控制 Chromium TLS/QUIC 或 V8 行为、Camoufox 无法满足兼容性/维护/分发要求，或项目资源足以承担长期 patch 与多平台构建时，才重新评估。
 

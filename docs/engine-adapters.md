@@ -1,20 +1,22 @@
 # V0.7 EngineAdapter
 
 V0.7 now has a repository-side controlled-engine lifecycle and a real Windows
-signed-manifest verifier. It still does **not** include a controlled Chromium or
-Camoufox executable, a publisher certificate, private signing keys, browser
-patches, or real browser evidence. Those are external release inputs, not test
-fixtures and not implied by an `experimental` capability declaration.
+signed-manifest verifier. The repository also tracks standalone Camoufox
+observations, but it still does **not** include a distributable controlled
+Chromium/Camoufox package, a publisher certificate, private signing keys,
+browser patches, or independently verified release evidence. Those are
+external release inputs, not implied by a fixture or an `experimental`
+capability declaration.
 
 The authoritative implementation is
 `apps/desktop/src-tauri/src/engine.rs`. The package schema and deliberately
 non-installable example are in `apps/desktop/src-tauri/resources`.
 
-## Camoufox branch boundary
+## Camoufox integration boundary
 
-The accepted standalone Camoufox Host and v3 Identity Artifact currently live only on `codex/camoufox-m0-m2-minimal` and [Draft PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). They establish a Linux prototype execution path, not an implementation of this desktop adapter contract: `main` does not package that Host, Tauri does not launch it, and its JSON Lines protocol is not the desktop bootstrap or receipt protocol described below.
+The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). They still do not implement this desktop adapter contract: `main` does not package the Host as a signed engine entrypoint, Tauri does not launch it, and Host JSON Lines is not the native bootstrap/receipt protocol described below.
 
-The order is deliberate. Native Windows M2-W must first validate Artifact replay, Persistent Profile continuity, file locking, process ownership with Job Objects, reparse-point handling, and binary stdio. Only after that Gate may M3 version the package entrypoint and map Host launch/status/close evidence into the existing bootstrap, receipt, fallback, and capability-state model. No protocol or schema mapping is implied by the current prototype. See [the Camoufox program status](camoufox-program-status.md).
+Native Windows M2-W has now accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. [M3-0](camoufox-m3-engine-adapter-task.md) therefore freezes a versioned Host package entrypoint and a dedicated `camoufox-host-jsonl-v1` transport. It explicitly forbids fabricating generic phase receipts from Host self-report and keeps `verified: false` evidence below `verified`. See [the Camoufox program status](camoufox-program-status.md).
 
 ## Adapter and capability contract
 
@@ -88,7 +90,7 @@ bin/chromium.exe       # controlled-chromium only
 bin/camoufox.exe       # camoufox only
 ```
 
-This raw-executable layout is the current desktop contract, not an accepted layout for the standalone Camoufox Host. M3 must explicitly define whether the package entrypoint is the Host, how its fixed Python/runtime assets are represented, and how bootstrap and receipts are bound; documentation must not silently treat `bin/camoufox.exe` as that integration.
+This raw-executable layout is the current schema-v2 desktop contract, not an accepted layout for the standalone Camoufox Host. The M3-0 decision makes the Host the entrypoint and requires a new manifest version that binds the Host/runtime and package tree; schema v2 must not silently treat `bin/camoufox.exe` as that integration. The contract is frozen but not yet implemented.
 
 Manifest schema version 2 is defined by
 `engine-package.schema.json`. The loader rejects relative roots, traversal,
@@ -239,4 +241,4 @@ In particular, this source tree still has no real signed engine artifact or
 signer pin. Production external-engine launch therefore remains blocked even
 though the receipt transport and fake-engine E2E harness exist.
 
-The branch-scoped Camoufox archive, tree manifest, Artifact fixtures, and Linux run evidence do not remove these shipping blockers. They are inputs to M2-W and later M3 design, not a signed package or publisher identity.
+The Camoufox archive, tree manifests, Artifact fixtures, and accepted Linux/Windows standalone evidence now tracked on `main` do not remove these shipping blockers. They are inputs to M3 integration, not a signed Host package or publisher identity.

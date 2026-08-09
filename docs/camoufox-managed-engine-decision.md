@@ -115,9 +115,23 @@ JavaScript getter 覆盖、扩展和 stealth 插件只能处理部分表面信�
 - Camoufox 维护停止、许可证/分发条件不再可接受，或关键缺陷长期无法修复；
 - 产品收入和团队规模能够支持固定上游版本、patch stack、多平台构建和持续升级。
 
+## M3 桌面接入决策
+
+M2-W 已于 2026-08-09 Accepted。两套现有协议的真实语义不同：generic external-engine 路径是一次性 length-prefixed bootstrap/receipt，standalone Host 是持久双向 JSON Lines 生命周期。M3 因此采用以下接入方式：
+
+- Camoufox package entrypoint 是受验证的 Host，不是浏览器树中的原始 `camoufox.exe`；
+- EngineAdapter 为 Host 使用显式、独立的 `camoufox-host-jsonl-v1` transport，Controlled Chromium 的既有 native bootstrap v1 不变；
+- v3 Resolved Identity Artifact 的 ID + raw file SHA 是 Camoufox 重放权威，桌面不在启动时重新生成身份；
+- Silo seed、Artifact seed 和代理秘密不进入 Host/browser argv、日志或 evidence；
+- Host 的 `verified: false` / `observed-on-this-host` 结果只映射为 applied/observed，不伪造成 generic `verify` receipt；
+- 先由 M3-0 fake Host contract Gate 关闭协议、包和生命周期接缝，再进行独立的原生 Windows M3-WI；
+- 发布 signer、真实 Host runtime/package、UI、代理、site fallback 与 TLS/QUIC 仍属于后续 Gate。
+
+详细冻结范围与验收见 [M3-0 任务合同](camoufox-m3-engine-adapter-task.md)。
+
 ## 后果
 
-- 当前 Managed Engine 工程路线只完成一个引擎，不同时扩张其他执行后端；这里的“路线”不表示相关代码已经进入 Git `main`。
-- M0–M2 先在 Linux 形成可信垂直切片，M2-W 在原生 Windows 关闭平台生命周期差异。
-- M2-W 通过前不改 Tauri/EngineAdapter；通过后 M3 才决定 Host package entrypoint、bootstrap 和 receipt 的具体映射。
+- 当前 Managed Engine 工程路线只完成一个引擎，不同时扩张其他执行后端；standalone 代码已经进入 `main`，但不表示桌面集成或发布 Gate 已通过。
+- M0–M2 已在 Linux 形成可信垂直切片，M2-W 已在原生 Windows 关闭本阶段的平台生命周期差异。
+- M2-W 已通过；M3 按上面的专用 Host transport 决策实施，并继续把 production packaging 与真实桌面 evidence 作为独立 Gate。
 - 阶段进度与当前 Gate 只在[Camoufox Managed Engine 状态](camoufox-program-status.md)更新，不反向改写本决策原因。

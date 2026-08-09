@@ -68,7 +68,7 @@ The durable product model, current engine choice, Agent workflow, and changing d
 - [Agent operating model](docs/agent-operating-model.md) defines how architecture, execution, evidence, and stage Gates are delegated and reviewed.
 - [Camoufox program status](docs/camoufox-program-status.md) is the only mutable checkpoint page for this workstream.
 
-An accepted standalone Linux Camoufox Host and v3 Identity Artifact currently exist on the dedicated branch and [Draft PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). They are not part of `main`, a shipped engine package, or the Tauri desktop integration yet. Native Windows validation is the next Gate.
+Accepted Linux and native Windows standalone Camoufox Host evidence, together with the v3 Identity Artifact, entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). This is still not a signed engine package or a Tauri desktop integration. The next frozen Gate is [M3-0 Host / EngineAdapter contract integration](docs/camoufox-m3-engine-adapter-task.md), followed by a separate native Windows desktop Gate.
 
 ## Quick start
 
