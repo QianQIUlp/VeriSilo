@@ -203,6 +203,24 @@ def r2_host_matrix_history(run_dir: Path) -> list[dict[str, Any]]:
     return history
 
 
+def preserve_existing_receipts(run_dir: Path) -> None:
+    report_path = run_dir / "r2-report.json"
+    if not report_path.is_file():
+        return
+    prior = json.loads(report_path.read_text(encoding="utf-8"))
+    suffix = str(prior.get("finalizationCommit", "prior"))[:8]
+    for stem in ("r2-report", "r2-summary"):
+        source = run_dir / f"{stem}.json"
+        sidecar = run_dir / f"{stem}.sha256"
+        if not source.is_file() or not sidecar.is_file():
+            raise RuntimeError(f"cannot preserve incomplete prior receipt: {source}")
+        archived = run_dir / f"{stem}.prior-{suffix}.json"
+        archived_sidecar = run_dir / f"{stem}.prior-{suffix}.sha256"
+        if not archived.exists():
+            shutil.copy2(source, archived)
+            shutil.copy2(sidecar, archived_sidecar)
+
+
 def run_finalization(run_id: str) -> int:
     finalization_revision, finalization_tree, session_name, session_id = clean_receipt_start()
     run_dir = RUNS_ROOT / run_id
@@ -210,8 +228,7 @@ def run_finalization(run_id: str) -> int:
     report_path = run_dir / "r2-report.json"
     if not run_dir.is_dir() or not raw_runtime_path.is_file():
         raise RuntimeError("R2 run directory/raw runtime evidence is missing")
-    if report_path.exists():
-        raise RuntimeError("R2 report already exists; finalization is single-use")
+    preserve_existing_receipts(run_dir)
     raw_runtime_bytes = raw_runtime_path.read_bytes()
     raw_runtime = json.loads(raw_runtime_bytes)
     soak_revision = raw_runtime.get("codeGitRevision")
