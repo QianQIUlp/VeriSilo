@@ -7,19 +7,20 @@
 
 ## Git 状态
 
-| 对象                      | 当前值                                               | 含义                                                         |
-| ------------------------- | ---------------------------------------------------- | ------------------------------------------------------------ |
-| `origin/main` 基线        | `dab74e9be00287e0d357874db883748370bcb2aa`           | PR #11 已合并；主线仍未包含 Camoufox M0–M2.0.3               |
-| Camoufox 分支             | `codex/camoufox-m0-m2-minimal`                       | 自包含的 Linux Managed Engine 垂直切片                       |
-| M2.0.3 代码 checkpoint    | `3b53830`                                            | 严格进程树、quarantine、JSON 和 RFC3339 收口                 |
-| Linux accepted checkpoint | `d596afd76e59ba64915b036fbc732a2c28f1ec54`           | evidence manifest 冻结提交；保持不变                         |
-| M2-W 同步基线             | `9e88c0aa2486dd18a3ef241b1d4dcca3a7890efc`           | 以 merge 方式把 `origin/main` 合入 Camoufox 分支的提交       |
-| Windows 工作分支          | `codex/camoufox-m2-windows-gate`                     | 已从旧 checkpoint 提前开始；现有工作保留，等待合入同步后基线 |
-| M2-W execution code      | `3511d120862283c3b90f91589f5f33d1de8325f9`           | Windows runtime/test 与 tracked Artifact 字节闭环代码；manifest 绑定 tree `b42d7d9` |
-| Camoufox Draft PR         | [#10](https://github.com/QianQIUlp/VeriSilo/pull/10) | 目标为 `main`；未合并前不能称为主线或 shipped 能力           |
-| 上下文文档 PR             | [#11](https://github.com/QianQIUlp/VeriSilo/pull/11) | 已合并；四份事实源现在是 `main` 的规范上下文                 |
+| 对象                        | 当前值                                               | 含义                                                                                |
+| --------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `origin/main` 基线          | `dab74e9be00287e0d357874db883748370bcb2aa`           | PR #11 已合并；主线仍未包含 Camoufox M0–M2.0.3                                      |
+| Camoufox 分支               | `codex/camoufox-m0-m2-minimal`                       | 自包含的 Linux Managed Engine 垂直切片                                              |
+| M2.0.3 代码 checkpoint      | `3b53830`                                            | 严格进程树、quarantine、JSON 和 RFC3339 收口                                        |
+| Linux accepted checkpoint   | `d596afd76e59ba64915b036fbc732a2c28f1ec54`           | evidence manifest 冻结提交；保持不变                                                |
+| M2-W 同步基线               | `9e88c0aa2486dd18a3ef241b1d4dcca3a7890efc`           | 以 merge 方式把 `origin/main` 合入 Camoufox 分支的提交                              |
+| Windows accepted checkpoint | `1bf0854e4fac7142baef9792967851593b804912`           | M2-W evidence 冻结提交；主脑 Gate 已接受                                            |
+| M2-W execution code         | `3511d120862283c3b90f91589f5f33d1de8325f9`           | Windows runtime/test 与 tracked Artifact 字节闭环代码；manifest 绑定 tree `b42d7d9` |
+| Windows stacked Draft PR    | [#12](https://github.com/QianQIUlp/VeriSilo/pull/12) | 目标为 Camoufox 分支；合并后由 PR #10 汇总进入 `main`                               |
+| Camoufox Draft PR           | [#10](https://github.com/QianQIUlp/VeriSilo/pull/10) | 目标为 `main`；未合并前不能称为主线或 shipped 能力                                  |
+| 上下文文档 PR               | [#11](https://github.com/QianQIUlp/VeriSilo/pull/11) | 已合并；四份事实源现在是 `main` 的规范上下文                                        |
 
-`d596afd` 是已经接受的 Linux 证据 checkpoint，不因文档合并或 Windows 工作而改写。`9e88c0a` 是新的 M2-W 内容同步基线，不替代既有 Linux evidence manifest。Windows 分支在它产生前已经开始，因此旧起点上的实现和调试结果可以保留，但只有把更新后的 Camoufox 分支 merge 进去后生成的最终证据，才能用于 M2-W Gate。
+`d596afd` 是已经接受的 Linux 证据 checkpoint，不因文档合并或 Windows 工作而改写。`9e88c0a` 是 M2-W 内容同步基线，不替代既有 Linux evidence manifest。Windows 分支通过 `13cebd8` 合入同步基线，最终由 `1bf0854` 冻结主脑已接受的 Windows evidence；旧起点结果仅作为 `preSyncEvidence` 保留。
 
 ## 已关闭阶段
 
@@ -60,30 +61,42 @@
 
 原始 Profile 和完整运行报告位于执行环境的 gitignored `artifacts/`；分支中 tracked evidence manifest 是脱敏索引。上述结果是该 Linux 主机上的 accepted execution evidence，保持 `verified: false`。
 
-## M2-W 执行 Agent 候选证据
+## M2-W 已接受证据
 
-以下结果来自原生 Windows Server 2025 RDP 桌面，会话内保持 standalone，且全部为 `verified: false`。它们已经由执行 Agent 冻结，但尚未由主脑完成 M2-W Gate 审阅，因此本节不开放 M3。
+以下结果来自原生 Windows Server 2025 RDP 桌面，会话内保持 standalone，且全部为 `verified: false`。执行 Agent 冻结结果后，主脑对同步祖先、禁止范围、code tree、manifest 引用、tracked Artifact 字节闭环和 Linux protected hashes 做了成本受控核对，并接受 M2-W Gate。
 
-| 项目 | 执行结果 |
-| --- | --- |
-| Artifact 严格单元测试 | `25/25`；包含 UTF-8/LF/no-BOM 精确字节 writer 回归 |
-| Windows Host 驱动 | `10/10`；summary `summary-1786258836` |
-| 跨 Host profile 持久化 | `run-1786258659-d77032e9`；两个不同 Host，bootCount `1 → 2`，Cookie/LocalStorage 保留 |
-| Job/lifecycle | `run-1786258752-26800060`；EOF 与 forced parent exit 后 active process count 均为 `0` |
-| 全新 cache 5 次冷启动 | `run-1786258892-4dd7e256`；5/5 digest 均为 `sha256:60f7f3…`，媒体设备计数匹配 Artifact |
-| A/B/C separation | `run-1786258999-b077d87e`；三个 ObservedWebsiteDigest 两两不同 |
-| Artifact tamper | `run-1786259074-2f2ec9c1`；四种篡改全部启动前拒绝 |
+| 项目                   | 执行结果                                                                               |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| Artifact 严格单元测试  | `25/25`；包含 UTF-8/LF/no-BOM 精确字节 writer 回归                                     |
+| Windows Host 驱动      | `10/10`；summary `summary-1786258836`                                                  |
+| 跨 Host profile 持久化 | `run-1786258659-d77032e9`；两个不同 Host，bootCount `1 → 2`，Cookie/LocalStorage 保留  |
+| Job/lifecycle          | `run-1786258752-26800060`；EOF 与 forced parent exit 后 active process count 均为 `0`  |
+| 全新 cache 5 次冷启动  | `run-1786258892-4dd7e256`；5/5 digest 均为 `sha256:60f7f3…`，媒体设备计数匹配 Artifact |
+| A/B/C separation       | `run-1786258999-b077d87e`；三个 ObservedWebsiteDigest 两两不同                         |
+| Artifact tamper        | `run-1786259074-2f2ec9c1`；四种篡改全部启动前拒绝                                      |
 
-tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`。它保留旧 run 集为 `preSyncEvidence`，只把同步后、最终代码 revision 生成并通过 sidecar 校验的 run 作为当前候选 evidence。
+tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`。它保留旧 run 集为 `preSyncEvidence`，只把同步后、最终代码 revision 生成并通过 sidecar 校验的 run 作为 accepted evidence。
+
+## 主脑 Gate 决策
+
+- 日期：2026-08-09
+- 结论：**M2-W Accepted；三项核心 Gate 关闭**
+- Persistent Profile：通过，证据为 `run-1786258659-d77032e9`
+- Job Object / process ownership：通过，证据为 `run-1786258752-26800060`
+- Windows Artifact replay：通过，证据为 `run-1786258892-4dd7e256`
+- Evidence 完整性：三份 Artifact 的 Git blob、工作树、clean checkout、sidecar 与 manifest SHA 一致；14 个 current receipts 和 code tree 绑定一致
+- 范围：没有接入 Tauri、EngineAdapter、UI 或安装器，没有改变 Artifact v3 / ObservedWebsiteDigest v2 语义
+
+主脑没有重跑完整 Windows 测试；判定基于执行 Agent 的原生 Windows evidence，以及对远程 Git ancestry、diff scope、tracked bytes、manifest cross-reference 和 protected hashes 的最小核对。
 
 ## 当前 Gate
 
-| Gate                                            | 状态                                    |
-| ----------------------------------------------- | --------------------------------------- |
-| Linux 资产固定、Artifact 重放与 standalone Host | **Accepted，M0–M2.0.3 关闭**            |
-| 原生 Windows M2-W                               | **执行证据已冻结；等待主脑成本受控 Gate 审阅** |
-| EngineAdapter / Tauri 集成                      | **不允许；必须等待 M2-W 三项核心 Gate** |
-| Managed Identity UI、代理联动、生产打包         | **后续阶段**                            |
+| Gate                                            | 状态                                     |
+| ----------------------------------------------- | ---------------------------------------- |
+| Linux 资产固定、Artifact 重放与 standalone Host | **Accepted，M0–M2.0.3 关闭**             |
+| 原生 Windows M2-W                               | **Accepted；三项核心 Gate 关闭**         |
+| EngineAdapter / Tauri 集成                      | **M3 Gate 已允许；等待 #12 与 #10 合并** |
+| Managed Identity UI、代理联动、生产打包         | **后续阶段**                             |
 
 ## PR #11 合并后的实际衔接
 
@@ -92,7 +105,8 @@ tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`�
 3. Windows 分支通过 merge commit `13cebd8` 合入更新后的 `origin/codex/camoufox-m0-m2-minimal`；没有 rebase、reset、cherry-pick 或历史改写。
 4. 合并后按根 `AGENTS.md` 重新阅读四份事实源；旧基线 run-id 作为 `preSyncEvidence` 保留，没有冒充新基线结果。
 5. 执行 Agent 只针对实际证据缺口修复了 Windows platformdirs cache 绑定、媒体枚举就绪、report/Artifact 精确字节 sidecar 和 evidence-side bounded Job cleanup；tracked Artifact 现为 UTF-8/LF/no-BOM 且禁用 Git 文本转换；没有接入 Tauri、EngineAdapter、UI 或安装器，也没有修改 Artifact v3 / ObservedWebsiteDigest v2 语义。
-6. 最终 tracked manifest 由 summary/report/sidecar 与严格验证后的 tracked Artifact bytes 自动派生，绑定 receipt-producing code revision `3511d12`；M3 是否开放仍由主脑审阅决定。
+6. 最终 tracked manifest 由 summary/report/sidecar 与严格验证后的 tracked Artifact bytes 自动派生，绑定 receipt-producing code revision `3511d12`；主脑已接受 M2-W。
+7. Windows stacked [Draft PR #12](https://github.com/QianQIUlp/VeriSilo/pull/12) 将 accepted checkpoint 合入 Camoufox 分支，再由 PR #10 汇总进入 `main`。
 
 下面的“M2-W 冻结目标”定义阶段目标。Windows 任务现有验收合同继续有效，但 PR #11 中的产品语义、禁止范围和证据措辞优先；若二者冲突，停止扩大实现并退回主脑裁决。
 
@@ -105,6 +119,10 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 3. Windows 文件锁、process handle/creation-time 和 Job Object 形成内核所有权，Host/父管道退出不留下孤儿浏览器。
 
 同时验证 reparse point、CRLF/binary stdio 和 Windows tree manifest。三项核心 Gate 任一失败都不能开放 M3。
+
+## 下一阶段
+
+先合并 stacked PR #12，再完成 PR #10 到 `main` 的集成。M3 必须从 PR #10 的 `main` merge commit 建立新分支，目标只限 standalone Host 与现有 EngineAdapter/Tauri 的 package entrypoint、bootstrap、receipt 和 capability-state 映射；不得借机扩张 UI、安装器、网络身份、Controlled Chromium 或虚拟化后端。
 
 ## 已知边界
 
