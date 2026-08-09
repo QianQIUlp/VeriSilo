@@ -7,16 +7,18 @@
 
 ## Git 状态
 
-| 对象                      | 当前值                                               | 含义                                                    |
-| ------------------------- | ---------------------------------------------------- | ------------------------------------------------------- |
-| `origin/main` 基线        | `527516ab65f49061ccac67287fa96fa93f006421`           | 当前主线尚未包含 Camoufox M0–M2.0.3                     |
-| Camoufox 分支             | `codex/camoufox-m0-m2-minimal`                       | 自包含的 Linux Managed Engine 垂直切片                  |
-| M2.0.3 代码 checkpoint    | `3b53830`                                            | 严格进程树、quarantine、JSON 和 RFC3339 收口            |
-| Linux accepted checkpoint | `d596afd76e59ba64915b036fbc732a2c28f1ec54`           | evidence manifest 冻结提交                              |
-| Camoufox Draft PR         | [#10](https://github.com/QianQIUlp/VeriSilo/pull/10) | 目标为 `main`；未合并前不能称为主线或 shipped 能力      |
-| 上下文文档 Draft PR       | [#11](https://github.com/QianQIUlp/VeriSilo/pull/11) | 本页所在的项目事实源 PR；必须先合并，再建立 M2-W 新起点 |
+| 对象                      | 当前值                                               | 含义                                                         |
+| ------------------------- | ---------------------------------------------------- | ------------------------------------------------------------ |
+| `origin/main` 基线        | `dab74e9be00287e0d357874db883748370bcb2aa`           | PR #11 已合并；主线仍未包含 Camoufox M0–M2.0.3               |
+| Camoufox 分支             | `codex/camoufox-m0-m2-minimal`                       | 自包含的 Linux Managed Engine 垂直切片                       |
+| M2.0.3 代码 checkpoint    | `3b53830`                                            | 严格进程树、quarantine、JSON 和 RFC3339 收口                 |
+| Linux accepted checkpoint | `d596afd76e59ba64915b036fbc732a2c28f1ec54`           | evidence manifest 冻结提交；保持不变                         |
+| M2-W 同步基线             | `9e88c0aa2486dd18a3ef241b1d4dcca3a7890efc`           | 以 merge 方式把 `origin/main` 合入 Camoufox 分支的提交       |
+| Windows 工作分支          | `codex/camoufox-m2-windows-gate`                     | 已从旧 checkpoint 提前开始；现有工作保留，等待合入同步后基线 |
+| Camoufox Draft PR         | [#10](https://github.com/QianQIUlp/VeriSilo/pull/10) | 目标为 `main`；未合并前不能称为主线或 shipped 能力           |
+| 上下文文档 PR             | [#11](https://github.com/QianQIUlp/VeriSilo/pull/11) | 已合并；四份事实源现在是 `main` 的规范上下文                 |
 
-`d596afd` 是已经接受的 Linux 证据 checkpoint，不应因后续文档合并或 Windows 分支建立而改写。新的 M2-W 执行基线必须在本上下文落库 PR 合并、更新后的 `main` 合入 Camoufox 分支后单独记录。
+`d596afd` 是已经接受的 Linux 证据 checkpoint，不因文档合并或 Windows 工作而改写。`9e88c0a` 是新的 M2-W 内容同步基线，不替代既有 Linux evidence manifest。Windows 分支在它产生前已经开始，因此旧起点上的实现和调试结果可以保留，但只有把更新后的 Camoufox 分支 merge 进去后生成的最终证据，才能用于 M2-W Gate。
 
 ## 已关闭阶段
 
@@ -62,19 +64,20 @@
 | Gate                                            | 状态                                    |
 | ----------------------------------------------- | --------------------------------------- |
 | Linux 资产固定、Artifact 重放与 standalone Host | **Accepted，M0–M2.0.3 关闭**            |
-| 原生 Windows M2-W                               | **下一阶段；上下文文档 PR 合并前等待**  |
+| 原生 Windows M2-W                               | **执行已提前开始；Gate 等待基线同步**   |
 | EngineAdapter / Tauri 集成                      | **不允许；必须等待 M2-W 三项核心 Gate** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段**                            |
 
-## 文档 PR 合并后的衔接顺序
+## PR #11 合并后的实际衔接
 
-1. 先把“项目事实源与防漂移文档” [Draft PR #11](https://github.com/QianQIUlp/VeriSilo/pull/11) 合入 `main`；合并前不启动 M2-W，也不通过复制旧聊天绕过仓库事实源。
-2. 更新本地 `origin/main`，再以 **merge** 方式合入 `codex/camoufox-m0-m2-minimal`；不 rebase、不改写 M0–M2.0.3 或 `d596afd` 的证据历史。
-3. 在 Camoufox 分支追加一个小型状态同步提交，记录合并后的 M2-W 起始 commit，并推送更新 Draft PR #10。
-4. 重新生成主脑接手提示词和 Windows 执行提示词。提示词只携带当前任务和摘要，完整上下文由本仓库四份事实源承担。
-5. 只有上述新起点冻结后，才在原生 Windows 开始 M2-W；旧 `d596afd` 仍是 Linux accepted checkpoint，但不再作为 Windows 任务的直接起点。
+1. [PR #11](https://github.com/QianQIUlp/VeriSilo/pull/11) 已合入 `main`，merge commit 为 `dab74e9`。
+2. `origin/main` 已以 **merge** 方式合入 Camoufox 分支，生成同步基线 `9e88c0a`；没有 rebase，也没有改写 M0–M2.0.3 或 `d596afd` 的证据历史。
+3. 本状态同步提交推送后，Draft PR #10 将携带四份事实源和新的同步基线。
+4. Windows 劳动力 Agent 不需要推倒重来：先完成当前不可安全中断的原子操作并把现有工作形成 checkpoint，然后把更新后的 `origin/codex/camoufox-m0-m2-minimal` **merge** 进 `codex/camoufox-m2-windows-gate`。不得 rebase、reset 或重写已有 Windows 工作。
+5. 合并后按根 `AGENTS.md` 阅读四份事实源。旧基线产生的 run-id 保留为 pre-sync execution evidence；不得把它们伪装成新基线结果。
+6. 只在合并后的 Windows HEAD 上重跑冻结任务的最终 M2-W 验收矩阵并冻结 accepted run-id、资产锁、manifest 和 commit。无需重新实现功能，也不默认重跑与三个核心 Gate 无关的开发测试。
 
-下面的“M2-W 冻结目标”只定义阶段目标，不是完整执行任务合同。正式提示词还必须在新起始 commit 产生后冻结验收矩阵、关键失败反例、证据格式和停止条件。
+下面的“M2-W 冻结目标”定义阶段目标。Windows 任务现有验收合同继续有效，但 PR #11 中的产品语义、禁止范围和证据措辞优先；若二者冲突，停止扩大实现并退回主脑裁决。
 
 ## M2-W 冻结目标
 
