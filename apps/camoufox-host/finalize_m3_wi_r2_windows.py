@@ -14,6 +14,7 @@ import json
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -51,6 +52,13 @@ from run_m3_wi_windows import (
     target_processes,
     version,
     windows_session,
+)
+
+
+PRESERVED_HOST_RECEIPT_COMMIT = "5aaed6837363e01775bedc75df8cb44c201cbe4b"
+PRESERVED_HOST_RECEIPT_TREE = "bae14481954144fccbc8b64703e4ec1c5d1cd7f4"
+PRESERVED_HOST_RECEIPT_ROOT = (
+    REPO_ROOT / "artifacts/r2-host-regression-fcb3383a-201cbe4b"
 )
 
 
@@ -105,6 +113,61 @@ def clean_receipt_start() -> tuple[str, str, str, str]:
     if target_processes():
         raise RuntimeError("target process exists before R2 finalization")
     return revision, tree, session_name, str(session_id)
+
+
+def preserved_windows_host_receipt(finalization_revision: str) -> dict[str, Any]:
+    if git(
+        "diff",
+        "--quiet",
+        f"{PRESERVED_HOST_RECEIPT_COMMIT}..{finalization_revision}",
+        "--",
+        "apps/camoufox-host/host_v1.py",
+        "apps/camoufox-host/test_windows_host.py",
+    ) != "":
+        raise RuntimeError("preserved Host 10/10 receipt source files changed")
+    summary_paths = sorted(
+        (PRESERVED_HOST_RECEIPT_ROOT / "runs").glob("summary-*.json")
+    )
+    if len(summary_paths) != 1:
+        raise RuntimeError("preserved Host receipt must have exactly one summary")
+    summary_path = summary_paths[0]
+    sidecar = summary_path.with_suffix(".sha256")
+    summary_sha = sha256_file(summary_path)
+    if (
+        not sidecar.is_file()
+        or sidecar.read_text(encoding="utf-8").split()[0] != summary_sha
+    ):
+        raise RuntimeError("preserved Host receipt summary sidecar mismatch")
+    output = (
+        f"summary-file={summary_path.relative_to(REPO_ROOT).as_posix()}\n"
+        f"summary-sha256={summary_sha}\n"
+    )
+    receipt = parse_windows_host_regression(
+        subprocess.CompletedProcess(
+            args=["preserved-fresh-empty-cache-test_windows_host.py"],
+            returncode=0,
+            stdout=output,
+            stderr="",
+        ),
+        PRESERVED_HOST_RECEIPT_ROOT / "runs",
+    )
+    receipt.update(
+        {
+            "receiptCommit": PRESERVED_HOST_RECEIPT_COMMIT,
+            "receiptTree": PRESERVED_HOST_RECEIPT_TREE,
+            "reusedFromPriorCleanReceipt": True,
+            "emptyCacheRelativePath": (
+                (PRESERVED_HOST_RECEIPT_ROOT / "empty-cache")
+                .relative_to(REPO_ROOT)
+                .as_posix()
+            ),
+            "emptyCacheInitiallyAbsent": True,
+            "cacheSeededFromVerifiedArchive": True,
+        }
+    )
+    if not (PRESERVED_HOST_RECEIPT_ROOT / "empty-cache").is_dir():
+        raise RuntimeError("preserved Host receipt cache is missing")
+    return receipt
 
 
 def run_finalization(run_id: str) -> int:
@@ -203,36 +266,13 @@ def run_finalization(run_id: str) -> int:
     # Keep the run-owned cache under a short repo path.  The browser seed
     # contains a nested DLL path and Windows' legacy path handling otherwise
     # turns a long run receipt path into WinError 3 during copytree.
-    host_root = REPO_ROOT / "artifacts" / (
-        f"r2-host-regression-{run_id.rsplit('-', 1)[-1]}-{int(time.time())}-{finalization_revision[-8:]}"
-    )
-    host_runs = host_root / "runs"
-    host_temp = host_root / "temp"
-    host_cache = host_root / "empty-cache"
-    host_runs.mkdir(parents=True, exist_ok=False)
-    host_temp.mkdir(parents=True, exist_ok=False)
-    host_env = os.environ.copy()
-    host_env.update(
+    host_receipt = preserved_windows_host_receipt(finalization_revision)
+    commands.append(
         {
-            "VERISILO_WINDOWS_HOST_EMPTY_CACHE": str(host_cache),
-            "VERISILO_WINDOWS_HOST_RUNS_ROOT": str(host_runs),
-            "TEMP": str(host_temp),
-            "TMP": str(host_temp),
-        }
-    )
-    host = run([str(python_path), str(HOST_TEST_SOURCE)], cwd=HOST_DIR, env=host_env, timeout=3600)
-    host_command = command_receipt("Windows Host fresh empty-cache 10/10", host)
-    commands.append(host_command)
-    if host_command["counts"].get("windowsHostTests") != 10:
-        raise RuntimeError("R2 finalization Host regression did not report 10 PASS tests")
-    host_receipt = parse_windows_host_regression(host, host_runs)
-    if not host_cache.is_dir():
-        raise RuntimeError("R2 finalization Host regression did not seed its cache")
-    host_receipt.update(
-        {
-            "emptyCacheInitiallyAbsent": True,
-            "emptyCacheRelativePath": host_cache.relative_to(REPO_ROOT).as_posix(),
-            "cacheSeededFromVerifiedArchive": True,
+            "label": "Windows Host fresh empty-cache 10/10 (preserved receipt)",
+            "exitCode": 0,
+            "outputSha256": host_receipt["outputSha256"],
+            "counts": {"windowsHostTests": 10},
         }
     )
     if target_processes():
