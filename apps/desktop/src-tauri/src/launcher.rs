@@ -64,6 +64,10 @@ const ENGINE_PROTOCOL_CHANNEL_CAPACITY: usize = 32;
 const HTTP_AUTH_EVIDENCE_LOOKBACK_SECONDS: i64 = 15;
 const EVIDENCE_CLOCK_SKEW_SECONDS: i64 = 5;
 pub(crate) const RUNTIME_HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const M3_WI_REAL_HOST_ADAPTER_VERSION: &str = "m3-wi-test-only-real-host";
+#[cfg(test)]
+const M3_WI_REAL_HOST_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Default)]
 pub struct RuntimeManager {
@@ -127,6 +131,10 @@ struct CamoufoxHostRuntime {
     observed_website_digest: Option<String>,
     evidence_class: String,
     closed_confirmed: bool,
+    #[cfg(test)]
+    real_host_integration: bool,
+    #[cfg(test)]
+    launch_surface: Option<Value>,
 }
 
 enum EngineProtocolEvent {
@@ -287,7 +295,7 @@ struct CamoufoxHostShutdownResult {
 }
 
 struct CamoufoxHostTransport {
-    stdin: ChildStdin,
+    stdin: Option<ChildStdin>,
     receiver: mpsc::Receiver<Result<CamoufoxHostResponse, String>>,
     next_request_id: u64,
     #[cfg(test)]
@@ -333,7 +341,7 @@ impl CamoufoxHostTransport {
             }
         });
         Ok(Self {
-            stdin,
+            stdin: Some(stdin),
             receiver,
             next_request_id: 1,
             #[cfg(test)]
@@ -364,10 +372,15 @@ impl CamoufoxHostTransport {
         }
         #[cfg(test)]
         self.wire_snapshot.push(body.clone());
-        self.stdin
+        let stdin = self.stdin.as_mut().ok_or_else(|| {
+            LauncherError::RuntimeReceipt(
+                "Camoufox Host stdin is closed for this exact child".to_owned(),
+            )
+        })?;
+        stdin
             .write_all(&body)
-            .and_then(|_| self.stdin.write_all(b"\n"))
-            .and_then(|_| self.stdin.flush())
+            .and_then(|_| stdin.write_all(b"\n"))
+            .and_then(|_| stdin.flush())
             .map_err(|error| {
                 LauncherError::RuntimeReceipt(format!("Host request write failed: {error}"))
             })?;
@@ -404,6 +417,11 @@ impl CamoufoxHostTransport {
                 error.message, error.code
             )))
         }
+    }
+
+    #[cfg(test)]
+    fn close_exact_stdin(&mut self) {
+        self.stdin = None;
     }
 }
 
@@ -548,6 +566,17 @@ impl RuntimeManager {
             ));
         }
 
+        let response_timeout = self
+            .engine_runtime
+            .as_ref()
+            .and_then(|runtime| match runtime {
+                EngineRuntimeProtocol::CamoufoxHost(host) => {
+                    Some(camoufox_host_runtime_timeout(host))
+                }
+                EngineRuntimeProtocol::Native { .. } => None,
+            })
+            .unwrap_or(ENGINE_INITIAL_RECEIPT_TIMEOUT);
+
         let host_result = (|| -> Result<(), LauncherError> {
             let Some(EngineRuntimeProtocol::CamoufoxHost(host)) = self.engine_runtime.as_mut()
             else {
@@ -560,7 +589,7 @@ impl RuntimeManager {
             let close_value = host.transport.request(
                 "close",
                 json!({ "sessionId": session_id }),
-                ENGINE_INITIAL_RECEIPT_TIMEOUT,
+                response_timeout,
             )?;
             let close: CamoufoxHostCloseResult =
                 serde_json::from_value(close_value).map_err(|error| {
@@ -570,9 +599,9 @@ impl RuntimeManager {
                 })?;
             validate_camoufox_host_close(&close, &binding, &session_id)?;
 
-            let shutdown_value =
-                host.transport
-                    .request("shutdown", json!({}), ENGINE_INITIAL_RECEIPT_TIMEOUT)?;
+            let shutdown_value = host
+                .transport
+                .request("shutdown", json!({}), response_timeout)?;
             let shutdown: CamoufoxHostShutdownResult = serde_json::from_value(shutdown_value)
                 .map_err(|error| {
                     LauncherError::RuntimeReceipt(format!(
@@ -588,7 +617,7 @@ impl RuntimeManager {
             return Err(error);
         }
 
-        let deadline = Instant::now() + ENGINE_INITIAL_RECEIPT_TIMEOUT;
+        let deadline = Instant::now() + response_timeout;
         let exit_result = (|| -> Result<std::process::ExitStatus, LauncherError> {
             loop {
                 let status = self
@@ -2641,6 +2670,22 @@ fn spawn_engine_child(
     })
 }
 
+fn camoufox_host_plan_timeout(_plan: &EngineLaunchPlan) -> Duration {
+    #[cfg(test)]
+    if _plan.adapter.adapter_version == M3_WI_REAL_HOST_ADAPTER_VERSION {
+        return M3_WI_REAL_HOST_TIMEOUT;
+    }
+    ENGINE_INITIAL_RECEIPT_TIMEOUT
+}
+
+fn camoufox_host_runtime_timeout(_runtime: &CamoufoxHostRuntime) -> Duration {
+    #[cfg(test)]
+    if _runtime.real_host_integration {
+        return M3_WI_REAL_HOST_TIMEOUT;
+    }
+    ENGINE_INITIAL_RECEIPT_TIMEOUT
+}
+
 fn spawn_camoufox_host(
     plan: &EngineLaunchPlan,
     arguments: &[OsString],
@@ -2683,7 +2728,13 @@ fn spawn_camoufox_host(
             return Err(error);
         }
     };
-    let hello_value = match transport.request("hello", json!({}), ENGINE_BOOTSTRAP_ACK_TIMEOUT) {
+    let response_timeout = camoufox_host_plan_timeout(plan);
+    let hello_timeout = if response_timeout > ENGINE_BOOTSTRAP_ACK_TIMEOUT {
+        response_timeout
+    } else {
+        ENGINE_BOOTSTRAP_ACK_TIMEOUT
+    };
+    let hello_value = match transport.request("hello", json!({}), hello_timeout) {
         Ok(value) => value,
         Err(error) => {
             terminate_just_spawned_child(&mut child);
@@ -2709,7 +2760,7 @@ fn spawn_camoufox_host(
             "profileId": binding.profile_id,
             "expectedArtifactFileSha256": binding.artifact_file_sha256,
         }),
-        ENGINE_INITIAL_RECEIPT_TIMEOUT,
+        response_timeout,
     ) {
         Ok(value) => value,
         Err(error) => {
@@ -2732,7 +2783,7 @@ fn spawn_camoufox_host(
     let status_value = match transport.request(
         "status",
         json!({ "sessionId": launch.session_id }),
-        ENGINE_INITIAL_RECEIPT_TIMEOUT,
+        response_timeout,
     ) {
         Ok(value) => value,
         Err(error) => {
@@ -2767,6 +2818,28 @@ fn spawn_camoufox_host(
                     .or(Some(hello.evidence_class))
                     .unwrap_or_else(|| "observed-on-this-host".to_owned()),
                 closed_confirmed: false,
+                #[cfg(test)]
+                real_host_integration: plan.adapter.adapter_version
+                    == M3_WI_REAL_HOST_ADAPTER_VERSION,
+                #[cfg(test)]
+                launch_surface: (plan.adapter.adapter_version == M3_WI_REAL_HOST_ADAPTER_VERSION)
+                    .then(|| {
+                        json!({
+                            "integrationPath": "test-only-real-host",
+                            "adapterVersion": plan.adapter.adapter_version,
+                            "transport": "camoufox-host-jsonl-v1",
+                            "executablePath": plan.executable_path.to_string_lossy(),
+                            "arguments": arguments
+                                .iter()
+                                .map(|argument| argument.to_string_lossy().into_owned())
+                                .collect::<Vec<_>>(),
+                            "shell": plan.shell,
+                            "packageVerification": plan
+                                .package_verification
+                                .as_ref()
+                                .map(|_| "present"),
+                        })
+                    }),
             },
         ))),
     })
@@ -2777,6 +2850,37 @@ fn validate_camoufox_host_hello(
     binding: &CamoufoxHostLaunch,
     arguments: &[OsString],
 ) -> Result<(), LauncherError> {
+    #[cfg(test)]
+    let probe_port_positions = arguments
+        .iter()
+        .enumerate()
+        .filter_map(|(index, argument)| (argument == "--probe-port").then_some(index))
+        .collect::<Vec<_>>();
+    #[cfg(test)]
+    let expected_probe_port_policy = match probe_port_positions.as_slice() {
+        [] => "ephemeral",
+        [position] => {
+            let port = arguments
+                .get(position + 1)
+                .and_then(|value| value.to_str())
+                .and_then(|value| value.parse::<u16>().ok())
+                .filter(|port| *port != 0)
+                .ok_or_else(|| {
+                    LauncherError::RuntimeReceipt(
+                        "Camoufox Host --probe-port must be one non-zero u16 value".to_owned(),
+                    )
+                })?;
+            let _ = port;
+            "fixed"
+        }
+        _ => {
+            return Err(LauncherError::RuntimeReceipt(
+                "Camoufox Host plan contains duplicate --probe-port arguments".to_owned(),
+            ))
+        }
+    };
+    #[cfg(not(test))]
+    let expected_probe_port_policy = "ephemeral";
     let expected_roots = ["--artifact-root", "--profile-root", "--state-root"]
         .into_iter()
         .enumerate()
@@ -2801,7 +2905,7 @@ fn validate_camoufox_host_hello(
         || hello.asset_sha256 != binding.browser_asset_sha256
         || hello.tree_manifest_sha256 != binding.browser_tree_manifest_sha256
         || hello.max_frame_bytes != MAX_CAMOUFOX_HOST_FRAME_BYTES
-        || hello.probe_port_policy != "ephemeral"
+        || hello.probe_port_policy != expected_probe_port_policy
         || hello.state != "idle"
         || hello.verified
         || hello.evidence_class != "observed-on-this-host"
@@ -3343,6 +3447,10 @@ fn preflight_proxy(
         NetworkProfile::Pac { .. } => Ok(()),
     }
 }
+
+#[cfg(all(test, target_os = "windows"))]
+#[path = "launcher_m3_wi_windows_tests.rs"]
+mod m3_wi_windows_tests;
 
 #[cfg(test)]
 mod tests {
@@ -4394,6 +4502,67 @@ process.stdin.on('end', () => {
             ..RuntimeManager::default()
         };
         (root, runtime, silo_id)
+    }
+
+    #[test]
+    fn camoufox_host_hello_binds_typed_fixed_probe_port() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-camoufox-fixed-probe-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("fixed probe test root");
+        let tree = root.join("browser-tree.json");
+        fs::write(&tree, b"{}\n").expect("fixed probe tree path");
+        let binding = CamoufoxHostLaunch {
+            protocol: super::CAMOUFOX_HOST_PROTOCOL.to_owned(),
+            host_version: "0.1.0".to_owned(),
+            platform: "windows-x64".to_owned(),
+            artifact_id: "identity-fixed-probe".to_owned(),
+            artifact_file_sha256: "a".repeat(64),
+            profile_id: "silo-fixed-probe".to_owned(),
+            browser_release: "v152.0.4-beta.28".to_owned(),
+            browser_asset_sha256: "b".repeat(64),
+            browser_tree_manifest_path: tree.clone(),
+            browser_tree_manifest_sha256: "c".repeat(64),
+        };
+        let roots = [
+            root.join("artifacts"),
+            root.join("profiles"),
+            root.join("state"),
+        ];
+        let arguments = vec![
+            OsString::from("--artifact-root"),
+            roots[0].as_os_str().to_owned(),
+            OsString::from("--profile-root"),
+            roots[1].as_os_str().to_owned(),
+            OsString::from("--state-root"),
+            roots[2].as_os_str().to_owned(),
+            OsString::from("--tree-manifest"),
+            tree.as_os_str().to_owned(),
+            OsString::from("--probe-port"),
+            OsString::from("43127"),
+        ];
+        let hello = super::CamoufoxHostHello {
+            protocol: binding.protocol.clone(),
+            host_version: binding.host_version.clone(),
+            python_version: Some("3.12.11".to_owned()),
+            artifact_root: roots[0].to_string_lossy().into_owned(),
+            profile_root: roots[1].to_string_lossy().into_owned(),
+            state_root: roots[2].to_string_lossy().into_owned(),
+            max_frame_bytes: crate::engine::MAX_CAMOUFOX_HOST_FRAME_BYTES,
+            probe_port_policy: "fixed".to_owned(),
+            browser_release: binding.browser_release.clone(),
+            asset_sha256: binding.browser_asset_sha256.clone(),
+            tree_manifest: tree.to_string_lossy().into_owned(),
+            tree_manifest_sha256: binding.browser_tree_manifest_sha256.clone(),
+            platform: binding.platform.clone(),
+            state: "idle".to_owned(),
+            verified: false,
+            evidence_class: "observed-on-this-host".to_owned(),
+        };
+        assert!(super::validate_camoufox_host_hello(&hello, &binding, &arguments).is_ok());
+        let mut duplicated = arguments.clone();
+        duplicated.extend([OsString::from("--probe-port"), OsString::from("43128")]);
+        assert!(super::validate_camoufox_host_hello(&hello, &binding, &duplicated).is_err());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

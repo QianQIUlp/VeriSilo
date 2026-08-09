@@ -1,0 +1,524 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verisilo.local/schemas/camoufox/evidence-manifest-m3-wi-windows.schema.json",
+  "title": "VeriSilo Camoufox M3-WI native-Windows evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generatedAtUtc",
+    "status",
+    "runId",
+    "codeGitRevision",
+    "codeTreeHash",
+    "branch",
+    "integrationPath",
+    "productionPackageVerified",
+    "productionVerifierFailClosed",
+    "shipped",
+    "verified",
+    "evidenceClass",
+    "executionPlatform",
+    "fixedInputs",
+    "receipts",
+    "realRuns",
+    "gateMatrix",
+    "validation",
+    "security",
+    "protectedAcceptedFiles",
+    "boundaries"
+  ],
+  "properties": {
+    "schema": {
+      "const": "verisilo-camoufox-m3-wi-windows-evidence-manifest/v1"
+    },
+    "generatedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "const": "execution-passed-awaiting-main-brain-gate"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^run-[0-9]+-[0-9a-f]{8}$"
+    },
+    "codeGitRevision": {
+      "$ref": "#/$defs/gitObject"
+    },
+    "codeTreeHash": {
+      "$ref": "#/$defs/gitObject"
+    },
+    "branch": {
+      "const": "codex/camoufox-m3-engine-adapter"
+    },
+    "integrationPath": {
+      "const": "test-only-real-host"
+    },
+    "productionPackageVerified": {
+      "const": false
+    },
+    "productionVerifierFailClosed": {
+      "const": true
+    },
+    "shipped": {
+      "const": false
+    },
+    "verified": {
+      "const": false
+    },
+    "evidenceClass": {
+      "const": "observed-on-this-windows-host"
+    },
+    "executionPlatform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "windowsRelease",
+        "windowsVersion",
+        "architecture",
+        "sessionName",
+        "sessionId",
+        "python",
+        "uv",
+        "rustc",
+        "cargo",
+        "node",
+        "pnpm"
+      ],
+      "properties": {
+        "os": { "type": "string", "minLength": 1 },
+        "windowsRelease": { "type": "string", "minLength": 1 },
+        "windowsVersion": { "type": "string", "minLength": 1 },
+        "architecture": { "const": "AMD64" },
+        "sessionName": { "type": "string", "minLength": 1 },
+        "sessionId": { "type": "integer", "minimum": 1 },
+        "python": { "type": "string", "minLength": 1 },
+        "uv": { "type": "string", "minLength": 1 },
+        "rustc": { "type": "string", "minLength": 1 },
+        "cargo": { "type": "string", "minLength": 1 },
+        "node": { "type": "string", "minLength": 1 },
+        "pnpm": { "type": "string", "minLength": 1 }
+      }
+    },
+    "fixedInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive",
+        "assetLock",
+        "browserTree",
+        "artifact",
+        "hostSource",
+        "uvLock",
+        "packages",
+        "release",
+        "pythonInterpreter"
+      ],
+      "properties": {
+        "archive": { "$ref": "#/$defs/sizedFileInput" },
+        "assetLock": { "$ref": "#/$defs/fileInput" },
+        "browserTree": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "relativePath",
+            "rawFileSha256",
+            "canonicalManifestSha256",
+            "fileCount",
+            "totalBytes"
+          ],
+          "properties": {
+            "relativePath": { "type": "string", "minLength": 1 },
+            "rawFileSha256": { "$ref": "#/$defs/sha256" },
+            "canonicalManifestSha256": { "$ref": "#/$defs/sha256" },
+            "fileCount": { "const": 493 },
+            "totalBytes": { "const": 979350965 }
+          }
+        },
+        "artifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["relativePath", "rawFileSha256", "sidecarMatches"],
+          "properties": {
+            "relativePath": { "type": "string", "minLength": 1 },
+            "rawFileSha256": { "$ref": "#/$defs/sha256" },
+            "sidecarMatches": { "const": true }
+          }
+        },
+        "hostSource": { "$ref": "#/$defs/fileInput" },
+        "uvLock": { "$ref": "#/$defs/fileInput" },
+        "packages": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["camoufox", "playwright", "browserforge"],
+          "properties": {
+            "camoufox": { "const": "0.5.4" },
+            "playwright": { "const": "1.60.0" },
+            "browserforge": { "const": "1.2.4" }
+          }
+        },
+        "release": { "const": "v152.0.4-beta.28" },
+        "pythonInterpreter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["relativePath", "sha256", "version", "resolvedBy"],
+          "properties": {
+            "relativePath": { "type": "string", "minLength": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "version": { "const": "Python 3.12.11" },
+            "resolvedBy": { "const": "uv run --frozen --offline" }
+          }
+        }
+      }
+    },
+    "receipts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report", "summary", "runtime"],
+      "properties": {
+        "report": {
+          "$ref": "#/$defs/sidecarReceipt"
+        },
+        "summary": {
+          "$ref": "#/$defs/sidecarReceipt"
+        },
+        "runtime": {
+          "$ref": "#/$defs/fileReceipt"
+        }
+      }
+    },
+    "realRuns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "persistenceCycle1",
+        "persistenceCycle2",
+        "activeEof",
+        "hostCrash",
+        "desktopDrop",
+        "negativeMatrix"
+      ],
+      "properties": {
+        "persistenceCycle1": {
+          "$ref": "#/$defs/realCycle"
+        },
+        "persistenceCycle2": {
+          "$ref": "#/$defs/realCycle"
+        },
+        "activeEof": {
+          "$ref": "#/$defs/failureLifecycle"
+        },
+        "hostCrash": {
+          "$ref": "#/$defs/crashLifecycle"
+        },
+        "desktopDrop": {
+          "$ref": "#/$defs/desktopDropLifecycle"
+        },
+        "negativeMatrix": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "state",
+              "failedBeforeRunning",
+              "exactSpawnedChildRetained"
+            ],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "state": { "type": "string", "minLength": 1 },
+              "failedBeforeRunning": { "const": true },
+              "exactSpawnedChildRetained": { "const": false }
+            }
+          }
+        }
+      }
+    },
+    "gateMatrix": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "evidence"],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          },
+          "status": {
+            "const": "passed"
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "validation": {
+      "type": "array",
+      "minItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "exitCode", "outputSha256", "counts"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "exitCode": {
+            "const": 0
+          },
+          "outputSha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "secretPatternsChecked",
+        "secretMatches",
+        "unrelatedSentinelSurvived",
+        "ownedPidsAliveAfter",
+        "targetProcessesAfter",
+        "downloadGuardAttemptObserved"
+      ],
+      "properties": {
+        "secretPatternsChecked": {
+          "type": "array",
+          "minItems": 6
+        },
+        "secretMatches": {
+          "const": []
+        },
+        "unrelatedSentinelSurvived": {
+          "const": true
+        },
+        "ownedPidsAliveAfter": {
+          "const": []
+        },
+        "targetProcessesAfter": {
+          "const": []
+        },
+        "downloadGuardAttemptObserved": {
+          "const": false
+        }
+      }
+    },
+    "protectedAcceptedFiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unchangedFromStartCheckpoint", "sha256"],
+      "properties": {
+        "unchangedFromStartCheckpoint": {
+          "const": true
+        },
+        "sha256": {
+          "type": "object",
+          "minProperties": 10,
+          "additionalProperties": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "boundaries": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "$defs": {
+    "gitObject": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "prefixedSha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "fileReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256"],
+      "properties": {
+        "relativePath": {
+          "type": "string",
+          "pattern": "^artifacts/camoufox-m3-wi-windows-gate/runs/"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "fileInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256"],
+      "properties": {
+        "relativePath": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "sizedFileInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "sizeBytes"],
+      "properties": {
+        "relativePath": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sizeBytes": { "const": 492370020 }
+      }
+    },
+    "sidecarReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "sidecarRelativePath", "sidecarSha256"],
+      "properties": {
+        "relativePath": {
+          "type": "string",
+          "pattern": "^artifacts/camoufox-m3-wi-windows-gate/runs/"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sidecarRelativePath": {
+          "type": "string",
+          "pattern": "^artifacts/camoufox-m3-wi-windows-gate/runs/"
+        },
+        "sidecarSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "realCycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId",
+        "hostPid",
+        "managedPids",
+        "jobName",
+        "artifactId",
+        "artifactFileSha256",
+        "profileId",
+        "bootCountBefore",
+        "bootCountAfter",
+        "observedWebsiteDigest",
+        "mediaDevicesMatched",
+        "cookieEvidence",
+        "processTreeExited",
+        "jobActiveProcessCount",
+        "cookieSqlite",
+        "verified",
+        "evidenceClass"
+      ],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "hostPid": { "type": "integer", "minimum": 1 },
+        "managedPids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "jobName": { "type": "string", "minLength": 1 },
+        "artifactId": { "const": "identity-win-a" },
+        "artifactFileSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profileId": { "type": "string", "minLength": 1 },
+        "bootCountBefore": { "type": "integer", "minimum": 0 },
+        "bootCountAfter": { "type": "integer", "minimum": 1 },
+        "observedWebsiteDigest": { "$ref": "#/$defs/prefixedSha256" },
+        "mediaDevicesMatched": {
+          "const": true
+        },
+        "cookieEvidence": { "type": "object", "minProperties": 3 },
+        "processTreeExited": {
+          "const": true
+        },
+        "jobActiveProcessCount": {
+          "const": 0
+        },
+        "cookieSqlite": { "type": "object", "minProperties": 2 },
+        "verified": {
+          "const": false
+        },
+        "evidenceClass": {
+          "const": "observed-on-this-windows-host"
+        }
+      }
+    },
+    "failureLifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId",
+        "hostPid",
+        "desktopState",
+        "profileLeaseRetained",
+        "processTreeExited",
+        "jobActiveProcessCount"
+      ],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "hostPid": { "type": "integer", "minimum": 1 },
+        "desktopState": { "const": "verification_failed" },
+        "profileLeaseRetained": { "const": true },
+        "processTreeExited": { "const": true },
+        "jobActiveProcessCount": { "const": 0 }
+      }
+    },
+    "crashLifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId",
+        "hostPid",
+        "desktopState",
+        "profileLeaseRetained",
+        "ownedPidsDead"
+      ],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "hostPid": { "type": "integer", "minimum": 1 },
+        "desktopState": { "const": "verification_failed" },
+        "profileLeaseRetained": { "const": true },
+        "ownedPidsDead": { "const": true }
+      }
+    },
+    "desktopDropLifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionId", "hostPid", "recoveredState", "ownedPidsDead"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "hostPid": { "type": "integer", "minimum": 1 },
+        "recoveredState": { "const": "recovery_required" },
+        "ownedPidsDead": { "const": true }
+      }
+    }
+  }
+}

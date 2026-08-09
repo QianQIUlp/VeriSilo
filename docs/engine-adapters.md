@@ -16,7 +16,19 @@ non-installable example are in `apps/desktop/src-tauri/resources`.
 
 The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). They still do not implement this desktop adapter contract: `main` does not package the Host as a signed engine entrypoint, Tauri does not launch it, and Host JSON Lines is not the native bootstrap/receipt protocol described below.
 
-Native Windows M2-W has now accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. [M3-0](camoufox-m3-engine-adapter-task.md) freezes a versioned Host package entrypoint and a dedicated `camoufox-host-jsonl-v1` transport. This execution branch implements only the contract-level fake-Host slice; it explicitly forbids fabricating generic phase receipts from Host self-report and keeps `verified: false` evidence below `verified`. See [the Camoufox program status](camoufox-program-status.md).
+Native Windows M2-W has now accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. [M3-0](camoufox-m3-engine-adapter-task.md) freezes a versioned Host package entrypoint and a dedicated `camoufox-host-jsonl-v1` transport. Its accepted checkpoint implements the contract-level fake-Host slice; it explicitly forbids fabricating generic phase receipts from Host self-report and keeps `verified: false` evidence below `verified`. See [the Camoufox program status](camoufox-program-status.md).
+
+[M3-WI](camoufox-m3-wi-windows-task.md) adds a Windows-only ignored test
+harness for the next Gate. The harness is compiled only under
+`cfg(test, target_os = "windows")`: it uses `uv run --frozen --offline` to
+resolve and verify the locked Python environment, then gives the real
+`RuntimeManager` an exact Python child plus `host_v1.py` plan. The plan has no
+package-verification receipt, signer bypass, token bootstrap, proxy arguments,
+or fallback rules. A run-owned fixed probe port is typed in the Host argv so
+two distinct Host processes can revisit the same probe origin and test real
+Profile continuity. Production timeouts and the empty trusted-signer policy
+remain unchanged; this harness cannot be selected by a release build and is
+not a signed or shipped Host package.
 
 ## Adapter and capability contract
 
