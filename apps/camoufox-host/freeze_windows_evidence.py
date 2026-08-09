@@ -15,7 +15,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from identity_policy import STABLE_WEBSITE_SIGNAL_KEYS
+from identity_policy import STABLE_WEBSITE_SIGNAL_KEYS, verify_artifact_raw
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = REPO_ROOT / "tests" / "fixtures" / "camoufox" / "evidence-manifest-windows.json"
@@ -31,6 +31,11 @@ REQUIRED_HOST_RESULTS = {
     "tree-integrity",
     "pid-reuse",
 }
+TRACKED_WINDOWS_ARTIFACTS = (
+    "identity-win-a.json",
+    "identity-win-b.json",
+    "identity-win-c.json",
+)
 
 
 def load_json(path: Path) -> dict:
@@ -56,6 +61,32 @@ def verify_sidecar(path: Path, sidecar: Path, expected_name: str) -> str:
     if len(parts) != 2 or parts[0] != actual or parts[1] != expected_name:
         raise RuntimeError(f"sidecar mismatch: {sidecar}")
     return actual
+
+
+def tracked_artifact_receipts() -> list[dict]:
+    """Derive tracked Artifact metadata from the exact verified file bytes."""
+
+    fixture_root = REPO_ROOT / "tests" / "fixtures" / "camoufox"
+    receipts = []
+    for name in TRACKED_WINDOWS_ARTIFACTS:
+        path = fixture_root / name
+        raw = path.read_bytes()
+        if raw.startswith(b"\xef\xbb\xbf") or b"\r\n" in raw or not raw.endswith(b"\n"):
+            raise RuntimeError(f"tracked Artifact is not UTF-8/LF/no-BOM: {path}")
+        artifact, raw_sha = verify_artifact_raw(path)
+        policy = artifact["policy"]
+        receipts.append(
+            {
+                "artifactId": artifact["artifactId"],
+                "file": relative(path),
+                "rawSha256": raw_sha,
+                "canonicalDigest": artifact["canonicalDigest"],
+                "configuredIdentityDigest": artifact["configuredIdentityDigest"],
+                "targetOs": policy["targetOs"],
+                "fontMode": policy["fontMode"],
+            }
+        )
+    return receipts
 
 
 def identity_receipt(path: Path, command: str) -> tuple[dict, list[str]]:
@@ -176,6 +207,10 @@ def main() -> int:
     artifact_tamper, artifact_tamper_receipt = identity_receipt(
         args.artifact_tamper.resolve(), "tamper"
     )
+    artifacts = tracked_artifact_receipts()
+    artifact_sha_by_id = {
+        artifact["artifactId"]: artifact["rawSha256"] for artifact in artifacts
+    }
 
     stability_result = stability["stability"]
     cache = stability["run"].get("controlledCache", {})
@@ -193,6 +228,22 @@ def main() -> int:
         and all(start.get("webdlTripped") is False for start in starts)
     ):
         raise RuntimeError("stability receipt is not a controlled fresh-cache 5-start run")
+    if any(
+        start.get("artifactFileSha256")
+        != artifact_sha_by_id.get(start.get("artifactId"))
+        for start in starts
+    ):
+        raise RuntimeError("stability receipt does not bind the tracked Artifact bytes")
+
+    separation_starts = separation.get("coldStarts", [])
+    if set(artifact_sha_by_id) != {
+        start.get("artifactId") for start in separation_starts
+    } or any(
+        start.get("artifactFileSha256")
+        != artifact_sha_by_id.get(start.get("artifactId"))
+        for start in separation_starts
+    ):
+        raise RuntimeError("separation receipt does not bind all tracked Artifact bytes")
 
     pre_sync_receipts = manifest["preSyncEvidence"]["runReports"]
     transition_entry = pre_sync_receipts.get("freshCacheGeneration")
@@ -296,6 +347,7 @@ def main() -> int:
             },
             "runs": runs,
             "runReports": run_reports,
+            "artifacts": artifacts,
         }
     )
 

@@ -42,6 +42,7 @@ from run_identity_spike import (
     write_report,
 )
 from run_spike import firefox_user_prefs_for_config
+from generate_identity import write_artifact_with_sidecar
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "camoufox"
@@ -148,6 +149,22 @@ def test_identity_report_sidecar_hashes_exact_disk_bytes() -> None:
         ).split()
         assert sidecar_name == "report.json"
         assert sidecar_digest == hashlib.sha256(report_path.read_bytes()).hexdigest()
+
+
+def test_artifact_writer_uses_exact_utf8_lf_bytes() -> None:
+    artifact = load_fixture("identity-win-a")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "identity-win-a.json"
+        digest = write_artifact_with_sidecar(path, artifact)
+        raw = path.read_bytes()
+        sidecar_digest, sidecar_name = path.with_suffix(".json.sha256").read_text(
+            encoding="ascii"
+        ).split()
+        assert raw.startswith(b"{") and not raw.startswith(b"\xef\xbb\xbf")
+        assert raw.endswith(b"\n") and b"\r\n" not in raw
+        assert digest == hashlib.sha256(raw).hexdigest() == sidecar_digest
+        assert sidecar_name == path.name
+        assert verify_artifact(path)["canonicalDigest"] == artifact["canonicalDigest"]
 
 
 def test_diff_configs() -> None:

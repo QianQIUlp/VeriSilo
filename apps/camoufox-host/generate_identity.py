@@ -71,6 +71,27 @@ def reassemble_camou_config(env: dict) -> dict:
     return json.loads("".join(value for _, value in chunks))
 
 
+def artifact_json_bytes(artifact: dict) -> bytes:
+    """Serialize tracked Artifacts as deterministic UTF-8/LF/no-BOM bytes."""
+
+    return (json.dumps(artifact, indent=2, ensure_ascii=False) + "\n").encode(
+        "utf-8"
+    )
+
+
+def write_artifact_with_sidecar(path: Path, artifact: dict) -> str:
+    """Write one exact byte payload and hash those same bytes for its sidecar."""
+
+    raw = artifact_json_bytes(artifact)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    digest = sha256_hex(raw)
+    path.with_suffix(path.suffix + ".sha256").write_bytes(
+        f"{digest}  {path.name}\n".encode("ascii")
+    )
+    return digest
+
+
 def complete_resolved_config(
     executable: Path,
     target_os: str,
@@ -282,16 +303,7 @@ def main() -> int:
     assert_artifact_clean(artifact)
     artifact["canonicalDigest"] = compute_artifact_digest(artifact)
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(
-        json.dumps(artifact, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    sidecar = args.out.with_suffix(args.out.suffix + ".sha256")
-    sidecar.write_text(
-        f"{sha256_hex(args.out.read_bytes())}  {args.out.name}\n",
-        encoding="utf-8",
-    )
+    write_artifact_with_sidecar(args.out, artifact)
     verify_artifact(args.out)  # strict validation must pass before handoff
     print(f"artifact written to {args.out}")
     print(f"canonicalDigest={artifact['canonicalDigest']}")
