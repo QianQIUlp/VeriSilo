@@ -200,7 +200,10 @@ def run_finalization(run_id: str) -> int:
     commands.append(command_receipt("Host fake-context typed close/ownership regression", close_regression))
     close_receipt = parse_close_context_regression(close_regression)
 
-    host_root = run_dir / "r2-final-windows-host-regression"
+    # Keep the run-owned cache under a short repo path.  The browser seed
+    # contains a nested DLL path and Windows' legacy path handling otherwise
+    # turns a long run receipt path into WinError 3 during copytree.
+    host_root = REPO_ROOT / "artifacts" / f"r2-host-regression-{run_id.rsplit('-', 1)[-1]}"
     host_runs = host_root / "runs"
     host_temp = host_root / "temp"
     host_cache = host_root / "empty-cache"
