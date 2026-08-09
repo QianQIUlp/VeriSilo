@@ -1,9 +1,11 @@
 # M3-0 Camoufox Host / EngineAdapter 集成任务合同
 
-- 状态：**Frozen，等待执行 Agent 实现**
+- 状态：**Main-brain Gate Accepted on 2026-08-09**
 - 冻结日期：2026-08-09
 - `main` 起始基线：`8de389db366d1d9ff510b1e885fab7f49a89aad0`（PR #10 merge commit）
 - 执行分支：`codex/camoufox-m3-engine-adapter`
+- 冻结实现起点：`b3d094cb0a7f3b7f9c113c53e4c4575d16babb67`
+- Accepted checkpoint：`e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`
 - 上一 Gate：M2-W **Accepted**；Linux 与 Windows standalone 证据保持 `verified: false`
 
 本文既是 M3-0 的仓库任务卡，也是交给执行 Agent 的提示词。执行前必须依次阅读：
@@ -14,6 +16,27 @@
 4. [Camoufox 当前状态](camoufox-program-status.md)；
 5. 本文；
 6. [EngineAdapter 现状](engine-adapters.md)、[Host v1](camoufox-host-v1.md)和 [M2-W Gate](camoufox-m2w-windows.md)。
+
+## Gate 结果
+
+原始候选 `bc65e07fbc21ee8581b3ac60c91afd15d0effa20` 未通过主脑审阅，不能作为
+accepted checkpoint。执行 Agent 以追加提交 `fc67418b946c2f82f69e13ec5751cff24f3f1e7f`、
+`b50765986c7da0bf081ff0a9057dc38073813311` 和最终
+`e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd` 关闭了 package/browser tree 分离、
+secret 持久化扫描和真实 `RuntimeManager` fake Host 垂直切片等缺口。主脑逐项对照
+冻结合同并做了小型只读接缝核对，接受最终 checkpoint；没有重跑完整测试矩阵。
+
+Accepted evidence 是 contract-level fake Host 测试与提交绑定，不包含真实浏览器 run-id：
+
+- `pnpm check`、`pnpm build`、`pnpm engine:verify` 通过；`pnpm test` 为 `150` tests；
+- Desktop `cargo test --locked` 为 `184 passed / 0 failed`，fmt 与 clippy 通过；
+- Artifact 锁定环境测试为 `25/25`；
+- production signer pin 仍未配置并保持 fail-closed；
+- Host evidence 仍为 `observed-on-this-host`、`verified: false`，`verifiedAdapter = null`。
+
+本 Gate 只接受 package/transport/lifecycle/evidence 合同。它没有启动真实 Camoufox，
+没有证明签名 Host package、发布 runtime、installer 或 shipped Managed Identity。
+后继任务是 [M3-WI 原生 Windows 真实 Host 集成](camoufox-m3-wi-windows-task.md)。
 
 ## 角色与任务边界
 
