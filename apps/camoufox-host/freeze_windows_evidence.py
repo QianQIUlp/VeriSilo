@@ -61,7 +61,12 @@ def verify_sidecar(path: Path, sidecar: Path, expected_name: str) -> str:
 def identity_receipt(path: Path, command: str) -> tuple[dict, list[str]]:
     report = load_json(path)
     digest = verify_sidecar(path, path.parent / "report.sha256", "report.json")
-    if report.get("command") != command or report.get("accepted") is not True:
+    accepted = (
+        report.get("accepted")
+        if command == "tamper"
+        else report.get(command, {}).get("accepted")
+    )
+    if report.get("command") != command or accepted is not True:
         raise RuntimeError(f"{command} report is not accepted: {path}")
     if report.get("runId") != path.parent.name:
         raise RuntimeError(f"runId/path mismatch: {path}")
@@ -112,6 +117,11 @@ def main() -> int:
     parser.add_argument("--stability", type=Path, required=True)
     parser.add_argument("--separation", type=Path, required=True)
     parser.add_argument("--artifact-tamper", type=Path, required=True)
+    parser.add_argument(
+        "--code-revision",
+        default="HEAD",
+        help="Exact code commit that produced the supplied receipts (default: HEAD)",
+    )
     args = parser.parse_args()
 
     if git("status", "--short"):
@@ -203,8 +213,21 @@ def main() -> int:
     ):
         raise RuntimeError("pre-sync transition was not isolated from artifact/config/profile")
 
-    revision = git("rev-parse", "HEAD")
-    tree = git("rev-parse", "HEAD^{tree}")
+    revision = git("rev-parse", args.code_revision)
+    subprocess.run(
+        ["git", "merge-base", "--is-ancestor", revision, "HEAD"],
+        cwd=REPO_ROOT,
+        check=True,
+    )
+    changed_since_code = set(
+        filter(None, git("diff", "--name-only", f"{revision}..HEAD").splitlines())
+    )
+    if changed_since_code - {"apps/camoufox-host/freeze_windows_evidence.py"}:
+        raise RuntimeError(
+            "non-freezer code changed after the receipt-producing revision: "
+            + ", ".join(sorted(changed_since_code))
+        )
+    tree = git("rev-parse", f"{revision}^{{tree}}")
     summary_id = summary_path.stem
     updated = max(
         [summary["generatedAtUtc"]]
