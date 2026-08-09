@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import copy
 from functools import partial
 import json
@@ -61,22 +62,31 @@ from browser_tree import (
     load_tree_manifest,
     verify_tree,
 )
+from host_platform import (
+    IS_WINDOWS,
+    JobHandle,
+    ProfileLock,
+    process_identity_alive,
+    terminate_windows_job,
+)
 from host_fonts import (
     FONT_UNIVERSE,
     host_negative_control_families,
 )
 from run_spike import (
-    CAMOUFOX_INSTALL_DIR,
+    configure_camoufox_cache,
     DownloadGuard,
     EXECUTABLE,
     REPO_ROOT,
     SUPERVISOR,
     XDG_CACHE_DIR,
     ensure_browser_asset,
+    firefox_user_prefs_for_config,
     install_download_guard,
     installed_versions,
     load_asset_lock,
     new_run_id,
+    normalize_camou_config_env,
     seed_camoufox_cache,
     start_probe_server,
     start_xvfb,
@@ -84,9 +94,15 @@ from run_spike import (
     utcnow,
 )
 
-M1_ARTIFACT_DIR = REPO_ROOT / "artifacts" / "camoufox-m1"
+M1_ARTIFACT_DIR = REPO_ROOT / "artifacts" / (
+    "camoufox-m2-windows-gate" if IS_WINDOWS else "camoufox-m1"
+)
 M1_RUNS_DIR = M1_ARTIFACT_DIR / "runs"
-TREE_MANIFEST = REPO_ROOT / "tests" / "fixtures" / "camoufox" / "browser-tree-manifest.json"
+TREE_MANIFEST = REPO_ROOT / "tests" / "fixtures" / "camoufox" / (
+    "browser-tree-manifest-windows.json"
+    if IS_WINDOWS
+    else "browser-tree-manifest.json"
+)
 
 REPORT_SCHEMA = "verisilo-camoufox-m1-run-report/v3"
 
@@ -136,6 +152,134 @@ def extract_observed_website_signals(
     return signals
 
 
+def expected_media_device_counts(config: dict) -> dict[str, int]:
+    """Translate the artifact's Camoufox media policy into probe counts."""
+
+    if config.get("mediaDevices:enabled") is not True:
+        return {"audioinput": 0, "videoinput": 0, "audiooutput": 0}
+    return {
+        "audioinput": int(config.get("mediaDevices:micros", 0)),
+        "videoinput": int(config.get("mediaDevices:webcams", 0)),
+        "audiooutput": int(config.get("mediaDevices:speakers", 0)),
+    }
+
+
+def observed_media_device_counts(devices: list[dict]) -> dict[str, int]:
+    counts = {"audioinput": 0, "videoinput": 0, "audiooutput": 0}
+    for device in devices:
+        kind = device.get("kind")
+        if kind in counts:
+            counts[kind] += 1
+    return counts
+
+
+async def wait_for_configured_media_devices(
+    page: Any, config: dict, timeout_seconds: float = 8.0
+) -> dict:
+    """Bounded readiness wait before the full website observation.
+
+    A fresh Windows Firefox process can expose the configured fake media
+    backend a short time after the first enumerateDevices() call. This wait
+    does not change the digest payload: the subsequent complete probe remains
+    authoritative and must independently match the Artifact counts.
+    """
+
+    expected = expected_media_device_counts(config)
+    deadline = time.monotonic() + timeout_seconds
+    attempts: list[dict] = []
+    while True:
+        devices = await page.evaluate(
+            """async () => {
+                if (!navigator.mediaDevices?.enumerateDevices) return [];
+                return (await navigator.mediaDevices.enumerateDevices()).map(
+                    device => ({kind: device.kind, label: device.label})
+                );
+            }"""
+        )
+        observed = observed_media_device_counts(devices)
+        attempts.append({"counts": observed, "matched": observed == expected})
+        if observed == expected or time.monotonic() >= deadline:
+            return {
+                "expectedCounts": expected,
+                "attempts": attempts,
+                "matched": observed == expected,
+                "waitSeconds": round(
+                    max(0.0, timeout_seconds - max(0.0, deadline - time.monotonic())),
+                    3,
+                ),
+            }
+        await page.wait_for_timeout(250)
+
+
+async def close_identity_context_bounded(
+    ctx: Any, supervisor_file: Path, timeout_seconds: float = 15.0
+) -> dict:
+    """Bound evidence-side context close and fall back to the named Job."""
+
+    task = asyncio.create_task(ctx.close())
+    started = time.perf_counter()
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+        return {
+            "graceful": True,
+            "timedOut": False,
+            "jobTermination": None,
+            "seconds": round(time.perf_counter() - started, 3),
+        }
+    except asyncio.TimeoutError:
+        if not IS_WINDOWS:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.wait_for(task, timeout=3)
+            raise RuntimeError("identity evidence context close timed out")
+
+        try:
+            metadata = json.loads(supervisor_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            task.cancel()
+            raise RuntimeError(
+                "identity evidence context close timed out without valid supervisor metadata"
+            ) from exc
+        identities = [
+            {
+                "pid": metadata.get("supervisorPid"),
+                "creationTime100ns": metadata.get("supervisorCreationTime100ns"),
+                "role": "supervisor",
+            },
+            {
+                "pid": metadata.get("childPid"),
+                "creationTime100ns": metadata.get("childCreationTime100ns"),
+                "role": "browser",
+            },
+        ]
+        job_result = terminate_windows_job(
+            {
+                "jobHandle": None,
+                "supervisorMeta": metadata,
+                "managedIdentities": identities,
+                "ctx": ctx,
+                "pid": metadata.get("supervisorPid"),
+            },
+            timeout=5,
+        )
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=3)
+        except (asyncio.TimeoutError, Exception):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.wait_for(task, timeout=3)
+        if not job_result.get("exited", False):
+            raise RuntimeError(
+                "identity evidence context close timed out and named Job remained active"
+            )
+        return {
+            "graceful": False,
+            "timedOut": True,
+            "jobTermination": job_result,
+            "seconds": round(time.perf_counter() - started, 3),
+        }
+
+
 async def cold_start(
     playwright: Any,
     artifact_path: Path,
@@ -161,10 +305,22 @@ async def cold_start(
     if profile_pre_existed:
         raise RuntimeError(f"cold start profile already exists: {profile}")
     exit_file = run_dir / f"cold-{index}-exit.json"
+    supervisor_file = run_dir / f"cold-{index}-supervisor.json"
     if exit_file.exists():
         exit_file.unlink()
+    if supervisor_file.exists():
+        supervisor_file.unlink()
+    profile_lock = None
+    if IS_WINDOWS:
+        profile_lock = ProfileLock.acquire(profile.parent / f"{profile.name}.lock")
     os.environ["VERISILO_REAL_EXE"] = str(executable)
     os.environ["VERISILO_EXIT_FILE"] = str(exit_file)
+    os.environ["VERISILO_SUPERVISOR_FILE"] = str(supervisor_file)
+    if IS_WINDOWS:
+        os.environ["VERISILO_PROFILE_LOCK_PATH"] = str(
+            profile.parent / f"{profile.name}.lock"
+        )
+        os.environ["VERISILO_JOB_NAME"] = f"Local\\VeriSiloM1-{run_dir.name}-{index}"
 
     from camoufox import AsyncNewBrowser
     from camoufox import DefaultAddons
@@ -176,7 +332,7 @@ async def cold_start(
         None,
         partial(
             launch_options,
-            config=disk_config,
+             config=copy.deepcopy(disk_config),
             os=policy["targetOs"],
             window=window,
             locale=policy["locale"],
@@ -184,19 +340,16 @@ async def cold_start(
             headless=False,
             executable_path=str(executable),
             user_data_dir=str(profile),
-            virtual_display=display,
-            firefox_user_prefs={
-                "app.update.auto": False,
-                "app.update.enabled": False,
-                "browser.shell.checkDefaultBrowser": False,
-            },
+            virtual_display=display or None,
+            firefox_user_prefs=firefox_user_prefs_for_config(disk_config),
             exclude_addons=[DefaultAddons.UBO],
             i_know_what_im_doing=True,
         ),
     )
-    sent_config = reassemble_camou_config(opts["env"])
+    sent_config, config_diff, opts["env"] = normalize_camou_config_env(
+        opts["env"], disk_config
+    )
     sent_digest = configured_identity_digest(sent_config)
-    config_diff = diff_configs(disk_config, sent_config)
     config_unchanged = (
         sent_digest == disk_digest
         and not config_diff["added"]
@@ -238,6 +391,7 @@ async def cold_start(
         f"window.__probeHostFonts = {json.dumps(host_controls)}"
     )
     await page.evaluate("document.fonts.ready")
+    media_readiness = await wait_for_configured_media_devices(page, disk_config)
     page_start = time.perf_counter()
     observed = await page.evaluate("window.__probe.readIdentity()")
     probe_seconds = time.perf_counter() - page_start
@@ -265,8 +419,11 @@ async def cold_start(
         )
 
     close_start = time.perf_counter()
-    await ctx.close()
+    context_close = await close_identity_context_bounded(ctx, supervisor_file)
     close_seconds = time.perf_counter() - close_start
+    if profile_lock is not None:
+        profile_lock.release()
+        profile_lock = None
 
     exit_code = None
     exit_file_observed = exit_file.exists()
@@ -275,8 +432,17 @@ async def cold_start(
             exit_code = int(json.loads(exit_file.read_text())["exitCode"])
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
             exit_code = None
+    job_result = job_evidence(supervisor_file) if IS_WINDOWS else None
+    try:
+        supervisor_meta = json.loads(supervisor_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        supervisor_meta = None
 
     observed_website_signals = extract_observed_website_signals(observed, font_mode)
+    expected_media_counts = expected_media_device_counts(disk_config)
+    observed_media_counts = observed_media_device_counts(
+        observed_website_signals["mediaDevices"]
+    )
     projection = build_projection(
         artifact["artifactId"],
         run_id_from_dir(run_dir),
@@ -293,8 +459,11 @@ async def cold_start(
         "spawnSeconds": round(spawn_seconds, 3),
         "probeSeconds": round(probe_seconds, 3),
         "closeSeconds": round(close_seconds, 3),
+        "contextClose": context_close,
         "exitStatus": exit_code,
         "exitFileObserved": exit_file_observed,
+        "jobObject": job_result,
+        "supervisorMeta": supervisor_meta,
         "profileDir": str(profile),
         "profilePreExisted": profile_pre_existed,
         "diskConfigDigest": disk_digest,
@@ -307,6 +476,10 @@ async def cold_start(
             entry.get("available") for entry in observed.get("injectedFonts", [])
         ),
         "hostFontMasking": host_masking,
+        "mediaDeviceReadiness": media_readiness,
+        "expectedMediaDeviceCounts": expected_media_counts,
+        "observedMediaDeviceCounts": observed_media_counts,
+        "mediaDevicesMatchConfigured": observed_media_counts == expected_media_counts,
         "canvasObserved": {
             "rawHash": observed["canvas"]["rawHash"],
             "exportHash": observed["canvas"]["exportHash"],
@@ -322,7 +495,7 @@ def run_id_from_dir(run_dir: Path) -> str:
     return run_dir.name
 
 
-def prepare_host() -> tuple[dict, Path]:
+def prepare_host() -> tuple[dict, Path, dict]:
     lock = load_asset_lock()
     if lock.get("digestAgreement") is not True:
         raise SystemExit(
@@ -330,12 +503,63 @@ def prepare_host() -> tuple[dict, Path]:
             "`uv run python fetch-browser.py --record --force`"
         )
     executable = ensure_browser_asset(lock, allow_download=False)
-    seed_camoufox_cache(lock, executable)
-    SUPERVISOR.chmod(0o755)
-    os.environ["XDG_CACHE_HOME"] = str(XDG_CACHE_DIR)
+    cache_root = Path(os.environ.get("VERISILO_CAMOUFOX_CACHE_DIR", str(XDG_CACHE_DIR)))
+    was_empty = not cache_root.exists() or not any(cache_root.iterdir())
+    install_dir = configure_camoufox_cache(cache_root)
+    seeded = seed_camoufox_cache(lock, executable, install_dir=install_dir)
+    if not IS_WINDOWS:
+        SUPERVISOR.chmod(0o755)
     install_download_guard()
     DownloadGuard.reset()
-    return lock, executable
+    return lock, executable, {
+        "controlled": True,
+        "root": str(cache_root.resolve()),
+        "camoufoxInstallDir": str(install_dir),
+        "wasEmptyBeforeSeed": was_empty,
+        "seededFromVerifiedArchive": seeded,
+    }
+
+
+def job_evidence(supervisor_path: Path) -> dict:
+    try:
+        metadata = json.loads(supervisor_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"available": False, "metadataObserved": False, "activeProcessCount": None}
+    name = metadata.get("jobName")
+    identities = [
+        {
+            "pid": metadata.get("supervisorPid"),
+            "creationTime100ns": metadata.get("supervisorCreationTime100ns"),
+        },
+        {
+            "pid": metadata.get("childPid"),
+            "creationTime100ns": metadata.get("childCreationTime100ns"),
+        },
+    ]
+    if not isinstance(name, str):
+        return {"available": False, "metadataObserved": True, "activeProcessCount": None}
+    try:
+        job = JobHandle.open(name)
+    except OSError:
+        return {
+            "available": False,
+            "metadataObserved": True,
+            "jobObjectClosed": all(
+                not process_identity_alive(identity) for identity in identities
+            ),
+            "activeProcessCount": 0,
+            "name": name,
+        }
+    try:
+        return {
+            "available": True,
+            "metadataObserved": True,
+            "jobObjectClosed": False,
+            "activeProcessCount": job.active_process_count(),
+            "name": name,
+        }
+    finally:
+        job.close()
 
 
 async def run_cold_starts(
@@ -347,12 +571,12 @@ async def run_cold_starts(
     run_dir = M1_RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
 
-    lock, executable = prepare_host()
+    lock, executable, cache = prepare_host()
     tree_result = verify_tree(EXECUTABLE.parent, load_tree_manifest(TREE_MANIFEST))
     xvfb_proc: Optional[subprocess.Popen] = None
     server = None
-    display_value = display or os.environ.get("DISPLAY")
-    if not display_value:
+    display_value = None if IS_WINDOWS else (display or os.environ.get("DISPLAY"))
+    if not IS_WINDOWS and not display_value:
         display_value, xvfb_proc = start_xvfb()
     server, probe_url = start_probe_server()
 
@@ -402,6 +626,7 @@ async def run_cold_starts(
             "assetSha256": lock["sha256"],
             "digestAgreement": lock["digestAgreement"],
         },
+        "cache": cache,
         "treeVerification": tree_result,
         "starts": starts,
         "failure": failure,
@@ -424,6 +649,8 @@ async def cmd_stability(args: argparse.Namespace) -> int:
         and s["exitFileObserved"]
         and not s["profilePreExisted"]
         and s["injectedFontsAllAvailable"]
+        and s["mediaDevicesMatchConfigured"]
+        and (s.get("jobObject") or {}).get("activeProcessCount", 0) == 0
         for s in result["starts"]
     )
     runs_complete = len(result["starts"]) == args.runs
@@ -446,6 +673,9 @@ async def cmd_stability(args: argparse.Namespace) -> int:
         "allObservedWebsiteDigestsIdentical": all_identical,
         "stableObservedWebsiteDigest": digests[0] if digests else None,
         "configUnchangedEveryStart": configs_unchanged,
+        "mediaDevicesMatchConfiguredEveryStart": [
+            s["mediaDevicesMatchConfigured"] for s in result["starts"]
+        ],
         "diskReloadedEveryStart": same_artifact_every_start,
         "artifactFileSha256EveryStart": artifact_shas,
         "exitStatusEveryStart": [s["exitStatus"] for s in result["starts"]],
@@ -487,6 +717,8 @@ async def cmd_separation(args: argparse.Namespace) -> int:
         and s["exitFileObserved"]
         and not s["profilePreExisted"]
         and s["injectedFontsAllAvailable"]
+        and s["mediaDevicesMatchConfigured"]
+        and (s.get("jobObject") or {}).get("activeProcessCount", 0) == 0
         for s in result["starts"]
     )
     runs_complete = len(result["starts"]) == len(paths)
@@ -512,6 +744,9 @@ async def cmd_separation(args: argparse.Namespace) -> int:
         "observedWebsiteDigests": digests,
         "allObservedWebsiteDigestsDistinct": distinct,
         "configUnchangedEveryStart": configs_unchanged,
+        "mediaDevicesMatchConfiguredEveryStart": [
+            s["mediaDevicesMatchConfigured"] for s in result["starts"]
+        ],
         "exitStatusEveryStart": [s["exitStatus"] for s in result["starts"]],
         "exitFileObservedEveryStart": [s["exitFileObserved"] for s in result["starts"]],
         "profileFreshEveryStart": [
@@ -532,9 +767,15 @@ async def cmd_separation(args: argparse.Namespace) -> int:
 
 
 def _write_with_sidecar(path: Path, artifact: dict) -> None:
-    path.write_text(json.dumps(artifact, indent=2, ensure_ascii=False) + "\n")
+    path.write_text(
+        json.dumps(artifact, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     sidecar = path.with_suffix(path.suffix + ".sha256")
-    sidecar.write_text(f"{sha256_hex(path.read_bytes())}  {path.name}\n")
+    sidecar.write_text(
+        f"{sha256_hex(path.read_bytes())}  {path.name}\n",
+        encoding="utf-8",
+    )
 
 
 async def cmd_tamper(args: argparse.Namespace) -> int:
@@ -644,6 +885,7 @@ def base_report(command: str, result: dict) -> dict:
             "display": result["display"],
             "xvfbOwnedBySpike": result["xvfbOwnedBySpike"],
             "assetLock": result["lock"],
+            "controlledCache": result["cache"],
             "failure": result["failure"],
             "treeVerification": result["treeVerification"],
         },
@@ -665,8 +907,11 @@ def base_report(command: str, result: dict) -> dict:
                 "spawnSeconds": s["spawnSeconds"],
                 "probeSeconds": s["probeSeconds"],
                 "closeSeconds": s["closeSeconds"],
+                "contextClose": s["contextClose"],
                 "exitStatus": s["exitStatus"],
                 "exitFileObserved": s["exitFileObserved"],
+                "jobObject": s.get("jobObject"),
+                "supervisorMeta": s.get("supervisorMeta"),
                 "profileDir": s["profileDir"],
                 "profilePreExisted": s["profilePreExisted"],
                 "diskConfigDigest": s["diskConfigDigest"],
@@ -678,6 +923,10 @@ def base_report(command: str, result: dict) -> dict:
                 "artifactFileSha256": s["artifactFileSha256"],
                 "injectedFontsAllAvailable": s["injectedFontsAllAvailable"],
                 "hostFontMasking": s["hostFontMasking"],
+                "mediaDeviceReadiness": s["mediaDeviceReadiness"],
+                "expectedMediaDeviceCounts": s["expectedMediaDeviceCounts"],
+                "observedMediaDeviceCounts": s["observedMediaDeviceCounts"],
+                "mediaDevicesMatchConfigured": s["mediaDevicesMatchConfigured"],
                 "canvasObserved": s["canvasObserved"],
                 "sessionVariable": s["sessionVariable"],
                 "unavailable": s["unavailable"],
@@ -700,11 +949,17 @@ def conclusion(allowed: bool, summary: str) -> dict:
 
 def write_report(run_dir: Path, report: dict) -> None:
     run_dir = Path(run_dir)
-    report_bytes = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+    report_bytes = (json.dumps(report, indent=2, ensure_ascii=False) + "\n").encode(
+        "utf-8"
+    )
     report_path = run_dir / "report.json"
-    report_path.write_text(report_bytes)
+    # Write the exact bytes that are hashed. Windows text-mode newline
+    # translation previously made report.sha256 describe LF bytes while the
+    # file on disk contained CRLF bytes.
+    report_path.write_bytes(report_bytes)
     (run_dir / "report.sha256").write_text(
-        sha256_hex(report_bytes.encode("utf-8")) + "\n"
+        sha256_hex(report_bytes) + "  report.json\n",
+        encoding="utf-8",
     )
     print(f"report written to {report_path}")
 

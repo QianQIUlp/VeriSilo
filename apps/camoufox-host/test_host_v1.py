@@ -7,13 +7,17 @@ Runs without pytest: `uv run python test_host_v1.py`.
 from __future__ import annotations
 
 import asyncio
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows uses test_windows_host.py instead.
+    fcntl = None
 import hashlib
 import json
 import os
 import select
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -36,7 +40,7 @@ from host_v1 import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOST_PY = Path(__file__).parent / "host_v1.py"
-VENV_PY = Path(__file__).parent / ".venv" / "bin" / "python"
+VENV_PY = Path(sys.executable)
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "camoufox"
 TEST_ART = REPO_ROOT / "artifacts" / "camoufox-m2" / "integration"
 PROFILE_ROOT = TEST_ART / "profiles"
@@ -916,6 +920,9 @@ def test_artifact_non_object_and_duplicate_key_integrity_rejected() -> None:
 
 
 def main() -> int:
+    if os.name == "nt":
+        print("Linux Host integration tests skipped on Windows; run test_windows_host.py")
+        return 0
     tests = [
         (name, fn)
         for name, fn in sorted(globals().items())

@@ -7,9 +7,11 @@ Runs without pytest: `uv run python test_identity_artifact.py`.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import re
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -34,6 +36,13 @@ from browser_tree import (
     build_tree_manifest,
     verify_tree,
 )
+from run_identity_spike import (
+    expected_media_device_counts,
+    observed_media_device_counts,
+    write_report,
+)
+from run_spike import firefox_user_prefs_for_config
+from generate_identity import write_artifact_with_sidecar
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "camoufox"
@@ -41,6 +50,41 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures" / "camoufox"
 
 def load_fixture(name: str) -> dict:
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def test_windows_fixtures_pass_strict_validation() -> None:
+    lock = json.loads(
+        (
+            Path(__file__).resolve().parent
+            / "lock"
+            / "camoufox-v152.0.4-beta.28-windows-x86_64.json"
+        ).read_text(encoding="utf-8")
+    )
+    for name in ("identity-win-a", "identity-win-b", "identity-win-c"):
+        path = FIXTURES / f"{name}.json"
+        artifact = verify_artifact(path)
+        assert artifact["schema"] == ARTIFACT_SCHEMA
+        assert artifact["policy"]["schema"] == "verisilo-camoufox-identity-policy/v3"
+        assert artifact["policy"]["targetOs"] == "windows"
+        assert artifact["policy"]["fontMode"] == "inherit"
+        binding = artifact["browserBinding"]
+        assert binding["archiveSha256"] == lock["sha256"]
+        assert binding["archiveSizeBytes"] == lock["sizeBytes"]
+        assert artifact["browserRelease"] == lock["release"]
+        assert artifact["canonicalDigest"] == compute_artifact_digest(artifact)
+        assert artifact["configuredIdentityDigest"] == configured_identity_digest(
+            artifact["resolvedConfig"]
+        )
+        assert artifact["generatedAtUtc"].endswith("Z")
+        assert artifact["exclusions"] == {
+            "profilePath": "not recorded",
+            "display": "not recorded",
+            "tokens": "none supplied",
+            "proxySecrets": "none supplied",
+            "environment": "not recorded",
+        }
+        sidecar = path.with_suffix(".json.sha256").read_text(encoding="utf-8").split()[0]
+        assert sidecar == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_canonical_json_deterministic() -> None:
@@ -72,6 +116,55 @@ def test_observed_digest_payload_shape() -> None:
     ).decode()
     assert "artifactId" not in payload
     assert "canvasSeed" not in payload
+
+
+def test_windows_media_device_policy_is_deterministic() -> None:
+    config = {
+        "mediaDevices:enabled": True,
+        "mediaDevices:micros": 1,
+        "mediaDevices:webcams": 1,
+        "mediaDevices:speakers": 0,
+    }
+    assert expected_media_device_counts(config) == {
+        "audioinput": 1,
+        "videoinput": 1,
+        "audiooutput": 0,
+    }
+    assert observed_media_device_counts(
+        [{"kind": "videoinput"}, {"kind": "audioinput"}]
+    ) == expected_media_device_counts(config)
+    if os.name == "nt":
+        prefs = firefox_user_prefs_for_config(config)
+        assert prefs["media.navigator.streams.fake"] is True
+        assert prefs["media.navigator.permission.disabled"] is True
+
+
+def test_identity_report_sidecar_hashes_exact_disk_bytes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        run_dir = Path(tmp)
+        write_report(run_dir, {"message": "Windows receipt — exact bytes"})
+        report_path = run_dir / "report.json"
+        sidecar_digest, sidecar_name = (run_dir / "report.sha256").read_text(
+            encoding="utf-8"
+        ).split()
+        assert sidecar_name == "report.json"
+        assert sidecar_digest == hashlib.sha256(report_path.read_bytes()).hexdigest()
+
+
+def test_artifact_writer_uses_exact_utf8_lf_bytes() -> None:
+    artifact = load_fixture("identity-win-a")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "identity-win-a.json"
+        digest = write_artifact_with_sidecar(path, artifact)
+        raw = path.read_bytes()
+        sidecar_digest, sidecar_name = path.with_suffix(".json.sha256").read_text(
+            encoding="ascii"
+        ).split()
+        assert raw.startswith(b"{") and not raw.startswith(b"\xef\xbb\xbf")
+        assert raw.endswith(b"\n") and b"\r\n" not in raw
+        assert digest == hashlib.sha256(raw).hexdigest() == sidecar_digest
+        assert sidecar_name == path.name
+        assert verify_artifact(path)["canonicalDigest"] == artifact["canonicalDigest"]
 
 
 def test_diff_configs() -> None:
@@ -436,6 +529,29 @@ def test_tree_rejects_symlink_and_non_regular() -> None:
         (tree / "file.txt").write_text("hello")
         manifest = build_tree_manifest(tree)
         assert verify_tree(tree, manifest)["verified"] is True
+
+        if os.name == "nt":
+            (tree / "file.txt").unlink()
+            target_dir = Path(tmp) / "target-dir"
+            target_dir.mkdir()
+            junction = tree / "file.txt"
+            result = subprocess.run(
+                ["cmd.exe", "/c", "mklink", "/J", str(junction), str(target_dir)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert result.returncode == 0, result.stderr or result.stdout
+            try:
+                try:
+                    verify_tree(tree, manifest)
+                except TreeIntegrityError as exc:
+                    assert "symlink" in str(exc) or "reparse" in str(exc)
+                else:
+                    raise AssertionError("junction must be rejected")
+            finally:
+                junction.rmdir()
+            return
 
         # Replacing a regular file with a symlink to identical content must be
         # rejected: file-type integrity is part of tree integrity.

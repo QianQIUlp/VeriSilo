@@ -33,9 +33,6 @@ from pathlib import Path
 
 import numpy as np
 
-from camoufox import DefaultAddons
-from camoufox.utils import launch_options
-
 from identity_policy import (
     ARTIFACT_SCHEMA,
     assert_artifact_clean,
@@ -48,7 +45,9 @@ from identity_policy import (
     verify_artifact,
 )
 from run_spike import (
+    configure_camoufox_cache,
     DownloadGuard,
+    RUNTIME_ONLY_CONFIG_KEYS,
     RELEASE,
     XDG_CACHE_DIR,
     ensure_browser_asset,
@@ -72,6 +71,27 @@ def reassemble_camou_config(env: dict) -> dict:
     return json.loads("".join(value for _, value in chunks))
 
 
+def artifact_json_bytes(artifact: dict) -> bytes:
+    """Serialize tracked Artifacts as deterministic UTF-8/LF/no-BOM bytes."""
+
+    return (json.dumps(artifact, indent=2, ensure_ascii=False) + "\n").encode(
+        "utf-8"
+    )
+
+
+def write_artifact_with_sidecar(path: Path, artifact: dict) -> str:
+    """Write one exact byte payload and hash those same bytes for its sidecar."""
+
+    raw = artifact_json_bytes(artifact)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    digest = sha256_hex(raw)
+    path.with_suffix(path.suffix + ".sha256").write_bytes(
+        f"{digest}  {path.name}\n".encode("ascii")
+    )
+    return digest
+
+
 def complete_resolved_config(
     executable: Path,
     target_os: str,
@@ -82,6 +102,9 @@ def complete_resolved_config(
     """Capture one resolved config, then replay launch_options() to a fixpoint
     so the config contains every key Camoufox/BrowserForge could ever add.
     Raises if launch_options ever CHANGES an existing value."""
+    from camoufox import DefaultAddons
+    from camoufox.utils import launch_options
+
     width, height = window
     first = launch_options(
         os=target_os,
@@ -111,6 +134,8 @@ def complete_resolved_config(
             i_know_what_im_doing=True,
         )
         sent = reassemble_camou_config(opts["env"])
+        for key in RUNTIME_ONLY_CONFIG_KEYS:
+            sent.pop(key, None)
         diff = diff_configs(config, sent)
         if diff["added"]:
             for key in diff["added"]:
@@ -221,8 +246,8 @@ def main() -> int:
         )
     executable = ensure_browser_asset(lock, allow_download=False)
     cache_dir = (args.cache_dir or XDG_CACHE_DIR).resolve()
-    seed_camoufox_cache(lock, executable, install_dir=cache_dir / "camoufox")
-    os.environ["XDG_CACHE_HOME"] = str(cache_dir)
+    install_dir = configure_camoufox_cache(cache_dir)
+    seed_camoufox_cache(lock, executable, install_dir=install_dir)
     install_download_guard()
     DownloadGuard.reset()
 
@@ -278,12 +303,7 @@ def main() -> int:
     assert_artifact_clean(artifact)
     artifact["canonicalDigest"] = compute_artifact_digest(artifact)
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(
-        json.dumps(artifact, indent=2, ensure_ascii=False) + "\n"
-    )
-    sidecar = args.out.with_suffix(args.out.suffix + ".sha256")
-    sidecar.write_text(f"{sha256_hex(args.out.read_bytes())}  {args.out.name}\n")
+    write_artifact_with_sidecar(args.out, artifact)
     verify_artifact(args.out)  # strict validation must pass before handoff
     print(f"artifact written to {args.out}")
     print(f"canonicalDigest={artifact['canonicalDigest']}")

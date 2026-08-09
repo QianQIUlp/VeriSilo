@@ -16,7 +16,10 @@ import argparse
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
+
+from host_platform import IS_WINDOWS, ensure_no_reparse_points
 
 TREE_MANIFEST_SCHEMA = "verisilo-camoufox-browser-tree-manifest/v1"
 
@@ -41,6 +44,10 @@ def _walk_entries(tree_root: Path) -> list[tuple[str, str, Path]]:
     Directory symlinks are reported as symlinks and never followed, so a
     symlinked path component can never smuggle a file past verification."""
     entries: list[tuple[str, str, Path]] = []
+    try:
+        ensure_no_reparse_points(tree_root)
+    except OSError as exc:
+        raise TreeIntegrityError(f"tree root rejected: {exc}") from exc
     stack = [tree_root]
     while stack:
         current = stack.pop()
@@ -51,11 +58,21 @@ def _walk_entries(tree_root: Path) -> list[tuple[str, str, Path]]:
         for entry in children:
             path = Path(entry.path)
             rel = path.relative_to(tree_root).as_posix()
-            if entry.is_symlink():
+            try:
+                ensure_no_reparse_points(path)
+                entry_stat = entry.stat(follow_symlinks=False)
+            except OSError:
+                entries.append((rel, "reparse-point", path))
+                continue
+            if entry.is_symlink() or (
+                IS_WINDOWS
+                and getattr(entry_stat, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)
+            ):
                 entries.append((rel, "symlink", path))
-            elif entry.is_file():
+            elif entry.is_file(follow_symlinks=False):
                 entries.append((rel, "file", path))
-            elif entry.is_dir():
+            elif entry.is_dir(follow_symlinks=False):
                 stack.append(path)
             else:
                 entries.append((rel, "other", path))
@@ -91,19 +108,78 @@ def build_tree_manifest(tree_root: Path) -> dict:
 
 
 def load_tree_manifest(path: Path | str) -> dict:
-    manifest = json.loads(Path(path).read_text(encoding="utf-8"))
+    raw = Path(path).read_bytes()
+
+    def reject_duplicates(pairs: list[tuple[str, object]]) -> dict:
+        result: dict = {}
+        for key, value in pairs:
+            if key in result:
+                raise TreeIntegrityError(f"duplicate manifest key: {key}")
+            result[key] = value
+        return result
+
+    try:
+        manifest = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=reject_duplicates,
+            parse_constant=lambda token: (_ for _ in ()).throw(
+                TreeIntegrityError(f"invalid manifest number: {token}")
+            ),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise TreeIntegrityError(f"tree manifest is not strict JSON: {exc}") from exc
+    if type(manifest) is not dict:
+        raise TreeIntegrityError("tree manifest must be an object")
+    if set(manifest) != {"schema", "treeRootLabel", "fileCount", "totalBytes", "entries"}:
+        raise TreeIntegrityError("tree manifest has an unexpected key set")
     if manifest.get("schema") != TREE_MANIFEST_SCHEMA:
         raise TreeIntegrityError(f"tree manifest schema mismatch: {manifest.get('schema')!r}")
+    if type(manifest.get("treeRootLabel")) is not str:
+        raise TreeIntegrityError("treeRootLabel must be a string")
+    if type(manifest.get("fileCount")) is not int or type(manifest.get("totalBytes")) is not int:
+        raise TreeIntegrityError("fileCount and totalBytes must be integers")
+    entries = manifest.get("entries")
+    if type(entries) is not list:
+        raise TreeIntegrityError("entries must be a list")
+    seen: set[str] = set()
+    total = 0
+    for index, entry in enumerate(entries):
+        if type(entry) is not dict or set(entry) != {"path", "size", "sha256"}:
+            raise TreeIntegrityError(f"invalid tree entry at index {index}")
+        rel = entry["path"]
+        if type(rel) is not str or not rel or rel.startswith(("/", "\\")):
+            raise TreeIntegrityError(f"invalid tree entry path at index {index}")
+        rel = rel.replace("\\", "/")
+        parts = rel.split("/")
+        if any(part in ("", ".", "..") for part in parts) or ":" in parts[0]:
+            raise TreeIntegrityError(f"tree entry escapes root: {entry['path']!r}")
+        key = rel.casefold() if IS_WINDOWS else rel
+        if key in seen:
+            raise TreeIntegrityError(f"duplicate tree entry path: {rel}")
+        seen.add(key)
+        if type(entry["size"]) is not int or entry["size"] < 0:
+            raise TreeIntegrityError(f"invalid tree entry size: {rel}")
+        if type(entry["sha256"]) is not str or len(entry["sha256"]) != 64:
+            raise TreeIntegrityError(f"invalid tree entry digest: {rel}")
+        total += entry["size"]
+    if manifest["fileCount"] != len(entries) or manifest["totalBytes"] != total:
+        raise TreeIntegrityError("tree manifest summary does not match entries")
     return manifest
 
 
 def verify_tree(tree_root: Path, manifest: dict, error_cap: int = 20) -> dict:
-    expected = {entry["path"]: entry for entry in manifest["entries"]}
+    expected = {
+        (entry["path"].replace("\\", "/").casefold() if IS_WINDOWS else entry["path"].replace("\\", "/")): entry
+        for entry in manifest["entries"]
+    }
     actual_files: dict[str, Path] = {}
     irregular: list[str] = []
     for rel, kind, path in _walk_entries(tree_root):
         if kind == "file":
-            actual_files[rel] = path
+            normalized = rel.casefold() if IS_WINDOWS else rel
+            if normalized in actual_files:
+                irregular.append(f"case-colliding files: {rel}")
+            actual_files[normalized] = path
         else:
             irregular.append(f"{rel} ({kind})")
     errors: list[str] = []
@@ -120,7 +196,7 @@ def verify_tree(tree_root: Path, manifest: dict, error_cap: int = 20) -> dict:
         errors.append("extra files: " + ", ".join(extra[:error_cap]))
     mismatched = 0
     for rel, entry in expected.items():
-        path = actual_files.get(rel)
+        path = actual_files.get(rel.casefold() if IS_WINDOWS else rel)
         if path is None:
             continue
         size = path.stat().st_size

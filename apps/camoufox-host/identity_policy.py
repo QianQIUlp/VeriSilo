@@ -443,7 +443,9 @@ def diff_configs(disk: dict, sent: dict) -> dict:
     added = sorted(set(sent) - set(disk))
     removed = sorted(set(disk) - set(sent))
     changed = sorted(
-        key for key in set(disk) & set(sent) if disk[key] != sent[key]
+        key
+        for key in set(disk) & set(sent)
+        if type(disk[key]) is not type(sent[key]) or disk[key] != sent[key]
     )
     return {"added": added, "removed": removed, "changed": changed}
 
