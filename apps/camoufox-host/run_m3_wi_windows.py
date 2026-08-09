@@ -139,7 +139,16 @@ def run(
         check=False,
     )
     if completed.stdout:
-        print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
+        # Preserve the exact UTF-8 command output for its SHA receipt while
+        # keeping an interactive legacy Windows console from rejecting
+        # Unicode test glyphs such as the pnpm checkmark.
+        display_output = completed.stdout
+        console_encoding = getattr(sys.stdout, "encoding", None)
+        if console_encoding:
+            display_output = display_output.encode(
+                console_encoding, errors="backslashreplace"
+            ).decode(console_encoding)
+        print(display_output, end="" if completed.stdout.endswith("\n") else "\n")
     if check and completed.returncode != 0:
         raise RuntimeError(
             f"command failed with exit code {completed.returncode}: "
