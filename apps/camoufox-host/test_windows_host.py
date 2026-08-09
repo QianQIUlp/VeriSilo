@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import queue
+import re
 import shutil
 import signal
 import subprocess
@@ -636,6 +637,69 @@ def test_reparse_point_rejection() -> dict:
         target.rmdir()
 
 
+def test_mount_point_rejection() -> dict:
+    listing = subprocess.run(
+        ["mountvol.exe"], capture_output=True, text=True, timeout=30, check=True
+    ).stdout
+    volumes = []
+    for line in listing.splitlines():
+        candidate = line.strip()
+        if re.fullmatch(r"\\\\\?\\Volume\{[0-9a-fA-F-]+\}\\", candidate):
+            volumes.append(candidate)
+    if not volumes:
+        raise RuntimeError("no volume was available for a real mount-point test")
+
+    mount_point = EXECUTABLE.parent / "__m2w_mount_point__"
+    if mount_point.exists():
+        raise RuntimeError(f"mount-point test path already exists: {mount_point}")
+    mount_point.mkdir()
+    mounted = False
+    try:
+        selected = None
+        for volume in volumes:
+            result = subprocess.run(
+                ["mountvol.exe", str(mount_point), volume],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                selected = volume
+                mounted = True
+                break
+        if not mounted or selected is None:
+            raise RuntimeError(
+                "available volumes could not create a real mount point; "
+                "mountvol output was: " + listing.strip()
+            )
+
+        tmp, profile_root, state_root = fresh_roots()
+        host = HostProc(profile_root, state_root)
+        try:
+            response = host.launch(ARTIFACT, "windows-mount-point")
+            assert response["ok"] is False, response
+            assert response["error"]["code"] == "integrity_rejected", response
+            host.shutdown()
+        finally:
+            host.kill()
+            cleanup_temp(tmp)
+        return {"status": "passed", "mountPointRejected": True, "volume": selected}
+    finally:
+        if mounted:
+            removed = subprocess.run(
+                ["mountvol.exe", str(mount_point), "/D"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if removed.returncode != 0:
+                raise RuntimeError(
+                    f"failed to remove test mount point: {removed.stderr or removed.stdout}"
+                )
+        if mount_point.exists():
+            mount_point.rmdir()
+
+
 def test_tree_missing_extra_modified_rejection() -> dict:
     with tempfile.TemporaryDirectory(prefix="verisilo-tree-") as tmp:
         root = Path(tmp) / "bundle"
@@ -686,6 +750,19 @@ def test_pid_reuse_creation_time() -> dict:
     return {"status": "passed", "creationTime100ns": creation}
 
 
+def write_gate_report(run_dir: Path, result: dict) -> tuple[str, str]:
+    report_bytes = (json.dumps(result, indent=2, ensure_ascii=False) + "\n").encode(
+        "utf-8"
+    )
+    report_path = run_dir / "report.json"
+    report_path.write_bytes(report_bytes)
+    report_sha = hashlib.sha256(report_bytes).hexdigest()
+    (run_dir / "report.sha256").write_text(
+        f"{report_sha}  report.json\n", encoding="utf-8"
+    )
+    return report_path.relative_to(REPO_ROOT).as_posix(), report_sha
+
+
 TESTS: list[tuple[str, Callable[[], dict]]] = [
     ("protocol", test_protocol_and_integrity),
     ("persistence", test_persistence),
@@ -694,6 +771,7 @@ TESTS: list[tuple[str, Callable[[], dict]]] = [
     ("eof-force-exit", test_eof_and_forced_host_exit),
     ("tamper", test_tamper_rejections),
     ("reparse", test_reparse_point_rejection),
+    ("mount-point", test_mount_point_rejection),
     ("tree-integrity", test_tree_missing_extra_modified_rejection),
     ("pid-reuse", test_pid_reuse_creation_time),
 ]
@@ -714,20 +792,18 @@ def main() -> int:
         try:
             result = test()
             result["runId"] = run_id
+            report_file, report_sha = write_gate_report(run_dir, result)
+            result["reportFile"] = report_file
+            result["reportSha256"] = report_sha
             results[name] = result
-            (run_dir / "report.json").write_text(
-                json.dumps(result, indent=2, ensure_ascii=False) + "\n",
-                encoding="utf-8",
-            )
             print(f"PASS {name} run-id={run_id}")
         except Exception as exc:  # noqa: BLE001
             failed += 1
             result = {"status": "failed", "runId": run_id, "error": f"{type(exc).__name__}: {exc}"}
+            report_file, report_sha = write_gate_report(run_dir, result)
+            result["reportFile"] = report_file
+            result["reportSha256"] = report_sha
             results[name] = result
-            (run_dir / "report.json").write_text(
-                json.dumps(result, indent=2, ensure_ascii=False) + "\n",
-                encoding="utf-8",
-            )
             print(f"FAIL {name} run-id={run_id}: {result['error']}")
     summary = {
         "schema": "verisilo-camoufox-m2-windows-gate-run/v1",

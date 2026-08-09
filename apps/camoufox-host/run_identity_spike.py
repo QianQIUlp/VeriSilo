@@ -361,10 +361,11 @@ def prepare_host() -> tuple[dict, Path]:
             "`uv run python fetch-browser.py --record --force`"
         )
     executable = ensure_browser_asset(lock, allow_download=False)
-    seed_camoufox_cache(lock, executable)
+    cache_root = Path(os.environ.get("VERISILO_CAMOUFOX_CACHE_DIR", str(XDG_CACHE_DIR)))
+    seed_camoufox_cache(lock, executable, install_dir=cache_root / "camoufox")
     if not IS_WINDOWS:
         SUPERVISOR.chmod(0o755)
-    os.environ["XDG_CACHE_HOME"] = str(XDG_CACHE_DIR)
+    os.environ["XDG_CACHE_HOME"] = str(cache_root)
     install_download_guard()
     DownloadGuard.reset()
     return lock, executable

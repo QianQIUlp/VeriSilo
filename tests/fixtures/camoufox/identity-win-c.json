@@ -111,7 +111,7 @@
     "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
     "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018"
   },
-  "generatedBy": "VeriSilo generate_identity.py (M2.0.2)",
+  "generatedBy": "VeriSilo generate_identity.py (M2-W Artifact v3)",
   "generatedAtUtc": "2026-08-08T13:24:42.994375Z",
   "generatorVersions": {
     "camoufox": "0.5.4",
@@ -1631,5 +1631,5 @@
     "proxySecrets": "none supplied",
     "environment": "not recorded"
   },
-  "canonicalDigest": "sha256:625d48c5723c72ee87f7fe4a7b00d2ed9dc68206a9b888690515dfcb1aece50a"
+  "canonicalDigest": "sha256:d60bbc7801ce4fef5152ea4aa119650f9683d14ef170edc598d94075c7bfe03c"
 }

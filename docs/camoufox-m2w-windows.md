@@ -71,6 +71,11 @@ browser binding, strict RFC3339-Z timestamps, raw SHA sidecars, and
 `fontMode=inherit`. Profile paths, tokens, proxy secrets, display values, and
 environment secrets are not recorded.
 
+`test_identity_artifact.py` validates all three Windows fixtures independently
+of browser launch. The generated-by marker identifies these files as M2-W
+Artifact v3 fixtures; changing that marker requires regenerating their
+canonical digests and raw SHA sidecars.
+
 ## Reproduction
 
 From `apps/camoufox-host` on the same Windows host:
@@ -85,6 +90,14 @@ uv run python run_identity_spike.py separation --artifacts ..\..\tests\fixtures\
 uv run python run_identity_spike.py tamper --artifact ..\..\tests\fixtures\camoufox\identity-win-a.json --out-dir ..\..\artifacts\camoufox-m2-windows-gate\tampered
 ```
 
-The sanitized tracked index is
-`tests/fixtures/camoufox/evidence-manifest-windows.json`. Raw profiles and
-reports remain under gitignored `artifacts/`.
+`test_windows_host.py` includes separate junction and real volume mount-point
+reparse tests. The empty-cache receipt distinguishes cache generation from
+the subsequent warm replay: both paths must keep DownloadGuard untripped, and
+the warm replay is the five-start stability receipt.
+
+The Windows Gate report index records each run-id, report path, and report
+SHA-256 in `tests/fixtures/camoufox/evidence-manifest-windows.json`. Raw
+profiles and reports remain under gitignored `artifacts/`; the tracked
+manifest records only their immutable receipt hashes. The manifest also
+records the protected Linux fixture/lock/tree/evidence hashes and the exact
+Windows implementation revision that produced the receipts.

@@ -7,6 +7,7 @@ Runs without pytest: `uv run python test_identity_artifact.py`.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -42,6 +43,41 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures" / "camoufox"
 
 def load_fixture(name: str) -> dict:
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def test_windows_fixtures_pass_strict_validation() -> None:
+    lock = json.loads(
+        (
+            Path(__file__).resolve().parent
+            / "lock"
+            / "camoufox-v152.0.4-beta.28-windows-x86_64.json"
+        ).read_text(encoding="utf-8")
+    )
+    for name in ("identity-win-a", "identity-win-b", "identity-win-c"):
+        path = FIXTURES / f"{name}.json"
+        artifact = verify_artifact(path)
+        assert artifact["schema"] == ARTIFACT_SCHEMA
+        assert artifact["policy"]["schema"] == "verisilo-camoufox-identity-policy/v3"
+        assert artifact["policy"]["targetOs"] == "windows"
+        assert artifact["policy"]["fontMode"] == "inherit"
+        binding = artifact["browserBinding"]
+        assert binding["archiveSha256"] == lock["sha256"]
+        assert binding["archiveSizeBytes"] == lock["sizeBytes"]
+        assert artifact["browserRelease"] == lock["release"]
+        assert artifact["canonicalDigest"] == compute_artifact_digest(artifact)
+        assert artifact["configuredIdentityDigest"] == configured_identity_digest(
+            artifact["resolvedConfig"]
+        )
+        assert artifact["generatedAtUtc"].endswith("Z")
+        assert artifact["exclusions"] == {
+            "profilePath": "not recorded",
+            "display": "not recorded",
+            "tokens": "none supplied",
+            "proxySecrets": "none supplied",
+            "environment": "not recorded",
+        }
+        sidecar = path.with_suffix(".json.sha256").read_text(encoding="utf-8").split()[0]
+        assert sidecar == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_canonical_json_deterministic() -> None:
