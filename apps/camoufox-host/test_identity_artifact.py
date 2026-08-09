@@ -132,9 +132,9 @@ def test_windows_media_device_policy_is_deterministic() -> None:
         [{"kind": "videoinput"}, {"kind": "audioinput"}]
     ) == expected_media_device_counts(config)
     if os.name == "nt":
-        assert firefox_user_prefs_for_config(config)[
-            "media.navigator.streams.fake"
-        ] is True
+        prefs = firefox_user_prefs_for_config(config)
+        assert prefs["media.navigator.streams.fake"] is True
+        assert prefs["media.navigator.permission.disabled"] is True
 
 
 def test_diff_configs() -> None:

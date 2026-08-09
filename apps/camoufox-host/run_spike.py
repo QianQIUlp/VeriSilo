@@ -273,6 +273,10 @@ def firefox_user_prefs_for_config(config: Optional[dict] = None) -> dict:
         # Firefox's synthetic stream backend makes the artifact-requested
         # Camoufox media-device counts independent of transient host devices.
         prefs["media.navigator.streams.fake"] = True
+        # Firefox's own WebRTC test configuration pairs the fake backend with
+        # a deterministic permission path. Without this, enumerateDevices()
+        # intermittently returns no fake devices on fresh Windows profiles.
+        prefs["media.navigator.permission.disabled"] = True
     return prefs
 
 

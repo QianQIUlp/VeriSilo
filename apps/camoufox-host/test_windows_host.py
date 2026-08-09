@@ -18,6 +18,7 @@ import signal
 import subprocess
 import tempfile
 import time
+import traceback
 import uuid
 from pathlib import Path
 from threading import Thread
@@ -286,8 +287,11 @@ def test_persistence() -> dict:
         first_result = first["result"]
         port = first_result["probePort"]
         closed = host1.close(first_result["sessionId"])
-        assert closed["ok"] is True and closed["result"]["processTreeExit"]["exited"]
-        assert closed["result"]["processTreeExit"]["job"]["activeProcessCount"] == 0
+        assert closed["ok"] is True, closed
+        assert closed["result"]["processTreeExit"]["exited"], closed
+        assert (
+            closed["result"]["processTreeExit"]["job"]["activeProcessCount"] == 0
+        ), closed
         host1.shutdown()
     finally:
         host1.kill()
@@ -297,11 +301,23 @@ def test_persistence() -> dict:
         second = host2.launch(ARTIFACT, "windows-persist")
         assert second["ok"] is True, second
         second_result = second["result"]
-        assert (first_result["bootCountBefore"], first_result["bootCountAfter"]) == (0, 1)
-        assert (second_result["bootCountBefore"], second_result["bootCountAfter"]) == (1, 2)
-        assert second_result["cookieEvidence"]["cookieInApi"] is True
-        assert second_result["cookieEvidence"]["cookieOnPage"] is True
-        assert second_result["observedWebsiteDigest"] == first_result["observedWebsiteDigest"]
+        assert (first_result["bootCountBefore"], first_result["bootCountAfter"]) == (
+            0,
+            1,
+        ), first_result
+        assert (second_result["bootCountBefore"], second_result["bootCountAfter"]) == (
+            1,
+            2,
+        ), second_result
+        assert second_result["cookieEvidence"]["cookieInApi"] is True, second_result
+        assert second_result["cookieEvidence"]["cookieOnPage"] is True, second_result
+        assert (
+            second_result["observedWebsiteDigest"]
+            == first_result["observedWebsiteDigest"]
+        ), {
+            "first": first_result["observedWebsiteDigest"],
+            "second": second_result["observedWebsiteDigest"],
+        }
         closed = host2.close(second_result["sessionId"])
         assert closed["ok"] is True
         sqlite = closed["result"]["cookieSqlite"]
@@ -311,6 +327,11 @@ def test_persistence() -> dict:
         return {
             "status": "passed",
             "bootCounts": [first_result["bootCountAfter"], second_result["bootCountAfter"]],
+            "hostProcessesDistinct": host1.proc.pid != host2.proc.pid,
+            "observedWebsiteDigests": [
+                first_result["observedWebsiteDigest"],
+                second_result["observedWebsiteDigest"],
+            ],
             "observedWebsiteDigest": second_result["observedWebsiteDigest"],
             "cookieSqlite": sqlite,
         }
@@ -799,7 +820,12 @@ def main() -> int:
             print(f"PASS {name} run-id={run_id}")
         except Exception as exc:  # noqa: BLE001
             failed += 1
-            result = {"status": "failed", "runId": run_id, "error": f"{type(exc).__name__}: {exc}"}
+            result = {
+                "status": "failed",
+                "runId": run_id,
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": traceback.format_exc(),
+            }
             report_file, report_sha = write_gate_report(run_dir, result)
             result["reportFile"] = report_file
             result["reportSha256"] = report_sha

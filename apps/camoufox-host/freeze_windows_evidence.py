@@ -429,7 +429,7 @@ def main() -> int:
         "reportAggregationError": False,
         "rootFix": [
             "bind platformdirs Windows LocalAppData override before Camoufox import",
-            "use Firefox synthetic media backend when Artifact media devices are enabled",
+            "pair Firefox synthetic media backend with deterministic media permission behavior when Artifact media devices are enabled",
             "require observed media-device counts to match Artifact configuration",
         ],
         "postSyncCounterexampleRunId": stability["runId"],
