@@ -6,6 +6,7 @@ Tauri desktop UI
   ├─ launcher: one managed process and one user-data directory
   │    ├─ stock Chrome/Edge adapter
   │    └─ verified external controlled-engine adapter (optional artifact)
+  │         └─ M3 target: packaged Camoufox Host entrypoint (not connected)
   ├─ network coordinator
   │    ├─ fixed HTTP/SOCKS endpoint + authenticated loopback relay
   │    ├─ external loopback Mihomo Controller + stable node binding
@@ -31,6 +32,10 @@ MV3 companion extension (optional per Silo)
   ├─ isolated content script: page observation
   └─ MAIN-world script: explicitly partial, observable observation only
 ```
+
+The product layers are Standard Silo, Managed Identity Silo, and Isolated Machine Silo. They do not collapse the underlying domains: a Persistent Profile owns browser state, a Resolved Identity Artifact owns replayable website-visible configuration, an Engine Binding names the executable asset that can apply it, Network Policy owns the connection path, and Runtime Evidence records capability state. The normative model is defined in [the identity platform north star](identity-platform-north-star.md).
+
+The current `main` branch contains the stock launcher and the external-package `EngineAdapter` control contract. A standalone Python Camoufox Host and v3 Identity Artifact have accepted Linux evidence only on `codex/camoufox-m0-m2-minimal` and [Draft PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). That Host is not a signed desktop engine package, is not called by Tauri, and is not a shipped capability. It must first pass the native Windows M2-W Gate; M3 will then define the package entrypoint, bootstrap, receipt, and capability-state mapping. Current checkpoints are maintained in [the Camoufox program status](camoufox-program-status.md).
 
 The desktop application has no browser-state import/export API. A browser's cookies, LocalStorage, IndexedDB, CacheStorage, service workers, and history remain browser-owned files beneath that Silo's `browser-data` directory.
 
