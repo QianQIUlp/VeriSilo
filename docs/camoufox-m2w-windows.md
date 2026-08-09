@@ -80,6 +80,13 @@ browser binding, strict RFC3339-Z timestamps, raw SHA sidecars, and
 `fontMode=inherit`. Profile paths, tokens, proxy secrets, display values, and
 environment secrets are not recorded.
 
+Tracked Artifact files are deterministic UTF-8/LF/no-BOM byte payloads and
+are marked `-text` in `.gitattributes`. The generator writes those exact bytes
+and computes the sidecar from the same buffer, so the working-tree file, Git
+blob, clean-checkout file, sidecar, Host expected raw SHA, and receipt index
+share one byte identity. This changes no Artifact v3 canonical or
+ObservedWebsiteDigest v2 semantics.
+
 `test_identity_artifact.py` validates all three Windows fixtures independently
 of browser launch. The generated-by marker identifies these files as M2-W
 Artifact v3 fixtures; changing that marker requires regenerating their
@@ -108,16 +115,16 @@ Artifact through five fresh profiles. A warm-only replay is not accepted.
 
 ## Frozen Execution Receipts
 
-- Receipt-producing code: `49acbce1c5da0f566a92a92a2148723ed6557338`
-- Code tree: `656952f730c4cce77340905c1c89a6c0c12110ac`
-- Artifact unit tests: 24/24
-- Windows Host driver: 10/10, `summary-1786256942`
-- Cross-Host persistence: `run-1786256765-a87deb8c`
-- EOF/forced-exit Job cleanup: `run-1786256856-05a652ee`
-- Fresh-cache stability: `run-1786256952-be01f506`, 5/5 digest
+- Receipt-producing code: `3511d120862283c3b90f91589f5f33d1de8325f9`
+- Code tree: `b42d7d9e62d5f163b306d9ba94a607d351b09485`
+- Artifact unit tests: 25/25
+- Windows Host driver: 10/10, `summary-1786258836`
+- Cross-Host persistence: `run-1786258659-d77032e9`
+- EOF/forced-exit Job cleanup: `run-1786258752-26800060`
+- Fresh-cache stability: `run-1786258892-4dd7e256`, 5/5 digest
   `sha256:60f7f3a9a358ba3e9b1ebd8182df7b47ff4a5c40ef43e95c08fb160adb01a4b8`
-- A/B/C separation: `run-1786257046-3d59e69e`
-- Artifact tamper: `run-1786257136-2eed82ce`
+- A/B/C separation: `run-1786258999-b077d87e`
+- Artifact tamper: `run-1786259074-2f2ec9c1`
 
 The pre-sync digest transition was a real `mediaDevices` transition inside
 ObservedWebsiteDigest v2, not an Artifact/config/profile change. The old
