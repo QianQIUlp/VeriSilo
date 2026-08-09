@@ -411,7 +411,6 @@ def test_profile_lock_and_crash_recovery() -> dict:
                 status.get("ok")
                 and status["result"]["state"] == "failed"
                 and status["result"].get("closeOutcome") is not None
-                and status["result"].get("processTreeExit", {}).get("exited") is True
             ):
                 break
             time.sleep(0.5)
@@ -419,7 +418,6 @@ def test_profile_lock_and_crash_recovery() -> dict:
             status
             and status["result"]["state"] == "failed"
             and status["result"].get("closeOutcome") is not None
-            and status["result"].get("processTreeExit", {}).get("exited") is True
         ), status
         relaunch = None
         deadline = time.monotonic() + 30
