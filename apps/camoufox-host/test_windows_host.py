@@ -15,7 +15,9 @@ import queue
 import re
 import shutil
 import signal
+import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 import traceback
@@ -23,12 +25,19 @@ import uuid
 from pathlib import Path
 from threading import Thread
 from typing import Any, Callable, Optional
+from unittest import mock
 
+import host_v1
 from host_platform import JobHandle, IS_WINDOWS, process_creation_time, process_identity_alive
 from browser_tree import TreeIntegrityError, build_tree_manifest, verify_tree
 from identity_policy import compute_artifact_digest, configured_identity_digest
-from host_v1 import write_quarantine_record
-from run_spike import EXECUTABLE, new_run_id
+from host_v1 import (
+    COOKIE_SQLITE_READ_MAX_ATTEMPTS,
+    COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS,
+    read_cookie_sqlite_evidence,
+    write_quarantine_record,
+)
+from run_spike import COOKIE_NAME, EXECUTABLE, new_run_id
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOST_DIR = Path(__file__).resolve().parent
@@ -812,6 +821,112 @@ def write_gate_report(run_dir: Path, result: dict) -> tuple[str, str]:
     return report_path.relative_to(REPO_ROOT).as_posix(), report_sha
 
 
+def test_cookie_sqlite_retry_policy() -> dict:
+    """Deterministically exercise the bounded post-exit SQLite evidence policy."""
+    with tempfile.TemporaryDirectory(prefix="verisilo-cookie-retry-") as tmp:
+        profile_dir = Path(tmp)
+        db = profile_dir / "cookies.sqlite"
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute("CREATE TABLE moz_cookies(name TEXT, host TEXT, value TEXT)")
+            conn.execute(
+                "INSERT INTO moz_cookies(name, host, value) VALUES (?, ?, ?)",
+                (COOKIE_NAME, "127.0.0.1", "m2-deterministic-cookie"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        real_connect = sqlite3.connect
+
+        def run_case(failures: list[BaseException], *, always_fail: bool = False) -> tuple[dict, int, list[float]]:
+            calls = 0
+            sleeps: list[float] = []
+
+            def controlled_connect(*args: Any, **kwargs: Any) -> Any:
+                nonlocal calls
+                calls += 1
+                if always_fail:
+                    raise failures[0]
+                if calls <= len(failures):
+                    raise failures[calls - 1]
+                return real_connect(*args, **kwargs)
+
+            with mock.patch.object(sqlite3, "connect", side_effect=controlled_connect), mock.patch.object(
+                host_v1.time, "sleep", side_effect=sleeps.append
+            ):
+                result = read_cookie_sqlite_evidence(profile_dir)
+            return result, calls, sleeps
+
+        transient, transient_calls, transient_sleeps = run_case(
+            [
+                sqlite3.OperationalError("simulated transient handle 1"),
+                sqlite3.OperationalError("simulated transient handle 2"),
+            ]
+        )
+        assert transient["cookieNamePresent"] is True
+        assert transient["sqliteReadAttempts"] == 3 == transient_calls
+        assert transient["sqliteRetryExhausted"] is False
+        assert transient_sleeps == [COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS] * 2
+
+        exhausted, exhausted_calls, exhausted_sleeps = run_case(
+            [sqlite3.OperationalError("simulated persistent handle")],
+            always_fail=True,
+        )
+        assert exhausted["cookieNamePresent"] is None
+        assert exhausted["sqliteReadAttempts"] == COOKIE_SQLITE_READ_MAX_ATTEMPTS
+        assert exhausted_calls == COOKIE_SQLITE_READ_MAX_ATTEMPTS
+        assert exhausted["sqliteRetryExhausted"] is True
+        assert len(exhausted_sleeps) == COOKIE_SQLITE_READ_MAX_ATTEMPTS - 1
+        assert exhausted["sqliteReadError"].startswith("OperationalError:")
+
+        non_operational, non_operational_calls, non_operational_sleeps = run_case(
+            [ValueError("simulated non-operational failure")],
+            always_fail=True,
+        )
+        assert non_operational["cookieNamePresent"] is None
+        assert non_operational["sqliteReadAttempts"] == 1 == non_operational_calls
+        assert non_operational["sqliteRetryExhausted"] is False
+        assert non_operational_sleeps == []
+        assert non_operational["sqliteReadError"].startswith("ValueError:")
+
+    delay_ms = int(COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS * 1000)
+    return {
+        "status": "passed",
+        "configuration": {
+            "maxAttempts": COOKIE_SQLITE_READ_MAX_ATTEMPTS,
+            "delayMilliseconds": delay_ms,
+            "maxCumulativeDelayMilliseconds": delay_ms
+            * (COOKIE_SQLITE_READ_MAX_ATTEMPTS - 1),
+            "readOnly": True,
+            "operationalErrorOnly": True,
+            "exhaustedRemainsUnavailable": True,
+        },
+        "cases": {
+            "operationalErrorThenSuccess": {
+                "readAttempts": transient["sqliteReadAttempts"],
+                "retrySleeps": len(transient_sleeps),
+                "cookieNamePresent": transient["cookieNamePresent"],
+                "retryExhausted": transient["sqliteRetryExhausted"],
+            },
+            "operationalErrorExhausted": {
+                "readAttempts": exhausted["sqliteReadAttempts"],
+                "retrySleeps": len(exhausted_sleeps),
+                "cookieNamePresent": exhausted["cookieNamePresent"],
+                "retryExhausted": exhausted["sqliteRetryExhausted"],
+                "errorRecorded": "sqliteReadError" in exhausted,
+            },
+            "nonOperationalError": {
+                "readAttempts": non_operational["sqliteReadAttempts"],
+                "retrySleeps": len(non_operational_sleeps),
+                "cookieNamePresent": non_operational["cookieNamePresent"],
+                "retryExhausted": non_operational["sqliteRetryExhausted"],
+                "errorRecorded": "sqliteReadError" in non_operational,
+            },
+        },
+    }
+
+
 TESTS: list[tuple[str, Callable[[], dict]]] = [
     ("protocol", test_protocol_and_integrity),
     ("persistence", test_persistence),
@@ -889,4 +1004,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--cookie-sqlite-retry-regression"]:
+        print(json.dumps(test_cookie_sqlite_retry_policy(), sort_keys=True))
+        raise SystemExit(0)
+    if sys.argv[1:]:
+        raise SystemExit("unsupported arguments")
     raise SystemExit(main())

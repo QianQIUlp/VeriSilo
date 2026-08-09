@@ -166,6 +166,56 @@ def freeze(run_id: str) -> None:
         raise RuntimeError("security/residual/download/protected-file receipt failed closed")
     host_delta = report.get("authorizedHostDelta", {})
     windows_host = report.get("windowsHostRegression", {})
+    retry_config = {
+        "maxAttempts": 6,
+        "delayMilliseconds": 200,
+        "maxCumulativeDelayMilliseconds": 1000,
+        "readOnly": True,
+        "operationalErrorOnly": True,
+        "exhaustedRemainsUnavailable": True,
+    }
+    retry_regression = host_delta.get("sqliteEvidenceRetryRegression", {})
+    expected_retry_cases = {
+        "operationalErrorThenSuccess": {
+            "readAttempts": 3,
+            "retrySleeps": 2,
+            "cookieNamePresent": True,
+            "retryExhausted": False,
+        },
+        "operationalErrorExhausted": {
+            "readAttempts": 6,
+            "retrySleeps": 5,
+            "cookieNamePresent": None,
+            "retryExhausted": True,
+            "errorRecorded": True,
+        },
+        "nonOperationalError": {
+            "readAttempts": 1,
+            "retrySleeps": 0,
+            "cookieNamePresent": None,
+            "retryExhausted": False,
+            "errorRecorded": True,
+        },
+    }
+    runtime_cookie_sqlite = value_at(
+        runtime, "/persistence/cycle2Close/cookieSqlite"
+    )
+    windows_cookie_sqlite = windows_host.get("persistenceCookieSqlite", {})
+    expected_runtime_result = {
+        "cookieNamePresent": True,
+        "valuesManaged": True,
+        "readAttempts": runtime_cookie_sqlite.get("sqliteReadAttempts"),
+        "maxAttempts": 6,
+        "delayMilliseconds": 200,
+        "retryExhausted": False,
+    }
+    host_diff = git(
+        "diff",
+        "--unified=0",
+        f"{host_delta.get('baseGitRevision')}..{revision}",
+        "--",
+        "apps/camoufox-host/host_v1.py",
+    )
     if (
         host_delta.get("path") != "apps/camoufox-host/host_v1.py"
         or host_delta.get("baseGitRevision")
@@ -176,7 +226,12 @@ def freeze(run_id: str) -> None:
         != report.get("fixedInputs", {}).get("hostSource", {}).get("sha256")
         or host_delta.get("currentSha256")
         != sha256_file(REPO_ROOT / "apps/camoufox-host/host_v1.py")
-        or host_delta.get("changeClass") != "stdout-purity-only"
+        or host_delta.get("currentSha256")
+        != "469243a65758419c86c34fdf137dd78e60ce7def80a3f2be31abf72453d7a970"
+        or host_delta.get("diffSha256")
+        != hashlib.sha256(host_diff.encode("utf-8")).hexdigest()
+        or host_delta.get("changeClass")
+        != "stdout-purity-and-post-exit-windows-sqlite-evidence-bounded-retry"
         or host_delta.get("protocolSemanticsUnchanged") is not True
         or host_delta.get("artifactSemanticsUnchanged") is not True
         or host_delta.get("m2wAcceptedManifestRewritten") is not False
@@ -185,6 +240,19 @@ def freeze(run_id: str) -> None:
         != "apps/camoufox-host/test_windows_host.py"
         or host_delta.get("regressionTestSha256")
         != sha256_file(REPO_ROOT / "apps/camoufox-host/test_windows_host.py")
+        or host_delta.get("sqliteEvidenceRetry") != retry_config
+        or retry_regression.get("status") != "passed"
+        or retry_regression.get("configuration") != retry_config
+        or retry_regression.get("cases") != expected_retry_cases
+        or not isinstance(retry_regression.get("outputSha256"), str)
+        or len(retry_regression["outputSha256"]) != 64
+        or host_delta.get("runtimePersistenceResult") != expected_runtime_result
+        or not 1 <= runtime_cookie_sqlite.get("sqliteReadAttempts", 0) <= 6
+        or runtime_cookie_sqlite.get("sqliteReadMaxAttempts") != 6
+        or runtime_cookie_sqlite.get("sqliteRetryDelayMilliseconds") != 200
+        or runtime_cookie_sqlite.get("sqliteRetryExhausted") is not False
+        or runtime_cookie_sqlite.get("cookieNamePresent") is not True
+        or "sqliteReadError" in runtime_cookie_sqlite
         or windows_host.get("status") != "passed"
         or windows_host.get("testCount") != 10
         or windows_host.get("passed") != 10
@@ -192,8 +260,25 @@ def freeze(run_id: str) -> None:
         or windows_host.get("cacheDiagnosticStderrSecretFree") is not True
         or windows_host.get("emptyCacheInitiallyAbsent") is not True
         or windows_host.get("cacheSeededFromVerifiedArchive") is not True
+        or windows_cookie_sqlite.get("cookieNamePresent") is not True
+        or windows_cookie_sqlite.get("valuesManaged") is not True
+        or not 1 <= windows_cookie_sqlite.get("readAttempts", 0) <= 6
+        or windows_cookie_sqlite.get("maxAttempts") != 6
+        or windows_cookie_sqlite.get("delayMilliseconds") != 200
+        or windows_cookie_sqlite.get("retryExhausted") is not False
     ):
         raise RuntimeError("authorized Host delta/Windows Host 10/10 receipt is invalid")
+    retry_commands = [
+        command
+        for command in commands
+        if command.get("label") == "Host post-exit SQLite retry regression"
+    ]
+    if (
+        len(retry_commands) != 1
+        or retry_commands[0].get("outputSha256")
+        != retry_regression.get("outputSha256")
+    ):
+        raise RuntimeError("SQLite retry regression command/output binding is invalid")
     windows_commands = [
         command
         for command in commands
@@ -232,6 +317,22 @@ def freeze(run_id: str) -> None:
             or sha256_file(path) != receipt.get("sha256")
         ):
             raise RuntimeError("Windows Host child report hash binding is invalid")
+        if receipt.get("name") == "persistence":
+            persistence_report = json.loads(path.read_text(encoding="utf-8"))
+            child_cookie = persistence_report.get("cookieSqlite", {})
+            if (
+                child_cookie.get("cookieNamePresent") is not True
+                or child_cookie.get("valuesManaged") is not True
+                or child_cookie.get("sqliteReadAttempts")
+                != windows_cookie_sqlite.get("readAttempts")
+                or child_cookie.get("sqliteReadMaxAttempts") != 6
+                or child_cookie.get("sqliteRetryDelayMilliseconds") != 200
+                or child_cookie.get("sqliteRetryExhausted") is not False
+                or "sqliteReadError" in child_cookie
+            ):
+                raise RuntimeError(
+                    "Windows Host persistence SQLite result is not hash-bound"
+                )
     semantic_boundary = runtime.get("semanticBoundary", {})
     if (
         semantic_boundary.get("launchExecutable")
@@ -345,7 +446,7 @@ def freeze(run_id: str) -> None:
             "No trusted signer pin or signed Host package exists.",
             "The integration-only adapter is absent from production builds.",
             "The test-only plan launches the uv-resolved locked Python interpreter as the exact Host child and records its typed host_v1.py argv.",
-            "The only authorized Host source delta redirects cache-seed diagnostics from protocol stdout to stderr and is covered by a run-owned empty-cache Windows Host 10/10 regression.",
+            "The only authorized Host source delta redirects cache-seed diagnostics from protocol stdout and adds a read-only, OperationalError-only, six-attempt/one-second post-exit Windows SQLite evidence retry; exhaustion remains unavailable, and both deterministic branch coverage and a run-owned empty-cache Windows Host 10/10 regression are bound.",
             "No UI, installer, proxy injection, site fallback, Controlled Chromium, or virtualization backend was opened.",
             "Evidence is observed on this Windows host; verifiedAdapter remains null and verified remains false.",
         ],

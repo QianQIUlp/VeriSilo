@@ -347,12 +347,16 @@
         "baseGitRevision",
         "baseSha256",
         "currentSha256",
+        "diffSha256",
         "changeClass",
         "protocolSemanticsUnchanged",
         "artifactSemanticsUnchanged",
         "m2wAcceptedManifestRewritten",
         "regressionTestPath",
         "regressionTestSha256",
+        "sqliteEvidenceRetry",
+        "sqliteEvidenceRetryRegression",
+        "runtimePersistenceResult",
         "windowsHostRegressionPassed"
       ],
       "properties": {
@@ -360,12 +364,18 @@
         "baseGitRevision": { "$ref": "#/$defs/gitObject" },
         "baseSha256": { "$ref": "#/$defs/sha256" },
         "currentSha256": { "$ref": "#/$defs/sha256" },
-        "changeClass": { "const": "stdout-purity-only" },
+        "diffSha256": { "$ref": "#/$defs/sha256" },
+        "changeClass": {
+          "const": "stdout-purity-and-post-exit-windows-sqlite-evidence-bounded-retry"
+        },
         "protocolSemanticsUnchanged": { "const": true },
         "artifactSemanticsUnchanged": { "const": true },
         "m2wAcceptedManifestRewritten": { "const": false },
         "regressionTestPath": { "const": "apps/camoufox-host/test_windows_host.py" },
         "regressionTestSha256": { "$ref": "#/$defs/sha256" },
+        "sqliteEvidenceRetry": { "$ref": "#/$defs/sqliteRetryConfiguration" },
+        "sqliteEvidenceRetryRegression": { "$ref": "#/$defs/sqliteRetryRegression" },
+        "runtimePersistenceResult": { "$ref": "#/$defs/liveSqliteEvidenceReceipt" },
         "windowsHostRegressionPassed": { "const": true }
       }
     },
@@ -383,6 +393,7 @@
         "summarySha256",
         "summarySidecarRelativePath",
         "summarySidecarSha256",
+        "persistenceCookieSqlite",
         "reports",
         "emptyCacheRelativePath",
         "emptyCacheInitiallyAbsent",
@@ -405,6 +416,7 @@
           "pattern": "^artifacts/camoufox-m3-wi-windows-gate/runs/"
         },
         "summarySidecarSha256": { "$ref": "#/$defs/sha256" },
+        "persistenceCookieSqlite": { "$ref": "#/$defs/liveSqliteEvidenceReceipt" },
         "reports": {
           "type": "array",
           "minItems": 10,
@@ -453,6 +465,119 @@
     "prefixedSha256": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "sqliteRetryConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxAttempts",
+        "delayMilliseconds",
+        "maxCumulativeDelayMilliseconds",
+        "readOnly",
+        "operationalErrorOnly",
+        "exhaustedRemainsUnavailable"
+      ],
+      "properties": {
+        "maxAttempts": { "const": 6 },
+        "delayMilliseconds": { "const": 200 },
+        "maxCumulativeDelayMilliseconds": { "const": 1000 },
+        "readOnly": { "const": true },
+        "operationalErrorOnly": { "const": true },
+        "exhaustedRemainsUnavailable": { "const": true }
+      }
+    },
+    "liveSqliteEvidenceReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cookieNamePresent",
+        "valuesManaged",
+        "readAttempts",
+        "maxAttempts",
+        "delayMilliseconds",
+        "retryExhausted"
+      ],
+      "properties": {
+        "cookieNamePresent": { "const": true },
+        "valuesManaged": { "const": true },
+        "readAttempts": { "type": "integer", "minimum": 1, "maximum": 6 },
+        "maxAttempts": { "const": 6 },
+        "delayMilliseconds": { "const": 200 },
+        "retryExhausted": { "const": false }
+      }
+    },
+    "sqliteRetryRegression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "configuration", "cases", "outputSha256"],
+      "properties": {
+        "status": { "const": "passed" },
+        "configuration": { "$ref": "#/$defs/sqliteRetryConfiguration" },
+        "outputSha256": { "$ref": "#/$defs/sha256" },
+        "cases": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operationalErrorThenSuccess",
+            "operationalErrorExhausted",
+            "nonOperationalError"
+          ],
+          "properties": {
+            "operationalErrorThenSuccess": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readAttempts",
+                "retrySleeps",
+                "cookieNamePresent",
+                "retryExhausted"
+              ],
+              "properties": {
+                "readAttempts": { "const": 3 },
+                "retrySleeps": { "const": 2 },
+                "cookieNamePresent": { "const": true },
+                "retryExhausted": { "const": false }
+              }
+            },
+            "operationalErrorExhausted": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readAttempts",
+                "retrySleeps",
+                "cookieNamePresent",
+                "retryExhausted",
+                "errorRecorded"
+              ],
+              "properties": {
+                "readAttempts": { "const": 6 },
+                "retrySleeps": { "const": 5 },
+                "cookieNamePresent": { "type": "null" },
+                "retryExhausted": { "const": true },
+                "errorRecorded": { "const": true }
+              }
+            },
+            "nonOperationalError": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "readAttempts",
+                "retrySleeps",
+                "cookieNamePresent",
+                "retryExhausted",
+                "errorRecorded"
+              ],
+              "properties": {
+                "readAttempts": { "const": 1 },
+                "retrySleeps": { "const": 0 },
+                "cookieNamePresent": { "type": "null" },
+                "retryExhausted": { "const": false },
+                "errorRecorded": { "const": true }
+              }
+            }
+          }
+        }
+      }
     },
     "fileReceipt": {
       "type": "object",

@@ -101,6 +101,8 @@ MAX_FRAME_BYTES = 32768
 PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 _FRAME_TOO_LARGE = object()
+COOKIE_SQLITE_READ_MAX_ATTEMPTS = 6
+COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS = 0.2
 
 SECRET_PATTERNS = [
     "password=",
@@ -1454,31 +1456,57 @@ async def _collect_cookie_evidence(
 
 def read_cookie_sqlite_evidence(profile_dir: Path) -> dict:
     """cookies.sqlite evidence: file presence/size plus a best-effort read of
-    the actual moz_cookies row for the probe cookie (Firefox schema)."""
+    the actual moz_cookies row for the probe cookie (Firefox schema).
+
+    On Windows this runs only after the owned browser process tree reports
+    exited.  SQLite can nevertheless remain unavailable briefly while the OS
+    releases the final file handle, so only OperationalError gets a small,
+    fixed, bounded read-only retry.  Exhaustion remains unavailable evidence.
+    """
     db = profile_dir / "cookies.sqlite"
     result = {
         "fileExists": db.exists(),
         "fileBytes": db.stat().st_size if db.exists() else 0,
         "cookieNamePresent": None,
+        "sqliteReadAttempts": 0,
+        "sqliteReadMaxAttempts": COOKIE_SQLITE_READ_MAX_ATTEMPTS if IS_WINDOWS else 1,
+        "sqliteRetryDelayMilliseconds": int(
+            COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS * 1000
+        ),
+        "sqliteRetryExhausted": False,
     }
     if not db.exists():
         result["cookieNamePresent"] = False
         return result
-    try:
-        import sqlite3
 
-        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    import sqlite3
+
+    max_attempts = COOKIE_SQLITE_READ_MAX_ATTEMPTS if IS_WINDOWS else 1
+    rows = None
+    for attempt in range(1, max_attempts + 1):
+        result["sqliteReadAttempts"] = attempt
         try:
-            rows = conn.execute(
-                "SELECT name, host, value FROM moz_cookies WHERE name = ?",
-                (COOKIE_NAME,),
-            ).fetchall()
-        finally:
-            conn.close()
-    except Exception as exc:  # noqa: BLE001 - evidence only, never blocks close
-        result["sqliteReadError"] = f"{type(exc).__name__}: {exc}"
-        result["cookieNamePresent"] = None
-        return result
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                rows = conn.execute(
+                    "SELECT name, host, value FROM moz_cookies WHERE name = ?",
+                    (COOKIE_NAME,),
+                ).fetchall()
+            finally:
+                conn.close()
+            break
+        except sqlite3.OperationalError as exc:
+            if IS_WINDOWS and attempt < max_attempts:
+                time.sleep(COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS)
+                continue
+            result["sqliteReadError"] = f"{type(exc).__name__}: {exc}"
+            result["sqliteRetryExhausted"] = IS_WINDOWS and attempt == max_attempts
+            return result
+        except Exception as exc:  # noqa: BLE001 - evidence only, never blocks close
+            result["sqliteReadError"] = f"{type(exc).__name__}: {exc}"
+            return result
+    if rows is None:
+        raise AssertionError("cookie SQLite retry loop completed without a result")
     result["cookieNamePresent"] = len(rows) > 0
     result["cookieRows"] = len(rows)
     result["hosts"] = sorted({row[1] for row in rows})

@@ -72,6 +72,12 @@ WINDOWS_HOST_TEST_RELATIVE = "apps/camoufox-host/test_windows_host.py"
 EXPECTED_BASE_HOST_SHA256 = (
     "777781258ec45dbf0553d0aca0fd1df52cc1e3637a197a802b71865287f59d6e"
 )
+EXPECTED_CURRENT_HOST_SHA256 = (
+    "469243a65758419c86c34fdf137dd78e60ce7def80a3f2be31abf72453d7a970"
+)
+EXPECTED_SQLITE_READ_MAX_ATTEMPTS = 6
+EXPECTED_SQLITE_RETRY_DELAY_MILLISECONDS = 200
+EXPECTED_SQLITE_MAX_CUMULATIVE_DELAY_MILLISECONDS = 1000
 PROTECTED_PATHS = [
     "apps/camoufox-host/browser_tree.py",
     "apps/camoufox-host/exit_supervisor.py",
@@ -387,32 +393,33 @@ def authorized_host_delta(revision: str) -> dict[str, Any]:
         "--",
         HOST_SOURCE_RELATIVE,
     )
-    changed_lines = [
-        line
-        for line in diff.splitlines()
-        if (line.startswith("+") and not line.startswith("+++"))
-        or (line.startswith("-") and not line.startswith("---"))
-    ]
-    expected_lines = [
-        "-        seed_camoufox_cache(lock, executable, install_dir=install_dir)",
-        "+        # The Host stdout is the strict JSONL transport. Cache seeding is a",
-        "+        # startup diagnostic and must never become a protocol frame.",
-        "+        with contextlib.redirect_stdout(sys.stderr):",
-        "+            seed_camoufox_cache(lock, executable, install_dir=install_dir)",
-    ]
-    if changed_lines != expected_lines:
-        raise RuntimeError("Host delta is not the authorized stdout-purity-only patch")
+    current_sha = sha256_file(HOST_SOURCE)
+    if current_sha != EXPECTED_CURRENT_HOST_SHA256:
+        raise RuntimeError("Host delta is not the exact authorized bounded patch")
     return {
         "path": HOST_SOURCE_RELATIVE,
         "baseGitRevision": START_CHECKPOINT,
         "baseSha256": base_sha,
-        "currentSha256": sha256_file(HOST_SOURCE),
-        "changeClass": "stdout-purity-only",
+        "currentSha256": current_sha,
+        "diffSha256": hashlib.sha256(diff.encode("utf-8")).hexdigest(),
+        "changeClass": (
+            "stdout-purity-and-post-exit-windows-sqlite-evidence-bounded-retry"
+        ),
         "protocolSemanticsUnchanged": True,
         "artifactSemanticsUnchanged": True,
         "m2wAcceptedManifestRewritten": False,
         "regressionTestPath": WINDOWS_HOST_TEST_RELATIVE,
         "regressionTestSha256": sha256_file(WINDOWS_HOST_TEST),
+        "sqliteEvidenceRetry": {
+            "maxAttempts": EXPECTED_SQLITE_READ_MAX_ATTEMPTS,
+            "delayMilliseconds": EXPECTED_SQLITE_RETRY_DELAY_MILLISECONDS,
+            "maxCumulativeDelayMilliseconds": (
+                EXPECTED_SQLITE_MAX_CUMULATIVE_DELAY_MILLISECONDS
+            ),
+            "readOnly": True,
+            "operationalErrorOnly": True,
+            "exhaustedRemainsUnavailable": True,
+        },
     }
 
 
@@ -460,6 +467,80 @@ def parse_engine_verify(output: str) -> dict[str, Any]:
     return value
 
 
+def parse_sqlite_retry_regression(
+    completed: subprocess.CompletedProcess[str],
+) -> dict[str, Any]:
+    output = completed.stdout or ""
+    try:
+        value = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("SQLite retry regression did not emit strict JSON") from exc
+    expected = {
+        "status": "passed",
+        "configuration": {
+            "maxAttempts": EXPECTED_SQLITE_READ_MAX_ATTEMPTS,
+            "delayMilliseconds": EXPECTED_SQLITE_RETRY_DELAY_MILLISECONDS,
+            "maxCumulativeDelayMilliseconds": (
+                EXPECTED_SQLITE_MAX_CUMULATIVE_DELAY_MILLISECONDS
+            ),
+            "readOnly": True,
+            "operationalErrorOnly": True,
+            "exhaustedRemainsUnavailable": True,
+        },
+        "cases": {
+            "operationalErrorThenSuccess": {
+                "readAttempts": 3,
+                "retrySleeps": 2,
+                "cookieNamePresent": True,
+                "retryExhausted": False,
+            },
+            "operationalErrorExhausted": {
+                "readAttempts": EXPECTED_SQLITE_READ_MAX_ATTEMPTS,
+                "retrySleeps": EXPECTED_SQLITE_READ_MAX_ATTEMPTS - 1,
+                "cookieNamePresent": None,
+                "retryExhausted": True,
+                "errorRecorded": True,
+            },
+            "nonOperationalError": {
+                "readAttempts": 1,
+                "retrySleeps": 0,
+                "cookieNamePresent": None,
+                "retryExhausted": False,
+                "errorRecorded": True,
+            },
+        },
+    }
+    if value != expected:
+        raise RuntimeError(f"SQLite retry regression receipt changed: {value}")
+    value["outputSha256"] = hashlib.sha256(output.encode("utf-8")).hexdigest()
+    return value
+
+
+def live_cookie_sqlite_receipt(value: Any, label: str) -> dict[str, Any]:
+    if (
+        not isinstance(value, dict)
+        or value.get("fileExists") is not True
+        or value.get("cookieNamePresent") is not True
+        or value.get("valuesManaged") is not True
+        or not isinstance(value.get("sqliteReadAttempts"), int)
+        or not 1 <= value["sqliteReadAttempts"] <= EXPECTED_SQLITE_READ_MAX_ATTEMPTS
+        or value.get("sqliteReadMaxAttempts") != EXPECTED_SQLITE_READ_MAX_ATTEMPTS
+        or value.get("sqliteRetryDelayMilliseconds")
+        != EXPECTED_SQLITE_RETRY_DELAY_MILLISECONDS
+        or value.get("sqliteRetryExhausted") is not False
+        or "sqliteReadError" in value
+    ):
+        raise RuntimeError(f"{label} SQLite evidence is not available/bounded: {value}")
+    return {
+        "cookieNamePresent": True,
+        "valuesManaged": True,
+        "readAttempts": value["sqliteReadAttempts"],
+        "maxAttempts": value["sqliteReadMaxAttempts"],
+        "delayMilliseconds": value["sqliteRetryDelayMilliseconds"],
+        "retryExhausted": False,
+    }
+
+
 def parse_windows_host_regression(
     completed: subprocess.CompletedProcess[str], runs_root: Path
 ) -> dict[str, Any]:
@@ -497,6 +578,10 @@ def parse_windows_host_regression(
         or protocol.get("stderrSecretFree") is not True
     ):
         raise RuntimeError("empty-cache Host stdout/stderr regression did not pass")
+    persistence_cookie = live_cookie_sqlite_receipt(
+        results.get("persistence", {}).get("cookieSqlite"),
+        "Windows Host persistence",
+    )
     reports = []
     for name, result in sorted(results.items()):
         report_path = (REPO_ROOT / result["reportFile"]).resolve()
@@ -523,6 +608,7 @@ def parse_windows_host_regression(
         "summarySha256": summary_sha,
         "summarySidecarRelativePath": sidecar.relative_to(REPO_ROOT).as_posix(),
         "summarySidecarSha256": sha256_file(sidecar),
+        "persistenceCookieSqlite": persistence_cookie,
         "reports": reports,
     }
 
@@ -673,6 +759,41 @@ def run_gate(args: argparse.Namespace) -> int:
         )
     ):
         raise RuntimeError("real Rust runtime evidence failed its binding/secret/residual checks")
+    runtime_cookie_sqlite = live_cookie_sqlite_receipt(
+        runtime_evidence.get("persistence", {})
+        .get("cycle2Close", {})
+        .get("cookieSqlite"),
+        "real RuntimeManager persistence",
+    )
+    host_delta["runtimePersistenceResult"] = runtime_cookie_sqlite
+
+    sqlite_retry_temp = run_dir / "sqlite-retry-regression-temp"
+    sqlite_retry_temp.mkdir(parents=False, exist_ok=False)
+    sqlite_retry_env = os.environ.copy()
+    sqlite_retry_env.update(
+        {"TEMP": str(sqlite_retry_temp), "TMP": str(sqlite_retry_temp)}
+    )
+    sqlite_retry = run(
+        [
+            str(locked_python_path),
+            str(WINDOWS_HOST_TEST),
+            "--cookie-sqlite-retry-regression",
+        ],
+        cwd=HOST_DIR,
+        env=sqlite_retry_env,
+        timeout=120,
+    )
+    if any(sqlite_retry_temp.iterdir()):
+        raise RuntimeError("SQLite retry regression left run-owned temporary residue")
+    sqlite_retry_temp.rmdir()
+    sqlite_retry_command = command_receipt(
+        "Host post-exit SQLite retry regression", sqlite_retry
+    )
+    sqlite_retry_receipt = parse_sqlite_retry_regression(sqlite_retry)
+    if sqlite_retry_command["outputSha256"] != sqlite_retry_receipt["outputSha256"]:
+        raise RuntimeError("SQLite retry regression command/output binding failed")
+    command_results.append(sqlite_retry_command)
+    host_delta["sqliteEvidenceRetryRegression"] = sqlite_retry_receipt
 
     windows_host_root = run_dir / "windows-host-regression"
     windows_host_runs = windows_host_root / "runs"
