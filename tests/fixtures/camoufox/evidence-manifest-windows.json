@@ -1,10 +1,17 @@
 {
   "schema": "verisilo-camoufox-m2-windows-evidence-manifest/v1",
-  "updatedAtUtc": "2026-08-08T15:40:27.2958262Z",
+  "updatedAtUtc": "2026-08-09T03:37:17Z",
   "branch": "codex/camoufox-m2-windows-gate",
   "baseGitRevision": "d596afd76e59ba64915b036fbc732a2c28f1ec54",
-  "codeGitRevision": "66602e5da8d3536332f0e64a0809954ef023ad31",
-  "codeTreeHash": "d8fbe68e5ee29ce3e80d72b23f7486fb3c606587",
+  "codeGitRevision": "da3400885735ee78c53a1ba8228b4390d174d51a",
+  "codeTreeHash": "582daed01e5ce9cdf351ad4d577ac6cce875493a",
+  "gateRunId": "gate-1786246209-1786246511",
+  "evidenceBundle": {
+    "summaryFile": "artifacts/camoufox-m2-windows-gate/runs/summary-1786246503.json",
+    "summarySha256": "1d7ae9980100726618d2a251be2714f8320bd060c241733f70e5f34a307941df",
+    "reportsAreHostLocal": true,
+    "reportsAreGitIgnored": true
+  },
   "verified": false,
   "evidenceClass": "observed-on-this-windows-host",
   "scope": {
@@ -44,10 +51,15 @@
     "digestAgreement": true,
     "buildId": "20260719045835",
     "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
-    "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018"
+    "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+    "treeManifestSha256": "1c749534d139b7efcb425faf03de9cfe1d59004034a1fe1c5ba423b86239c37b"
   },
   "browserTree": {
     "manifest": "tests/fixtures/camoufox/browser-tree-manifest-windows.json",
+    "assetId": 482185262,
+    "archiveSha256": "386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d",
+    "buildId": "20260719045835",
+    "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
     "fileCount": 493,
     "totalBytes": 979350965,
     "canonicalManifestSha256": "1c749534d139b7efcb425faf03de9cfe1d59004034a1fe1c5ba423b86239c37b",
@@ -56,53 +68,76 @@
   "artifacts": [
     {
       "artifactId": "identity-win-a",
-      "file": "identity-win-a.json",
-      "rawSha256": "341ed55dbc4bfceb4bde99ba56fb00e521d3b883a895ae8f2333dcb1f2ae2d6a",
-      "canonicalDigest": "sha256:2a101f0bc4cafceda74db5a105f6d98b3556cf13c33cbede34ad6c548b4f8ba8",
+      "file": "tests/fixtures/camoufox/identity-win-a.json",
+      "rawSha256": "11817fc38cf1163dc14eeb779fe7540d1d080c0fc1f6ddb7bde46e7f0a6f26a9",
+      "canonicalDigest": "sha256:47db77cf8be31cbda4de44258cc7efb8355bf5dbb4a61720c790cc212528ca48",
       "configuredIdentityDigest": "sha256:c672afc21d9975b85a4bc032261d462ceae8573cfcf9f9a071f2fdfdca9a381f",
       "targetOs": "windows",
       "fontMode": "inherit"
     },
     {
       "artifactId": "identity-win-b",
-      "file": "identity-win-b.json",
-      "rawSha256": "882dabe3bab9f1ec2f7d381b04b41d395345d885a413d366beee83c31b50190e",
-      "canonicalDigest": "sha256:bc7c426c6a7cf7bf3abdda41d5c6c83f84208f8497b1977438dfd645cd3c5c0a",
+      "file": "tests/fixtures/camoufox/identity-win-b.json",
+      "rawSha256": "99c32e3fb0b46125ae13765c4b3eb03c7bd3a776582be90900eba44bb392c404",
+      "canonicalDigest": "sha256:eea4bfb0676dc5a7b6985d13ead7a7bf87b354988e78a30cde6df0f5d9f9dc6c",
       "configuredIdentityDigest": "sha256:355a40aaa458982c36d4666780617e8801ba3d0112a85a60683d16be61e22833",
       "targetOs": "windows",
       "fontMode": "inherit"
     },
     {
       "artifactId": "identity-win-c",
-      "file": "identity-win-c.json",
-      "rawSha256": "b1146b9ef7d6203ed534e12e58adc55d00a6610a58f2a8b732b3de584f643ddb",
-      "canonicalDigest": "sha256:625d48c5723c72ee87f7fe4a7b00d2ed9dc68206a9b888690515dfcb1aece50a",
+      "file": "tests/fixtures/camoufox/identity-win-c.json",
+      "rawSha256": "0c0e67dd47d4d43eeda78ebcad7c7221642f620533eb8e67eb9ae0f4703e72f1",
+      "canonicalDigest": "sha256:d60bbc7801ce4fef5152ea4aa119650f9683d14ef170edc598d94075c7bfe03c",
       "configuredIdentityDigest": "sha256:d3038421c3a40599ee7c54b0810f9d258d9da4c5afe9129968842f4805f411aa",
       "targetOs": "windows",
       "fontMode": "inherit"
     }
   ],
   "runs": {
-    "hostDriverRunId": "run-1786203180-128785cb",
-    "protocolRunId": "run-1786203180-128785cb",
-    "persistenceRunId": "run-1786203182-2effdb8e",
-    "profileLockAndCrashRunId": "run-1786203223-559e6856",
-    "quarantineRunId": "run-1786203288-a6fd01a4",
-    "lifecycleRunId": "run-1786203291-ac4a4f02",
-    "tamperRunId": "run-1786203379-42fae18c",
-    "reparseRunId": "run-1786203381-088598f2",
-    "treeIntegrityRunId": "run-1786203384-57df6f20",
-    "pidReuseRunId": "run-1786203384-c123a515",
-    "stabilityRunId": "run-1786203392-81abe919",
-    "separationRunId": "run-1786203468-2f2e7e3c",
-    "artifactTamperRunId": "run-1786203525-27f75d61"
+    "hostDriverRunId": "run-1786246503-7f6ac6af",
+    "protocolRunId": "run-1786246209-6445e4b8",
+    "persistenceRunId": "run-1786246211-36e1fdd9",
+    "profileLockAndCrashRunId": "run-1786246295-807b272b",
+    "quarantineRunId": "run-1786246379-504bc02e",
+    "lifecycleRunId": "run-1786246383-e5d61582",
+    "tamperRunId": "run-1786246493-9b0fe129",
+    "reparseRunId": "run-1786246495-7dce9603",
+    "mountPointRunId": "run-1786246499-971d3170",
+    "treeIntegrityRunId": "run-1786246503-7f6ac6af",
+    "pidReuseRunId": "run-1786246503-5610da6d",
+    "stabilityRunId": "run-1786246511-773a84e4",
+    "separationRunId": "run-1786246511-a04f5ee8",
+    "artifactTamperRunId": "run-1786246511-fa6a8020"
+  },
+  "runReports": {
+    "protocol": ["run-1786246209-6445e4b8", "artifacts/camoufox-m2-windows-gate/runs/run-1786246209-6445e4b8/report.json", "c3405eb51c36e1a7d2c720d9df9ec9632f82907408af76c4a18821bad8ee8338"],
+    "persistence": ["run-1786246211-36e1fdd9", "artifacts/camoufox-m2-windows-gate/runs/run-1786246211-36e1fdd9/report.json", "a6ff2feee733a366a43f3538daa7a6c8fd72d5413095e6eab59c47cf4ded40ae"],
+    "lockCrash": ["run-1786246295-807b272b", "artifacts/camoufox-m2-windows-gate/runs/run-1786246295-807b272b/report.json", "22447390230187d78700d189621d5be73dd6f740b9cffca306ed1a9ad55778d6"],
+    "quarantine": ["run-1786246379-504bc02e", "artifacts/camoufox-m2-windows-gate/runs/run-1786246379-504bc02e/report.json", "97b9144e8041eb066a0d094734bf6ac09eec1405f5af67feae2e7b00162ab9ba"],
+    "lifecycle": ["run-1786246383-e5d61582", "artifacts/camoufox-m2-windows-gate/runs/run-1786246383-e5d61582/report.json", "c7140366e0d738474833aa14e40a2d470f18f02c38f6bb150f7f9a1789a953a3"],
+    "tamper": ["run-1786246493-9b0fe129", "artifacts/camoufox-m2-windows-gate/runs/run-1786246493-9b0fe129/report.json", "2d11255b4defdd935c88acee41ade2fc88f34224c1c60a2db7440309cb670617"],
+    "reparse": ["run-1786246495-7dce9603", "artifacts/camoufox-m2-windows-gate/runs/run-1786246495-7dce9603/report.json", "10d62425b6e035aaa65c734b2c0728d9d30d962c3628bc0493779fbf0199fcdb"],
+    "mountPoint": ["run-1786246499-971d3170", "artifacts/camoufox-m2-windows-gate/runs/run-1786246499-971d3170/report.json", "6c4f09d6051d983990f56991b31dd91f8d2255714605b7ef91e06d2be4475d72"],
+    "treeIntegrity": ["run-1786246503-7f6ac6af", "artifacts/camoufox-m2-windows-gate/runs/run-1786246503-7f6ac6af/report.json", "e5b304b8517875ee6cb08cd6a79b89de2d0dea86186e8a20c7081babc0dd645c"],
+    "pidReuse": ["run-1786246503-5610da6d", "artifacts/camoufox-m2-windows-gate/runs/run-1786246503-5610da6d/report.json", "cb58d7dfc7aca84ec4d96064c943e2e1568dc093fd0657cbf1e405d515be6483"],
+    "stability": ["run-1786246910-a39e40e7", "artifacts/camoufox-m2-windows-gate/runs/run-1786246910-a39e40e7/report.json", "c16c3b2bbebb449861873f9d065743297db8ff2ccfbdb8788a75b6885847ee15"],
+    "freshCacheGeneration": ["run-1786246797-1227708d", "artifacts/camoufox-m2-windows-gate/runs/run-1786246797-1227708d/report.json", "b1d095428ba3ea8ee00ed0e71b39a1a0d952f1b9efdeac555636f2865238357c"],
+    "separation": ["run-1786246511-a04f5ee8", "artifacts/camoufox-m2-windows-gate/runs/run-1786246511-a04f5ee8/report.json", "eaebf015bafaae6c8ccb3b83b30401c88b2ebda8f48919afa258e2a3076bae66"],
+    "artifactTamper": ["run-1786246511-fa6a8020", "artifacts/camoufox-m2-windows-gate/runs/run-1786246511-fa6a8020/report.json", "fe8f09031c44895c3d04ad35fe790bd64278ec1c4e90c1aceb73c3cc7855523a"]
+  },
+  "linuxProtectedFiles": {
+    "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-linux-x86_64.json": "66e10235af52bb2e65f3344c206c22a32be3660aae9fdd5be29a109fb373f4cd",
+    "tests/fixtures/camoufox/browser-tree-manifest.json": "2880a35e4ff240e0d4ab925ccf7ea659b001608ff60d8810464ac92680dd8ff2",
+    "tests/fixtures/camoufox/evidence-manifest.json": "940a0e1628cb09764d90ddc2388fca9e64b5b85917e6157e890f7a5c2539a760",
+    "tests/fixtures/camoufox/identity-a.json": "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+    "tests/fixtures/camoufox/identity-b.json": "f142ab0e006a40682a92d2a5b04f88b6a418edf3331084437b672b74dd63b67e",
+    "tests/fixtures/camoufox/identity-c.json": "132b108c488e43b01b206412b954ae4f94260d949d22acc89187076e8d1c7640"
   },
   "persistence": {
     "status": "passed",
-    "runId": "run-1786203182-2effdb8e",
+    "runId": "run-1786246211-36e1fdd9",
     "bootCount": [
-      0,
-      1,
       1,
       2
     ],
@@ -114,15 +149,30 @@
   },
   "stability": {
     "status": "passed",
-    "runId": "run-1786203392-81abe919",
+    "runId": "run-1786246910-a39e40e7",
     "requestedRuns": 5,
     "completedRuns": 5,
-    "observedWebsiteDigest": "sha256:60f7f3a9a358ba3e9b1ebd8182df7b47ff4a5c40ef43e95c08fb160adb01a4b8",
+    "observedWebsiteDigest": "sha256:95444e13e1f75d949c8006c36de469a2210446d7a3866f5a1b418e79d68d9cf0",
+    "observedWebsiteDigests": [
+      "sha256:95444e13e1f75d949c8006c36de469a2210446d7a3866f5a1b418e79d68d9cf0",
+      "sha256:95444e13e1f75d949c8006c36de469a2210446d7a3866f5a1b418e79d68d9cf0",
+      "sha256:95444e13e1f75d949c8006c36de469a2210446d7a3866f5a1b418e79d68d9cf0",
+      "sha256:95444e13e1f75d949c8006c36de469a2210446d7a3866f5a1b418e79d68d9cf0",
+      "sha256:95444e13e1f75d949c8006c36de469a2210446d7a3866f5a1b418e79d68d9cf0"
+    ],
     "allObservedWebsiteDigestsIdentical": true,
     "configUnchangedEveryStart": true,
     "diskReloadedEveryStart": true,
     "profileFreshEveryStart": true,
-    "expectedArtifactFileSha256EveryStart": "341ed55dbc4bfceb4bde99ba56fb00e521d3b883a895ae8f2333dcb1f2ae2d6a",
+    "expectedArtifactFileSha256EveryStart": "11817fc38cf1163dc14eeb779fe7540d1d080c0fc1f6ddb7bde46e7f0a6f26a9",
+    "artifactFileSha256EveryStart": [
+      "11817fc38cf1163dc14eeb779fe7540d1d080c0fc1f6ddb7bde46e7f0a6f26a9",
+      "11817fc38cf1163dc14eeb779fe7540d1d080c0fc1f6ddb7bde46e7f0a6f26a9",
+      "11817fc38cf1163dc14eeb779fe7540d1d080c0fc1f6ddb7bde46e7f0a6f26a9",
+      "11817fc38cf1163dc14eeb779fe7540d1d080c0fc1f6ddb7bde46e7f0a6f26a9",
+      "11817fc38cf1163dc14eeb779fe7540d1d080c0fc1f6ddb7bde46e7f0a6f26a9"
+    ],
+    "exitFileObservedEveryStart": [true, true, true, true, true],
     "exitStatusEveryStart": [
       0,
       0,
@@ -140,12 +190,22 @@
   },
   "separation": {
     "status": "passed",
-    "runId": "run-1786203468-2f2e7e3c",
+    "runId": "run-1786246511-a04f5ee8",
     "allObservedWebsiteDigestsDistinct": true,
+    "observedWebsiteDigestByArtifact": {
+      "identity-win-a": "sha256:95444e13e1f75d949c8006c36de469a2210446d7a3866f5a1b418e79d68d9cf0",
+      "identity-win-b": "sha256:9b61178b1be9d921d5f2f1d975b01d6067eb03f378baa3efde22bd5eaa612910",
+      "identity-win-c": "sha256:2638815d262b5cc1b77e052d134a754d40b7620ee7f0e3320754ecaa694539f3"
+    },
+    "artifactFileSha256ByArtifact": {
+      "identity-win-a": "11817fc38cf1163dc14eeb779fe7540d1d080c0fc1f6ddb7bde46e7f0a6f26a9",
+      "identity-win-b": "99c32e3fb0b46125ae13765c4b3eb03c7bd3a776582be90900eba44bb392c404",
+      "identity-win-c": "0c0e67dd47d4d43eeda78ebcad7c7221642f620533eb8e67eb9ae0f4703e72f1"
+    },
     "observedWebsiteDigests": {
       "identity-win-a": "sha256:95444e13e1f75d949c8006c36de469a2210446d7a3866f5a1b418e79d68d9cf0",
-      "identity-win-b": "sha256:96fd8d1f074b17518a3fb6c2ec79586371140cdc9bab1465d868ca3a6dbcae2b",
-      "identity-win-c": "sha256:10e58953b1b889257820af072c9b6d54774f66345df4788a987c3cb912c2026c"
+      "identity-win-b": "sha256:9b61178b1be9d921d5f2f1d975b01d6067eb03f378baa3efde22bd5eaa612910",
+      "identity-win-c": "sha256:2638815d262b5cc1b77e052d134a754d40b7620ee7f0e3320754ecaa694539f3"
     },
     "configUnchangedEveryStart": true,
     "profileFreshEveryStart": true,
@@ -157,7 +217,7 @@
   },
   "integrity": {
     "status": "passed",
-    "runId": "run-1786203525-27f75d61",
+    "runId": "run-1786246511-fa6a8020",
     "expectedRawShaWrong": true,
     "missingArtifactField": true,
     "wrongArtifactType": true,
@@ -167,7 +227,8 @@
     "sidecarMissing": true,
     "allRejectedBeforeLaunch": true,
     "treeMissingExtraModified": true,
-    "reparseJunction": true
+    "reparseJunction": true,
+    "reparseMountPoint": true
   },
   "lifecycle": {
     "status": "passed",
@@ -223,8 +284,17 @@
   },
   "downloadGuard": {
     "status": "passed",
-    "freshCacheGenerationArtifact": "identity-win-empty-final",
-    "freshCacheRoot": "artifacts/camoufox-m2-windows-gate/empty-cache-final",
+    "freshCacheGenerationArtifact": "identity-win-a",
+    "freshCacheRoot": "artifacts/camoufox-m2-windows-gate/empty-cache-final-2",
+    "generationRunId": "run-1786246797-1227708d",
+    "generationReportFile": "artifacts/camoufox-m2-windows-gate/runs/run-1786246797-1227708d/report.json",
+    "generationReportSha256": "b1d095428ba3ea8ee00ed0e71b39a1a0d952f1b9efdeac555636f2865238357c",
+    "warmReplayRunId": "run-1786246910-a39e40e7",
+    "warmReplayReportFile": "artifacts/camoufox-m2-windows-gate/runs/run-1786246910-a39e40e7/report.json",
+    "warmReplayReportSha256": "c16c3b2bbebb449861873f9d065743297db8ff2ccfbdb8788a75b6885847ee15",
+    "generationAndReplayWebdlAttemptObserved": false,
+    "initialPostGenerationReplayWasStable": false,
+    "warmReplayWasStable": true,
     "noCamoufoxWebdlAttemptObserved": true,
     "runtimeAutomaticDownload": false
   },
@@ -240,7 +310,7 @@
     "This is one Windows Server 2025 host and does not prove cross-host replay.",
     "fontMode is inherit; font isolation is not claimed.",
     "Canvas, TLS, QUIC, and network identity are outside this gate.",
-    "A junction exercised the generic Windows reparse rejection; a separate mount-volume fixture was not created.",
+    "The first five starts immediately after empty-cache seeding had a transient digest transition; a subsequent five-start warm replay was stable and no webdl attempt occurred.",
     "The native supervisor is standalone Host support, not a Tauri or EngineAdapter integration."
   ]
 }
