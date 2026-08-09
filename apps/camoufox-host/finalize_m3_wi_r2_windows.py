@@ -204,7 +204,7 @@ def run_finalization(run_id: str) -> int:
     # contains a nested DLL path and Windows' legacy path handling otherwise
     # turns a long run receipt path into WinError 3 during copytree.
     host_root = REPO_ROOT / "artifacts" / (
-        f"r2-host-regression-{run_id.rsplit('-', 1)[-1]}-{finalization_revision[-8:]}"
+        f"r2-host-regression-{run_id.rsplit('-', 1)[-1]}-{int(time.time())}-{finalization_revision[-8:]}"
     )
     host_runs = host_root / "runs"
     host_temp = host_root / "temp"
