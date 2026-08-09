@@ -871,11 +871,16 @@ def conclusion(allowed: bool, summary: str) -> dict:
 
 def write_report(run_dir: Path, report: dict) -> None:
     run_dir = Path(run_dir)
-    report_bytes = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+    report_bytes = (json.dumps(report, indent=2, ensure_ascii=False) + "\n").encode(
+        "utf-8"
+    )
     report_path = run_dir / "report.json"
-    report_path.write_text(report_bytes, encoding="utf-8")
+    # Write the exact bytes that are hashed. Windows text-mode newline
+    # translation previously made report.sha256 describe LF bytes while the
+    # file on disk contained CRLF bytes.
+    report_path.write_bytes(report_bytes)
     (run_dir / "report.sha256").write_text(
-        sha256_hex(report_bytes.encode("utf-8")) + "  report.json\n",
+        sha256_hex(report_bytes) + "  report.json\n",
         encoding="utf-8",
     )
     print(f"report written to {report_path}")

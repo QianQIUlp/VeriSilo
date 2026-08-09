@@ -39,6 +39,7 @@ from browser_tree import (
 from run_identity_spike import (
     expected_media_device_counts,
     observed_media_device_counts,
+    write_report,
 )
 from run_spike import firefox_user_prefs_for_config
 
@@ -135,6 +136,18 @@ def test_windows_media_device_policy_is_deterministic() -> None:
         prefs = firefox_user_prefs_for_config(config)
         assert prefs["media.navigator.streams.fake"] is True
         assert prefs["media.navigator.permission.disabled"] is True
+
+
+def test_identity_report_sidecar_hashes_exact_disk_bytes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        run_dir = Path(tmp)
+        write_report(run_dir, {"message": "Windows receipt — exact bytes"})
+        report_path = run_dir / "report.json"
+        sidecar_digest, sidecar_name = (run_dir / "report.sha256").read_text(
+            encoding="utf-8"
+        ).split()
+        assert sidecar_name == "report.json"
+        assert sidecar_digest == hashlib.sha256(report_path.read_bytes()).hexdigest()
 
 
 def test_diff_configs() -> None:
