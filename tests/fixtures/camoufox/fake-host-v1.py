@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -99,7 +100,7 @@ def main() -> int:
     tree_sha = hashlib.sha256(Path(tree_manifest).read_bytes()).hexdigest()
     session_id = "11111111-1111-4111-8111-111111111111"
     artifact_id = "identity-m3-fake"
-    profile_id = "silo-22222222222222222222222222222222"
+    profile_id = "silo-22222222222242228222222222222222"
     artifact_sha = "a" * 64
     state = "idle"
 
@@ -222,7 +223,13 @@ def main() -> int:
             elif mode == "status-failure":
                 status["failure"] = "fake failure"
             response(request_id, status)
+            if mode == "active-session-eof":
+                return 0
+            if mode == "active-session-crash":
+                os._exit(17)
         elif command == "close":
+            if mode == "desktop-close-eof":
+                return 0
             state = "exited"
             close = {
                 "sessionId": session_id,

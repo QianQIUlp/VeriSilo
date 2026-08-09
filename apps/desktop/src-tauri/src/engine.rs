@@ -15,7 +15,7 @@ use thiserror::Error;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::domain::{BrowserDescriptor, BrowserKind};
+use crate::domain::{BrowserDescriptor, BrowserKind, NetworkProfile};
 
 pub const ENGINE_CONTRACT_VERSION: u32 = 1;
 pub const ENGINE_BOOTSTRAP_VERSION: u32 = 1;
@@ -462,6 +462,7 @@ pub struct EngineLaunchRequest {
     pub silo_id: Option<Uuid>,
     pub session_id: Uuid,
     pub profile_directory: PathBuf,
+    pub network_profile: NetworkProfile,
     pub identity: Option<IdentityTemplate>,
     pub derived_token: Option<DerivedIdentityToken>,
     pub fallback_rules: Vec<SiteFallbackRule>,
@@ -2789,9 +2790,20 @@ impl EngineAdapter for ExternalPackageEngineAdapter {
                 "Camoufox Host v1 does not accept a Vault-derived token".to_owned(),
             ));
         }
+        if !matches!(
+            &request.network_profile,
+            NetworkProfile::Direct {
+                proxy_required: false
+            }
+        ) {
+            return Err(EngineError::CapabilityUnavailable(
+                "Camoufox Host v1 only supports a Direct network profile; FixedProxy and PAC were rejected before spawn"
+                    .to_owned(),
+            ));
+        }
         if identity.network.proxy_required {
             return Err(EngineError::CapabilityUnavailable(
-                "Camoufox Host v1 only supports Direct network policy; required proxy launch was rejected before spawn"
+                "Camoufox Host v1 identity template requires a proxy; launch was rejected before spawn"
                     .to_owned(),
             ));
         }
@@ -5002,7 +5014,7 @@ mod tests {
     use serde_json::{json, Value};
     use uuid::Uuid;
 
-    use crate::domain::{BrowserDescriptor, BrowserKind};
+    use crate::domain::{BrowserDescriptor, BrowserKind, NetworkProfile, ProxyScheme};
 
     use super::{
         hex_lower, sha256_bytes, sha256_file, BrowserFamily, CamoufoxArtifactBindingV1,
@@ -5086,6 +5098,9 @@ mod tests {
                 silo_id: None,
                 session_id: Uuid::new_v4(),
                 profile_directory: root.join("profile"),
+                network_profile: NetworkProfile::Direct {
+                    proxy_required: false,
+                },
                 identity: None,
                 derived_token: None,
                 fallback_rules: Vec::new(),
@@ -5120,6 +5135,9 @@ mod tests {
                 silo_id: None,
                 session_id: Uuid::new_v4(),
                 profile_directory: root.join("profile-with-token"),
+                network_profile: NetworkProfile::Direct {
+                    proxy_required: false,
+                },
                 identity: None,
                 derived_token: Some(DerivedIdentityToken {
                     token_id: Uuid::new_v4(),
@@ -5258,6 +5276,9 @@ mod tests {
             silo_id: Some(silo_id),
             session_id: Uuid::new_v4(),
             profile_directory: root.join("legacy-profile"),
+            network_profile: NetworkProfile::Direct {
+                proxy_required: false,
+            },
             identity: Some(template.clone()),
             derived_token: None,
             fallback_rules: Vec::new(),
@@ -5269,6 +5290,32 @@ mod tests {
             camoufox_roots: Some(roots.clone()),
         };
         let plan = adapter.launch_plan(&request).expect("Host launch plan");
+        for network_profile in [
+            NetworkProfile::FixedProxy {
+                proxy_required: false,
+                scheme: ProxyScheme::Socks5,
+                host: "127.0.0.1".to_owned(),
+                port: 1,
+                bypass_list: Vec::new(),
+                credential_reference: None,
+                external_mihomo: None,
+            },
+            NetworkProfile::Pac {
+                proxy_required: false,
+                pac_url: "http://127.0.0.1/pac".to_owned(),
+            },
+        ] {
+            let mut non_direct_request = request.clone();
+            non_direct_request.network_profile = network_profile;
+            let error = adapter
+                .launch_plan(&non_direct_request)
+                .expect_err("Camoufox engine plan must reject every non-Direct profile");
+            assert!(matches!(
+                error,
+                EngineError::CapabilityUnavailable(message)
+                    if message.contains("only supports a Direct network profile")
+            ));
+        }
         assert_eq!(plan.transport, EngineTransport::CamoufoxHostJsonlV1);
         let expected_browser_tree_path = fs::canonicalize(&browser_tree_path)
             .expect("canonical browser tree path")
@@ -5424,6 +5471,9 @@ mod tests {
             silo_id: Some(context.silo_id),
             session_id: context.session_id,
             profile_directory: root_150.join("profile"),
+            network_profile: NetworkProfile::Direct {
+                proxy_required: false,
+            },
             identity: Some(template.clone()),
             derived_token: Some(token),
             fallback_rules: vec![SiteFallbackRule {
@@ -5680,6 +5730,9 @@ mod tests {
                 silo_id: None,
                 session_id: Uuid::new_v4(),
                 profile_directory: root_150.join("profile-2"),
+                network_profile: NetworkProfile::Direct {
+                    proxy_required: false,
+                },
                 identity: Some(template),
                 derived_token: None,
                 fallback_rules: Vec::new(),
