@@ -28,11 +28,13 @@ pub const CAMOUFOX_HOST_PACKAGE_SCHEMA_VERSION: u32 = 3;
 pub const CAMOUFOX_ARTIFACT_SCHEMA: &str = "verisilo-camoufox-resolved-identity/v3";
 pub const CAMOUFOX_HOST_PROTOCOL: &str = "verisilo-camoufox-host/v1";
 pub const CAMOUFOX_HOST_ENTRYPOINT_KIND: &str = "camoufox-host-v1";
+pub const CAMOUFOX_BROWSER_TREE_SCHEMA: &str = "verisilo-camoufox-browser-tree-manifest/v1";
 pub const CAMOUFOX_HOST_VERSION: &str = "0.1.0";
 pub const MAX_CAMOUFOX_HOST_FRAME_BYTES: usize = 32 * 1024;
 const ENGINE_PACKAGE_MANIFEST: &str = "engine-package.json";
 const ENGINE_STATE_SCHEMA_VERSION: u32 = 1;
 const MAX_ENGINE_MANIFEST_BYTES: u64 = 64 * 1024;
+const MAX_CAMOUFOX_BROWSER_TREE_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_ENGINE_EXECUTABLE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 #[cfg(target_os = "windows")]
 const MAX_ENGINE_SIGNATURE_BYTES: usize = 48 * 1024;
@@ -494,8 +496,8 @@ pub struct CamoufoxHostLaunch {
     pub profile_id: String,
     pub browser_release: String,
     pub browser_asset_sha256: String,
-    pub tree_manifest_path: PathBuf,
-    pub tree_manifest_sha256: String,
+    pub browser_tree_manifest_path: PathBuf,
+    pub browser_tree_manifest_sha256: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1671,9 +1673,13 @@ pub struct EnginePackageManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree_manifest: Option<EnginePackageTreeBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_tree_manifest: Option<EnginePackageTreeBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser_asset_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_release: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1703,6 +1709,24 @@ pub struct EnginePackageTreeManifest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EnginePackageTreeEntry {
     pub path: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EngineBrowserTreeManifest {
+    pub schema: String,
+    pub tree_root_label: String,
+    pub file_count: u64,
+    pub total_bytes: u64,
+    pub entries: Vec<EngineBrowserTreeEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EngineBrowserTreeEntry {
+    pub path: String,
+    pub size: u64,
     pub sha256: String,
 }
 
@@ -1888,8 +1912,8 @@ impl VerifiedEnginePackage {
         self.manifest.entrypoint.as_ref()
     }
 
-    fn tree_manifest(&self) -> Option<&EnginePackageTreeBinding> {
-        self.manifest.tree_manifest.as_ref()
+    fn browser_tree_manifest(&self) -> Option<&EnginePackageTreeBinding> {
+        self.manifest.browser_tree_manifest.as_ref()
     }
 
     fn host_version(&self) -> Result<String, EngineError> {
@@ -1902,6 +1926,14 @@ impl VerifiedEnginePackage {
         self.manifest.browser_asset_sha256.clone().ok_or_else(|| {
             EngineError::InvalidPackage(
                 "Camoufox package browser asset SHA-256 is missing".to_owned(),
+            )
+        })
+    }
+
+    fn browser_release(&self) -> Result<String, EngineError> {
+        self.manifest.browser_release.clone().ok_or_else(|| {
+            EngineError::InvalidPackage(
+                "Camoufox package browser release binding is missing".to_owned(),
             )
         })
     }
@@ -2750,8 +2782,13 @@ impl EngineAdapter for ExternalPackageEngineAdapter {
                     "identity_artifact_unavailable: Camoufox launch requires an explicit Artifact ID and raw SHA binding"
                         .to_owned(),
                 )
-            })?;
+        })?;
         binding.validate()?;
+        if request.derived_token.is_some() {
+            return Err(EngineError::CapabilityUnavailable(
+                "Camoufox Host v1 does not accept a Vault-derived token".to_owned(),
+            ));
+        }
         if identity.network.proxy_required {
             return Err(EngineError::CapabilityUnavailable(
                 "Camoufox Host v1 only supports Direct network policy; required proxy launch was rejected before spawn"
@@ -2781,14 +2818,14 @@ impl EngineAdapter for ExternalPackageEngineAdapter {
                 "Camoufox package is missing its v3 Host entrypoint binding".to_owned(),
             )
         })?;
-        let tree_manifest = package.tree_manifest().ok_or_else(|| {
+        let browser_tree_manifest = package.browser_tree_manifest().ok_or_else(|| {
             EngineError::InvalidPackage(
-                "Camoufox package is missing its v3 tree manifest binding".to_owned(),
+                "Camoufox package is missing its v3 browser tree manifest binding".to_owned(),
             )
         })?;
-        let tree_manifest_path = secure_package_member(
+        let browser_tree_manifest_path = secure_package_member(
             &package.package_root,
-            Path::new(&tree_manifest.relative_path),
+            Path::new(&browser_tree_manifest.relative_path),
             PathKind::File,
         )?;
         let profile_id = camoufox_profile_id(silo_id);
@@ -2812,7 +2849,7 @@ impl EngineAdapter for ExternalPackageEngineAdapter {
             "--state-root".to_owned(),
             path_string(&roots.state_root)?,
             "--tree-manifest".to_owned(),
-            path_string(&tree_manifest_path)?,
+            path_string(&browser_tree_manifest_path)?,
         ];
         Ok(EngineLaunchPlan {
             adapter: self.descriptor(),
@@ -2831,10 +2868,10 @@ impl EngineAdapter for ExternalPackageEngineAdapter {
                 artifact_id: binding.artifact_id.clone(),
                 artifact_file_sha256: binding.artifact_file_sha256.clone(),
                 profile_id,
-                browser_release: package.manifest.engine_version.clone(),
+                browser_release: package.browser_release()?,
                 browser_asset_sha256: package.browser_asset_sha256()?,
-                tree_manifest_path,
-                tree_manifest_sha256: tree_manifest.sha256.clone(),
+                browser_tree_manifest_path,
+                browser_tree_manifest_sha256: browser_tree_manifest.sha256.clone(),
             }),
             package_verification: Some(EngineLaunchPackageVerification {
                 verifier_id: package.verification.verifier_id.clone(),
@@ -3255,8 +3292,10 @@ fn validate_package_manifest(
                 || manifest.executable_relative_path != expected_executable.expect("chromium")
                 || manifest.entrypoint.is_some()
                 || manifest.tree_manifest.is_some()
+                || manifest.browser_tree_manifest.is_some()
                 || manifest.host_version.is_some()
                 || manifest.browser_asset_sha256.is_some()
+                || manifest.browser_release.is_some()
             {
                 return Err(EngineError::InvalidPackage(
                     "Controlled Chromium packages must retain the strict schema-v2 native entrypoint contract"
@@ -3273,9 +3312,6 @@ fn validate_package_manifest(
             }
             if manifest.schema_version != CAMOUFOX_HOST_PACKAGE_SCHEMA_VERSION
                 || !manifest.executable_relative_path.is_empty()
-                    && manifest.entrypoint.as_ref().is_some_and(|entrypoint| {
-                        entrypoint.relative_path != manifest.executable_relative_path
-                    })
             {
                 return Err(EngineError::InvalidPackage(
                     "Camoufox packages require the strict schema-v3 Host entrypoint contract"
@@ -3289,17 +3325,28 @@ fn validate_package_manifest(
             })?;
             let tree_manifest = manifest.tree_manifest.as_ref().ok_or_else(|| {
                 EngineError::InvalidPackage(
-                    "Camoufox schema-v3 package is missing tree manifest binding".to_owned(),
+                    "Camoufox schema-v3 package is missing package tree binding".to_owned(),
                 )
             })?;
+            let browser_tree_manifest =
+                manifest.browser_tree_manifest.as_ref().ok_or_else(|| {
+                    EngineError::InvalidPackage(
+                        "Camoufox schema-v3 package is missing browser tree manifest binding"
+                            .to_owned(),
+                    )
+                })?;
             if entrypoint.kind != CAMOUFOX_HOST_ENTRYPOINT_KIND
                 || entrypoint.protocol != CAMOUFOX_HOST_PROTOCOL
                 || !is_lower_hex(&entrypoint.sha256, 64)
                 || manifest.artifact_sha256 != entrypoint.sha256
                 || !is_lower_hex(&tree_manifest.sha256, 64)
+                || !is_lower_hex(&browser_tree_manifest.sha256, 64)
                 || !valid_package_relative_path(&entrypoint.relative_path)
                 || !valid_package_relative_path(&tree_manifest.relative_path)
+                || !valid_package_relative_path(&browser_tree_manifest.relative_path)
                 || entrypoint.relative_path == tree_manifest.relative_path
+                || entrypoint.relative_path == browser_tree_manifest.relative_path
+                || tree_manifest.relative_path == browser_tree_manifest.relative_path
                 || manifest
                     .host_version
                     .as_deref()
@@ -3308,6 +3355,10 @@ fn validate_package_manifest(
                     .browser_asset_sha256
                     .as_deref()
                     .is_none_or(|sha| !is_lower_hex(sha, 64))
+                || manifest
+                    .browser_release
+                    .as_deref()
+                    .is_none_or(|release| release != format!("v{}", manifest.engine_version))
             {
                 return Err(EngineError::InvalidPackage(
                     "Camoufox schema-v3 Host, protocol, tree, or asset binding is invalid"
@@ -3374,6 +3425,21 @@ fn valid_package_relative_path(value: &str) -> bool {
         && value
             .split('/')
             .all(|component| !component.is_empty() && component != "." && component != "..")
+}
+
+fn valid_browser_tree_relative_path(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 4096
+        && !value.contains('\\')
+        && !value.chars().any(char::is_control)
+        && ensure_clean_components(Path::new(value), false).is_ok()
+        && value
+            .split('/')
+            .all(|component| !component.is_empty() && component != "." && component != "..")
+        && value
+            .split('/')
+            .next()
+            .is_none_or(|component| !component.contains(':'))
 }
 
 fn validate_host_root(root: &Path, label: &str) -> Result<(), EngineError> {
@@ -3444,6 +3510,30 @@ fn verify_camoufox_package_tree(
             "Camoufox package tree does not bind the Host entrypoint".to_owned(),
         ));
     }
+    let browser_tree_binding = manifest.browser_tree_manifest.as_ref().ok_or_else(|| {
+        EngineError::InvalidPackage(
+            "Camoufox package is missing its browser tree manifest binding".to_owned(),
+        )
+    })?;
+    if expected.get(&browser_tree_binding.relative_path) != Some(&browser_tree_binding.sha256) {
+        return Err(EngineError::InvalidPackage(
+            "Camoufox package tree does not bind the browser tree manifest member".to_owned(),
+        ));
+    }
+    let browser_tree_path = secure_package_member(
+        package_root,
+        Path::new(&browser_tree_binding.relative_path),
+        PathKind::File,
+    )?;
+    let browser_tree_bytes = fs::read(&browser_tree_path)?;
+    if browser_tree_bytes.len() as u64 > MAX_CAMOUFOX_BROWSER_TREE_MANIFEST_BYTES
+        || hex_lower(&sha256_bytes(&browser_tree_bytes)) != browser_tree_binding.sha256
+    {
+        return Err(EngineError::VerificationUnavailable(
+            "Camoufox browser tree manifest bytes do not match their signed binding".to_owned(),
+        ));
+    }
+    validate_camoufox_browser_tree_manifest(&browser_tree_bytes)?;
     let mut actual = BTreeMap::new();
     collect_package_files(
         package_root,
@@ -3454,6 +3544,43 @@ fn verify_camoufox_package_tree(
     if actual != expected {
         return Err(EngineError::VerificationUnavailable(
             "Camoufox package tree has a missing, extra, or changed member".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_camoufox_browser_tree_manifest(bytes: &[u8]) -> Result<(), EngineError> {
+    let tree: EngineBrowserTreeManifest = strict_json_from_slice(bytes)?;
+    if tree.schema != CAMOUFOX_BROWSER_TREE_SCHEMA
+        || !valid_text(&tree.tree_root_label, 512)
+        || tree.file_count != tree.entries.len() as u64
+        || tree.entries.is_empty()
+        || tree.entries.len() > 65_536
+    {
+        return Err(EngineError::InvalidPackage(
+            "Camoufox browser tree manifest schema or summary is invalid".to_owned(),
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    let mut total_bytes = 0_u64;
+    for entry in tree.entries {
+        if !valid_browser_tree_relative_path(&entry.path)
+            || !is_lower_hex(&entry.sha256, 64)
+            || !seen.insert(entry.path.to_ascii_lowercase())
+        {
+            return Err(EngineError::InvalidPackage(
+                "Camoufox browser tree manifest contains an invalid or duplicate member".to_owned(),
+            ));
+        }
+        total_bytes = total_bytes.checked_add(entry.size).ok_or_else(|| {
+            EngineError::InvalidPackage(
+                "Camoufox browser tree manifest byte count overflowed".to_owned(),
+            )
+        })?;
+    }
+    if total_bytes != tree.total_bytes {
+        return Err(EngineError::InvalidPackage(
+            "Camoufox browser tree manifest totalBytes does not match its entries".to_owned(),
         ));
     }
     Ok(())
@@ -4880,18 +5007,20 @@ mod tests {
     use super::{
         hex_lower, sha256_bytes, sha256_file, BrowserFamily, CamoufoxArtifactBindingV1,
         CamoufoxHostRoots, CanvasMode, DerivedIdentityToken, DesiredQuic, EngineAdapter,
-        EngineAdapterId, EngineCapabilityAvailability, EngineCapabilityEvidence,
-        EngineCapabilityId, EngineCapabilityOperation, EngineChannel, EngineControlExecution,
-        EngineControlPhase, EngineError, EngineLaunchRequest, EngineMaintenanceAction,
-        EnginePackageEntrypoint, EnginePackageManifest, EnginePackageRequest,
-        EnginePackageSignature, EnginePackageTreeBinding, EnginePackageTreeEntry,
-        EnginePackageTreeManifest, EnginePackageVerification, EnginePackageVerifier,
-        EngineTransport, ExternalPackageEngineAdapter, IdentityBrowser, IdentityDerivationContext,
-        IdentityFonts, IdentityLanguages, IdentityMedia, IdentityNetwork, IdentityOperatingSystem,
-        IdentityRender, IdentityScreen, IdentityTemplate, IdentityTokenDeriver, IdentityUaCh,
-        IdentityUaChBrand, SiteFallbackAction, SiteFallbackRule, StockChromiumAdapter,
+        EngineAdapterId, EngineBrowserTreeEntry, EngineBrowserTreeManifest,
+        EngineCapabilityAvailability, EngineCapabilityEvidence, EngineCapabilityId,
+        EngineCapabilityOperation, EngineChannel, EngineControlExecution, EngineControlPhase,
+        EngineError, EngineLaunchRequest, EngineMaintenanceAction, EnginePackageEntrypoint,
+        EnginePackageManifest, EnginePackageRequest, EnginePackageSignature,
+        EnginePackageTreeBinding, EnginePackageTreeEntry, EnginePackageTreeManifest,
+        EnginePackageVerification, EnginePackageVerifier, EngineTransport,
+        ExternalPackageEngineAdapter, IdentityBrowser, IdentityDerivationContext, IdentityFonts,
+        IdentityLanguages, IdentityMedia, IdentityNetwork, IdentityOperatingSystem, IdentityRender,
+        IdentityScreen, IdentityTemplate, IdentityTokenDeriver, IdentityUaCh, IdentityUaChBrand,
+        SiteFallbackAction, SiteFallbackRule, StockChromiumAdapter,
         UnavailableIdentityTokenDeriver, WindowsProductionEnginePackageVerifier,
-        CAMOUFOX_ARTIFACT_SCHEMA, CAMOUFOX_HOST_ENTRYPOINT_KIND, CAMOUFOX_HOST_PROTOCOL,
+        CAMOUFOX_ARTIFACT_SCHEMA, CAMOUFOX_BROWSER_TREE_SCHEMA, CAMOUFOX_HOST_ENTRYPOINT_KIND,
+        CAMOUFOX_HOST_PROTOCOL,
     };
 
     struct TestPackageVerifier;
@@ -5034,12 +5163,33 @@ mod tests {
         let host_path = host_directory.join("camoufox-host.exe");
         fs::write(&host_path, b"fake Host entrypoint").expect("Host entrypoint");
         let host_sha = hex_lower(&sha256_file(&host_path).expect("Host digest"));
+        let browser_tree = EngineBrowserTreeManifest {
+            schema: CAMOUFOX_BROWSER_TREE_SCHEMA.to_owned(),
+            tree_root_label: "fake-camoufox-browser".to_owned(),
+            file_count: 1,
+            total_bytes: 1,
+            entries: vec![EngineBrowserTreeEntry {
+                path: "camoufox.exe".to_owned(),
+                size: 1,
+                sha256: "4".repeat(64),
+            }],
+        };
+        let browser_tree_bytes = serde_json::to_vec(&browser_tree).expect("browser tree JSON");
+        let browser_tree_path = root.join("browser-tree-manifest.json");
+        fs::write(&browser_tree_path, &browser_tree_bytes).expect("browser tree manifest");
+        let browser_tree_sha = hex_lower(&sha256_bytes(&browser_tree_bytes));
         let tree = EnginePackageTreeManifest {
             schema: "verisilo-camoufox-host-package-tree/v1".to_owned(),
-            entries: vec![EnginePackageTreeEntry {
-                path: "host/camoufox-host.exe".to_owned(),
-                sha256: host_sha.clone(),
-            }],
+            entries: vec![
+                EnginePackageTreeEntry {
+                    path: "browser-tree-manifest.json".to_owned(),
+                    sha256: browser_tree_sha.clone(),
+                },
+                EnginePackageTreeEntry {
+                    path: "host/camoufox-host.exe".to_owned(),
+                    sha256: host_sha.clone(),
+                },
+            ],
         };
         let tree_bytes = serde_json::to_vec(&tree).expect("tree JSON");
         let tree_path = root.join("package-tree.json");
@@ -5069,8 +5219,13 @@ mod tests {
                 relative_path: "package-tree.json".to_owned(),
                 sha256: tree_sha,
             }),
+            browser_tree_manifest: Some(EnginePackageTreeBinding {
+                relative_path: "browser-tree-manifest.json".to_owned(),
+                sha256: browser_tree_sha,
+            }),
             host_version: Some("0.1.0".to_owned()),
             browser_asset_sha256: Some("2".repeat(64)),
+            browser_release: Some("v152.0.4-beta.28".to_owned()),
         };
         fs::write(
             root.join("engine-package.json"),
@@ -5115,6 +5270,17 @@ mod tests {
         };
         let plan = adapter.launch_plan(&request).expect("Host launch plan");
         assert_eq!(plan.transport, EngineTransport::CamoufoxHostJsonlV1);
+        let expected_browser_tree_path = fs::canonicalize(&browser_tree_path)
+            .expect("canonical browser tree path")
+            .to_string_lossy()
+            .into_owned();
+        assert!(plan.arguments.windows(2).any(|window| {
+            window
+                == [
+                    "--tree-manifest".to_owned(),
+                    expected_browser_tree_path.clone(),
+                ]
+        }));
         assert!(plan.identity_delivery.is_none());
         assert!(plan.control.is_none());
         assert!(plan.camoufox_host.is_some());
@@ -5136,6 +5302,13 @@ mod tests {
                 .expect("Host binding")
                 .profile_id,
             format!("silo-{}", silo_id.simple())
+        );
+        assert_eq!(
+            plan.camoufox_host
+                .as_ref()
+                .expect("Host browser release binding")
+                .browser_release,
+            "v152.0.4-beta.28"
         );
 
         let mut required_proxy = request.clone();
@@ -5166,6 +5339,18 @@ mod tests {
             Err(EngineError::CapabilityUnavailable(_))
         ));
 
+        let mut token_request = request.clone();
+        token_request.derived_token = Some(DerivedIdentityToken {
+            token_id: Uuid::new_v4(),
+            token: "TOKEN-SENTINEL-MUST-NOT-ENTER-CAMOUFOX".to_owned(),
+            expires_at: Utc::now() + Duration::minutes(5),
+        });
+        assert!(matches!(
+            adapter.launch_plan(&token_request),
+            Err(EngineError::CapabilityUnavailable(message))
+                if message.contains("does not accept")
+        ));
+
         let mut misleading_manifest = manifest.clone();
         misleading_manifest
             .capabilities
@@ -5180,6 +5365,9 @@ mod tests {
         fs::write(&host_path, b"tampered Host entrypoint").expect("tamper Host");
         assert!(adapter.launch_plan(&request).is_err());
         fs::write(&host_path, b"fake Host entrypoint").expect("restore Host");
+        fs::write(&browser_tree_path, b"tampered browser tree").expect("tamper browser tree");
+        assert!(adapter.launch_plan(&request).is_err());
+        fs::write(&browser_tree_path, &browser_tree_bytes).expect("restore browser tree");
         let extra_path = root.join("extra.bin");
         fs::write(&extra_path, b"unexpected package member").expect("extra member");
         assert!(adapter.launch_plan(&request).is_err());
@@ -6142,8 +6330,10 @@ mod tests {
                 .collect(),
             entrypoint: None,
             tree_manifest: None,
+            browser_tree_manifest: None,
             host_version: None,
             browser_asset_sha256: None,
+            browser_release: None,
         };
         fs::write(
             root.join("engine-package.json"),

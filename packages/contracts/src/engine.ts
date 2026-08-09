@@ -503,10 +503,12 @@ export const camoufoxHostLaunchSchema = z
     artifactId: z.string().regex(/^identity-[a-z0-9][a-z0-9-]{0,63}$/u),
     artifactFileSha256: z.string().regex(/^[a-f0-9]{64}$/u),
     profileId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/u),
-    browserRelease: z.string().trim().min(1).max(64),
+    browserRelease: z
+      .string()
+      .regex(/^v(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u),
     browserAssetSha256: z.string().regex(/^[a-f0-9]{64}$/u),
-    treeManifestPath: z.string().trim().min(1).max(4096),
-    treeManifestSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    browserTreeManifestPath: z.string().trim().min(1).max(4096),
+    browserTreeManifestSha256: z.string().regex(/^[a-f0-9]{64}$/u),
   })
   .strict();
 export type CamoufoxHostLaunch = z.infer<typeof camoufoxHostLaunchSchema>;
@@ -831,7 +833,18 @@ export const camoufoxHostPackageManifestSchema = z
         sha256: z.string().regex(/^[a-f0-9]{64}$/u),
       })
       .strict(),
+    browserTreeManifest: z
+      .object({
+        relativePath: z
+          .string()
+          .regex(/^(?![\\/])(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/u),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
     hostVersion: z.string().trim().min(1).max(64),
+    browserRelease: z
+      .string()
+      .regex(/^v(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u),
     browserAssetSha256: z.string().regex(/^[a-f0-9]{64}$/u),
   })
   .strict()
@@ -841,6 +854,13 @@ export const camoufoxHostPackageManifestSchema = z
         code: z.ZodIssueCode.custom,
         path: ["artifactSha256"],
         message: "Camoufox package artifactSha256 must bind the Host entrypoint.",
+      });
+    }
+    if (manifest.browserRelease !== `v${manifest.engineVersion}`) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["browserRelease"],
+        message: "Camoufox browserRelease must bind the accepted v-prefixed engine release.",
       });
     }
     if (!manifest.capabilities.includes("identity_template")) {

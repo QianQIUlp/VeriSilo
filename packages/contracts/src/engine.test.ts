@@ -204,7 +204,12 @@ describe("EngineAdapter contracts", () => {
         relativePath: "package-tree.json",
         sha256: "c".repeat(64),
       },
+      browserTreeManifest: {
+        relativePath: "browser-tree-manifest.json",
+        sha256: "e".repeat(64),
+      },
       hostVersion: "0.1.0",
+      browserRelease: "v152.0.4-beta.28",
       browserAssetSha256: "d".repeat(64),
     };
     expect(camoufoxHostPackageManifestSchema.parse(manifest).entrypoint.kind).toBe(
@@ -229,6 +234,18 @@ describe("EngineAdapter contracts", () => {
       enginePackageManifestSchema.parse({
         ...manifest,
         entrypoint: { ...manifest.entrypoint, protocol: "native-bootstrap-v1" },
+      }),
+    ).toThrow();
+    expect(() =>
+      enginePackageManifestSchema.parse({
+        ...manifest,
+        browserRelease: "152.0.4-beta.28",
+      }),
+    ).toThrow(/browserRelease/);
+    expect(() =>
+      enginePackageManifestSchema.parse({
+        ...manifest,
+        browserTreeManifest: undefined,
       }),
     ).toThrow();
     expect(() =>

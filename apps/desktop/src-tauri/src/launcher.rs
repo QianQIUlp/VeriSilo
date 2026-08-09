@@ -2737,14 +2737,14 @@ fn validate_camoufox_host_hello(
         || hello.platform != binding.platform
         || hello.browser_release != binding.browser_release
         || hello.asset_sha256 != binding.browser_asset_sha256
-        || hello.tree_manifest_sha256 != binding.tree_manifest_sha256
+        || hello.tree_manifest_sha256 != binding.browser_tree_manifest_sha256
         || hello.max_frame_bytes != MAX_CAMOUFOX_HOST_FRAME_BYTES
         || hello.probe_port_policy != "ephemeral"
         || hello.state != "idle"
         || hello.verified
         || hello.evidence_class != "observed-on-this-host"
         || canonical_host_path(&hello.tree_manifest)?
-            != canonical_host_path(&binding.tree_manifest_path.to_string_lossy())?
+            != canonical_host_path(&binding.browser_tree_manifest_path.to_string_lossy())?
         || hello.artifact_root != expected_roots[0].1
         || hello.profile_root != expected_roots[1].1
         || hello.state_root != expected_roots[2].1
@@ -3284,7 +3284,15 @@ fn preflight_proxy(
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsString, fs, io::Cursor, net::TcpListener, path::PathBuf};
+    use std::{
+        ffi::OsString,
+        fs,
+        io::Cursor,
+        net::TcpListener,
+        path::PathBuf,
+        thread,
+        time::{Duration, Instant},
+    };
 
     #[cfg(unix)]
     use std::{
@@ -3292,8 +3300,6 @@ mod tests {
         net::{Ipv4Addr, SocketAddr, TcpStream},
         process::Stdio,
         sync::{atomic::AtomicBool, mpsc, Arc, Mutex},
-        thread,
-        time::{Duration, Instant},
     };
 
     use chrono::{Duration as ChronoDuration, Utc};
@@ -3329,7 +3335,7 @@ mod tests {
     use crate::proxy_relay::{ProxyRelay, RelayAuthenticationEvidence};
     #[cfg(unix)]
     use crate::runtime_watchdog::RuntimeWatchdog;
-    use crate::vault::{MihomoControllerAuthentication, ProxyAuthentication};
+    use crate::vault::{BrowserProfileLease, MihomoControllerAuthentication, ProxyAuthentication};
 
     fn test_silo(network_profile: NetworkProfile) -> Silo {
         let profile_directory =
@@ -3924,18 +3930,19 @@ process.stdin.on('end', () => {
         reservation
     }
 
-    #[test]
-    fn fake_camoufox_host_jsonl_launch_close_shutdown_is_bound_and_secret_free() {
+    fn fake_camoufox_host_fixture(mode: &str) -> (PathBuf, EngineLaunchPlan, Vec<OsString>) {
         let root =
-            std::env::temp_dir().join(format!("verisilo-camoufox-host-test-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("verisilo-camoufox-host-fixture-{}", Uuid::new_v4()));
         let artifact_root = root.join("artifacts");
         let profile_root = root.join("profiles");
         let state_root = root.join("state");
         fs::create_dir_all(&artifact_root).expect("fake artifact root");
         fs::create_dir_all(&profile_root).expect("fake profile root");
         fs::create_dir_all(&state_root).expect("fake state root");
-        let tree_manifest_path = root.join("package-tree.json");
-        fs::write(&tree_manifest_path, b"{\"schema\":\"fake\"}\n").expect("fake tree");
+        let browser_tree_manifest_path = root.join("browser-tree-manifest.json");
+        let browser_tree_manifest = br#"{"schema":"verisilo-camoufox-browser-tree-manifest/v1","treeRootLabel":"fake-camoufox","fileCount":1,"totalBytes":1,"entries":[{"path":"camoufox.exe","size":1,"sha256":"4444444444444444444444444444444444444444444444444444444444444444"}]}"#;
+        fs::write(&browser_tree_manifest_path, browser_tree_manifest)
+            .expect("fake browser tree manifest");
         let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../tests/fixtures/camoufox/fake-host-v1.py");
         let platform = if cfg!(target_os = "windows") {
@@ -3950,11 +3957,130 @@ process.stdin.on('end', () => {
             artifact_id: "identity-m3-fake".to_owned(),
             artifact_file_sha256: "a".repeat(64),
             profile_id: "silo-22222222222222222222222222222222".to_owned(),
-            browser_release: "152.0.4-beta.28".to_owned(),
+            browser_release: "v152.0.4-beta.28".to_owned(),
             browser_asset_sha256: "b".repeat(64),
-            tree_manifest_path: tree_manifest_path.clone(),
-            tree_manifest_sha256:
-                "5d8f88f833ac9cc590b1b154fa37f48834b848881dca0472726c950433517275".to_owned(),
+            browser_tree_manifest_path: browser_tree_manifest_path.clone(),
+            browser_tree_manifest_sha256:
+                "f5788711bf5361124b6be6265c882b9e1652d9aad368a7091bbdda683631aac2".to_owned(),
+        };
+        let python = if cfg!(target_os = "windows") {
+            "python"
+        } else {
+            "python3"
+        };
+        let mut arguments = vec![
+            OsString::from("-u"),
+            OsString::from(script.to_string_lossy().into_owned()),
+            OsString::from("--artifact-root"),
+            OsString::from(artifact_root.to_string_lossy().into_owned()),
+            OsString::from("--profile-root"),
+            OsString::from(profile_root.to_string_lossy().into_owned()),
+            OsString::from("--state-root"),
+            OsString::from(state_root.to_string_lossy().into_owned()),
+            OsString::from("--tree-manifest"),
+            OsString::from(browser_tree_manifest_path.to_string_lossy().into_owned()),
+        ];
+        if mode != "normal" {
+            arguments.push(OsString::from("--mode"));
+            arguments.push(OsString::from(mode));
+        }
+        let plan = EngineLaunchPlan {
+            adapter: EngineDescriptor {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                id: EngineAdapterId::Camoufox,
+                adapter_version: "m3-test".to_owned(),
+                engine_version: "152.0.4-beta.28".to_owned(),
+                channel: EngineChannel::Experimental,
+                browser_family: BrowserFamily::Firefox,
+                platform: binding.platform.clone(),
+                externally_packaged: true,
+                emergency_disabled: false,
+            },
+            transport: EngineTransport::CamoufoxHostJsonlV1,
+            executable_path: PathBuf::from(python),
+            arguments: arguments
+                .iter()
+                .map(|value| value.to_string_lossy().into_owned())
+                .collect(),
+            profile_directory: profile_root.join(&binding.profile_id),
+            shell: false,
+            capabilities: Vec::new(),
+            identity_delivery: None,
+            control: None,
+            camoufox_host: Some(binding),
+            package_verification: None,
+        };
+        (root, plan, arguments)
+    }
+
+    fn fake_camoufox_runtime_manager(mode: &str) -> (PathBuf, RuntimeManager, Uuid) {
+        let (root, plan, arguments) = fake_camoufox_host_fixture(mode);
+        fs::create_dir_all(&plan.profile_directory).expect("fake Host profile directory");
+        let mut spawned =
+            super::spawn_camoufox_host(&plan, &arguments).expect("fake Host RuntimeManager launch");
+        let silo_id = Uuid::new_v4();
+        let profile_lease = BrowserProfileLease::acquire_for_runtime(
+            std::slice::from_ref(&plan.profile_directory),
+            &plan.profile_directory,
+        )
+        .expect("fake Host profile lease");
+        let mut evidence = RuntimeEngineEvidence::configured(EngineAdapterId::Camoufox, true);
+        evidence.launched_adapter = Some(EngineAdapterId::Camoufox);
+        evidence.package_verification = RuntimeEvidenceState::Verified;
+        evidence.host_launch = RuntimeEvidenceState::Observed;
+        evidence.bootstrap_delivery = RuntimeEvidenceState::NotApplicable;
+        evidence.runtime_receipts = RuntimeEvidenceState::NotApplicable;
+        evidence.restore_receipt = RuntimeEvidenceState::NotApplicable;
+        let runtime = RuntimeManager {
+            child: Some(spawned.child),
+            activation: Some(RuntimeActivation {
+                active_silo_id: Some(silo_id),
+                state: RuntimeState::Running,
+                updated_at: Utc::now(),
+                message: None,
+                browser_verification: None,
+                engine_evidence: Some(evidence),
+                network_evidence: None,
+            }),
+            engine_runtime: spawned.runtime.take(),
+            profile_lease: Some(profile_lease),
+            ..RuntimeManager::default()
+        };
+        (root, runtime, silo_id)
+    }
+
+    #[test]
+    fn fake_camoufox_host_jsonl_launch_close_shutdown_is_bound_and_secret_free() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-camoufox-host-test-{}", Uuid::new_v4()));
+        let artifact_root = root.join("artifacts");
+        let profile_root = root.join("profiles");
+        let state_root = root.join("state");
+        fs::create_dir_all(&artifact_root).expect("fake artifact root");
+        fs::create_dir_all(&profile_root).expect("fake profile root");
+        fs::create_dir_all(&state_root).expect("fake state root");
+        let browser_tree_manifest_path = root.join("browser-tree-manifest.json");
+        let browser_tree_manifest = br#"{"schema":"verisilo-camoufox-browser-tree-manifest/v1","treeRootLabel":"fake-camoufox","fileCount":1,"totalBytes":1,"entries":[{"path":"camoufox.exe","size":1,"sha256":"4444444444444444444444444444444444444444444444444444444444444444"}]}"#;
+        fs::write(&browser_tree_manifest_path, browser_tree_manifest).expect("fake browser tree");
+        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../tests/fixtures/camoufox/fake-host-v1.py");
+        let platform = if cfg!(target_os = "windows") {
+            "windows-x64"
+        } else {
+            "linux-x64"
+        };
+        let binding = CamoufoxHostLaunch {
+            protocol: super::CAMOUFOX_HOST_PROTOCOL.to_owned(),
+            host_version: "0.1.0".to_owned(),
+            platform: platform.to_owned(),
+            artifact_id: "identity-m3-fake".to_owned(),
+            artifact_file_sha256: "a".repeat(64),
+            profile_id: "silo-22222222222222222222222222222222".to_owned(),
+            browser_release: "v152.0.4-beta.28".to_owned(),
+            browser_asset_sha256: "b".repeat(64),
+            browser_tree_manifest_path: browser_tree_manifest_path.clone(),
+            browser_tree_manifest_sha256:
+                "f5788711bf5361124b6be6265c882b9e1652d9aad368a7091bbdda683631aac2".to_owned(),
         };
         let python = if cfg!(target_os = "windows") {
             "python"
@@ -3971,7 +4097,7 @@ process.stdin.on('end', () => {
             OsString::from("--state-root"),
             OsString::from(state_root.to_string_lossy().into_owned()),
             OsString::from("--tree-manifest"),
-            OsString::from(tree_manifest_path.to_string_lossy().into_owned()),
+            OsString::from(browser_tree_manifest_path.to_string_lossy().into_owned()),
         ];
         for argument in &arguments {
             let argument = argument.to_string_lossy();
@@ -4063,6 +4189,51 @@ process.stdin.on('end', () => {
     }
 
     #[test]
+    fn camoufox_secret_sentinels_are_absent_from_launch_surfaces() {
+        const VAULT_SEED_SENTINEL: &str = "VAULT-SEED-SENTINEL-9d6f";
+        const ARTIFACT_SEED_SENTINEL: &str = "ARTIFACT-SEED-SENTINEL-3a81";
+        const TOKEN_SENTINEL: &str = "TOKEN-SENTINEL-6c44";
+        const PROXY_SECRET_SENTINEL: &str = "PROXY-SECRET-SENTINEL-2e70";
+        let sentinels = [
+            VAULT_SEED_SENTINEL,
+            ARTIFACT_SEED_SENTINEL,
+            TOKEN_SENTINEL,
+            PROXY_SECRET_SENTINEL,
+        ];
+        let (root, plan, arguments) = fake_camoufox_host_fixture("normal");
+        fs::write(
+            root.join("artifacts").join("identity-m3-fake.json"),
+            format!("{{\"artifactSeed\":\"{ARTIFACT_SEED_SENTINEL}\"}}"),
+        )
+        .expect("sentinel artifact fixture");
+        let mut spawned = super::spawn_camoufox_host(&plan, &arguments).expect("fake Host launch");
+        let mut wire = Vec::new();
+        if let Some(super::EngineRuntimeProtocol::CamoufoxHost(host)) = spawned.runtime.as_mut() {
+            wire = host.transport.wire_snapshot.clone();
+        }
+        let evidence = RuntimeEngineEvidence::configured(EngineAdapterId::Camoufox, true);
+        let surfaces = format!(
+            "argv={} plan={} wire={} evidence={}",
+            arguments
+                .iter()
+                .map(|argument| argument.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" "),
+            serde_json::to_string(&plan).expect("plan JSON"),
+            String::from_utf8_lossy(&wire.concat()),
+            serde_json::to_string(&evidence).expect("evidence JSON"),
+        );
+        for sentinel in sentinels {
+            assert!(
+                !surfaces.contains(sentinel),
+                "Camoufox launch surface leaked sentinel {sentinel}"
+            );
+        }
+        super::terminate_just_spawned_child(&mut spawned.child);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn camoufox_host_jsonl_framing_and_quarantine_fail_closed() {
         let mut empty = Cursor::new(Vec::<u8>::new());
         assert!(matches!(
@@ -4097,10 +4268,10 @@ process.stdin.on('end', () => {
             artifact_id: "identity-m3-fake".to_owned(),
             artifact_file_sha256: "a".repeat(64),
             profile_id: "silo-fake".to_owned(),
-            browser_release: "152.0.4-beta.28".to_owned(),
+            browser_release: "v152.0.4-beta.28".to_owned(),
             browser_asset_sha256: "b".repeat(64),
-            tree_manifest_path: PathBuf::from("C:\\verisilo\\tree.json"),
-            tree_manifest_sha256: "c".repeat(64),
+            browser_tree_manifest_path: PathBuf::from("C:\\verisilo\\tree.json"),
+            browser_tree_manifest_sha256: "c".repeat(64),
         };
         let close = |tree_exited: bool, quarantine: Option<serde_json::Value>| {
             super::CamoufoxHostCloseResult {
@@ -4140,8 +4311,9 @@ process.stdin.on('end', () => {
         fs::create_dir_all(&artifact_root).expect("fake artifact root");
         fs::create_dir_all(&profile_root).expect("fake profile root");
         fs::create_dir_all(&state_root).expect("fake state root");
-        let tree_manifest_path = root.join("package-tree.json");
-        fs::write(&tree_manifest_path, b"{\"schema\":\"fake\"}\n").expect("fake tree");
+        let browser_tree_manifest_path = root.join("browser-tree-manifest.json");
+        fs::write(&browser_tree_manifest_path, b"{\"schema\":\"fake\"}\n")
+            .expect("fake browser tree");
         let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../tests/fixtures/camoufox/fake-host-v1.py");
         let python = if cfg!(target_os = "windows") {
@@ -4161,7 +4333,7 @@ process.stdin.on('end', () => {
                 std::ffi::OsString::from("--state-root"),
                 std::ffi::OsString::from(state_root.to_string_lossy().into_owned()),
                 std::ffi::OsString::from("--tree-manifest"),
-                std::ffi::OsString::from(tree_manifest_path.to_string_lossy().into_owned()),
+                std::ffi::OsString::from(browser_tree_manifest_path.to_string_lossy().into_owned()),
                 std::ffi::OsString::from("--mode"),
                 std::ffi::OsString::from(mode),
             ];
@@ -4184,6 +4356,122 @@ process.stdin.on('end', () => {
             assert!(error.to_string().to_ascii_lowercase().contains(expected));
             drop(transport);
             super::terminate_just_spawned_child(&mut child);
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn fake_camoufox_host_frozen_failure_matrix_fails_closed() {
+        let modes = [
+            "wrong-protocol",
+            "wrong-host-version",
+            "wrong-platform",
+            "wrong-release",
+            "wrong-asset",
+            "wrong-tree",
+            "wrong-root",
+            "wrong-tree-path",
+            "unknown-field",
+            "duplicate-field",
+            "invalid-utf8",
+            "oversized",
+            "partial-frame",
+            "wrong-id",
+            "out-of-order-id",
+            "duplicate-id",
+            "launch-artifact-mismatch",
+            "launch-sha-mismatch",
+            "launch-profile-mismatch",
+            "launch-unknown-field",
+            "profile-in-use",
+            "profile-quarantined",
+            "quarantined",
+        ];
+        for mode in modes {
+            let (root, plan, arguments) = fake_camoufox_host_fixture(mode);
+            let result = super::spawn_camoufox_host(&plan, &arguments);
+            assert!(
+                result.is_err(),
+                "fake Host mode {mode} unexpectedly entered Running"
+            );
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn fake_camoufox_host_stdin_eof_closes_exact_child() {
+        let (root, plan, arguments) = fake_camoufox_host_fixture("normal");
+        let mut command = std::process::Command::new(&plan.executable_path);
+        command.args(&arguments);
+        command.stdin(std::process::Stdio::piped());
+        command.stdout(std::process::Stdio::piped());
+        command.stderr(std::process::Stdio::null());
+        let mut child = command.spawn().expect("start fake Host for stdin EOF");
+        let mut transport = super::CamoufoxHostTransport::attach(&mut child)
+            .expect("attach fake Host for stdin EOF");
+        transport
+            .request("hello", serde_json::json!({}), Duration::from_secs(1))
+            .expect("hello before stdin EOF");
+        drop(transport);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let status = loop {
+            if let Some(status) = child.try_wait().expect("wait fake Host after stdin EOF") {
+                break status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "fake Host did not close on stdin EOF"
+            );
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert!(status.success());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn fake_camoufox_runtime_manager_preserves_evidence_and_releases_exact_ownership() {
+        let (root, mut runtime, silo_id) = fake_camoufox_runtime_manager("normal");
+        let activation = runtime
+            .stop_managed_camoufox(silo_id)
+            .expect("fake Host RuntimeManager stop");
+        assert_eq!(activation.state, RuntimeState::Stopped);
+        assert_eq!(activation.active_silo_id, None);
+        let evidence = activation.engine_evidence.expect("Host evidence");
+        assert_eq!(evidence.configured_adapter, EngineAdapterId::Camoufox);
+        assert_eq!(evidence.launched_adapter, Some(EngineAdapterId::Camoufox));
+        assert_eq!(evidence.verified_adapter, None);
+        assert_eq!(evidence.host_launch, RuntimeEvidenceState::Observed);
+        assert_eq!(
+            evidence.bootstrap_delivery,
+            RuntimeEvidenceState::NotApplicable
+        );
+        assert_eq!(
+            evidence.runtime_receipts,
+            RuntimeEvidenceState::NotApplicable
+        );
+        assert_eq!(
+            evidence.restore_receipt,
+            RuntimeEvidenceState::NotApplicable
+        );
+        assert!(evidence.phase_receipts.is_empty());
+        assert!(evidence.fallback_receipts.is_empty());
+        assert!(runtime.child.is_none());
+        assert!(runtime.engine_runtime.is_none());
+        assert!(runtime.profile_lease.is_none());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn fake_camoufox_runtime_manager_keeps_ownership_on_uncertain_tree_exit() {
+        let (root, mut runtime, silo_id) = fake_camoufox_runtime_manager("tree-exit-false");
+        let error = runtime
+            .stop_managed_camoufox(silo_id)
+            .expect_err("uncertain process tree exit must fail closed");
+        assert!(error.to_string().contains("process tree"));
+        assert_eq!(runtime.activation().state, RuntimeState::VerificationFailed);
+        assert!(runtime.profile_lease.is_some());
+        if let Some(child) = runtime.child.as_mut() {
+            super::terminate_just_spawned_child(child);
         }
         let _ = fs::remove_dir_all(root);
     }

@@ -96,9 +96,16 @@ This raw-executable layout remains the schema-v2 Controlled Chromium contract, n
 engine-package.json
 host/camoufox-host.exe       # exact camoufox-host-v1 entrypoint
 package-tree.json            # verisilo-camoufox-host-package-tree/v1
+browser-tree-manifest.json   # verisilo-camoufox-browser-tree-manifest/v1
 ```
 
-The loader re-verifies the v3 entrypoint, browser asset, and complete tree before launch. The implementation is contract-level and fake-Host tested on this branch; it is not a signed release package and does not claim real Camoufox verification.
+The loader re-verifies the v3 Host entrypoint, complete Host/runtime package
+tree, browser-tree manifest member, exact v-prefixed browser release, and
+browser asset binding before launch. Only the browser-tree manifest path is
+passed to Host `--tree-manifest`; the package tree is never passed to the
+standalone browser-tree loader. The implementation is contract-level and
+fake-Host tested on this branch; it is not a signed release package and does
+not claim real Camoufox verification.
 
 Manifest schemas v2 and v3 are defined by
 `engine-package.schema.json`. The loader rejects relative roots, traversal,
@@ -124,8 +131,9 @@ which contains the exact SHA-256 of the executable.
 
 The schema-v3 Camoufox Host manifest uses the same CMS shape with the domain
 separator `VeriSilo engine package manifest v3` and includes the Host
-entrypoint, tree binding, Host version, and browser asset binding in the
-canonical payload. Schema-v2 Controlled Chromium signing remains unchanged.
+entrypoint, package-tree binding, browser-tree binding, exact browser release,
+Host version, and browser asset binding in the canonical payload. Schema-v2
+Controlled Chromium signing remains unchanged.
 
 The bytes to sign are deterministic. The following field order describes the
 schema-v2 payload; schema-v3 uses the same deterministic serialization with

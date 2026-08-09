@@ -60,7 +60,8 @@ use domain::{
 use engine::{
     EngineAdapter, EngineAdapterId, EngineCapabilityId, EngineDescriptor, EngineHealth,
     EngineMaintenanceReceipt, EngineNegotiation, EnginePackageRequest,
-    ExternalPackageEngineAdapter, StockChromiumAdapter, VaultSeedIdentityTokenDeriver,
+    ExternalPackageEngineAdapter, SiloEngineConfig, StockChromiumAdapter,
+    VaultSeedIdentityTokenDeriver,
 };
 use environment::backend::{
     EnvironmentActionReceipt, EnvironmentBackendId, EnvironmentBackendStatus,
@@ -2858,7 +2859,7 @@ fn launch_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActiv
             let mihomo_authentication = vault
                 .mihomo_controller_authentication_for_silo(silo_id)
                 .map_err(|error| error.to_string())?;
-            let identity_seed = (!silo.engine.is_stock())
+            let identity_seed = matches!(&silo.engine, SiloEngineConfig::ControlledChromium { .. })
                 .then(|| vault.identity_seed_for_silo(silo_id))
                 .transpose()
                 .map_err(|error| error.to_string())?;
