@@ -15,6 +15,7 @@
 | Linux accepted checkpoint | `d596afd76e59ba64915b036fbc732a2c28f1ec54`           | evidence manifest 冻结提交；保持不变                         |
 | M2-W 同步基线             | `9e88c0aa2486dd18a3ef241b1d4dcca3a7890efc`           | 以 merge 方式把 `origin/main` 合入 Camoufox 分支的提交       |
 | Windows 工作分支          | `codex/camoufox-m2-windows-gate`                     | 已从旧 checkpoint 提前开始；现有工作保留，等待合入同步后基线 |
+| M2-W execution code      | `49acbce1c5da0f566a92a92a2148723ed6557338`           | 最终 Windows runtime/test 代码；tracked manifest 绑定其 tree `656952f` |
 | Camoufox Draft PR         | [#10](https://github.com/QianQIUlp/VeriSilo/pull/10) | 目标为 `main`；未合并前不能称为主线或 shipped 能力           |
 | 上下文文档 PR             | [#11](https://github.com/QianQIUlp/VeriSilo/pull/11) | 已合并；四份事实源现在是 `main` 的规范上下文                 |
 
@@ -46,7 +47,7 @@
 - profile 独占、PID+start-time 所有权、全树退出确认和 fail-closed quarantine。
 - Linux Host 仍是 standalone prototype，没有接入 Tauri/EngineAdapter。
 
-## Accepted evidence
+## Linux accepted evidence
 
 | 项目              | 证据                                                                 |
 | ----------------- | -------------------------------------------------------------------- |
@@ -59,12 +60,28 @@
 
 原始 Profile 和完整运行报告位于执行环境的 gitignored `artifacts/`；分支中 tracked evidence manifest 是脱敏索引。上述结果是该 Linux 主机上的 accepted execution evidence，保持 `verified: false`。
 
+## M2-W 执行 Agent 候选证据
+
+以下结果来自原生 Windows Server 2025 RDP 桌面，会话内保持 standalone，且全部为 `verified: false`。它们已经由执行 Agent 冻结，但尚未由主脑完成 M2-W Gate 审阅，因此本节不开放 M3。
+
+| 项目 | 执行结果 |
+| --- | --- |
+| Artifact 严格单元测试 | `24/24` |
+| Windows Host 驱动 | `10/10`；summary `summary-1786256942` |
+| 跨 Host profile 持久化 | `run-1786256765-a87deb8c`；两个不同 Host，bootCount `1 → 2`，Cookie/LocalStorage 保留 |
+| Job/lifecycle | `run-1786256856-05a652ee`；EOF 与 forced parent exit 后 active process count 均为 `0` |
+| 全新 cache 5 次冷启动 | `run-1786256952-be01f506`；5/5 digest 均为 `sha256:60f7f3…`，媒体设备计数匹配 Artifact |
+| A/B/C separation | `run-1786257046-3d59e69e`；三个 ObservedWebsiteDigest 两两不同 |
+| Artifact tamper | `run-1786257136-2eed82ce`；四种篡改全部启动前拒绝 |
+
+tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`。它保留旧 run 集为 `preSyncEvidence`，只把同步后、最终代码 revision 生成并通过 sidecar 校验的 run 作为当前候选 evidence。
+
 ## 当前 Gate
 
 | Gate                                            | 状态                                    |
 | ----------------------------------------------- | --------------------------------------- |
 | Linux 资产固定、Artifact 重放与 standalone Host | **Accepted，M0–M2.0.3 关闭**            |
-| 原生 Windows M2-W                               | **执行已提前开始；Gate 等待基线同步**   |
+| 原生 Windows M2-W                               | **执行证据已冻结；等待主脑成本受控 Gate 审阅** |
 | EngineAdapter / Tauri 集成                      | **不允许；必须等待 M2-W 三项核心 Gate** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段**                            |
 
@@ -72,10 +89,10 @@
 
 1. [PR #11](https://github.com/QianQIUlp/VeriSilo/pull/11) 已合入 `main`，merge commit 为 `dab74e9`。
 2. `origin/main` 已以 **merge** 方式合入 Camoufox 分支，生成同步基线 `9e88c0a`；没有 rebase，也没有改写 M0–M2.0.3 或 `d596afd` 的证据历史。
-3. 本状态同步提交推送后，Draft PR #10 将携带四份事实源和新的同步基线。
-4. Windows 劳动力 Agent 不需要推倒重来：先完成当前不可安全中断的原子操作并把现有工作形成 checkpoint，然后把更新后的 `origin/codex/camoufox-m0-m2-minimal` **merge** 进 `codex/camoufox-m2-windows-gate`。不得 rebase、reset 或重写已有 Windows 工作。
-5. 合并后按根 `AGENTS.md` 阅读四份事实源。旧基线产生的 run-id 保留为 pre-sync execution evidence；不得把它们伪装成新基线结果。
-6. 只在合并后的 Windows HEAD 上重跑冻结任务的最终 M2-W 验收矩阵并冻结 accepted run-id、资产锁、manifest 和 commit。无需重新实现功能，也不默认重跑与三个核心 Gate 无关的开发测试。
+3. Windows 分支通过 merge commit `13cebd8` 合入更新后的 `origin/codex/camoufox-m0-m2-minimal`；没有 rebase、reset、cherry-pick 或历史改写。
+4. 合并后按根 `AGENTS.md` 重新阅读四份事实源；旧基线 run-id 作为 `preSyncEvidence` 保留，没有冒充新基线结果。
+5. 执行 Agent 只针对实际证据缺口修复了 Windows platformdirs cache 绑定、媒体枚举就绪、report 精确字节 sidecar 和 evidence-side bounded Job cleanup；没有接入 Tauri、EngineAdapter、UI 或安装器，也没有修改 Artifact v3 / ObservedWebsiteDigest v2 语义。
+6. 最终 tracked manifest 由 summary/report/sidecar 自动派生，绑定 receipt-producing code revision `49acbce`；M3 是否开放仍由主脑审阅决定。
 
 下面的“M2-W 冻结目标”定义阶段目标。Windows 任务现有验收合同继续有效，但 PR #11 中的产品语义、禁止范围和证据措辞优先；若二者冲突，停止扩大实现并退回主脑裁决。
 

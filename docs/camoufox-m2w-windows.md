@@ -1,6 +1,7 @@
 # VeriSilo M2-W Windows Manual Gate
 
-Status: host-local Windows evidence only. Every result remains
+Status: Execution Agent candidate evidence frozen; main-brain Gate review is
+still pending. Every result remains
 `verified: false` and uses `evidenceClass: observed-on-this-windows-host`.
 This gate covers the standalone Camoufox Host only. It does not authorize
 Tauri, EngineAdapter, desktop UI, installers, product protocol integration,
@@ -43,6 +44,14 @@ contract. The Host strips only this runtime-only field and rewrites the exact
 disk Artifact config before launch; no Artifact or ObservedWebsiteDigest schema
 was changed.
 
+Windows Camoufox cache control uses `WIN_PD_OVERRIDE_LOCAL_APPDATA` before any
+Camoufox import. `XDG_CACHE_HOME` alone does not redirect platformdirs on
+Windows and is not accepted as fresh-cache evidence. When the Artifact enables
+media devices, Firefox's fake media backend and deterministic permission path
+are enabled, and the Host waits for the configured device counts before the
+authoritative full website observation. The complete observation must still
+match the Artifact counts and remains part of ObservedWebsiteDigest v2.
+
 ## Pinned Windows Asset
 
 - Release: `v152.0.4-beta.28`
@@ -82,18 +91,40 @@ From `apps/camoufox-host` on the same Windows host:
 
 ```powershell
 uv sync --frozen
-cargo build --release --manifest-path windows-supervisor/Cargo.toml
+cargo build --release --locked --manifest-path windows-supervisor/Cargo.toml
 uv run python test_identity_artifact.py
+$env:VERISILO_CAMOUFOX_CACHE_DIR = '<new empty host cache root>'
 uv run python test_windows_host.py
+$env:VERISILO_CAMOUFOX_CACHE_DIR = '<different new empty replay cache root>'
 uv run python run_identity_spike.py stability --artifact ..\..\tests\fixtures\camoufox\identity-win-a.json --runs 5
 uv run python run_identity_spike.py separation --artifacts ..\..\tests\fixtures\camoufox\identity-win-a.json,..\..\tests\fixtures\camoufox\identity-win-b.json,..\..\tests\fixtures\camoufox\identity-win-c.json
 uv run python run_identity_spike.py tamper --artifact ..\..\tests\fixtures\camoufox\identity-win-a.json --out-dir ..\..\artifacts\camoufox-m2-windows-gate\tampered
 ```
 
 `test_windows_host.py` includes separate junction and real volume mount-point
-reparse tests. The empty-cache receipt distinguishes cache generation from
-the subsequent warm replay: both paths must keep DownloadGuard untripped, and
-the warm replay is the five-start stability receipt.
+reparse tests. The stability command itself seeds a truly empty, controlled
+Windows platformdirs cache from the verified archive and then runs the same
+Artifact through five fresh profiles. A warm-only replay is not accepted.
+
+## Frozen Execution Receipts
+
+- Receipt-producing code: `49acbce1c5da0f566a92a92a2148723ed6557338`
+- Code tree: `656952f730c4cce77340905c1c89a6c0c12110ac`
+- Artifact unit tests: 24/24
+- Windows Host driver: 10/10, `summary-1786256942`
+- Cross-Host persistence: `run-1786256765-a87deb8c`
+- EOF/forced-exit Job cleanup: `run-1786256856-05a652ee`
+- Fresh-cache stability: `run-1786256952-be01f506`, 5/5 digest
+  `sha256:60f7f3a9a358ba3e9b1ebd8182df7b47ff4a5c40ef43e95c08fb160adb01a4b8`
+- A/B/C separation: `run-1786257046-3d59e69e`
+- Artifact tamper: `run-1786257136-2eed82ce`
+
+The pre-sync digest transition was a real `mediaDevices` transition inside
+ObservedWebsiteDigest v2, not an Artifact/config/profile change. The old
+Windows `XDG_CACHE_HOME` path also did not control Camoufox's actual
+platformdirs cache. Both facts are recorded in the tracked manifest together
+with the post-fix first-through-fifth counterexample. These are execution
+receipts only; this document does not authorize M3.
 
 The Windows Gate report index records each run-id, report path, and report
 SHA-256 in `tests/fixtures/camoufox/evidence-manifest-windows.json`. Raw
