@@ -1,6 +1,6 @@
 # Camoufox Managed Fingerprint Core FP1 — Deterministic Artifact Projection
 
-- 状态：**Frozen task contract / Pending execution**
+- 状态：**Frozen task contract / Execution failed**
 - 冻结日期：2026-08-10
 - 当前 Gate：**FP1**
 - 前置 checkpoint：M3-0 Accepted at
@@ -384,24 +384,107 @@ runner 或 freezer。最终结果必须在本合同末尾追加 Gate result，�
 
 覆盖表使用下列固定格式，不得删除困难表面：
 
-| 指纹面                    | Artifact 控制        | 固定机制            | A1/A2  | A/B      | 观察字段                         | digest v2 覆盖 | evidence 状态 | 限制/排除             |
-| ------------------------- | -------------------- | ------------------- | ------ | -------- | -------------------------------- | -------------- | ------------- | --------------------- |
-| UA / Navigator / platform | 待填                 | 待填                | 待执行 | 待执行   | 待填                             | 待填           | Pending       | —                     |
-| Headers                   | 待填                 | 待填                | 待执行 | 待执行   | 待填                             | 待填           | Pending       | —                     |
-| Locale / timezone         | 待填                 | 待填                | 待执行 | 待执行   | 待填                             | 待填           | Pending       | —                     |
-| Screen / window / DPR     | 待填                 | 待填                | 待执行 | 待执行   | 待填                             | 待填           | Pending       | —                     |
-| History                   | 待填                 | 待填                | 待执行 | 待执行   | `historyLength`                  | 待填           | Pending       | —                     |
-| Canvas raw                | `canvas:seed`        | 待证明              | 待执行 | 待执行   | `observedFull.canvas.rawHash`    | 否             | Pending       | —                     |
-| Canvas export             | `canvas:seed`        | 待证明              | 待执行 | 待执行   | `observedFull.canvas.exportHash` | 否             | Pending       | 历史上曾不稳定        |
-| Audio                     | `audio:seed`         | 待证明              | 待执行 | 待执行   | `audioHash`                      | 待填           | Pending       | —                     |
-| WebGL / WebGL2            | 部分显式             | 待证明              | 待执行 | 待执行   | vendor/renderer/summary          | 待填           | Pending       | —                     |
-| Fonts / metrics           | fonts + spacing seed | 待证明              | 待执行 | 待执行   | availability/widths              | 部分排除       | Pending       | inherit 为 host-bound |
-| Voices                    | 显式                 | 待证明              | 待执行 | 待执行   | `voices`                         | 待填           | Pending       | —                     |
-| Media devices             | 显式计数             | 待证明              | 待执行 | 待执行   | `mediaDevices`                   | 待填           | Pending       | —                     |
-| Cookie / LocalStorage     | Profile 所有         | Profile persistence | 待执行 | 必须隔离 | API/page/SQLite/boot             | 非身份 digest  | Pending       | 状态，不是指纹 seed   |
+| 指纹面                    | Artifact 控制              | 固定机制                           | A1/A2      | A/B        | 观察字段                          | digest v2 覆盖 | evidence 状态 | 限制/排除                              |
+| ------------------------- | -------------------------- | ---------------------------------- | ---------- | ---------- | --------------------------------- | -------------- | ------------- | -------------------------------------- |
+| UA / Navigator / platform | 10 个显式值；touch 除外    | v3 逐键重放                        | 未取得结果 | 未执行     | navigator 全字段及 touch          | 是             | `configured`  | A1 未到 `observed.identity`            |
+| Headers                   | `Accept-Encoding` 显式     | v3 逐键重放                        | 未取得结果 | 未执行     | 当前 probe 无请求头通道           | 否             | `configured`  | 实际 header observation `unavailable`  |
+| Locale / timezone         | 显式                       | v3 逐键重放                        | 未取得结果 | 未执行     | language(s)、timezone、UTC offset | 是             | `configured`  | Direct-only；未观察                    |
+| Screen / window / DPR     | screen/outer/offset 显式   | v3 显式值；inner/DPR 为 host-bound | 未取得结果 | 未执行     | screen、DPR、完整 geometry        | 部分           | `configured`  | A1 未写 observed result                |
+| History                   | 显式                       | `window.history.length`            | 未取得结果 | 未执行     | `historyLength`                   | 是             | `configured`  | 未观察                                 |
+| Canvas raw                | `canvas:seed`              | materialized replay seed           | 未取得结果 | 未执行     | `observedFull.canvas.rawHash`     | 否             | `configured`  | 无法验证 restart stability             |
+| Canvas export             | `canvas:seed`              | materialized replay seed           | 未取得结果 | 未执行     | `observedFull.canvas.exportHash`  | 否             | `configured`  | 历史风险仍未关闭                       |
+| Audio                     | `audio:seed`               | materialized replay seed           | 未取得结果 | 未执行     | `audioHash`                       | 是             | `configured`  | 未观察                                 |
+| WebGL / WebGL2            | 参数、扩展、precision 显式 | v3 逐键重放                        | 未取得结果 | 未执行     | 两类 vendor/renderer/summary      | WebGL1 部分    | `configured`  | 新 WebGL2 probe 未得到真实结果         |
+| Fonts / metrics           | fonts + spacing seed       | 显式列表 + materialized seed       | 未取得结果 | 未执行     | availability/widths               | 部分排除       | `configured`  | fonts 准备完成不等于 probe observation |
+| Voices                    | 完整列表显式               | v3 逐键重放                        | 未取得结果 | 未执行     | 含 default 的完整 voice 列表      | 旧 shape       | `configured`  | 未观察                                 |
+| Media devices             | 三类计数显式               | Windows fake-media prefs           | A1 挂起    | 未执行     | `mediaDevices`                    | 是             | `unavailable` | 卡在 readiness 内的 Playwright RPC     |
+| `maxTouchPoints`          | 无                         | candidate 删除后采用 native 值     | 未取得结果 | 不要求差异 | `maxTouchPoints`                  | 否             | `unavailable` | closed allowlist；host-bound           |
+| Cookie / LocalStorage     | Profile 所有               | Profile persistence                | 未取得结果 | 未执行     | API/page/SQLite/boot              | 非身份 digest  | `unavailable` | A1 未返回，不能声称状态写入或隔离      |
 
 ## 14. Gate result
 
-**Pending execution.** 在 A1/A2/B1、账本、逐字段覆盖、focused regressions、清理和
-证据语义全部完成前，不得把本节改为 Accepted。M3-WI 在 FP1 结果之外继续保持
-`failed` / `experimental`。
+### 2026-08-10 执行结论
+
+**Failed。** 这是执行负责人按冻结合同给出的失败结果，不是主脑的 Accepted 判断，
+也不改变 M3-WI 的 `failed` / `experimental` 状态。
+
+实现绑定：
+
+| 对象                   | commit / tree                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| 文档 checkpoint        | `d4fd8993b6e51a47e9bdd9c84ceaa5cb1b328f35` / `2d65e0efde241b239109532465a5891c4720b8be`                  |
+| receipt-producing 实现 | `6362e91a05413fce981f8e738d11ac21a169da48` / `06e3a129febb8e3bd9781cc46c80781aa2730fd2`                  |
+| 固定浏览器归档         | Camoufox `v152.0.4-beta.28` / SHA-256 `386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d` |
+| 固定 Python 执行依赖   | Camoufox `0.5.4`、BrowserForge `1.2.4`、Playwright `1.60.0`                                              |
+| Artifact A raw SHA-256 | `a214c21ccf4a68c97040af6e5f81b05e40903a127dea33ace6dce7d8f133279f`                                       |
+| Artifact B raw SHA-256 | `ae7ca69321614e924662e7f162e2f294911fc9facf96db4f4e15d001b0af5db9`                                       |
+
+实现前的聚焦回归成立：同一 raw A Artifact 在 100 组 Python/NumPy/允许环境熵扰动下，
+normalized sent config 每次都逐 key、逐类型等于磁盘 47-key config；唯一出现的 candidate
+extra 是闭合策略中的 `navigator.maxTouchPoints`，未知 extra 和无效类型均 fail closed。
+这只证明 deterministic projection prepared，不替代浏览器观察。
+
+A/B 的规范 47-key 静态 diff 精确为：`audio:seed`、`canvas:seed`、`fonts`、
+`fonts:spacing_seed`、`navigator.hardwareConcurrency`、`screen.availHeight`、
+`screen.availTop`、`screen.availWidth`、`screen.height`、`screen.width`、
+`window.history.length`、`window.screenX`、`window.screenY`。B1 未执行，因此没有把
+这些 configured 差异升级为 applied 或 observed 差异。
+
+真实运行严格停在 A1：
+
+| Run | 是否启动 | 结果                                                             |
+| --- | -------- | ---------------------------------------------------------------- |
+| A1  | 是       | 父端等待首个 launch response 120 秒后 timeout；stdout frame 为 0 |
+| A2  | 否       | A1 失败后按合同停止，未启动第二 Host                             |
+| B1  | 否       | A1 失败后按合同停止，未创建 B 浏览器身份                         |
+
+A1 的持久阶段日志给出了可靠边界：
+
+```text
+launch_options:success                 285 ms
+launch_persistent_context:success   30,660 ms
+supervisor_job_bind:success              0 ms
+new_page:success                      3,722 ms
+goto:success                            105 ms
+observed.fonts:success                1,065 ms
+observed.media:start
+<no terminal before the 120-second parent watchdog>
+```
+
+因此本次不是旧报告中无法区分的 persistent context / new page / later RPC 集合；当前
+自然复现已收窄到 `wait_for_configured_media_devices()` 阶段。该 helper 的名义 8 秒
+deadline 不能约束内部无界 Playwright RPC；现有证据还不能在其 `page.evaluate()` 与
+后续 `page.wait_for_timeout()` 之间继续唯一归因。本轮没有据此修改 timeout、重跑 A1
+或启动 A2/B1。
+
+raw bundle（gitignored、非 manifest、非 Accepted evidence）：
+
+- `artifacts/camoufox-fp1/run-20260810T145548Z-0f5dddff/fp1-run-summary.json`，
+  SHA-256 `e42613bea6b53dc6bd770f5b3ccae352f723a113ea31fece615726e05572df8a`；
+- `artifacts/camoufox-fp1/run-20260810T145548Z-0f5dddff/state/host-stderr.log`，
+  SHA-256 `51865285975b1c85d45e3bf5ca1f84b56f59135730c7e7dff3db17c4a5bce910`；
+- `artifacts/camoufox-fp1/run-20260810T145548Z-0f5dddff/a1/failed-attempt.json`，
+  SHA-256 `82d68080d2c07707cc526fbb3ec660e67b2a62cc8da0b7a2d1ffd680c55406aa`。
+
+失败后的 ownership 收口成立，但不能包装成 clean protocol close：Host 被 harness 在
+watchdog 后结束；supervisor 与 Camoufox 精确 PID/creation-time identity 均已退出，
+supervisor `exit.json` 为 `0`，命名 Job 已关闭且无活动进程，Profile byte 0/1 均可重新
+取得，没有任务子进程残留。阶段日志不含 URL、Cookie 名/值、Artifact seed、租约 token、
+代理 sentinel 或用户绝对路径；原生浏览器租约已由匹配 token 释放。
+
+聚焦验证：
+
+- `uv run --frozen --offline python test_identity_artifact.py`：32/32 passed；
+- `uv run --frozen --offline python test_windows_host.py --close-context-regression`：
+  normal/timeout/exception/job-not-exited 四种 case passed；
+- 修改 Python 文件 `py_compile`、probe JavaScript 语法、Prettier、Markdown 相对链接、
+  `git diff --check`：passed。
+
+Integration extraction 保持有限：未来产品 patch 可抽取 candidate-extra closed policy、
+deterministic normalization、per-launch 11-stage diagnostics、launch-before-context 的 Job
+fail-closed ownership、最小 probe 字段及 focused regressions。不得抽取 R1/R2/R2H
+runner、freezer/finalizer、manifest/schema、历史 receipt 或本次 Profile/cache/log。
+
+进入 FP2 前仍缺：先对 `observed.media` 内的具体 Playwright RPC 建立有界失败归因和单一
+focused regression，再由新授权执行完整 A1→A2→B1。当前没有 A1/A2 指纹逐字段结果，
+所以不能宣称同一 Artifact 已稳定重放、Canvas raw/export 稳定、A/B 已分离或 FP1 passed。
