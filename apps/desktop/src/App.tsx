@@ -37,6 +37,7 @@ import {
   type WslStatus,
 } from "./desktop-api.js";
 import {
+  activationStatusLabel,
   describeActivation,
   describeNetwork,
   describeVault,
@@ -1319,7 +1320,7 @@ export function App() {
                 detail={describeActivation(status.activation)}
                 eyebrow="浏览器进程"
                 tone={activationStatusTone(status.activation)}
-                value={activationStatusLabel(status.activation)}
+                value={activationStatusLabel(status.activation.state)}
               />
               <StatusCard
                 detail={
@@ -6624,22 +6625,6 @@ function activationNoticeTone(
   return ["failed", "verification_failed"].includes(activation.state)
     ? "error"
     : "info";
-}
-
-function activationStatusLabel(
-  activation: DesktopStatus["activation"],
-): string {
-  const labels: Record<DesktopStatus["activation"]["state"], string> = {
-    idle: "空闲",
-    preflight: "启动中",
-    launching: "启动中",
-    running: "运行中",
-    verification_failed: "已阻止",
-    recovery_required: "需要确认",
-    stopped: "已停止",
-    failed: "启动失败",
-  };
-  return labels[activation.state];
 }
 
 function activationStatusTone(
