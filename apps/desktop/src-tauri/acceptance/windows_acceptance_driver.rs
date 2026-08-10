@@ -10,6 +10,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(target_os = "windows")]
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+#[cfg(target_os = "windows")]
+use chrono::TimeZone;
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
 use verisilo_desktop_lib::{
     domain::{
@@ -62,6 +67,7 @@ struct CandidateBinding {
 struct RuntimeRecord {
     silo_id: uuid::Uuid,
     pid: u32,
+    started_at: DateTime<Utc>,
 }
 
 #[derive(Serialize)]
@@ -115,7 +121,27 @@ struct AcceptanceResult {
 struct ExactProcessTreeGuard {
     pid: Option<u32>,
     taskkill: PathBuf,
-    _process_handle: ExactProcessHandle,
+    powershell: PathBuf,
+    process_handle: ExactProcessHandle,
+    expectation: RuntimeProcessExpectation,
+}
+
+#[derive(Clone)]
+struct RuntimeProcessExpectation {
+    pid: u32,
+    launch_requested_at: DateTime<Utc>,
+    recorded_started_at: DateTime<Utc>,
+    browser_executable: PathBuf,
+    profile: PathBuf,
+}
+
+#[derive(Clone)]
+struct RuntimeProcessEvidence {
+    pid: u32,
+    creation_time: DateTime<Utc>,
+    handle_image: PathBuf,
+    reported_image: PathBuf,
+    arguments: Vec<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -142,6 +168,88 @@ impl ExactProcessHandle {
         }
         Ok(Self(handle))
     }
+
+    fn process_creation_time(&self) -> Result<DateTime<Utc>, String> {
+        #[repr(C)]
+        struct FileTime {
+            low: u32,
+            high: u32,
+        }
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetProcessTimes(
+                process: *mut std::ffi::c_void,
+                creation: *mut FileTime,
+                exit: *mut FileTime,
+                kernel: *mut FileTime,
+                user: *mut FileTime,
+            ) -> i32;
+        }
+
+        let mut creation = FileTime { low: 0, high: 0 };
+        let mut exit = FileTime { low: 0, high: 0 };
+        let mut kernel = FileTime { low: 0, high: 0 };
+        let mut user = FileTime { low: 0, high: 0 };
+        if unsafe { GetProcessTimes(self.0, &mut creation, &mut exit, &mut kernel, &mut user) } == 0
+        {
+            return Err("could not read the exact browser process creation time".to_owned());
+        }
+        windows_file_time_to_utc(creation.low, creation.high)
+    }
+
+    fn process_image(&self) -> Result<PathBuf, String> {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn QueryFullProcessImageNameW(
+                process: *mut std::ffi::c_void,
+                flags: u32,
+                executable_name: *mut u16,
+                size: *mut u32,
+            ) -> i32;
+        }
+
+        let mut buffer = vec![0_u16; 32_768];
+        let mut length = buffer.len() as u32;
+        if unsafe { QueryFullProcessImageNameW(self.0, 0, buffer.as_mut_ptr(), &mut length) } == 0 {
+            return Err("could not read the exact browser process image".to_owned());
+        }
+        let image = String::from_utf16(&buffer[..length as usize])
+            .map_err(|_| "exact browser process image was not valid UTF-16".to_owned())?;
+        fs::canonicalize(image)
+            .map_err(|error| format!("could not canonicalize exact browser image: {error}"))
+    }
+
+    fn ensure_running(&self) -> Result<(), String> {
+        const WAIT_OBJECT_0: u32 = 0;
+        const WAIT_TIMEOUT: u32 = 0x0000_0102;
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn WaitForSingleObject(handle: *mut std::ffi::c_void, milliseconds: u32) -> u32;
+        }
+
+        match unsafe { WaitForSingleObject(self.0, 0) } {
+            WAIT_TIMEOUT => Ok(()),
+            WAIT_OBJECT_0 => Err("the exact browser process already exited".to_owned()),
+            _ => Err("could not confirm the exact browser process is still running".to_owned()),
+        }
+    }
+
+    fn evidence(&self, powershell: &Path, pid: u32) -> Result<RuntimeProcessEvidence, String> {
+        self.ensure_running()?;
+        let creation_time = self.process_creation_time()?;
+        let handle_image = self.process_image()?;
+        let (reported_pid, reported_image, command_line) =
+            query_exact_process_command_line(powershell, pid)?;
+        let arguments = parse_windows_command_line(&command_line)?;
+        self.ensure_running()?;
+        Ok(RuntimeProcessEvidence {
+            pid: reported_pid,
+            creation_time,
+            handle_image,
+            reported_image,
+            arguments,
+        })
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -163,23 +271,52 @@ impl ExactProcessHandle {
     fn open(_pid: u32) -> Result<Self, String> {
         Err("exact process handles require Windows".to_owned())
     }
+
+    fn evidence(&self, _powershell: &Path, _pid: u32) -> Result<RuntimeProcessEvidence, String> {
+        Err("exact process evidence requires Windows".to_owned())
+    }
 }
 
 impl ExactProcessTreeGuard {
+    fn open(
+        taskkill: PathBuf,
+        powershell: PathBuf,
+        expectation: RuntimeProcessExpectation,
+    ) -> Result<Self, String> {
+        let process_handle = ExactProcessHandle::open(expectation.pid)?;
+        let mut guard = Self {
+            pid: None,
+            taskkill,
+            powershell,
+            process_handle,
+            expectation,
+        };
+        guard.verify_binding()?;
+        guard.pid = Some(guard.expectation.pid);
+        Ok(guard)
+    }
+
+    fn verify_binding(&self) -> Result<(), String> {
+        let evidence = self
+            .process_handle
+            .evidence(&self.powershell, self.expectation.pid)?;
+        validate_runtime_process_evidence(&self.expectation, &evidence)
+    }
+
     fn terminate(&mut self) -> Result<(), String> {
-        let Some(pid) = self.pid else {
+        let Some(pid) = self.pid.take() else {
             return Ok(());
         };
+        self.verify_binding()?;
         terminate_exact_process_tree(&self.taskkill, pid)?;
-        self.pid = None;
         Ok(())
     }
 }
 
 impl Drop for ExactProcessTreeGuard {
     fn drop(&mut self) {
-        if let Some(pid) = self.pid.take() {
-            let _ = terminate_exact_process_tree(&self.taskkill, pid);
+        if self.pid.is_some() {
+            let _ = self.terminate();
         }
     }
 }
@@ -288,6 +425,10 @@ fn run() -> Result<(), String> {
         .managed_profile_directories()
         .map_err(|error| format!("could not enumerate managed profiles: {error}"))?;
     let mut runtime = RuntimeManager::open(&root);
+    let browser_executable = fs::canonicalize(&request.browser.executable)
+        .map_err(|error| format!("could not resolve requested browser executable: {error}"))?;
+    let powershell = trusted_windows_powershell()?;
+    let launch_requested_at = Utc::now();
     let launched = runtime
         .launch(&silo, &managed_profiles, None, None)
         .map_err(|error| format!("desktop core stock launch failed: {error}"))?;
@@ -296,14 +437,19 @@ fn run() -> Result<(), String> {
     }
     let runtime_record = read_runtime_record(&root, silo.id)?;
     let taskkill = trusted_system32_tool("taskkill.exe")?;
-    // Holding this kernel handle prevents the recorded PID from being reused
-    // between launch evidence and the exact /PID /T termination request.
-    let exact_process_handle = ExactProcessHandle::open(runtime_record.pid)?;
-    let mut managed_guard = ExactProcessTreeGuard {
-        pid: Some(runtime_record.pid),
+    // The held kernel handle prevents PID reuse, while creation time, image,
+    // and parsed run-owned Profile argv bind both the initial and final checks.
+    let mut managed_guard = ExactProcessTreeGuard::open(
         taskkill,
-        _process_handle: exact_process_handle,
-    };
+        powershell.clone(),
+        RuntimeProcessExpectation {
+            pid: runtime_record.pid,
+            launch_requested_at,
+            recorded_started_at: runtime_record.started_at,
+            browser_executable,
+            profile: profile.clone(),
+        },
+    )?;
 
     wait_for_profile_lock(&profile)?;
     let mut refusal_runtime = RuntimeManager::default();
@@ -360,7 +506,6 @@ fn run() -> Result<(), String> {
         );
     }
 
-    let powershell = trusted_windows_powershell()?;
     let unrelated = Command::new(powershell)
         .args([
             "-NoLogo",
@@ -472,7 +617,7 @@ fn run() -> Result<(), String> {
             ),
             pass_result(
                 "desktop_recovery_after_exception".to_owned(),
-                "Restarted desktop core recovered the live exact PID/Profile binding; after exact-tree abnormal exit it preserved the Profile, reported stopped or recovery-required according to the retained lock, and left an unrelated process alive.",
+                "Restarted desktop core recovered the live exact PID/Profile binding; immediately before exact-tree abnormal exit the driver revalidated the held PID's OS creation time, handle/WMI image, and parsed run-owned --user-data-dir argv, then preserved the Profile and left an unrelated process alive.",
             ),
         ],
     };
@@ -690,6 +835,173 @@ fn trusted_system32_tool(relative: &str) -> Result<PathBuf, String> {
     Ok(tool)
 }
 
+fn validate_runtime_process_evidence(
+    expectation: &RuntimeProcessExpectation,
+    evidence: &RuntimeProcessEvidence,
+) -> Result<(), String> {
+    let clock_tolerance = ChronoDuration::seconds(2);
+    if evidence.pid != expectation.pid {
+        return Err("process command-line evidence returned a different PID".to_owned());
+    }
+    if evidence.creation_time < expectation.launch_requested_at - clock_tolerance
+        || evidence.creation_time > expectation.recorded_started_at + clock_tolerance
+    {
+        return Err(
+            "browser process creation time is outside the exact launch interval".to_owned(),
+        );
+    }
+    if normalized_path(&evidence.handle_image) != normalized_path(&expectation.browser_executable)
+        || normalized_path(&evidence.reported_image)
+            != normalized_path(&expectation.browser_executable)
+    {
+        return Err("browser process image does not match the requested executable".to_owned());
+    }
+    let profile_arguments = evidence
+        .arguments
+        .iter()
+        .filter_map(|argument| argument.strip_prefix("--user-data-dir="))
+        .collect::<Vec<_>>();
+    if profile_arguments.len() != 1 || profile_arguments[0].is_empty() {
+        return Err("browser command line must contain one exact --user-data-dir".to_owned());
+    }
+    let command_profile = fs::canonicalize(profile_arguments[0])
+        .map_err(|error| format!("browser command-line Profile is unavailable: {error}"))?;
+    if normalized_path(&command_profile) != normalized_path(&expectation.profile) {
+        return Err("browser command line is not bound to the run-owned Profile".to_owned());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn windows_file_time_to_utc(low: u32, high: u32) -> Result<DateTime<Utc>, String> {
+    const WINDOWS_TO_UNIX_TICKS: u64 = 116_444_736_000_000_000;
+    const TICKS_PER_SECOND: u64 = 10_000_000;
+    let windows_ticks = ((high as u64) << 32) | low as u64;
+    let unix_ticks = windows_ticks
+        .checked_sub(WINDOWS_TO_UNIX_TICKS)
+        .ok_or_else(|| "browser process creation time predates the Unix epoch".to_owned())?;
+    let seconds = (unix_ticks / TICKS_PER_SECOND) as i64;
+    let nanoseconds = ((unix_ticks % TICKS_PER_SECOND) * 100) as u32;
+    Utc.timestamp_opt(seconds, nanoseconds)
+        .single()
+        .ok_or_else(|| "browser process creation time is out of range".to_owned())
+}
+
+#[cfg(target_os = "windows")]
+fn query_exact_process_command_line(
+    powershell: &Path,
+    pid: u32,
+) -> Result<(u32, PathBuf, String), String> {
+    const QUERY_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$runtimeProcessId = [uint32]$env:VERISILO_ACCEPTANCE_RUNTIME_PID
+$query = "SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE ProcessId = $runtimeProcessId"
+$searcher = [System.Management.ManagementObjectSearcher]::new($query)
+try {
+  $matches = @($searcher.Get())
+  if ($matches.Count -ne 1) { throw 'exact process query did not return one process' }
+  $item = $matches[0]
+  $reportedPid = [uint32]$item.ProcessId
+  $reportedImage = [string]$item.ExecutablePath
+  $reportedCommandLine = [string]$item.CommandLine
+  if ([string]::IsNullOrWhiteSpace($reportedImage) -or [string]::IsNullOrWhiteSpace($reportedCommandLine)) {
+    throw 'exact process query omitted image or command line'
+  }
+  $utf8 = [Text.UTF8Encoding]::new($false)
+  [Console]::Out.WriteLine([string]$reportedPid)
+  [Console]::Out.WriteLine([Convert]::ToBase64String($utf8.GetBytes($reportedImage)))
+  [Console]::Out.WriteLine([Convert]::ToBase64String($utf8.GetBytes($reportedCommandLine)))
+} finally {
+  $searcher.Dispose()
+}
+"#;
+
+    let output = Command::new(powershell)
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            QUERY_SCRIPT,
+        ])
+        .env("VERISILO_ACCEPTANCE_RUNTIME_PID", pid.to_string())
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("could not query the exact browser process: {error}"))?;
+    if !output.status.success() {
+        return Err("trusted exact browser process query failed".to_owned());
+    }
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|_| "exact browser process query returned non-UTF-8 output".to_owned())?;
+    let lines = stdout.lines().collect::<Vec<_>>();
+    if lines.len() != 3 {
+        return Err("exact browser process query returned an unexpected shape".to_owned());
+    }
+    let reported_pid = lines[0]
+        .parse::<u32>()
+        .map_err(|_| "exact browser process query returned an invalid PID".to_owned())?;
+    let decode = |value: &str, label: &str| -> Result<String, String> {
+        let bytes = BASE64_STANDARD
+            .decode(value)
+            .map_err(|_| format!("exact browser process query returned invalid {label}"))?;
+        String::from_utf8(bytes)
+            .map_err(|_| format!("exact browser process query returned non-UTF-8 {label}"))
+    };
+    let reported_image = fs::canonicalize(decode(lines[1], "image")?)
+        .map_err(|error| format!("could not canonicalize reported browser image: {error}"))?;
+    let command_line = decode(lines[2], "command line")?;
+    Ok((reported_pid, reported_image, command_line))
+}
+
+#[cfg(target_os = "windows")]
+fn parse_windows_command_line(command_line: &str) -> Result<Vec<String>, String> {
+    #[link(name = "shell32")]
+    extern "system" {
+        fn CommandLineToArgvW(command_line: *const u16, argument_count: *mut i32) -> *mut *mut u16;
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LocalFree(memory: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    }
+
+    if command_line.is_empty() || command_line.encode_utf16().any(|value| value == 0) {
+        return Err("browser command line is empty or contains NUL".to_owned());
+    }
+    let wide = command_line
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let mut argument_count = 0_i32;
+    let arguments = unsafe { CommandLineToArgvW(wide.as_ptr(), &mut argument_count) };
+    if arguments.is_null() || argument_count <= 0 {
+        return Err("could not parse the exact browser command line".to_owned());
+    }
+    let parsed = (|| {
+        let pointers = unsafe { std::slice::from_raw_parts(arguments, argument_count as usize) };
+        pointers
+            .iter()
+            .map(|pointer| {
+                if pointer.is_null() {
+                    return Err("browser command line contained a null argument".to_owned());
+                }
+                let mut length = 0_usize;
+                while unsafe { *pointer.add(length) } != 0 {
+                    length += 1;
+                }
+                String::from_utf16(unsafe { std::slice::from_raw_parts(*pointer, length) })
+                    .map_err(|_| "browser command line contained invalid UTF-16".to_owned())
+            })
+            .collect::<Result<Vec<_>, _>>()
+    })();
+    let _ = unsafe { LocalFree(arguments.cast()) };
+    parsed
+}
+
+#[cfg(not(target_os = "windows"))]
+fn parse_windows_command_line(_command_line: &str) -> Result<Vec<String>, String> {
+    Err("Windows command-line parsing requires Windows".to_owned())
+}
+
 fn terminate_exact_process_tree(taskkill: &Path, pid: u32) -> Result<(), String> {
     if pid == 0 || pid == std::process::id() {
         return Err("refusing to terminate a non-runtime PID".to_owned());
@@ -769,4 +1081,135 @@ fn assert_not_reparse_point(path: &Path, label: &str) -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 fn assert_not_reparse_point(_path: &Path, _label: &str) -> Result<(), String> {
     Err("acceptance root validation requires Windows".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration as ChronoDuration, Utc};
+
+    fn process_binding_fixture() -> (
+        PathBuf,
+        RuntimeProcessExpectation,
+        RuntimeProcessEvidence,
+        PathBuf,
+        PathBuf,
+    ) {
+        let root = env::temp_dir().join(format!(
+            "verisilo-acceptance-process-binding-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let profile = root.join("silos/profile-a");
+        fs::create_dir_all(&profile).expect("create process binding Profile");
+        let browser = root.join("msedge.exe");
+        let other_browser = root.join("other.exe");
+        fs::write(&browser, []).expect("create browser fixture");
+        fs::write(&other_browser, []).expect("create other browser fixture");
+        let browser = fs::canonicalize(browser).expect("canonical browser fixture");
+        let other_browser =
+            fs::canonicalize(other_browser).expect("canonical other browser fixture");
+        let profile = fs::canonicalize(profile).expect("canonical Profile fixture");
+        let now = Utc::now();
+        let expectation = RuntimeProcessExpectation {
+            pid: 4242,
+            launch_requested_at: now,
+            recorded_started_at: now + ChronoDuration::seconds(2),
+            browser_executable: browser.clone(),
+            profile: profile.clone(),
+        };
+        let evidence = RuntimeProcessEvidence {
+            pid: 4242,
+            creation_time: now + ChronoDuration::seconds(1),
+            handle_image: browser.clone(),
+            reported_image: browser.clone(),
+            arguments: vec![
+                browser.to_string_lossy().to_string(),
+                format!("--user-data-dir={}", profile.display()),
+                "about:blank".to_owned(),
+            ],
+        };
+        (root, expectation, evidence, other_browser, profile)
+    }
+
+    #[test]
+    fn exact_runtime_binding_requires_creation_image_and_run_owned_profile() {
+        let (root, expectation, evidence, other_browser, profile) = process_binding_fixture();
+        validate_runtime_process_evidence(&expectation, &evidence)
+            .expect("valid exact runtime evidence");
+
+        let mut wrong = evidence.clone();
+        wrong.creation_time = expectation.launch_requested_at - ChronoDuration::seconds(3);
+        assert!(validate_runtime_process_evidence(&expectation, &wrong).is_err());
+
+        let mut wrong = evidence.clone();
+        wrong.creation_time = expectation.recorded_started_at + ChronoDuration::seconds(3);
+        assert!(validate_runtime_process_evidence(&expectation, &wrong).is_err());
+
+        let mut wrong = evidence.clone();
+        wrong.handle_image = other_browser.clone();
+        assert!(validate_runtime_process_evidence(&expectation, &wrong).is_err());
+
+        let mut wrong = evidence.clone();
+        wrong.reported_image = other_browser;
+        assert!(validate_runtime_process_evidence(&expectation, &wrong).is_err());
+
+        let mut wrong = evidence.clone();
+        wrong
+            .arguments
+            .retain(|argument| !argument.starts_with("--user-data-dir="));
+        assert!(validate_runtime_process_evidence(&expectation, &wrong).is_err());
+
+        let mut wrong = evidence.clone();
+        wrong
+            .arguments
+            .push(format!("--user-data-dir={}", profile.display()));
+        assert!(validate_runtime_process_evidence(&expectation, &wrong).is_err());
+
+        let wrong_profile = root.join("silos/profile-a-other");
+        fs::create_dir_all(&wrong_profile).expect("create wrong Profile fixture");
+        let wrong_profile = fs::canonicalize(wrong_profile).expect("canonical wrong Profile");
+        let mut wrong = evidence;
+        wrong.arguments[1] = format!("--user-data-dir={}", wrong_profile.display());
+        assert!(validate_runtime_process_evidence(&expectation, &wrong).is_err());
+
+        fs::remove_dir_all(root).expect("remove process binding fixture");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_command_line_parser_preserves_quoted_profile_argument() {
+        let arguments = parse_windows_command_line(
+            r#""C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" "--user-data-dir=C:\Temp\Profile A" about:blank"#,
+        )
+        .expect("parse Windows browser command line");
+        assert_eq!(
+            arguments,
+            vec![
+                r#"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"#,
+                r#"--user-data-dir=C:\Temp\Profile A"#,
+                "about:blank",
+            ]
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn exact_process_query_matches_the_held_test_process() {
+        let pid = std::process::id();
+        let powershell = trusted_windows_powershell().expect("trusted Windows PowerShell");
+        let handle = ExactProcessHandle::open(pid).expect("hold exact test process");
+        let handle_image = handle.process_image().expect("test process handle image");
+        let (reported_pid, reported_image, command_line) =
+            query_exact_process_command_line(&powershell, pid)
+                .expect("query exact test process command line");
+        assert_eq!(reported_pid, pid);
+        assert_eq!(
+            normalized_path(&reported_image),
+            normalized_path(&handle_image)
+        );
+        assert!(!parse_windows_command_line(&command_line)
+            .expect("parse exact test process command line")
+            .is_empty());
+        handle.ensure_running().expect("test process remains live");
+    }
 }

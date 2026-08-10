@@ -133,6 +133,8 @@ const requiredRunnerGuards = [
   "harnessToken",
   "Wait-CdpEndpointStable",
   "$secondEndpoint = @()",
+  "Get-TreeMetadataFingerprint -Path $Configuration.DefaultProfile",
+  "no default Profile file contents were read",
   "Native Host did not return a complete frame within fifteen seconds.",
   "Assert-NativeHostRejectsUnauthorizedOrigin",
   "Native Host accepted a syntactically valid non-allowlisted origin.",
@@ -247,6 +249,43 @@ assert.doesNotMatch(
   /\$acceptanceRoot\s*=.*verisilo-desktop-acceptance-/u,
   "the desktop acceptance root must not reintroduce the legacy overlong leaf",
 );
+const defaultProfileInvariant =
+  runner.match(
+    /function Test-DefaultProfileInvariant[\s\S]*?(?=\r?\nfunction Test-BrowserStorageIsolation)/u,
+  )?.[0] ?? "";
+assert.ok(
+  defaultProfileInvariant.length > 0,
+  "the default Profile invariant gate must remain present",
+);
+assert.ok(
+  defaultProfileInvariant.indexOf("if (Get-Process -Name") <
+    defaultProfileInvariant.indexOf("if (-not (Test-Path -LiteralPath"),
+  "the existing-browser stop must run before the absent-default-Profile branch",
+);
+assert.match(
+  defaultProfileInvariant,
+  /\$before = Get-TreeMetadataFingerprint[\s\S]*\$after = Get-TreeMetadataFingerprint/u,
+  "default Profile before/after checks must remain metadata-only",
+);
+assert.doesNotMatch(
+  defaultProfileInvariant,
+  /Get-TreeFingerprint\b|Get-FileHash\b/u,
+  "default Profile checks must never read file contents",
+);
+assert.match(
+  defaultProfileInvariant,
+  /if \(Get-Process -Name \$Configuration\.ProcessName -ErrorAction SilentlyContinue\) \{\s*Add-Result[\s\S]*?\s+return\s*\}/u,
+  "an existing user browser must stop that browser's real acceptance before Exercise runs",
+);
+const existingBrowserGate =
+  defaultProfileInvariant.match(
+    /if \(Get-Process -Name \$Configuration\.ProcessName -ErrorAction SilentlyContinue\) \{([\s\S]*?)\r?\n  \}/u,
+  )?.[1] ?? "";
+assert.doesNotMatch(
+  existingBrowserGate,
+  /& \$Exercise/u,
+  "an existing user browser must prevent real browser Exercise execution",
+);
 
 for (const desktopEvidence of [
   "verisilo_profile_lock_safe_refusal",
@@ -276,8 +315,14 @@ for (const driverGuard of [
   ".create_new(true)",
   'const RECEIPT_FILE: &str = "acceptance-receipt.json"',
   "LauncherError::ProfileInUse",
-  "Holding this kernel handle prevents the recorded PID from being reused",
-  "ExactProcessHandle::open(runtime_record.pid)",
+  "GetProcessTimes",
+  "QueryFullProcessImageNameW",
+  "CommandLineToArgvW",
+  "started_at: DateTime<Utc>",
+  "validate_runtime_process_evidence",
+  "browser command line must contain one exact --user-data-dir",
+  "ExactProcessTreeGuard::open",
+  "self.verify_binding()?",
   "not_connected_no_extension_evidence",
   "unrelated_process_survived: true",
 ]) {
@@ -287,6 +332,11 @@ for (const driverGuard of [
   );
 }
 assert.doesNotMatch(driver, /std::env::args|env::args/u);
+assert.match(
+  driver,
+  /fn terminate\(&mut self\)[\s\S]*?let Some\(pid\) = self\.pid\.take\(\)[\s\S]*?self\.verify_binding\(\)\?/u,
+  "exact termination must disarm Drop before the final ownership check can fail",
+);
 assert.match(cargoManifest, /acceptance-tests\s*=\s*\[\]/u);
 assert.match(
   cargoManifest,
@@ -312,6 +362,18 @@ assert.match(fixture, /localStorage\.setItem/u);
 assert.match(fixture, /document\.cookie/u);
 assert.match(fixture, /indexedDB\.open/u);
 assert.match(fixture, /operation === "read-lifecycle"/u);
+assert.match(
+  fixture,
+  /verisilo_e2e_persistent=[^;]+; Max-Age=86400; Path=\/; SameSite=Lax/u,
+);
+assert.match(
+  fixture,
+  /verisilo_e2e_session=[^;]+; Path=\/; SameSite=Lax/u,
+);
+assert.match(
+  fixture,
+  /const persistent = \[[\s\S]*cookies\(\)\.verisilo_e2e_persistent[\s\S]*\];[\s\S]*const ephemeral = \[[\s\S]*cookies\(\)\.verisilo_e2e_session/u,
+);
 assert.match(fixture, /--token/u);
 assert.match(fixture, /urn:verisilo:windows-e2e-fixture-health:1/u);
 assert.match(fixture, /operationToken/u);
