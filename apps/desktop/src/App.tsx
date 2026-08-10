@@ -173,6 +173,7 @@ export function App() {
   const networkRequestRef = useRef(0);
   const mihomoRequestRef = useRef(0);
   const createWslRequestRef = useRef(0);
+  const browserSelectionExplicitRef = useRef(false);
   const vaultUiSessionRef = useRef(new VaultUiSession());
 
   useEffect(() => {
@@ -216,6 +217,7 @@ export function App() {
     setColor(defaultColor);
     setBrowserPath("");
     setBrowserKind("chrome");
+    browserSelectionExplicitRef.current = false;
     setExecutionTarget({ kind: "local" });
     setCreateWslStatus(null);
     setCreateWslOptions([]);
@@ -377,6 +379,55 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
+  const pollLocalRuntimeStatus = useCallback(async () => {
+    const sessionEpoch = vaultUiSessionRef.current.capture();
+    if (!vaultUiSessionRef.current.accepts(sessionEpoch)) {
+      return;
+    }
+    const nextStatus = await desktopApi.status();
+    if (!vaultUiSessionRef.current.accepts(sessionEpoch)) {
+      return;
+    }
+    const lockTransition = vaultUiSessionRef.current.observe(
+      nextStatus.vault.state,
+    );
+    setStatus(
+      nextStatus.vault.state === "unlocked"
+        ? nextStatus
+        : scrubDesktopStatusForLockedUi(nextStatus),
+    );
+    if (nextStatus.vault.state === "unlocked") {
+      setUiVaultLocked(false);
+    } else if (lockTransition) {
+      applyVaultUiLock(false);
+    } else {
+      setUiVaultLocked(true);
+    }
+  }, [applyVaultUiLock]);
+
+  const localRuntimeActive =
+    (status?.activation.activeSiloId ?? null) !== null &&
+    silos.some(
+      (silo) =>
+        silo.id === status?.activation.activeSiloId &&
+        silo.executionTarget.kind === "local" &&
+        silo.engine.adapter === "stock",
+    );
+
+  useEffect(() => {
+    if (!localRuntimeActive) {
+      return;
+    }
+    const interval = window.setInterval(
+      () =>
+        void pollLocalRuntimeStatus().catch((error: unknown) =>
+          setNotice({ tone: "error", message: errorMessage(error) }),
+        ),
+      2_000,
+    );
+    return () => window.clearInterval(interval);
+  }, [localRuntimeActive, pollLocalRuntimeStatus]);
+
   useEffect(() => {
     if (status?.vault.state !== "unlocked") {
       return;
@@ -408,12 +459,19 @@ export function App() {
     if (
       !uiVaultLocked &&
       status?.vault.state === "unlocked" &&
-      browserPath === "" &&
-      candidateOptions[0] !== undefined
+      !browserSelectionExplicitRef.current &&
+      browsers.length > 0 &&
+      (browserPath === "" ||
+        !browsers.some((candidate) => candidate.executablePath === browserPath))
     ) {
-      setBrowserPath(candidateOptions[0].executablePath);
+      const candidate =
+        browsers.find((browser) => browser.kind === browserKind) ?? browsers[0];
+      if (candidate !== undefined) {
+        setBrowserKind(candidate.kind);
+        setBrowserPath(candidate.executablePath);
+      }
     }
-  }, [browserPath, candidateOptions, status?.vault.state, uiVaultLocked]);
+  }, [browserKind, browserPath, browsers, status?.vault.state, uiVaultLocked]);
 
   const detectCreateWsl = useCallback(async () => {
     const requestId = ++createWslRequestRef.current;
@@ -490,22 +548,6 @@ export function App() {
       }
     }
   }, []);
-
-  useEffect(() => {
-    if (!uiVaultLocked && status?.vault.state === "unlocked") {
-      void detectCreateWsl();
-    }
-  }, [detectCreateWsl, status?.vault.state, uiVaultLocked]);
-
-  useEffect(() => {
-    if (
-      view === "create" &&
-      !uiVaultLocked &&
-      status?.vault.state === "unlocked"
-    ) {
-      void detectCreateWsl();
-    }
-  }, [detectCreateWsl, status?.vault.state, uiVaultLocked, view]);
 
   const activeSilos = silos;
 
@@ -634,6 +676,7 @@ export function App() {
   const retryRestoredVaultState = () => completeVaultRestore(false);
 
   const chooseBrowser = (candidate: BrowserCandidate) => {
+    browserSelectionExplicitRef.current = true;
     setBrowserKind(candidate.kind);
     setBrowserPath(candidate.executablePath);
   };
@@ -728,7 +771,12 @@ export function App() {
       }
       setNotice({
         tone: activationNoticeTone(activation),
-        message: describeActivation(activation),
+        message:
+          activation.state === "running" &&
+          silo.executionTarget.kind === "local" &&
+          silo.engine.adapter === "stock"
+            ? `已启动「${silo.name}」。使用完成后请直接关闭这个 Silo 的浏览器窗口；VeriSilo 会核对进程与 Profile 锁后回到空闲，不会强制关闭其他浏览器。`
+            : describeActivation(activation),
       });
       await refresh();
     });
@@ -1355,10 +1403,17 @@ export function App() {
             selectMihomoGroup={selectMihomoGroup}
             selectMihomoNode={selectMihomoNode}
             setBrowserKind={(kind) => {
+              browserSelectionExplicitRef.current = true;
               setBrowserKind(kind);
-              setBrowserPath("");
+              setBrowserPath(
+                browsers.find((browser) => browser.kind === kind)
+                  ?.executablePath ?? "",
+              );
             }}
-            setBrowserPath={setBrowserPath}
+            setBrowserPath={(path) => {
+              browserSelectionExplicitRef.current = true;
+              setBrowserPath(path);
+            }}
             setColor={setColor}
             setExecutionTarget={(target) => {
               setExecutionTarget(target);
@@ -1993,6 +2048,31 @@ function SiloList({
                   <dt>网站可见身份</dt>
                   <dd>{siloWebsiteIdentityBoundary(silo)}</dd>
                 </div>
+                {silo.engine.adapter === "stock" ? (
+                  <>
+                    <div>
+                      <dt>Profile 隔离</dt>
+                      <dd>
+                        <CapabilityState state="native" />
+                        每个 Silo 使用独立浏览器数据目录
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>设备与指纹</dt>
+                      <dd>
+                        <CapabilityState state="inherit" />
+                        跟随这台电脑和系统浏览器
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>受控指纹</dt>
+                      <dd>
+                        <CapabilityState state="unavailable" />
+                        Standard Silo 不提供受控指纹能力
+                      </dd>
+                    </div>
+                  </>
+                ) : null}
                 <div>
                   <dt>网络</dt>
                   <dd>{describeNetwork(silo.networkProfile)}</dd>
@@ -2023,6 +2103,15 @@ function SiloList({
                   <dd>可从浏览器侧边栏中按需运行</dd>
                 </div>
               </dl>
+              {activation === silo.id &&
+              silo.executionTarget.kind === "local" &&
+              silo.engine.adapter === "stock" ? (
+                <p className="local-runtime-guidance">
+                  使用完成后，直接关闭这个 Silo 的浏览器窗口即可停止。VeriSilo
+                  会核对进程与 Profile 锁；不会强制关闭其他 Chrome 或 Edge
+                  窗口。
+                </p>
+              ) : null}
               <div className="card-actions">
                 <button
                   disabled={
@@ -2047,7 +2136,10 @@ function SiloList({
                   runtimeState === "running" &&
                   silo.executionTarget.kind === "wsl"
                     ? "停止 Silo"
-                    : "启动 Silo"}
+                    : activation === silo.id &&
+                        silo.executionTarget.kind === "local"
+                      ? "关闭浏览器窗口以停止"
+                      : "启动 Silo"}
                 </button>
                 <button
                   className="button-secondary"
@@ -3003,6 +3095,7 @@ function CreateSiloPanel({
 }) {
   const [websiteBoundaryConfirmed, setWebsiteBoundaryConfirmed] =
     useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const localProxySelected = isLoopbackProxyProfile(networkProfile);
   const mihomoBinding =
     networkProfile.mode === "fixed_proxy"
@@ -3018,6 +3111,13 @@ function CreateSiloPanel({
   const localExecution = executionTarget.kind === "local";
   const readyWslOptions = wslOptions.filter((option) => option.ready);
   const unavailableWslCount = wslOptions.length - readyWslOptions.length;
+  const selectedBrowserCandidate = candidateOptions.find(
+    (candidate) => candidate.executablePath === browserPath,
+  );
+  const standardDefaultsSelected =
+    localExecution &&
+    networkProfile.mode === "direct" &&
+    selectedBrowserCandidate?.kind === browserKind;
   return (
     <>
       <section className="create-hero panel">
@@ -3067,8 +3167,74 @@ function CreateSiloPanel({
           </label>
         </div>
 
-        <div className="step-heading">
-          <span>2</span>
+        <section
+          aria-label="Standard Silo 当前设置"
+          className="standard-default-summary"
+        >
+          <div>
+            <p className="eyebrow">
+              {standardDefaultsSelected ? "推荐设置已就绪" : "当前设置"}
+            </p>
+            <h2>
+              {localExecution
+                ? browserPath === ""
+                  ? "尚未发现可用的 Chrome 或 Edge"
+                  : `${browserKind === "chrome" ? "Google Chrome" : "Microsoft Edge"} · Windows 本机`
+                : executionTarget.kind === "wsl"
+                  ? `Chromium · ${executionTarget.distribution}`
+                  : "远程运行"}
+            </h2>
+            <p>
+              {standardDefaultsSelected
+                ? "已自动选择本机浏览器并使用 Direct 直连。只需命名、核对边界并确认创建。"
+                : "你调整了高级设置；创建前请核对下面显示的运行位置、网络与网站可见边界。"}
+            </p>
+          </div>
+          <div className="standard-default-facts">
+            <span>
+              <strong>运行位置</strong>
+              {localExecution ? "Windows 本机" : "Linux 环境"}
+            </span>
+            <span>
+              <strong>网络</strong>
+              {localExecution ? describeNetwork(networkProfile) : "Direct 直连"}
+            </span>
+            <span>
+              <strong>网站数据</strong>独立 Profile
+            </span>
+          </div>
+        </section>
+
+        <button
+          aria-expanded={advancedOpen}
+          className="create-advanced-toggle"
+          disabled={busy}
+          onClick={() => {
+            const nextOpen = !advancedOpen;
+            setAdvancedOpen(nextOpen);
+            if (nextOpen && wslStatus === null && !wslBusy) {
+              void refreshWsl();
+            }
+          }}
+          type="button"
+        >
+          <span>
+            <strong>高级设置</strong>
+            <small>切换浏览器、手工路径、Linux 运行位置或网络方式</small>
+          </span>
+          <span className="create-advanced-state">
+            {advancedOpen
+              ? "收起"
+              : standardDefaultsSelected
+                ? "使用推荐默认值"
+                : "已调整"}
+          </span>
+        </button>
+        <div
+          className="step-heading advanced-step-heading"
+          hidden={!advancedOpen}
+        >
+          <span>A</span>
           <div>
             <h2>浏览器身份与运行位置</h2>
             <p>
@@ -3076,7 +3242,11 @@ function CreateSiloPanel({
             </p>
           </div>
         </div>
-        <div className="execution-target-grid" aria-label="运行位置">
+        <div
+          className="execution-target-grid"
+          aria-label="运行位置"
+          hidden={!advancedOpen}
+        >
           <button
             aria-pressed={executionTarget.kind === "local"}
             className={`execution-card${
@@ -3114,7 +3284,7 @@ function CreateSiloPanel({
             );
           })}
         </div>
-        <div className="wsl-discovery-row" role="status">
+        <div className="wsl-discovery-row" hidden={!advancedOpen} role="status">
           <span>
             {wslBusy
               ? "正在检查这台电脑上的 Linux 环境…"
@@ -3136,14 +3306,14 @@ function CreateSiloPanel({
           </button>
         </div>
         {unavailableWslCount > 0 ? (
-          <p className="wsl-unavailable-note">
+          <p className="wsl-unavailable-note" hidden={!advancedOpen}>
             另有 {unavailableWslCount} 个 Linux
             环境未通过启动、停止、网络和状态检查。请在“运行位置设置”中修复后重新检查。
           </p>
         ) : null}
 
         {localExecution ? (
-          <div className="local-browser-choice">
+          <div className="local-browser-choice" hidden={!advancedOpen}>
             <div className="subsection-heading">
               <strong>选择本机浏览器</strong>
               <span>支持 Windows 版 Google Chrome 和 Microsoft Edge。</span>
@@ -3213,7 +3383,7 @@ function CreateSiloPanel({
             ) : null}
           </div>
         ) : executionTarget.kind === "wsl" ? (
-          <div className="wsl-browser-summary">
+          <div className="wsl-browser-summary" hidden={!advancedOpen}>
             <div>
               <strong>使用 {executionTarget.distribution} 中的 Chromium</strong>
               <p>
@@ -3224,8 +3394,11 @@ function CreateSiloPanel({
           </div>
         ) : null}
 
-        <div className="step-heading">
-          <span>3</span>
+        <div
+          className="step-heading advanced-step-heading"
+          hidden={!advancedOpen}
+        >
+          <span>B</span>
           <div>
             <h2>选择网络方式</h2>
             <p>
@@ -3234,7 +3407,7 @@ function CreateSiloPanel({
           </div>
         </div>
         {localExecution ? (
-          <fieldset disabled={busy || mihomoBusy}>
+          <fieldset disabled={busy || mihomoBusy} hidden={!advancedOpen}>
             <legend className="sr-only">网络配置</legend>
             <div className="proxy-import-card">
               <div>
@@ -3594,7 +3767,7 @@ function CreateSiloPanel({
             ) : null}
           </fieldset>
         ) : executionTarget.kind === "wsl" ? (
-          <div className="wsl-network-boundary">
+          <div className="wsl-network-boundary" hidden={!advancedOpen}>
             <div>
               <strong>Linux 环境当前仅支持直连</strong>
               <p>
@@ -3607,7 +3780,7 @@ function CreateSiloPanel({
         ) : null}
 
         <div className="step-heading">
-          <span>4</span>
+          <span>2</span>
           <div>
             <h2>确认网站将看到什么</h2>
             <p>
@@ -3645,11 +3818,26 @@ function CreateSiloPanel({
               </dd>
             </div>
             <div>
-              <dt>硬件与渲染</dt>
+              <dt>Profile 隔离</dt>
               <dd>
+                <CapabilityState state="native" />
+                每个 Silo 独立保存 Cookie、登录状态和网站数据
+              </dd>
+            </div>
+            <div>
+              <dt>设备与浏览器指纹</dt>
+              <dd>
+                <CapabilityState state="inherit" />
                 {localExecution
                   ? "CPU、内存、Canvas、WebGL 与字体跟随本机，当前未做统一控制"
                   : "CPU、内存与图形特征跟随 WSL 和本机，当前未做统一控制"}
+              </dd>
+            </div>
+            <div>
+              <dt>受控指纹</dt>
+              <dd>
+                <CapabilityState state="unavailable" />
+                Standard Silo 不提供受控指纹，不会把 Profile 隔离标成指纹验证
               </dd>
             </div>
             <div>
@@ -3722,6 +3910,23 @@ function CreateSiloPanel({
         </div>
       </section>
     </>
+  );
+}
+
+function CapabilityState({
+  state,
+}: {
+  state: "native" | "inherit" | "unavailable";
+}) {
+  const labels = {
+    native: "本机原生",
+    inherit: "跟随本机",
+    unavailable: "当前不可用",
+  } as const;
+  return (
+    <span className={`capability-state ${state}`}>
+      <code>{state}</code> · {labels[state]}
+    </span>
   );
 }
 
