@@ -2,7 +2,7 @@
 
 - 状态：**Accepted**
 - 决策形成：2026-08-03
-- 最后确认：2026-08-09
+- 最后确认：2026-08-10
 
 本文记录为什么 VeriSilo 当前优先完成 Camoufox Managed Engine，而不是继续扩张控制面、自研 Chromium，或把虚拟化当成指纹层。
 
@@ -128,6 +128,40 @@ M2-W 已于 2026-08-09 Accepted。两套现有协议的真实语义不同：gene
 - 发布 signer、真实 Host runtime/package、UI、代理、site fallback 与 TLS/QUIC 仍属于后续 Gate。
 
 详细冻结范围与验收见 [M3-0 任务合同](camoufox-m3-engine-adapter-task.md)。
+
+## 2026-08-10 执行顺序附录：先收口指纹核心，再重做干净 M3-WI
+
+M3-0 已在 `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd` Accepted，但后续原生
+Windows M3-WI 真实 Host 调查没有定位第二 Host 历史 120 秒停顿的唯一调用，
+也没有产生 production fix、focused regression 或修复后最终真实验证。因此当前
+M3-WI Gate 保持 **Failed**，该次根因调查结论是 **Inconclusive**，Windows
+Managed 路径保持 `experimental`。调查收口只绑定到快照
+`186484feb935076766beab09595a9270f86f78ef` / tree
+`e33d6d68586a79796ffb9bcc668392e369dc97c6`；它不取代 M3-0 Accepted checkpoint。
+
+tracked R2 manifest 仅是执行 Agent 候选 evidence，未被主脑接受；随后的
+`186484f` 只增加 R2H runner/freezer/schema 与 Host matrix 调查基础，没有 tracked
+R2H result/manifest。不再主动运行 R2/R2H 矩阵追逐偶发失败；若生命周期问题在
+后续工作中自然再现，只根据届时持久的协议级阶段/target 证据修复那一个具体调用。
+
+受控引擎近期顺序调整为：
+
+```text
+FP1  Deterministic Artifact Projection
+→ FP2  top window / iframe / Worker 跨 realm 一致性
+→ FP3  代理 IP / Geo / timezone / locale / WebRTC 协调
+→ FP4  常见检测站点和普通站点兼容性
+→ 使用届时最终 Managed Engine 冻结新的 clean M3-WI
+```
+
+FP1 在已成立的 standalone Host 上证明同一 raw Artifact 的确定投影和跨独立
+Host 重放；它不宣称 M3-WI 已修复或桌面 Managed 能力已可发布。详细范围见
+[FP1 任务合同](camoufox-fp1-deterministic-artifact-projection-task.md)，M3-WI 调查与证据限制见
+[M3-WI 历史任务合同](camoufox-m3-wi-windows-task.md)。
+
+这是执行 Gate 的排序调整，不是架构路线变更：Camoufox-first、三层 Silo 并存、
+Artifact/Profile/Engine/Network/Evidence 生命周期分离，以及 production package
+fail-closed 原则全部保持不变。
 
 ## 后果
 

@@ -1,5 +1,115 @@
 # M3-WI 原生 Windows Desktop / Real Host 集成任务合同
 
+> **历史合同通告（2026-08-10）**：本文原冻结合同已执行并进入失败调查。
+> 下方“Frozen，等待执行 Agent”及其 1–16 验收矩阵现只保留为当时任务合同，
+> 不是当前 Gate。当前状态以本节和[Camoufox 状态页](camoufox-program-status.md)
+> 为准；不得使用原合同的“等待执行”覆盖下述 Failed/Inconclusive 结论。
+
+## 2026-08-10 主脑 Gate 与第二 Host 生命周期调查收口
+
+### Gate 结论
+
+- M3-WI Gate：**Failed**。
+- 本次根因调查：**Inconclusive**。
+- 最后 Accepted checkpoint 仍为 M3-0
+  `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`；它只证明 fake Host contract。
+- 没有 production fix、focused regression 或 post-fix final real verification。
+- Camoufox Windows Managed 继续保持 `experimental`；不得宣称 M3-WI Accepted、
+  Windows Managed verified 或 Managed Identity 已 shipped。
+
+调查结束时 HEAD 为
+`186484feb935076766beab09595a9270f86f78ef`，tree 为
+`e33d6d68586a79796ffb9bcc668392e369dc97c6`，`e96ef3f` 是其祖先，tracked
+working tree clean。调查没有 tracked 修改或新 commit；所有临时诊断位于当时执行
+checkout 的 gitignored `artifacts/cfx-life/run-0cdd1ed6/`。
+
+### 受限调查 receipt
+
+该本地 bundle 不是 manifest-bound evidence，没有进入 Git，也不能单独支持 Accepted。
+本文只绑定三份脱离执行 checkout 就无法再现的摘要字节：
+
+| 本地相对路径                                              | SHA-256                                                            | 证据限制                                          |
+| --------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------- |
+| `artifacts/cfx-life/run-0cdd1ed6/experiment1-result.json` | `5ec698262a9438cc89f011c7e13ca79fb14f38ea06efac719b8f4d7b9984b51c` | 修复前的成功对照，非 post-fix verification        |
+| `artifacts/cfx-life/run-0cdd1ed6/experiment2-result.json` | `3fbc6c090d31630c1eab50598ea362be30969b1886a5633037fbce4ed9ec561a` | 绕过 Host/supervisor，且摘要自身没有 `sourceHead` |
+| `artifacts/cfx-life/run-0cdd1ed6/experiment3-result.json` | `e49b1bbc0bfd0f4183f48c1e6d873feb8d7fc17bef92c323f3d6009e40da8c8d` | 只完成第一 Host，被独立 close 失败截断            |
+
+历史 raw stage log 已在 R2H 准备期间被清理，因而无法从仓库重建旧 120 秒失败的
+最后协议阶段。以下 Security 4688 链与时间戳只是**执行 Agent 报告的历史 OS
+观察**，对应 raw record 已不可恢复，不写成仓库已独立验证的证据：
+
+- venv launcher PID `4632` → 实际 Host PID `8220` → Playwright Node PID `8724`
+  → supervisor PID `8676` → Camoufox PID `2996` 及其完整子树；
+- 最后报告事件是 `2026-08-10T04:19:58.8647846Z` 创建低完整性 Camoufox
+  PID `2052`。
+
+该观察可将历史停顿缩小到：请求已进入第二 Host，完成 `_prepare`、stdin
+读取/dispatch、Artifact/browser-tree 校验、Profile byte `0` / `1` 取得、
+`launch_options`、Playwright driver 启动，并实际 spawn Camoufox 进程树。它不能证明
+`launch_persistent_context` 已返回。Persistent Firefox 会先初始化 default context /
+`about:blank`，显式页面则使用独立 new-page/target 路径；OS PID 不携带 target ID，
+所以不能由 PID 区分两者。对应上游路径参见
+[Playwright v1.60 Firefox 源码](https://github.com/microsoft/playwright/blob/v1.60.0/packages/playwright-core/src/server/firefox/firefox.ts#L84-L105)
+和 [Camoufox TargetRegistry](https://github.com/daijro/camoufox/blob/v152.0.4-beta.28/additions/juggler/TargetRegistry.js#L304-L357)。
+
+剩余最小候选集是：
+
+1. `launch_persistent_context` 的 default-context / 初始页面最终握手；
+2. `ctx.new_page()` 等待独立页面/target 就绪；
+3. 页面返回后 fonts、media、identity 或 cookie 的无界 Playwright RPC。
+
+Persistent context 返回后、`ctx.new_page()` 之前还有最多约 5 秒的 supervisor
+metadata / Job 绑定等待；这是已有界的独立接缝，不是历史 120 秒候选。
+
+被调查的精确 120 秒表象来自 direct Python harness
+`apps/camoufox-host/test_windows_host.py` 的 `stdout.readline()` watchdog，不是该次
+RuntimeManager receipt，也不是 Camoufox 自带的 120 秒。Host 协议只在整个 launch
+完成后调用 `_send`，不发送中间进度帧；上述任一调用未返回时，父端只能观察到
+120 秒没有 stdout 最终行。Rust launcher 中另有 test-only
+`M3_WI_REAL_HOST_TIMEOUT = 120s`；因此只能说本次受查失败的 120 秒来自 direct
+harness，不能泛化成“Rust 没有 120 秒”。已确定属于 test-only 的是 120 秒
+表象和 raw 诊断丢失，不是底层挂起本身。
+
+### 三个真实浏览器序列的限定结果
+
+1. **Direct two-Host / same-Profile**：两次 launch 均通过，第二次为
+   `12.047s`；boot count `1 → 2`、Cookie/digest、clean close、Job active count `0`、
+   进程树退出和两个锁字节释放成立。这是修复前对照，不能冒充修复后验证。
+2. **Direct fixed Camoufox / Playwright reopen**：绕过 Host/supervisor 对同一
+   Profile 启停两次，两次都通过且进程全部退出。它只排除“当前环境下确定性
+   Profile reopen 上游失败”；结果自身没有 `sourceHead`，证据等级更低。
+3. **Deep persistent/new-page/goto/evaluate/cookie/stdout 包围**：第一 Host
+   完成 launch 和最终 response，并观察到 `noViewport=true`；`page.close` 成功后
+   `ctx.close` 约 10 秒超时，Job 被强制清空，`exit.json` 缺失，session 状态为
+   `failed`，因而没有进入第二 Host。摘要顶层 `closeOk=true` 只表示 close 命令
+   返回了协议响应，不表示 session clean close。
+
+实验结束后任务相关进程数为 `0`。实验 3 虽然 close failed，但 Job active
+count 为 `0`、树已退出，Host/Profile 两个锁字节可再取得，匹配的 lease token
+随后释放。这不能恢复历史失败第二 session 在超时瞬间的锁持有者和进程存活状态：
+当时未启用 Security 4689，raw 目录也已删除。
+
+三个有判别力的序列已用完；第一、第二个未复现，第三个被独立 close 缺陷
+截断。因此不能将旧 120 秒归因为 production lifecycle、固定上游缺陷或 test-only
+race，也不实施猜测性修复。
+
+### 主脑抽取与下一任务
+
+- 未来产品分支必须提取的 production diff：**无**。
+- 必须提取的 focused regression：**无**；当前证据不足以编码唯一根因。
+- 不得整支 merge 本研究分支。已 tracked 的 R1/R2/R2H runner、freezer、
+  manifest/schema/receipt/debug 设施保留为研究历史，但明确排除在未来产品
+  patch extraction 之外；本次 gitignored 临时脚本、timeline、runtime、Profile 和
+  cache 同样不得进入。
+- 不再执行旧 R2/R2H 矩阵或选择性重试。只有未来自然再现且获得真实
+  protocol-stage/target 证据后，才基于届时产品基线重建最小修复与单一回归。
+- 当前任务转为 standalone Host 上的
+  [FP1 Deterministic Artifact Projection](camoufox-fp1-deterministic-artifact-projection-task.md)。
+  FP1→FP2→FP3→FP4 之后，才使用届时最终 Managed Engine 冻结一份全新的 clean
+  M3-WI 合同；不复活本文旧合同。
+
+## 以下为 2026-08-09 冻结合同原文（历史）
+
 - 状态：**Frozen，等待执行 Agent**
 - 冻结日期：2026-08-09
 - 执行分支：`codex/camoufox-m3-engine-adapter`

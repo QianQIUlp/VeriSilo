@@ -14,12 +14,12 @@ non-installable example are in `apps/desktop/src-tauri/resources`.
 
 ## Camoufox integration boundary
 
-The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). They still do not implement this desktop adapter contract: `main` does not package the Host as a signed engine entrypoint, Tauri does not launch it, and Host JSON Lines is not the native bootstrap/receipt protocol described below.
+The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) then accepted the contract-level connection between a schema-v3 Host package, the dedicated `camoufox-host-jsonl-v1` transport, `EngineAdapter`, and `RuntimeManager` at checkpoint `e96ef3f`. This does not package the real Host as a trusted production engine entrypoint: release Tauri still has no signed Camoufox Host package or signer pin to launch.
 
-Native Windows M2-W has now accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. [M3-0](camoufox-m3-engine-adapter-task.md) freezes a versioned Host package entrypoint and a dedicated `camoufox-host-jsonl-v1` transport. Its accepted checkpoint implements the contract-level fake-Host slice; it explicitly forbids fabricating generic phase receipts from Host self-report and keeps `verified: false` evidence below `verified`. See [the Camoufox program status](camoufox-program-status.md).
+Native Windows M2-W has accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. M3-0's accepted checkpoint implements the contract-level fake-Host slice; it explicitly forbids fabricating generic phase receipts from Host self-report and keeps `verified: false` evidence below `verified`. See [the Camoufox program status](camoufox-program-status.md).
 
 [M3-WI](camoufox-m3-wi-windows-task.md) adds a Windows-only ignored test
-harness for the next Gate. The harness is compiled only under
+harness for the real-Host integration Gate. The harness is compiled only under
 `cfg(test, target_os = "windows")`: it uses `uv run --frozen --offline` to
 resolve and verify the locked Python environment, then gives the real
 `RuntimeManager` an exact Python child plus `host_v1.py` plan. The plan has no
@@ -29,6 +29,15 @@ two distinct Host processes can revisit the same probe origin and test real
 Profile continuity. Production timeouts and the empty trusted-signer policy
 remain unchanged; this harness cannot be selected by a release build and is
 not a signed or shipped Host package.
+
+That Gate is currently **Failed**. The second-Host lifecycle investigation was
+inconclusive and produced no production fix, focused regression, or post-fix
+verification, so the real Windows seam remains `experimental`. Current work
+returns to standalone Host fingerprint development in the order FP1
+deterministic Artifact projection, FP2 cross-realm consistency, FP3
+network/region coordination, and FP4 site compatibility; a clean M3-WI Gate
+will be frozen only after those stages. The old R2/R2H investigation matrices
+are historical research inputs, not an accepted desktop integration result.
 
 ## Adapter and capability contract
 
@@ -279,4 +288,4 @@ In particular, this source tree still has no real signed engine artifact or
 signer pin. Production external-engine launch therefore remains blocked even
 though the receipt transport and fake-engine E2E harness exist.
 
-The Camoufox archive, tree manifests, Artifact fixtures, and accepted Linux/Windows standalone evidence now tracked on `main` do not remove these shipping blockers. They are inputs to M3 integration, not a signed Host package or publisher identity.
+The Camoufox archive, tree manifests, Artifact fixtures, accepted Linux/Windows standalone evidence, and M3-0 contract integration do not remove these shipping blockers. The failed/inconclusive M3-WI path remains test-only and experimental; none of these artifacts is a signed production Host package or publisher identity.

@@ -1,26 +1,30 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**可变项目状态页**
-- 更新日期：2026-08-09
+- 更新日期：2026-08-10
 
 本文只记录当前执行阶段、证据 checkpoint 和下一项任务。长期产品意图见[身份平台北极星](identity-platform-north-star.md)，路线原因见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。每次 Gate 变化后更新本文，不用本文反向改写长期决策。
 
 ## Git 状态
 
-| 对象                            | 当前值                                                                                      | 含义                                                                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `origin/main` 集成基线          | `8de389db366d1d9ff510b1e885fab7f49a89aad0`                                                  | PR #10 已合并；M0–M2-W Host、Artifact 与 evidence 已进入主线                        |
-| 历史 Camoufox 证据分支          | `codex/camoufox-m0-m2-minimal` / `da8c00c`                                                  | PR #12 合入后的完整证据历史；不再是当前开发起点                                     |
-| M3 执行分支                     | `codex/camoufox-m3-engine-adapter`                                                          | 从 PR #10 merge commit 创建；只用于 Host / EngineAdapter 集成                       |
-| M3-0 任务与 Accepted checkpoint | [任务合同](camoufox-m3-engine-adapter-task.md) / `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd` | contract-level fake Host Gate 已关闭；不包含真实 Camoufox run-id                    |
-| M3-WI 冻结任务                  | [任务合同](camoufox-m3-wi-windows-task.md) / code baseline `e96ef3f`                        | 内容已冻结，等待执行；精确起始 SHA 由主脑派发提示词固定                             |
-| M2.0.3 代码 checkpoint          | `3b53830`                                                                                   | 严格进程树、quarantine、JSON 和 RFC3339 收口                                        |
-| Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                  | evidence manifest 冻结提交；保持不变                                                |
-| Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                  | M2-W evidence 冻结提交；主脑 Gate 已接受                                            |
-| M2-W execution code             | `3511d120862283c3b90f91589f5f33d1de8325f9`                                                  | Windows runtime/test 与 tracked Artifact 字节闭环代码；manifest 绑定 tree `b42d7d9` |
-| Windows stacked PR              | [#12](https://github.com/QianQIUlp/VeriSilo/pull/12)（已合并）                              | merge commit `da8c00ca76504941099e27cdc1d5ecdd93d91d13`                             |
-| Camoufox 集成 PR                | [#10](https://github.com/QianQIUlp/VeriSilo/pull/10)（已合并）                              | merge commit `8de389db366d1d9ff510b1e885fab7f49a89aad0`，保留完整 evidence 历史     |
-| 上下文文档 PR                   | [#11](https://github.com/QianQIUlp/VeriSilo/pull/11)（已合并）                              | 四份事实源是 `main` 的规范上下文                                                    |
+| 对象                            | 当前值                                                                                       | 含义                                                                                |
+| ------------------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `origin/main` 集成基线          | `8de389db366d1d9ff510b1e885fab7f49a89aad0`                                                   | PR #10 已合并；M0–M2-W Host、Artifact 与 evidence 已进入主线                        |
+| 历史 Camoufox 证据分支          | `codex/camoufox-m0-m2-minimal` / `da8c00c`                                                   | PR #12 合入后的完整证据历史；不再是当前开发起点                                     |
+| M3 执行/研究分支                | `codex/camoufox-m3-engine-adapter`                                                           | M3-0 Accepted 后继续承载 M3-WI 与 R1/R2/R2H 研究历史；不得整支抽取为产品 patch      |
+| M3-0 任务与 Accepted checkpoint | [任务合同](camoufox-m3-engine-adapter-task.md) / `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`  | contract-level fake Host Gate 已关闭；不包含真实 Camoufox run-id                    |
+| M3-WI 历史任务                  | [合同与调查收口](camoufox-m3-wi-windows-task.md) / original baseline `e96ef3f`               | **Failed**；第二 Host 根因调查 **Inconclusive**；不存在 Accepted fix                |
+| M3-WI 调查结束快照              | `186484feb935076766beab09595a9270f86f78ef` / tree `e33d6d68586a79796ffb9bcc668392e369dc97c6` | `e96ef3f` 为祖先；调查结束时 tracked tree clean；没有 production fix                |
+| R2 tracked 候选 evidence        | `ecafca9` / `evidence-manifest-m3-wi-r2-windows.json`                                        | 执行 Agent 候选；主脑未接受，不是 M3-WI Accepted evidence                           |
+| R2H 研究基础                    | `186484f`                                                                                    | 只有 runner/freezer/schema 与 Host test 变更；无 tracked result/manifest            |
+| 当前 FP1 任务                   | [冻结合同](camoufox-fp1-deterministic-artifact-projection-task.md) / code snapshot `186484f` | 在 accepted standalone Host 上关闭确定 Artifact 投影；不重启旧 M3-WI                |
+| M2.0.3 代码 checkpoint          | `3b53830`                                                                                    | 严格进程树、quarantine、JSON 和 RFC3339 收口                                        |
+| Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                   | evidence manifest 冻结提交；保持不变                                                |
+| Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                   | M2-W evidence 冻结提交；主脑 Gate 已接受                                            |
+| M2-W execution code             | `3511d120862283c3b90f91589f5f33d1de8325f9`                                                   | Windows runtime/test 与 tracked Artifact 字节闭环代码；manifest 绑定 tree `b42d7d9` |
+| Windows stacked PR              | [#12](https://github.com/QianQIUlp/VeriSilo/pull/12)（已合并）                               | merge commit `da8c00ca76504941099e27cdc1d5ecdd93d91d13`                             |
+| Camoufox 集成 PR                | [#10](https://github.com/QianQIUlp/VeriSilo/pull/10)（已合并）                               | merge commit `8de389db366d1d9ff510b1e885fab7f49a89aad0`，保留完整 evidence 历史     |
+| 上下文文档 PR                   | [#11](https://github.com/QianQIUlp/VeriSilo/pull/11)（已合并）                               | 四份事实源是 `main` 的规范上下文                                                    |
 
 `d596afd` 是已经接受的 Linux 证据 checkpoint，不因后续合并而改写。`9e88c0a` 是 M2-W 内容同步基线，不替代既有 Linux evidence manifest。Windows 分支通过 `13cebd8` 合入同步基线，最终由 `1bf0854` 冻结主脑已接受的 Windows evidence；旧起点结果仅作为 `preSyncEvidence` 保留。PR #12 和 PR #10 都使用 merge commit，没有 rebase、squash 或改写上述历史。
 
@@ -110,15 +114,50 @@ tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`�
 
 M3-0 没有真实浏览器 run-id；其 accepted evidence 是上述测试计数、提交链与合同级 fixture，不能冒充原生 Windows 真实浏览器证据。`pnpm engine:verify` 通过的含义包括 production signer pin 缺失时继续 fail-closed，不表示已有受信 signer 或签名发布包。
 
+## M3-WI Gate 与调查收口
+
+- 主脑结论：**M3-WI Failed；第二 Host 根因调查 Inconclusive**。
+- 没有 production fix、focused regression 或 post-fix final real verification；最后 Accepted
+  checkpoint 仍是 `e96ef3f`。
+- tracked R2 manifest 自报 `execution-passed-awaiting-main-brain-gate`，但其明确记录
+  `m3WiFullGateRerun=false`，Windows Host `10/10` 复用较早 clean receipt，且六次 R2
+  Host matrix 只有一次通过，同时保留两次 `ctx.close` timeout。主脑未接受
+  该 manifest；其中的十周期同 Profile 成功只是有限正向观察。
+- R2H 快照 `186484f` 增加了独立 5+5 runner、freezer、schema 和 Host test 设施，
+  但仓库没有 tracked R2H result/manifest；不再运行该矩阵。
+
+主脑在 gitignored `artifacts/cfx-life/run-0cdd1ed6/` 上收口了三个有判别力的
+真实浏览器序列。该 bundle 不是 manifest-bound evidence，没有进入 Git：
+
+1. direct two-Host/same-Profile 两次成功，第二次 launch `12.047s`，
+   boot `1 → 2`、Cookie/digest、clean close、Job `0` 和锁释放成立；
+2. 绕过 Host/supervisor 的 fixed Camoufox/Playwright 两次 Profile reopen 成功；
+3. 深度阶段实验在第一 Host 完成 launch/response 后遇到独立 `ctx.close`
+   timeout，未进入第二 Host。
+
+实验 1/2 是修复前对照，不能冒充修复后验证；实验 3 被独立 close 失败截断。
+历史 raw stage log 已被清理，所以无法将旧 120 秒唯一归因到
+`launch_persistent_context`、`ctx.new_page()` 或后续的 fonts/media/identity/cookie
+Playwright RPC。被调查的 120 秒来自 direct Python harness 的
+`stdout.readline()` watchdog，不是该次 RuntimeManager receipt 或 Camoufox 自带超时；
+Rust 中另有 test-only `M3_WI_REAL_HOST_TIMEOUT=120s`，不得泛化成“Rust 没有
+120 秒”。
+
+三份本地摘要的 SHA-256、实验 3 的 `closeOk=true` / session `failed` 区分、只能
+作为执行 Agent 报告的 Security 4688 观察，以及“无 production diff / 无 focused
+regression”的 integration extraction 均冻结在
+[M3-WI 历史任务收口](camoufox-m3-wi-windows-task.md)。
+
 ## 当前 Gate
 
-| Gate                                            | 状态                                               |
-| ----------------------------------------------- | -------------------------------------------------- |
-| Linux 资产固定、Artifact 重放与 standalone Host | **Accepted，M0–M2.0.3 关闭**                       |
-| 原生 Windows M2-W                               | **Accepted；三项核心 Gate 关闭**                   |
-| M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**     |
-| 原生 Windows M3-WI 桌面/真实 Host 集成          | **任务已冻结，等待执行；Linux/fake Host 不能替代** |
-| Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                         |
+| Gate                                            | 状态                                                                     |
+| ----------------------------------------------- | ------------------------------------------------------------------------ |
+| Linux 资产固定、Artifact 重放与 standalone Host | **Accepted，M0–M2.0.3 关闭**                                             |
+| 原生 Windows M2-W                               | **Accepted；三项核心 Gate 关闭**                                         |
+| M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
+| 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
+| FP1 Deterministic Artifact Projection           | **当前 Gate；在 accepted standalone Host 上执行**                        |
+| Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
 
@@ -132,6 +171,13 @@ M3-0 没有真实浏览器 run-id；其 accepted evidence 是上述测试计数�
 8. 汇总 [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10) 的最新 HEAD 在 7/7 checks 通过后以 merge commit `8de389d` 合入 `main`。
 9. M3 分支从精确的 `8de389d` 创建，不从旧 `d596afd` 或 Windows evidence commit 直接继续。
 10. M3-0 从冻结 checkpoint `b3d094c` 执行；原始候选 `bc65e07` 未被接受，最终追加修正至 `e96ef3f` 后由主脑接受。该分支尚未 push 或创建 PR。
+11. M3-WI 在 `e96ef3f` 之后进入 test-only 真实 Host 集成和 R1/R2 研究；
+    tracked R2 manifest 最终冻结于 `ecafca9`，但没有通过主脑 Gate，不能追认为
+    Accepted evidence。
+12. `186484f` 只在 R2 后增加 R2H runner/freezer/schema 和 Host test 基础；没有
+    tracked R2H run-id、result 或 manifest。
+13. 第二 Host 收口调查在 `186484f` 的 clean tree 上只生成 gitignored 诊断；
+    没有新提交，没有生产修复，M3-WI 保持 Failed。
 
 下面的“M2-W 冻结目标”定义阶段目标。Windows 任务现有验收合同继续有效，但 PR #11 中的产品语义、禁止范围和证据措辞优先；若二者冲突，停止扩大实现并退回主脑裁决。
 
@@ -147,7 +193,16 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 
 ## 下一阶段
 
-执行 [M3-WI 原生 Windows 冻结任务](camoufox-m3-wi-windows-task.md)。本阶段只在原生 Windows 交互式桌面中，让真实 `host_v1.py` 与固定 Camoufox 经现有 `RuntimeManager`、专用 Host transport 和 Persistent Profile 接缝运行并产出 bounded evidence。由于当前没有受信 signer pin 或签名 Host package，真实运行只能使用明确隔离、不可进入 production build 的 integration-only 启动接缝；production external-engine 路径必须继续 fail-closed。不得借机扩张 UI、安装器、网络身份、Controlled Chromium 或虚拟化后端。
+执行 [FP1 Deterministic Artifact Projection](camoufox-fp1-deterministic-artifact-projection-task.md)。
+本阶段使用已成立的 standalone Host，建立完整随机源账本，证明同一 raw Artifact
+在两个独立 Host 冷启动中可确定重放，并用独立 Artifact/Profile 完成最小 A1/A2/B1
+逐字段对照。只增加一个有限、脱敏、持久的协议级生命周期阶段诊断硬化；不主动
+重现第二 Host 120 秒，不新增 runner/freezer/manifest，也不做十周期或 5+5 矩阵。
+
+后续顺序固定为 FP2 跨 realm 一致性 → FP3 网络/地区/WebRTC 协调 → FP4 实站
+兼容性 → 使用届时最终 Managed Engine 冻结新的 clean M3-WI 合同。旧 M3-WI
+合同不复活。UI、安装器、代理、production package/signing、Controlled Chromium 和虚拟化
+后端均不进入 FP1。
 
 ## 已知边界
 
@@ -158,7 +213,8 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 - self-digest 和 SHA sidecar 是完整性门禁，不是发布者签名。
 - M3 分支已经在 fake Host 合同测试中经过 `RuntimeManager`/EngineAdapter 接缝，但 production Tauri 仍未通过受信 package 调用真实 standalone Host；“contract Gate 通过”不等于桌面 Managed Identity 能力已经 shipped。
 - 当前没有受信 signer pin、签名 Host package 或发布 runtime；production external-engine launch 仍 fail closed。
-- M3-WI 即使通过，也只会证明这一台原生 Windows 主机上的 integration-only 真实 Host/浏览器路径；生产 package/signing、installer、跨主机复现和产品 UI 仍属于后续 Gate。
+- 当前 M3-WI 已 Failed，第二 Host 调查 Inconclusive；正向对照不是底层挂起已修复的证据。
+- 未来 clean M3-WI 即使通过，也只会证明对应原生 Windows 主机上的 integration-only 真实 Host/浏览器路径；生产 package/signing、installer、跨主机复现和产品 UI 仍属于后续 Gate。
 
 ## 更新规则
 

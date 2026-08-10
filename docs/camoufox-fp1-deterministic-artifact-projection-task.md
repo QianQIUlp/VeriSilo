@@ -1,0 +1,384 @@
+# Camoufox Managed Fingerprint Core FP1 — Deterministic Artifact Projection
+
+- 状态：**Frozen task contract / Pending execution**
+- 冻结日期：2026-08-10
+- 当前 Gate：**FP1**
+- 前置 checkpoint：M3-0 Accepted at
+  `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`
+
+本文冻结 FP1 的唯一目标、实现边界和验收方式。长期产品意图以
+[身份平台北极星](identity-platform-north-star.md)为准，Camoufox-first 路线及
+FP1–FP4 排序以
+[Managed Engine 架构决策](camoufox-managed-engine-decision.md)为准，当前 Gate
+和 checkpoint 以[状态页](camoufox-program-status.md)为准。
+
+FP1 不是 M3-WI 的重跑或修复。第二 Host 生命周期调查已按 `inconclusive`
+收口，M3-WI 继续为 `failed` / `experimental`；FP1 使用已经成立的 standalone
+Host 研究和验证指纹投影，不得把 FP1 结果写成 M3-WI Accepted、桌面产品可用或
+Managed Identity 已发布。
+
+## 1. 固定基线与权威边界
+
+本合同基于以下只读实现快照形成：
+
+| 对象                   | 固定值                                          |
+| ---------------------- | ----------------------------------------------- |
+| source HEAD            | `186484feb935076766beab09595a9270f86f78ef`      |
+| source tree            | `e33d6d68586a79796ffb9bcc668392e369dc97c6`      |
+| Accepted ancestor      | `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`      |
+| Artifact schema        | `verisilo-camoufox-resolved-identity/v3`        |
+| Projection schema      | `verisilo-camoufox-stable-signal-projection/v3` |
+| Observed digest schema | `verisilo-camoufox-observed-website/v2`         |
+| Host protocol          | `verisilo-camoufox-host/v1` JSON Lines          |
+
+执行 FP1 的起始提交可以是包含本合同和状态同步的后续纯文档提交，但其
+receipt-producing 实现必须满足
+`git merge-base --is-ancestor 186484feb935076766beab09595a9270f86f78ef <execution-HEAD>`；
+`e33d6d68586a79796ffb9bcc668392e369dc97c6` 只用于核对该 baseline commit 的预期
+tree，不把 tree 当作可判断 ancestry 的对象。执行前必须记录精确 HEAD/tree，同时确认
+`e96ef3f` Accepted lineage 和 `186484f` 实现 baseline 都是祖先，且 tracked worktree
+clean；任何实现改动完成后，真实运行必须绑定新的完整 commit/tree，不能仍声称运行在
+`186484f`。
+
+Windows 输入固定为：
+
+| Artifact | 仓库路径                                      | raw SHA-256                                                        |
+| -------- | --------------------------------------------- | ------------------------------------------------------------------ |
+| A        | `tests/fixtures/camoufox/identity-win-a.json` | `a214c21ccf4a68c97040af6e5f81b05e40903a127dea33ace6dce7d8f133279f` |
+| B        | `tests/fixtures/camoufox/identity-win-b.json` | `ae7ca69321614e924662e7f162e2f294911fc9facf96db4f4e15d001b0af5db9` |
+
+Artifact raw bytes、sidecar、固定 Camoufox/Playwright/BrowserForge、browser archive
+和 browser tree 沿用当前 pin。FP1 不升级上游，不下载 `latest`，也不以未合并的
+upstream PR 替代仓库内已物化的 Artifact。
+
+## 2. 唯一目标与成功定义
+
+FP1 只回答：
+
+> 同一份 raw Resolved Identity Artifact，是否能在两个独立 Host 冷启动中重放
+> 同一套最终 Camoufox 配置，并让本机 first-party probe 对目标浏览器可见字段得到
+> 稳定结果；另一份 Artifact 是否只按预先声明的差异产生合理分离。
+
+FP1 成功必须同时满足：
+
+1. 每个可能影响浏览器可见身份的随机源都有明确归属，不存在“由 Camoufox 或
+   BrowserForge 自行随机但 VeriSilo 不知道”的灰区；
+2. A1 与 A2 从完全相同的 Artifact raw bytes/SHA 运行，规范化后的完整
+   `CAMOU_CONFIG` 与磁盘 `resolvedConfig` 逐键、逐值相同；
+3. A1 与 A2 的目标观察面逐字段一致，不能只比较
+   `ObservedWebsiteDigest v2`；
+4. B1 的差异与 A/B Artifact 的预先静态 diff 一致；未声明应分离的字段不得为了
+   “看起来不同”而随机化，也不要求 A/B 每个字段都不同；
+5. Profile A 的状态在 A1→A2 延续，Profile B 不继承 A 的 Cookie、LocalStorage
+   或 boot count；
+6. 三次运行都完成 fail-closed 生命周期检查，没有残留 Host、supervisor、
+   Camoufox 进程、Windows Job active process、Profile lock 或错误 ownership；
+7. 结果继续使用诚实的 evidence 语义，`verified:false`，不产生跨主机、不可检测、
+   Chrome 模拟或完整字体隔离等声明。
+
+这里的“同一 Artifact”是**重放同一份 raw 文件**，不是用相同 fixture RNG seed
+重新调用 resolver 两次。`artifactId`、`generatedAtUtc` 等制品元数据本来就可能使
+两次重新生成的 raw Artifact 不同，FP1 不把 resolver 输出字节相等作为目标。
+
+## 3. 输出确定性不等于执行路径无 RNG
+
+当前实现已经执行：
+
+```text
+disk resolvedConfig
+→ deepcopy
+→ launch_options(...)
+→ normalize_camou_config_env(...)
+→ 完整 diff 与 configured digest Gate
+→ CAMOU_CONFIG
+```
+
+但 `launch_options()`、BrowserForge、Python `random` 或 NumPy 在计算候选默认值时
+仍可能消费随机数。只要这些候选不会覆盖 Artifact 已物化的最终值，消费 RNG
+本身不等于浏览器身份漂移。因此 FP1 必须分别证明：
+
+- **output determinism**：不同环境 RNG 状态下，规范化后的完整
+  `CAMOU_CONFIG` 都逐键等于同一磁盘 `resolvedConfig`；
+- **observed determinism**：同一 Artifact 的 A1/A2 在浏览器实际观察面逐字段一致；
+- **不作出的声明**：不得写成 `launch_options`、BrowserForge、Python、NumPy 或
+  Camoufox 执行路径“没有使用随机数”。
+
+静态回归应在不同 Python/NumPy RNG 状态下重放同一 Artifact，断言完整 sent config
+及其 digest 不变。该回归只能证明最终投影不受这些 RNG 状态影响，不能替代真实
+浏览器 A1/A2，也不能把未观察的内核随机面升级为稳定。
+
+## 4. 完整随机源账本
+
+真实浏览器运行前，必须对以下 producer 做静态审查：Artifact generator、
+BrowserForge、Camoufox `launch_options`、固定 Camoufox 内部默认/seed 使用、Host、
+probe 与浏览器运行时。每个身份相关来源必须归入且只能归入以下一种生命周期：
+
+1. **Artifact explicit value**：最终值直接存在 v3 `resolvedConfig`；
+2. **materialized replay seed**：seed 已存在 Artifact，并由固定引擎决定性派生网站
+   可见结果，例如当前的 `canvas:seed`、`audio:seed`、`fonts:spacing_seed`；
+3. **Silo/Vault secret**：若发现此类来源，只能记录其生命周期和不可泄漏边界；FP1
+   不得把秘密写入 argv、日志、probe、result 或 Artifact；
+4. **run/session non-identity entropy**：session ID、PID、临时目录、probe port、
+   时间戳等运行期值，不得进入身份稳定性比较；
+5. **currently uncontrollable / unavailable**：当前固定引擎无法明确控制或验证，
+   必须公开记录原因，不能以默认值、推测或摘要遗漏掩盖。
+
+账本在第一次真实启动前必须填完下表；任一候选来源没有分类时不得运行 A1：
+
+| 表面/随机源                     | producer | 生命周期分类                                | 身份相关 | `resolvedConfig` key          | 固定/派生机制 | first-party 观察字段                   | 是否进入 digest v2 | A1/A2 预期 | A/B 预期              | evidence 状态 | 排除/待办原因             |
+| ------------------------------- | -------- | ------------------------------------------- | -------- | ----------------------------- | ------------- | -------------------------------------- | ------------------ | ---------- | --------------------- | ------------- | ------------------------- |
+| UA / Navigator                  | 待审计   | 待填写                                      | 是       | `navigator.*`                 | 待填写        | `userAgent`、`platform`、`oscpu` 等    | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
+| Headers                         | 待审计   | 待填写                                      | 是       | `headers.*`                   | 待填写        | 当前 probe 能力或 `unavailable`        | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
+| Locale / Timezone               | 待审计   | 待填写                                      | 是       | `locale:*`、`timezone`        | 待填写        | `language(s)`、timezone                | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
+| Screen / Window / DPR           | 待审计   | 待填写                                      | 是       | `screen.*`、`window.*`        | 待填写        | `screen`、DPR、`windowScreenX/Y`       | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
+| History                         | 待审计   | 待填写                                      | 是       | `window.history.length`       | 待填写        | `historyLength`                        | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
+| Canvas raw/export               | 待审计   | `materialized replay seed` 或 `unavailable` | 是       | `canvas:seed`                 | 待证明        | `canvas.rawHash` / `canvas.exportHash` | 否                 | 待证明     | 由 Artifact diff 决定 | configured    | digest 排除不能作稳定证据 |
+| Audio                           | 待审计   | `materialized replay seed` 或 `unavailable` | 是       | `audio:seed`                  | 待证明        | `audioHash`                            | 待填写             | 待证明     | 由 Artifact diff 决定 | configured    | —                         |
+| WebGL / WebGL2                  | 待审计   | 待填写                                      | 是       | `webGl:*`、`webGl2:*`         | 待填写        | vendor/renderer/summary                | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
+| Fonts / metrics                 | 待审计   | explicit + replay seed 或 `unavailable`     | 是       | `fonts`、`fonts:spacing_seed` | 待证明        | availability/widths                    | inherit 时部分排除 | 待证明     | 由 Artifact diff 决定 | configured    | 必须保留 host-bound 边界  |
+| Voices                          | 待审计   | 待填写                                      | 是       | `voices`                      | 待填写        | `voices`                               | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
+| Media devices                   | 待审计   | 待填写                                      | 是       | `mediaDevices:*`              | 待填写        | `mediaDevices`                         | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
+| Browser/process/session entropy | 待审计   | `run/session non-identity entropy`          | 否       | 无                            | 比较前排除    | session/process receipt                | 否                 | 可不同     | 可不同                | observed      | 不得混入身份向量          |
+
+“待填写/待证明”是执行前工作，不是允许留到 Gate 之后的最终状态。最终表必须把
+每行归为 `configured`、`applied`、`observed`、`unavailable` 之一；只有满足本合同
+全部绑定条件的 FP1 总体验收才可在任务层写为 Accepted，但浏览器能力仍保持
+`verified:false`。
+
+## 5. Schema 与 seed 决策
+
+FP1 默认保持 v3 Artifact、47-key `resolvedConfig`、Policy v3、Projection v3、
+ObservedWebsiteDigest v2 和既有 fixture raw bytes不变。不增加面向用户的 master
+seed，也不把 fixture-only `--rng-seed` 解释为 Silo seed 或浏览器进程输入。
+
+若审计发现重要身份随机源不能由现有显式值或 materialized replay seed 确定表达：
+
+1. 立即停止相关实现和真实运行；
+2. 将该面标为 `unavailable`，并输出最小 source trace；
+3. 单独提交 schema/ADR 提案，说明迁移、兼容、密钥生命周期和上游依赖；
+4. 等主脑明确决策后另行冻结任务。
+
+不得静默增加 Artifact 字段、重新生成 A/B fixtures、把 runtime 随机值写回 Profile，
+或通过未固定上游版本“碰巧”获得稳定性。
+
+## 6. 允许范围
+
+未来执行 Agent 只可为 FP1 修改：
+
+- standalone Host 内的 Artifact→`launch_options`→browser projection、脱敏阶段诊断
+  和必要的 fail-closed cleanup；
+- 现有 first-party probe，为当前表面增加缺失但不涉及 FP2 cross-realm 的观察字段；
+- 现有 Host/Artifact/Windows 测试中的 focused deterministic projection、诊断、秘密
+  扫描与生命周期回归；
+- 本任务合同的 Gate result/覆盖表和状态页。
+
+实现应复用现有 Host、probe、Windows supervisor、fixtures 和测试入口。不得为了
+FP1 新建 runner、freezer、evidence manifest、manifest schema 或大型 evidence 系统，
+也不得增加 production dependency。
+
+## 7. 明确禁止范围
+
+FP1 不做：
+
+- RuntimeManager、Tauri、EngineAdapter production package、M3-WI Accepted 或桌面 UI；
+- Standard Silo、Managed Silo 创建流程、installer、签名、升级或分发；
+- proxy、GeoIP、地区、DNS、WebRTC、network fallback 或 Direct-only 政策变更；
+- iframe、cross-origin iframe、Dedicated/Shared/Service Worker、多 context 等 FP2；
+- 检测站点、普通网站矩阵、per-site fallback 等 FP4；
+- Controlled Chromium、WSL、Hyper-V、VMware、Remote 或整机环境隔离；
+- 十周期、5+5、R1/R2/R2H 或其他为追逐第二 Host 偶发挂起而扩张的矩阵；
+- 重写 Host v1 协议、修改 stdout JSONL wire shape，或把进度帧写入 stdout；
+- 修改、删除或重新生成任何 M0–M3-WI 历史 accepted/rejected evidence。
+
+## 8. 最小生命周期可观测性硬化
+
+FP1 只把现有粗阶段拆为下列持久、有限、协议级边界：
+
+```text
+launch_options
+→ launch_persistent_context
+→ supervisor_job_bind
+→ new_page
+→ goto
+→ observed.fonts
+→ observed.media
+→ observed.identity
+→ cookie
+→ observed.write
+→ response_write
+```
+
+边界定义固定如下：
+
+| stage                       | start                                         | success boundary                                                 |
+| --------------------------- | --------------------------------------------- | ---------------------------------------------------------------- |
+| `launch_options`            | 调用固定 `launch_options()` 前                | config 已规范化并通过 disk/sent 全量 diff                        |
+| `launch_persistent_context` | 调用 persistent `AsyncNewBrowser` 前          | context 对象已返回并写入 session                                 |
+| `supervisor_job_bind`       | context 返回后                                | supervisor metadata 身份已校验；Windows Job 已成功打开并归属确认 |
+| `new_page`                  | `ctx.new_page()` 前                           | 显式 page 对象已返回                                             |
+| `goto`                      | 本地 probe navigation 前                      | `domcontentloaded` 已完成                                        |
+| `observed.fonts`            | probe font inputs / `document.fonts.ready` 前 | 字体输入、ready 与负控所需准备完成                               |
+| `observed.media`            | media readiness RPC 前                        | media readiness 已返回明确结果                                   |
+| `observed.identity`         | `readIdentity()` RPC 前                       | 完整 first-party identity object 已返回                          |
+| `cookie`                    | boot count / Cookie 操作前                    | boot count 和 API/page Cookie evidence 已收集                    |
+| `observed.write`            | signals/digest/projection 组装前              | `observed.json` 已完整写入                                       |
+| `response_write`            | 最终 protocol response 序列化前               | 单行 stdout 已写入并 flush                                       |
+
+每个 command 内每个 stage 最多记录一个 `start` 和一个 terminal event；terminal 只能
+是 `success`、`error`、`timeout` 或 `cancelled`。每条记录立即 flush 到 stderr 和
+受控持久诊断文件。旧的粗阶段不得与新阶段重复产生含混的“success”。诊断预算必须
+有显式事件/字节上限并为 close/failure 保留空间；达到上限时 fail closed 地省略后续
+普通记录，但必须尽力保留最后 stage 与 cleanup 结论。
+
+记录只允许包含固定 stage、event、单调 elapsed bucket、protocol request ID 的脱敏
+关联值和非敏感错误类别；不得包含 URL、Cookie、LocalStorage、Artifact seed、Vault
+值、token、代理凭据、argv、环境值或用户绝对路径。诊断文件在该 command/run 完成
+审阅前不得由 runner 清理，stdout 继续只包含 Host v1 JSONL 最终响应。
+
+Timeout 只冻结以下严格关系：
+
+```text
+具体 Playwright / Host 操作 deadline
+< Host launch command deadline（须为 cleanup 与错误响应留出时间）
+< 当前父端 stdout watchdog
+```
+
+本合同**不冻结新的秒数**。第二 Host 调查不足以支持凭猜测写入新的
+`60/100/120` 组合；不得通过单纯扩大父端 watchdog 隐藏挂起。实现结果必须列出现有
+父端 watchdog、实际采用的各级 deadline、其来源和不等式检查。若无法从当前实现、
+已有有界 cleanup 和真实 clean-run 数据得到可审计预算，停止并返回
+`blocked: timeout_budget_unfrozen`，不得由执行 Agent自行选择方便的秒数。
+
+该硬化只改善错误归因和 fail-closed 返回，不得包装为第二 Host 底层挂起已经修复。
+
+## 9. 唯一真实验证矩阵
+
+真实验证必须在同一台原生 Windows 交互式桌面、相同固定引擎/Host build、相同本地
+first-party probe origin 下，严格只运行三个顺序 session：
+
+| Run | Host / Profile            | Artifact                       | 初始状态                        | 必须证明                                                    |
+| --- | ------------------------- | ------------------------------ | ------------------------------- | ----------------------------------------------------------- |
+| A1  | 独立 Host H1 / `fp1-a`    | A raw SHA                      | run-owned 空 Profile            | 首次身份观察；boot `0→1`；写入 A 状态                       |
+| A2  | 新 Host H2 / 同一 `fp1-a` | 与 A1 完全相同的 raw bytes/SHA | A1 clean close 后的同一 Profile | 目标身份逐字段等于 A1；boot `1→2`；Cookie/LocalStorage 延续 |
+| B1  | 新 Host H3 / 独立 `fp1-b` | B raw SHA                      | run-owned 空 Profile            | 与静态 A/B diff 对应的身份分离；boot `0→1`；没有 A 状态     |
+
+A1 close/shutdown、Job active count `0`、进程全退和两个 Profile lock byte 可重新取得
+后才能启动 A2；A2 同样 clean 后才能启动 B1。三次使用同一固定 probe origin，使
+Profile B 的 Cookie/LocalStorage 不继承 A 成为有效反例。B1 不得通过换 origin 隐藏
+状态串扰。
+
+运行前必须生成 A/B `resolvedConfig` 的规范逐字段 diff，并把每个差异映射到覆盖表。
+验收比较规则为：
+
+- A1/A2：只有同时满足“确属 run/session non-identity entropy”且“不由
+  `resolvedConfig` 显式值或 materialized replay seed 支撑”的字段才能排除，目标字段
+  必须深度相等；旧 policy 中的 `session-variable` 分类不能覆盖 FP1 的 Artifact
+  所有权。`windowScreenX`、`windowScreenY`、Canvas `rawHash` / `exportHash`、Audio、
+  完整 WebGL 摘要、字体 availability/width、voices 和 media device 结果都必须单独
+  比较；无法可靠观察时必须写成 `unavailable`，不能静默排除；
+- A/B：只对 Artifact 静态 diff 能影响的目标字段要求预期差异；共同字段仍应协调且
+  稳定，不以“摘要不同”替代字段映射；
+- `ObservedWebsiteDigest v2` 可作为辅助校验，但它排除 Canvas、内部 seed、Artifact
+  字体输入，且 inherit font mode 下排除字体宽度，因此不能作为 FP1 的唯一证据；
+- probe 无法观察的 configured 字段默认仍停留在 `configured`；只有存在已审计的
+  per-key 引擎消费/应用证据时才能升级为 `applied`，当前引擎不能可靠控制时标成
+  `unavailable`。任何一种情况都不能从 config 值推断成 `observed`。
+
+## 10. Focused 自动回归
+
+除 A1/A2/B1 外，只允许不扩张真实矩阵的 focused 回归：
+
+1. 同一 raw Artifact 在扰动 Python/NumPy RNG 状态后，完整 normalized sent config
+   仍逐键等于 disk config；
+2. 任一 added/removed/changed key 继续在 browser spawn 前 `config_mutation`；
+3. 每个新 stage 只产生 start + terminal，立即 flush，stdout 保持纯 JSONL；
+4. secret/path sentinel 不出现在新增 stage stderr、持久诊断或 tracked/sanitized Gate
+   摘要；既有 Host hello 中的受控绝对 root 只允许留在 gitignored 本地 raw bundle，
+   不得复制进落库摘要；
+5. fake delayed/hung call 能返回对应 stage 的 timeout/error 分类并进入既有
+   fail-closed cleanup，不启动真实浏览器矩阵；
+6. Profile lock、Windows Job 和精确 process ownership 的既有回归继续通过。
+
+不为偶发第二 Host 问题增加新的真实循环。若问题在 A1/A2/B1 中自然出现，按下一节
+处理。
+
+## 11. 停止、失败与有限修复规则
+
+- **随机源未分类**：A1 前停止；补完整账本，不运行浏览器碰运气。
+- **v3 无法表达重要身份源**：停止并提交 schema/ADR；不得改 fixture 或偷偷持久化。
+- **A1/A2 身份字段漂移**：FP1 failed；保存两份原始观察和最小字段 diff，只修已定位
+  的 projection/seed 根因，不通过排除字段或修改 digest 掩盖。
+- **A/B 出现未声明差异或应有差异缺失**：FP1 failed；先修静态 projection mapping，
+  不通过扩大随机化满足 separation。
+- **自然出现生命周期挂起且最后 stage 明确**：只允许修该具体调用和增加一个 focused
+  regression；清理确认后只重跑受影响的 A1/A2/B1 序列，不恢复 R2/R2H 矩阵。
+- **再次挂起但没有可靠最后 stage**：立即停止真实运行，判定诊断不足；先修可观测性，
+  不增加次数、runner 或 manifest。
+- **证明是固定 Camoufox/Playwright 上游问题**：保存脱敏最小复现和版本绑定，停止并
+  交回主脑选择 pinned upgrade 或 workaround；执行 Agent不得自行升级。
+- **close/Job/锁无法确认**：保持 failed/quarantined 和 ownership，不启动下一 run，
+  不手工删除锁后冒充 clean。
+- **需要 RuntimeManager、UI、proxy、FP2–FP4 或 public protocol/schema 变化**：停止并
+  报告越界依赖，不扩张 FP1。
+
+## 12. Evidence 语义
+
+FP1 全程遵守：
+
+| 状态          | FP1 中的含义                                                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `configured`  | 值存在于通过 raw SHA/schema 校验的 Artifact；disk/sent 全量相等仍只证明投影已准备好                                                         |
+| `applied`     | 精确 config 已交给固定引擎、persistent context 成功返回、未发生 config mutation/rejection，并且该字段具有已审计的 per-key 引擎消费/应用证据 |
+| `observed`    | 指定观察通道返回该值：身份字段使用 first-party probe，进程/生命周期使用明确标注的 runtime receipt                                           |
+| `verified`    | FP1 不产生；所有 result 保持 `verified:false`                                                                                               |
+| `unavailable` | 当前固定引擎或探针不能可靠控制/观察；必须保留原因                                                                                           |
+
+A1/A2 一致只能写为 `observed stable on this Windows host`。它不证明跨物理主机、
+跨浏览器版本、iframe/Worker、TLS/QUIC、网络身份、完整字体隔离或不可检测。B1
+分离不等于所有 Silo 都具备唯一、不可关联的设备身份。
+
+## 13. 结果包与 Gate 输出
+
+原始输出写入唯一的 gitignored `artifacts/camoufox-fp1/<run-id>/`，不得包含秘密。
+既有 Host hello 若包含受控绝对 root，只能保留在该本地 raw bundle；tracked Gate
+结果必须使用仓库相对路径并完成脱敏。FP1 不创建 tracked evidence manifest、schema、
+runner 或 freezer。最终结果必须在本合同末尾追加 Gate result，并至少包含：
+
+1. source、receipt-producing、evidence-only（若有）commit/tree 与 clean/ancestry；
+2. 固定 Host/browser/dependency/Artifact raw SHA 绑定；
+3. 完整随机源账本和最终覆盖表；
+4. A/B 静态 config diff；
+5. A1/A2/B1 每个 run 的 raw result 相对路径、SHA-256、Host/session identity、阶段
+   终点、clean close、Job、锁和残留进程结果；
+6. normalized sent config 全量相等结果，以及逐字段观察 diff；
+7. Cookie、LocalStorage、boot `0→1→2` 与 B `0→1` 的隔离结果；
+8. focused tests 的精确命令、退出码和计数；
+9. timeout 层级的实际值、来源和严格不等式，或明确 blocked reason；
+10. 每一项 `configured/applied/observed/unavailable` 结论和仍不能宣称的能力；
+11. integration extraction：可进入未来产品 patch 的最小 production diff、focused
+    regressions，以及必须排除的研究基础设施；
+12. 最终 Gate：`Accepted`、`Failed` 或 `Blocked`，不得只写总体测试“绿色”。
+
+覆盖表使用下列固定格式，不得删除困难表面：
+
+| 指纹面                    | Artifact 控制        | 固定机制            | A1/A2  | A/B      | 观察字段                         | digest v2 覆盖 | evidence 状态 | 限制/排除             |
+| ------------------------- | -------------------- | ------------------- | ------ | -------- | -------------------------------- | -------------- | ------------- | --------------------- |
+| UA / Navigator / platform | 待填                 | 待填                | 待执行 | 待执行   | 待填                             | 待填           | Pending       | —                     |
+| Headers                   | 待填                 | 待填                | 待执行 | 待执行   | 待填                             | 待填           | Pending       | —                     |
+| Locale / timezone         | 待填                 | 待填                | 待执行 | 待执行   | 待填                             | 待填           | Pending       | —                     |
+| Screen / window / DPR     | 待填                 | 待填                | 待执行 | 待执行   | 待填                             | 待填           | Pending       | —                     |
+| History                   | 待填                 | 待填                | 待执行 | 待执行   | `historyLength`                  | 待填           | Pending       | —                     |
+| Canvas raw                | `canvas:seed`        | 待证明              | 待执行 | 待执行   | `observedFull.canvas.rawHash`    | 否             | Pending       | —                     |
+| Canvas export             | `canvas:seed`        | 待证明              | 待执行 | 待执行   | `observedFull.canvas.exportHash` | 否             | Pending       | 历史上曾不稳定        |
+| Audio                     | `audio:seed`         | 待证明              | 待执行 | 待执行   | `audioHash`                      | 待填           | Pending       | —                     |
+| WebGL / WebGL2            | 部分显式             | 待证明              | 待执行 | 待执行   | vendor/renderer/summary          | 待填           | Pending       | —                     |
+| Fonts / metrics           | fonts + spacing seed | 待证明              | 待执行 | 待执行   | availability/widths              | 部分排除       | Pending       | inherit 为 host-bound |
+| Voices                    | 显式                 | 待证明              | 待执行 | 待执行   | `voices`                         | 待填           | Pending       | —                     |
+| Media devices             | 显式计数             | 待证明              | 待执行 | 待执行   | `mediaDevices`                   | 待填           | Pending       | —                     |
+| Cookie / LocalStorage     | Profile 所有         | Profile persistence | 待执行 | 必须隔离 | API/page/SQLite/boot             | 非身份 digest  | Pending       | 状态，不是指纹 seed   |
+
+## 14. Gate result
+
+**Pending execution.** 在 A1/A2/B1、账本、逐字段覆盖、focused regressions、清理和
+证据语义全部完成前，不得把本节改为 Accepted。M3-WI 在 FP1 结果之外继续保持
+`failed` / `experimental`。
