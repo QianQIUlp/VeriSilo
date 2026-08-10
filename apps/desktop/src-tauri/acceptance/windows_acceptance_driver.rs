@@ -976,7 +976,7 @@ fn parse_windows_command_line(command_line: &str) -> Result<Vec<String>, String>
     if arguments.is_null() || argument_count <= 0 {
         return Err("could not parse the exact browser command line".to_owned());
     }
-    let parsed = (|| {
+    let parsed = {
         let pointers = unsafe { std::slice::from_raw_parts(arguments, argument_count as usize) };
         pointers
             .iter()
@@ -992,7 +992,7 @@ fn parse_windows_command_line(command_line: &str) -> Result<Vec<String>, String>
                     .map_err(|_| "browser command line contained invalid UTF-16".to_owned())
             })
             .collect::<Result<Vec<_>, _>>()
-    })();
+    };
     let _ = unsafe { LocalFree(arguments.cast()) };
     parsed
 }
