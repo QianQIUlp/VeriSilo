@@ -6,14 +6,19 @@ Runs without pytest: `uv run python test_identity_artifact.py`.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import hashlib
 import json
 import os
+import random
 import re
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest import mock
+
+import numpy as np
 
 from identity_policy import (
     ARTIFACT_SCHEMA,
@@ -37,12 +42,19 @@ from browser_tree import (
     verify_tree,
 )
 from run_identity_spike import (
+    extract_observed_website_signals,
     expected_media_device_counts,
     observed_media_device_counts,
     write_report,
 )
-from run_spike import firefox_user_prefs_for_config
-from generate_identity import write_artifact_with_sidecar
+from run_spike import (
+    CANDIDATE_EXTRA_IDENTITY_FIELDS,
+    UnclassifiedCandidateIdentityFieldError,
+    classify_candidate_extra_identity_fields,
+    firefox_user_prefs_for_config,
+    normalize_camou_config_env,
+)
+from generate_identity import complete_resolved_config, write_artifact_with_sidecar
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "camoufox"
@@ -50,6 +62,32 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures" / "camoufox"
 
 def load_fixture(name: str) -> dict:
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
+
+
+def _camou_config_from_env(env: dict) -> dict:
+    chunks = sorted(
+        (int(key.rsplit("_", 1)[1]), value)
+        for key, value in env.items()
+        if key.startswith("CAMOU_CONFIG_")
+    )
+    assert chunks, "CAMOU_CONFIG chunks missing"
+    return json.loads("".join(value for _, value in chunks))
+
+
+def _camou_env(config: dict) -> dict[str, str]:
+    return {
+        "CAMOU_CONFIG_1": json.dumps(
+            config, ensure_ascii=False, separators=(",", ":")
+        )
+    }
+
+
+def _assert_config_per_key(actual: dict, expected: dict) -> None:
+    assert len(expected) == 47
+    assert set(actual) == set(expected)
+    for key in sorted(expected):
+        assert type(actual[key]) is type(expected[key]), key
+        assert actual[key] == expected[key], key
 
 
 def test_windows_fixtures_pass_strict_validation() -> None:
@@ -137,6 +175,552 @@ def test_windows_media_device_policy_is_deterministic() -> None:
         prefs = firefox_user_prefs_for_config(config)
         assert prefs["media.navigator.streams.fake"] is True
         assert prefs["media.navigator.permission.disabled"] is True
+
+
+def test_candidate_extra_identity_policy_is_closed_and_fail_closed() -> None:
+    assert set(CANDIDATE_EXTRA_IDENTITY_FIELDS) == {
+        "navigator.maxTouchPoints"
+    }
+    rule = CANDIDATE_EXTRA_IDENTITY_FIELDS["navigator.maxTouchPoints"]
+    assert rule["status"] == "host-bound"
+    assert rule["artifactControl"] == "unavailable"
+    assert rule["finalSource"]
+
+    disk = copy.deepcopy(load_fixture("identity-win-a")["resolvedConfig"])
+    candidate = copy.deepcopy(disk)
+    candidate["navigator.maxTouchPoints"] = 5
+    original = copy.deepcopy(candidate)
+    audit = classify_candidate_extra_identity_fields(candidate, disk)
+    assert audit == {"navigator.maxTouchPoints": rule}
+    normalized, diff, rewritten = normalize_camou_config_env(
+        _camou_env(candidate), disk
+    )
+    assert candidate == original
+    _assert_config_per_key(normalized, disk)
+    _assert_config_per_key(_camou_config_from_env(rewritten), disk)
+    assert diff == {"added": [], "removed": [], "changed": []}
+
+    unknown = copy.deepcopy(disk)
+    unknown["window.innerWidth"] = 987654321
+    try:
+        normalize_camou_config_env(_camou_env(unknown), disk)
+    except UnclassifiedCandidateIdentityFieldError as exc:
+        assert "window.innerWidth" in str(exc)
+        assert "987654321" not in str(exc)
+    else:
+        raise AssertionError("unknown candidate identity field must fail closed")
+
+    for invalid in (True, "5", -1):
+        bad = copy.deepcopy(disk)
+        bad["navigator.maxTouchPoints"] = invalid
+        try:
+            normalize_camou_config_env(_camou_env(bad), disk)
+        except UnclassifiedCandidateIdentityFieldError as exc:
+            assert "navigator.maxTouchPoints" in str(exc)
+            assert repr(invalid) not in str(exc)
+        else:
+            raise AssertionError("invalid maxTouchPoints candidate must fail closed")
+
+
+def test_identity_generator_classifies_candidate_only_fields_before_removal() -> None:
+    executable = Path("camoufox.exe")
+
+    with mock.patch(
+        "camoufox.utils.launch_options",
+        return_value={
+            "env": _camou_env({"navigator.maxTouchPoints": "SECRET_INVALID_TOUCH"})
+        },
+    ):
+        try:
+            complete_resolved_config(executable, "windows", (1280, 800), "en-US", 152)
+        except UnclassifiedCandidateIdentityFieldError as exc:
+            assert "navigator.maxTouchPoints" in str(exc)
+            assert "SECRET_INVALID_TOUCH" not in str(exc)
+        else:
+            raise AssertionError("generator must reject an invalid candidate-only field")
+
+    with mock.patch(
+        "camoufox.utils.launch_options",
+        side_effect=(
+            {"env": _camou_env({"navigator.maxTouchPoints": 5})},
+            {"env": _camou_env({"timezone": "UTC"})},
+        ),
+    ):
+        resolved = complete_resolved_config(
+            executable, "windows", (1280, 800), "en-US", 152
+        )
+    assert resolved == {
+        "timezone": "UTC",
+        "window.outerHeight": 800,
+        "window.outerWidth": 1280,
+    }
+
+
+def test_projection_is_deterministic_under_rng_and_environment_perturbation() -> None:
+    from camoufox import DefaultAddons
+    from camoufox.utils import launch_options
+
+    artifact_path = FIXTURES / "identity-win-a.json"
+    raw_before = artifact_path.read_bytes()
+    raw_sha = hashlib.sha256(raw_before).hexdigest()
+    assert raw_sha == "a214c21ccf4a68c97040af6e5f81b05e40903a127dea33ace6dce7d8f133279f"
+    artifact, verified_sha = verify_artifact_raw(
+        artifact_path, expected_file_sha=raw_sha
+    )
+    assert verified_sha == raw_sha
+    disk = copy.deepcopy(artifact["resolvedConfig"])
+
+    def property_type(value: object) -> str:
+        return {
+            bool: "bool",
+            int: "int",
+            float: "double",
+            str: "str",
+            list: "array",
+            dict: "dict",
+        }[type(value)]
+
+    seen_extras: set[str] = set()
+    with tempfile.TemporaryDirectory(prefix="verisilo-fp1-projection-") as tmp:
+        root = Path(tmp)
+        executable = root / "camoufox.exe"
+        executable.write_bytes(b"")
+        properties = [
+            {"property": key, "type": property_type(value)}
+            for key, value in disk.items()
+        ]
+        properties.append(
+            {"property": "navigator.maxTouchPoints", "type": "uint"}
+        )
+        (root / "properties.json").write_text(
+            json.dumps(properties), encoding="utf-8"
+        )
+
+        for seed in range(100):
+            random.seed(seed)
+            np.random.seed(seed ^ 0x5A5A5A5A)
+            options = launch_options(
+                config=copy.deepcopy(disk),
+                os=artifact["policy"]["targetOs"],
+                window=tuple(artifact["policy"]["window"]),
+                locale=artifact["policy"]["locale"],
+                ff_version=artifact["policy"]["ffVersion"],
+                headless=False,
+                executable_path=str(executable),
+                user_data_dir=str(root / f"profile-{seed}"),
+                firefox_user_prefs=firefox_user_prefs_for_config(disk),
+                exclude_addons=[DefaultAddons.UBO],
+                i_know_what_im_doing=True,
+                env={
+                    "FP1_ALLOWED_ENV_ENTROPY": f"iteration-{seed}",
+                    "LANG": "en_US.UTF-8" if seed % 2 else "de_DE.UTF-8",
+                    "TZ": "UTC" if seed % 2 else "Etc/GMT+7",
+                },
+            )
+            candidate = _camou_config_from_env(options["env"])
+            extras = classify_candidate_extra_identity_fields(candidate, disk)
+            seen_extras.update(extras)
+            assert set(extras).issubset(CANDIDATE_EXTRA_IDENTITY_FIELDS)
+            normalized, diff, rewritten = normalize_camou_config_env(
+                options["env"], disk
+            )
+            _assert_config_per_key(normalized, disk)
+            _assert_config_per_key(_camou_config_from_env(rewritten), disk)
+            assert diff == {"added": [], "removed": [], "changed": []}
+            assert configured_identity_digest(normalized) == artifact[
+                "configuredIdentityDigest"
+            ]
+
+    assert seen_extras == {"navigator.maxTouchPoints"}
+    assert artifact_path.read_bytes() == raw_before
+    assert hashlib.sha256(artifact_path.read_bytes()).hexdigest() == raw_sha
+
+
+def test_fp1_probe_fields_preserve_observed_digest_v2_voice_shape() -> None:
+    probe = (REPO_ROOT / "tests" / "fingerprint-probe" / "probe.html").read_text(
+        encoding="utf-8"
+    )
+    for marker in (
+        "appCodeName: navigator.appCodeName",
+        "appName: navigator.appName",
+        "appVersion: navigator.appVersion",
+        "product: navigator.product",
+        "maxTouchPoints: navigator.maxTouchPoints",
+        "windowGeometry:",
+        'identityWebGL("webgl2")',
+        "isDefault: voice.default",
+        "rawHash, exportHash",
+    ):
+        assert marker in probe, marker
+
+    observed = {
+        "userAgent": "ua",
+        "language": "en-US",
+        "languages": ["en-US"],
+        "platform": "Win32",
+        "oscpu": "Windows NT 10.0; Win64; x64",
+        "doNotTrack": "1",
+        "globalPrivacyControl": False,
+        "screen": {"width": 1},
+        "devicePixelRatio": 1,
+        "hardwareConcurrency": 8,
+        "historyLength": 3,
+        "mediaDevices": [],
+        "session": {"timezone": "UTC", "utcOffsetMinutes": 0},
+        "fontNegativeControls": {},
+        "webglVendor": "vendor",
+        "webglRenderer": "renderer",
+        "webglSummary": {},
+        "voices": [
+            {
+                "name": "voice",
+                "lang": "en-US",
+                "localService": True,
+                "voiceURI": "urn:test",
+                "isDefault": True,
+            }
+        ],
+        "audioHash": "sha256:" + "0" * 64,
+    }
+    signals = extract_observed_website_signals(observed)
+    assert signals["voices"] == [
+        {
+            "name": "voice",
+            "lang": "en-US",
+            "localService": True,
+            "voiceURI": "urn:test",
+        }
+    ]
+
+
+def test_fp1_launch_stage_diagnostics_are_bounded_and_secret_free() -> None:
+    import host_v1
+
+    lines: list[str] = []
+    recorder = host_v1._LaunchStageRecorder()
+    with mock.patch.object(host_v1, "_log", side_effect=lines.append):
+        for stage in host_v1.FP1_LAUNCH_STAGES:
+            with recorder.stage(stage):
+                pass
+            # A repeated stage cannot add another start or terminal.
+            with recorder.stage(stage):
+                pass
+    assert recorder.event_count == len(host_v1.FP1_LAUNCH_STAGES) * 2
+    assert recorder.event_count == host_v1.FP1_STAGE_MAX_EVENTS
+    assert recorder.byte_count <= host_v1.FP1_STAGE_MAX_BYTES
+    decoded = [json.loads(line.split(" ", 1)[1]) for line in lines]
+    for stage in host_v1.FP1_LAUNCH_STAGES:
+        events = [item["event"] for item in decoded if item["stage"] == stage]
+        assert events == ["start", "success"], stage
+
+    async def timeout_case() -> None:
+        timeout_recorder = host_v1._LaunchStageRecorder()
+        timeout_lines: list[str] = []
+        with mock.patch.object(host_v1, "_log", side_effect=timeout_lines.append):
+            try:
+                with timeout_recorder.stage("new_page"):
+                    await asyncio.wait_for(asyncio.Event().wait(), timeout=0.001)
+            except asyncio.TimeoutError:
+                pass
+        timeout_events = [
+            json.loads(line.split(" ", 1)[1])["event"] for line in timeout_lines
+        ]
+        assert timeout_events == ["start", "timeout"]
+
+    asyncio.run(timeout_case())
+
+    async def cancelled_case() -> None:
+        cancelled_recorder = host_v1._LaunchStageRecorder()
+        cancelled_lines: list[str] = []
+
+        async def wait_forever() -> None:
+            with cancelled_recorder.stage("observed.media"):
+                await asyncio.Event().wait()
+
+        with mock.patch.object(host_v1, "_log", side_effect=cancelled_lines.append):
+            task = asyncio.create_task(wait_forever())
+            await asyncio.sleep(0)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        cancelled_events = [
+            json.loads(line.split(" ", 1)[1])["event"]
+            for line in cancelled_lines
+        ]
+        assert cancelled_events == ["start", "cancelled"]
+
+    asyncio.run(cancelled_case())
+
+    secret = (
+        "https://127.0.0.1/probe Cookie=secret token=lease-seed "
+        r"C:\Users\qiu\profile"
+    )
+    error_lines: list[str] = []
+    with mock.patch.object(host_v1, "_log", side_effect=error_lines.append):
+        try:
+            with host_v1._LaunchStageRecorder().stage("observed.identity"):
+                raise RuntimeError(secret)
+        except RuntimeError:
+            pass
+    encoded_errors = "\n".join(error_lines)
+    assert "RuntimeError" in encoded_errors
+    for sentinel in ("127.0.0.1", "Cookie", "lease-seed", r"C:\Users"):
+        assert sentinel not in encoded_errors
+
+    response_lines: list[str] = []
+    read_fd, write_fd = os.pipe()
+    response_recorder = host_v1._LaunchStageRecorder()
+    token = host_v1._ACTIVE_LAUNCH_DIAGNOSTICS.set(response_recorder)
+    original_protocol_fd = host_v1._PROTOCOL_FD
+    try:
+        host_v1._PROTOCOL_FD = write_fd
+        with mock.patch.object(host_v1, "_log", side_effect=response_lines.append):
+            host_v1._send({"id": "fp1", "ok": True, "result": {"state": "running"}})
+    finally:
+        host_v1._PROTOCOL_FD = original_protocol_fd
+        host_v1._ACTIVE_LAUNCH_DIAGNOSTICS.reset(token)
+        os.close(write_fd)
+    protocol_bytes = os.read(read_fd, 4096)
+    os.close(read_fd)
+    protocol_lines = protocol_bytes.decode("utf-8").splitlines()
+    assert len(protocol_lines) == 1
+    assert json.loads(protocol_lines[0]) == {
+        "id": "fp1",
+        "ok": True,
+        "result": {"state": "running"},
+    }
+    assert "stage-diagnostic" not in protocol_lines[0]
+    response_events = [
+        json.loads(line.split(" ", 1)[1])["event"] for line in response_lines
+    ]
+    assert response_events == ["start", "success"]
+
+    class FlushSink:
+        def __init__(self) -> None:
+            self.writes = 0
+            self.flushes = 0
+
+        def write(self, _value: bytes) -> None:
+            self.writes += 1
+
+        def flush(self) -> None:
+            self.flushes += 1
+
+    sink = FlushSink()
+    stderr_read, stderr_write = os.pipe()
+    with mock.patch.object(host_v1, "_STDERR_FD", stderr_write), mock.patch.object(
+        host_v1, "_LOG_FILE", sink
+    ):
+        with host_v1._LaunchStageRecorder().stage("goto"):
+            pass
+    os.close(stderr_write)
+    stderr_lines = os.read(stderr_read, 4096).decode("utf-8").splitlines()
+    os.close(stderr_read)
+    assert len(stderr_lines) == 2
+    assert sink.writes == 2
+    assert sink.flushes == 2
+
+
+def test_fp1_fake_stage_timeout_crosses_protocol_and_fail_closed_cleanup() -> None:
+    import host_v1
+
+    async def run_case(root: Path) -> tuple[bytes, list[str], dict, dict]:
+        artifact_root = root / "artifacts"
+        profile_root = root / "profiles"
+        state_root = root / "state"
+        artifact_root.mkdir()
+        artifact_path = artifact_root / "identity-win-a.json"
+        artifact_path.write_bytes((FIXTURES / "identity-win-a.json").read_bytes())
+        artifact = load_fixture("identity-win-a")
+        expected_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+
+        host = object.__new__(host_v1.CamoufoxHost)
+        host.artifact_root = artifact_root
+        host.profile_root = profile_root
+        host.state_root = state_root
+        host.tree_manifest = root / "tree.json"
+        host.display_arg = None
+        host.probe_port = 0
+        host.playwright = object()
+        host.lock = {}
+        host.executable = root / "browser" / "camoufox.exe"
+        host.session = None
+
+        async def fake_launch(session: dict, _artifact: dict) -> None:
+            session["expectedJobName"] = "Local\\VeriSiloCamoufox-fp1-timeout"
+            session["launchAttempted"] = True
+            with host_v1._active_launch_stage("new_page"):
+                await asyncio.wait_for(asyncio.Event().wait(), timeout=0.001)
+
+        host._launch_browser = fake_launch
+        cleanup_observed: dict = {}
+
+        def fake_terminate(session: dict, timeout: float) -> dict:
+            cleanup_observed.update(
+                {
+                    "timeout": timeout,
+                    "launchAttempted": session.get("launchAttempted"),
+                    "expectedJobName": session.get("expectedJobName"),
+                    "profileLockHeld": session.get("profileLock") is not None,
+                }
+            )
+            return {
+                "exited": True,
+                "managedIdentities": [],
+                "remaining": [],
+                "job": {
+                    "available": True,
+                    "name": session["expectedJobName"],
+                    "activeProcessCount": 0,
+                    "terminateJobObject": True,
+                },
+                "sigterm": False,
+                "sigkill": True,
+            }
+
+        read_fd, write_fd = os.pipe()
+        original_protocol_fd = host_v1._PROTOCOL_FD
+        log_lines: list[str] = []
+        request = {
+            "id": "fp1-timeout",
+            "command": "launch",
+            "params": {
+                "artifactId": "identity-win-a",
+                "profileId": "fp1-timeout",
+                "expectedArtifactFileSha256": expected_sha,
+            },
+        }
+        try:
+            host_v1._PROTOCOL_FD = write_fd
+            with mock.patch.object(
+                host_v1,
+                "verify_artifact_raw",
+                return_value=(artifact, expected_sha),
+            ), mock.patch.object(
+                host_v1, "verify_browser_binding"
+            ), mock.patch.object(
+                host_v1, "installed_versions", return_value={}
+            ), mock.patch.object(
+                host_v1, "load_tree_manifest", return_value={}
+            ), mock.patch.object(
+                host_v1, "verify_tree"
+            ), mock.patch.object(
+                host_v1, "terminate_managed_tree", side_effect=fake_terminate
+            ), mock.patch.object(
+                host_v1, "_log", side_effect=log_lines.append
+            ):
+                should_stop = await host_v1.handle_frame(
+                    host,
+                    json.dumps(request, separators=(",", ":")).encode("utf-8"),
+                )
+                assert should_stop is False
+        finally:
+            host_v1._PROTOCOL_FD = original_protocol_fd
+            os.close(write_fd)
+        protocol = os.read(read_fd, 4096)
+        os.close(read_fd)
+        return protocol, log_lines, cleanup_observed, host.session
+
+    with tempfile.TemporaryDirectory(prefix="verisilo-fp1-stage-chain-") as tmp:
+        root = Path(tmp)
+        protocol, log_lines, cleanup, session = asyncio.run(run_case(root))
+        frames = protocol.decode("utf-8").splitlines()
+        assert len(frames) == 1
+        response = json.loads(frames[0])
+        assert response["id"] == "fp1-timeout"
+        assert response["ok"] is False
+        assert response["error"]["code"] == "launch_failed"
+        assert session["state"] == "failed"
+        assert session["processTreeExit"]["exited"] is True
+        assert cleanup == {
+            "timeout": 6,
+            "launchAttempted": True,
+            "expectedJobName": "Local\\VeriSiloCamoufox-fp1-timeout",
+            "profileLockHeld": True,
+        }
+
+        stage_events = [
+            json.loads(line.split(" ", 1)[1])
+            for line in log_lines
+            if line.startswith("stage-diagnostic ")
+        ]
+        new_page_events = [
+            event["event"]
+            for event in stage_events
+            if event["stage"] == "new_page"
+        ]
+        response_events = [
+            event["event"]
+            for event in stage_events
+            if event["stage"] == "response_write"
+        ]
+        assert new_page_events == ["start", "timeout"]
+        assert response_events == ["start", "success"]
+
+        lock_path = root / "profiles" / "fp1-timeout.lock"
+        reacquired = host_v1.ProfileLock.acquire(lock_path)
+        reacquired.release()
+        if os.name == "nt":
+            assert host_v1.probe_supervisor_lock(lock_path) is True
+
+
+def test_windows_launch_attempt_uses_expected_job_for_fail_closed_cleanup() -> None:
+    if os.name != "nt":
+        return
+    import host_platform
+
+    never_started = {
+        "jobHandle": None,
+        "supervisorMeta": None,
+        "expectedJobName": None,
+        "launchAttempted": False,
+        "ctx": None,
+        "pid": None,
+    }
+    no_spawn = host_platform.terminate_windows_job(never_started, timeout=0.01)
+    assert no_spawn["exited"] is True
+    assert no_spawn["job"]["reason"] == "no process was spawned"
+
+    attempted = {
+        **never_started,
+        "expectedJobName": "Local\\VeriSiloCamoufox-fp1-test",
+        "launchAttempted": True,
+    }
+    with mock.patch.object(
+        host_platform.JobHandle, "open", side_effect=OSError("job unavailable")
+    ):
+        missing = host_platform.terminate_windows_job(attempted, timeout=0.01)
+    assert missing["exited"] is False
+    assert missing["job"]["available"] is False
+    assert missing["job"]["reason"] != "no process was spawned"
+
+    class FakeJob:
+        name = "Local\\VeriSiloCamoufox-fp1-test"
+
+        def __init__(self) -> None:
+            self.waits = [(False, 1), (True, 0)]
+            self.terminated = False
+            self.closed = False
+
+        def wait_empty(self, _timeout: float) -> tuple[bool, int]:
+            return self.waits.pop(0)
+
+        def terminate(self, _exit_code: int) -> None:
+            self.terminated = True
+
+        def close(self) -> None:
+            self.closed = True
+
+    fake_job = FakeJob()
+    with mock.patch.object(host_platform.JobHandle, "open", return_value=fake_job):
+        cleaned = host_platform.terminate_windows_job(attempted, timeout=0.01)
+    assert cleaned["exited"] is True
+    assert cleaned["job"]["activeProcessCount"] == 0
+    assert cleaned["job"]["terminateJobObject"] is True
+    assert fake_job.terminated is True
+    assert fake_job.closed is True
 
 
 def test_identity_report_sidecar_hashes_exact_disk_bytes() -> None:

@@ -32,6 +32,7 @@ import signal
 import sys
 import time
 import uuid
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -78,6 +79,7 @@ from run_identity_spike import (
 )
 from run_spike import (
     COOKIE_NAME,
+    UnclassifiedCandidateIdentityFieldError,
     configure_camoufox_cache,
     DownloadGuard,
     EXECUTABLE,
@@ -105,23 +107,31 @@ HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 _FRAME_TOO_LARGE = object()
 COOKIE_SQLITE_READ_MAX_ATTEMPTS = 6
 COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS = 0.2
-# Stage diagnostics are deliberately sampled once per stage/phase.  The Host
-# must remain responsive even when a caller captures stderr without draining
-# it while it performs a long status poll (for example, crash recovery).  A
-# reserved close budget prevents an earlier noisy stage from hiding the
-# terminal lifecycle outcome.
+# Legacy close diagnostics remain on a separate bounded budget so FP1 launch
+# records cannot hide the terminal cleanup outcome. The Host must remain
+# responsive even when a caller captures stderr without draining it.
 DIAGNOSTIC_MAX_EVENTS = 20
 DIAGNOSTIC_MAX_BYTES = 3072
 DIAGNOSTIC_CLOSE_RESERVE_BYTES = 1024
 DIAGNOSTIC_MAX_LINE_BYTES = 512
-DIAGNOSTIC_STAGES = {
-    "browser/context",
-    "page",
-    "probe",
-    "observed collection",
-    "response write",
-    "close",
-}
+DIAGNOSTIC_STAGES = {"close"}
+
+FP1_LAUNCH_STAGES = (
+    "launch_options",
+    "launch_persistent_context",
+    "supervisor_job_bind",
+    "new_page",
+    "goto",
+    "observed.fonts",
+    "observed.media",
+    "observed.identity",
+    "cookie",
+    "observed.write",
+    "response_write",
+)
+FP1_STAGE_MAX_EVENTS = len(FP1_LAUNCH_STAGES) * 2
+FP1_STAGE_MAX_LINE_BYTES = 512
+FP1_STAGE_MAX_BYTES = FP1_STAGE_MAX_EVENTS * FP1_STAGE_MAX_LINE_BYTES
 
 SECRET_PATTERNS = [
     "password=",
@@ -160,6 +170,9 @@ _LOG_FILE: Optional[Any] = None
 _DIAGNOSTIC_EVENTS = 0
 _DIAGNOSTIC_BYTES = 0
 _DIAGNOSTIC_STAGE_EVENTS: dict[str, set[str]] = {}
+_ACTIVE_LAUNCH_DIAGNOSTICS: ContextVar[Optional["_LaunchStageRecorder"]] = (
+    ContextVar("camoufox_host_launch_diagnostics", default=None)
+)
 
 
 @dataclass(frozen=True)
@@ -181,7 +194,7 @@ class ContextCloseOutcome:
 
 
 def _send(obj: dict) -> None:
-    with _StageDiagnostic("response write"):
+    with _active_launch_stage("response_write"):
         frame = json.dumps(
             obj, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8") + b"\n"
@@ -214,6 +227,105 @@ def _log(message: str) -> None:
             _LOG_FILE.flush()
         except Exception:
             pass
+
+
+class _LaunchStageRecorder:
+    """Per-launch, bounded recorder for the frozen FP1 stage vocabulary."""
+
+    def __init__(self) -> None:
+        self._events = 0
+        self._bytes = 0
+        self._seen: dict[str, set[str]] = {}
+
+    @property
+    def event_count(self) -> int:
+        return self._events
+
+    @property
+    def byte_count(self) -> int:
+        return self._bytes
+
+    def record(
+        self,
+        stage: str,
+        event: str,
+        started: float,
+        exception_class: str | None = None,
+    ) -> None:
+        if stage not in FP1_LAUNCH_STAGES:
+            raise ValueError(f"unsupported FP1 launch stage: {stage}")
+        if event not in {"start", "success", "error", "timeout", "cancelled"}:
+            raise ValueError(f"unsupported FP1 launch event: {event}")
+        event_key = "start" if event == "start" else "terminal"
+        seen = self._seen.setdefault(stage, set())
+        if event_key in seen or self._events >= FP1_STAGE_MAX_EVENTS:
+            return
+        payload: dict[str, Any] = {
+            "kind": "camoufox-host-stage",
+            "stage": stage,
+            "event": event,
+            "durationMs": max(0, int((time.perf_counter() - started) * 1000)),
+        }
+        if exception_class is not None:
+            payload["exceptionClass"] = re.sub(
+                r"[^A-Za-z0-9_.-]", "_", exception_class
+            )[:64]
+        encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+        line = "stage-diagnostic " + encoded
+        line_bytes = len((line + "\n").encode("utf-8"))
+        if line_bytes > FP1_STAGE_MAX_LINE_BYTES:
+            payload.pop("exceptionClass", None)
+            encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+            line = "stage-diagnostic " + encoded
+            line_bytes = len((line + "\n").encode("utf-8"))
+        if self._bytes + line_bytes > FP1_STAGE_MAX_BYTES:
+            return
+        seen.add(event_key)
+        self._events += 1
+        self._bytes += line_bytes
+        _log(line)
+
+    def stage(self, stage: str) -> "_LaunchStageDiagnostic":
+        return _LaunchStageDiagnostic(self, stage)
+
+
+class _LaunchStageDiagnostic:
+    """Record one start and one terminal event without logging exception text."""
+
+    def __init__(self, recorder: _LaunchStageRecorder, stage: str) -> None:
+        self.recorder = recorder
+        self.stage_name = stage
+        self.started = 0.0
+
+    def __enter__(self) -> "_LaunchStageDiagnostic":
+        self.started = time.perf_counter()
+        self.recorder.record(self.stage_name, "start", self.started)
+        return self
+
+    def __exit__(self, exc_type: Any, _exc: Any, _tb: Any) -> None:
+        event = "success"
+        exception_class = None
+        if exc_type is not None:
+            exception_class = exc_type.__name__
+            if issubclass(exc_type, asyncio.CancelledError):
+                event = "cancelled"
+            elif issubclass(exc_type, (asyncio.TimeoutError, TimeoutError)):
+                event = "timeout"
+            else:
+                event = "error"
+        self.recorder.record(
+            self.stage_name,
+            event,
+            self.started,
+            exception_class=exception_class,
+        )
+
+
+def _active_launch_stage(stage: str) -> contextlib.AbstractContextManager[Any]:
+    recorder = _ACTIVE_LAUNCH_DIAGNOSTICS.get()
+    if recorder is None:
+        return contextlib.nullcontext()
+    return recorder.stage(stage)
 
 
 def _diagnostic(
@@ -581,6 +693,8 @@ class CamoufoxHost:
             "pid": None,
             "childPid": None,
             "supervisorMeta": None,
+            "expectedJobName": None,
+            "launchAttempted": False,
             "managedIdentities": [],
             "jobHandle": None,
             "exitFile": session_dir / "exit.json",
@@ -651,8 +765,7 @@ class CamoufoxHost:
         if not IS_WINDOWS and not display:
             display, xvfb = start_xvfb()
         session["xvfb"] = xvfb
-        with _StageDiagnostic("probe"):
-            server, probe_url = start_probe_server(self.probe_port)
+        server, probe_url = start_probe_server(self.probe_port)
         session["server"] = server
         # Remember the actual probe port: later launches (same Host process,
         # or a restarted Host given this port) keep the cookie / localStorage
@@ -668,16 +781,17 @@ class CamoufoxHost:
             os.environ["VERISILO_PROFILE_LOCK_PATH"] = str(
                 self.profile_root / f"{session['profileId']}.lock"
             )
-            os.environ["VERISILO_JOB_NAME"] = (
+            session["expectedJobName"] = (
                 f"Local\\VeriSiloCamoufox-{session['sessionId']}"
             )
+            os.environ["VERISILO_JOB_NAME"] = session["expectedJobName"]
 
-        with _StageDiagnostic("browser/context"):
-            from camoufox import AsyncNewBrowser
-            from camoufox import DefaultAddons
-            from camoufox.utils import launch_options
+        from camoufox import AsyncNewBrowser
+        from camoufox import DefaultAddons
+        from camoufox.utils import launch_options
 
-            launch_start = time.perf_counter()
+        launch_start = time.perf_counter()
+        with _active_launch_stage("launch_options"):
             opts = await asyncio.get_event_loop().run_in_executor(
                 None,
                 partial(
@@ -696,9 +810,12 @@ class CamoufoxHost:
                     i_know_what_im_doing=True,
                 ),
             )
-            sent_config, diff, opts["env"] = normalize_camou_config_env(
-                opts["env"], disk_config
-            )
+            try:
+                sent_config, diff, opts["env"] = normalize_camou_config_env(
+                    opts["env"], disk_config
+                )
+            except UnclassifiedCandidateIdentityFieldError as exc:
+                raise ProtocolError("config_mutation", str(exc)) from exc
             sent_digest = configured_identity_digest(sent_config)
             if (
                 sent_digest != disk_digest
@@ -717,8 +834,10 @@ class CamoufoxHost:
                         }
                     ),
                 )
-            opts["executable_path"] = str(SUPERVISOR)
+        opts["executable_path"] = str(SUPERVISOR)
 
+        with _active_launch_stage("launch_persistent_context"):
+            session["launchAttempted"] = True
             ctx = await AsyncNewBrowser(
                 self.playwright,
                 from_options=opts,
@@ -734,57 +853,69 @@ class CamoufoxHost:
         # Managed-process identity comes from the supervisor's own status
         # file. Windows additionally requires a named Job Object; the Host
         # never treats PID enumeration as process-tree ownership.
-        supervisor_path = session["sessionDir"] / "supervisor.json"
-        supervisor_meta: Optional[dict] = None
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            if supervisor_path.exists():
-                try:
-                    candidate = json.loads(supervisor_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    candidate = None
-                if (
-                    isinstance(candidate, dict)
-                    and isinstance(candidate.get("supervisorPid"), int)
-                    and isinstance(candidate.get("childPid"), int)
-                    and (
-                        not IS_WINDOWS
-                        or (
-                            isinstance(candidate.get("jobName"), str)
-                            and isinstance(candidate.get("supervisorCreationTime100ns"), int)
-                            and isinstance(candidate.get("childCreationTime100ns"), int)
-                            and candidate.get("jobKillOnClose") is True
-                            and candidate.get("jobAssignmentVerified") is True
-                            and candidate.get("processHandleEvidence") is True
+        with _active_launch_stage("supervisor_job_bind"):
+            supervisor_path = session["sessionDir"] / "supervisor.json"
+            supervisor_meta: Optional[dict] = None
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if supervisor_path.exists():
+                    try:
+                        candidate = json.loads(
+                            supervisor_path.read_text(encoding="utf-8")
                         )
-                    )
-                ):
-                    supervisor_meta = candidate
-                    break
-            await asyncio.sleep(0.1)
-        if supervisor_meta is None:
-            raise ProtocolError(
-                "supervisor_metadata_missing",
-                "supervisor status file missing or invalid",
-            )
-        session["supervisorMeta"] = supervisor_meta
-        session["pid"] = supervisor_meta["supervisorPid"]
-        session["childPid"] = supervisor_meta.get("childPid")
-        session["managedIdentities"] = managed_identities(session)
-        if IS_WINDOWS:
-            try:
-                session["jobHandle"] = JobHandle.open(supervisor_meta["jobName"])
-            except OSError as exc:
+                    except (OSError, json.JSONDecodeError):
+                        candidate = None
+                    if (
+                        isinstance(candidate, dict)
+                        and isinstance(candidate.get("supervisorPid"), int)
+                        and isinstance(candidate.get("childPid"), int)
+                        and (
+                            not IS_WINDOWS
+                            or (
+                                isinstance(candidate.get("jobName"), str)
+                                and candidate.get("jobName")
+                                == session.get("expectedJobName")
+                                and isinstance(
+                                    candidate.get("supervisorCreationTime100ns"), int
+                                )
+                                and isinstance(
+                                    candidate.get("childCreationTime100ns"), int
+                                )
+                                and candidate.get("jobKillOnClose") is True
+                                and candidate.get("jobAssignmentVerified") is True
+                                and candidate.get("processHandleEvidence") is True
+                            )
+                        )
+                    ):
+                        supervisor_meta = candidate
+                        break
+                await asyncio.sleep(0.1)
+            if supervisor_meta is None:
                 raise ProtocolError(
-                    "job_unavailable", f"cannot open supervisor Job Object: {exc}"
-                ) from exc
+                    "supervisor_metadata_missing",
+                    "supervisor status file missing or invalid",
+                )
+            session["supervisorMeta"] = supervisor_meta
+            session["pid"] = supervisor_meta["supervisorPid"]
+            session["childPid"] = supervisor_meta.get("childPid")
+            session["managedIdentities"] = managed_identities(session)
+            if IS_WINDOWS:
+                try:
+                    session["jobHandle"] = JobHandle.open(supervisor_meta["jobName"])
+                except OSError as exc:
+                    raise ProtocolError(
+                        "job_unavailable",
+                        f"cannot open supervisor Job Object: {exc}",
+                    ) from exc
 
-        with _StageDiagnostic("page"):
+        with _active_launch_stage("new_page"):
             page = await ctx.new_page()
             session["page"] = page
 
-        with _StageDiagnostic("probe"):
+        with _active_launch_stage("goto"):
             await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
+
+        with _active_launch_stage("observed.fonts"):
             fonts = artifact["stableSignalsDeclared"]["fonts"]
             await page.evaluate(f"window.__probeFonts = {json.dumps(fonts)}")
             await page.evaluate(
@@ -794,39 +925,42 @@ class CamoufoxHost:
             await page.evaluate(
                 f"window.__probeHostFonts = {json.dumps(host_controls)}"
             )
-
-        with _StageDiagnostic("observed collection"):
             await page.evaluate("document.fonts.ready")
+
+        with _active_launch_stage("observed.media"):
             media_readiness = await wait_for_configured_media_devices(page, disk_config)
+
+        with _active_launch_stage("observed.identity"):
             probe_start = time.perf_counter()
             observed = await page.evaluate("window.__probe.readIdentity()")
             session["probeSeconds"] = round(time.perf_counter() - probe_start, 3)
             session["spawnSeconds"] = round(spawn_seconds, 3)
 
-            font_mode = policy.get("fontMode", "inherit")
-            session["fontMode"] = font_mode
-            host_controls_result = {
-                "controlsTested": len(observed.get("hostFontNegativeControls", {})),
-                "allUnavailable": all(
-                    available is False
-                    for available in observed.get("hostFontNegativeControls", {}).values()
-                ),
-                "failures": [
-                    family
-                    for family, available in observed.get(
-                        "hostFontNegativeControls", {}
-                    ).items()
-                    if available is not False
-                ],
-            }
-            if font_mode == "managed" and not host_controls_result["allUnavailable"]:
-                raise ProtocolError(
-                    "host_font_masking_failed",
-                    "managed font mode requires all host negative controls "
-                    "unavailable; masking failed: "
-                    + ", ".join(host_controls_result["failures"]),
-                )
+        font_mode = policy.get("fontMode", "inherit")
+        session["fontMode"] = font_mode
+        host_controls_result = {
+            "controlsTested": len(observed.get("hostFontNegativeControls", {})),
+            "allUnavailable": all(
+                available is False
+                for available in observed.get("hostFontNegativeControls", {}).values()
+            ),
+            "failures": [
+                family
+                for family, available in observed.get(
+                    "hostFontNegativeControls", {}
+                ).items()
+                if available is not False
+            ],
+        }
+        if font_mode == "managed" and not host_controls_result["allUnavailable"]:
+            raise ProtocolError(
+                "host_font_masking_failed",
+                "managed font mode requires all host negative controls "
+                "unavailable; masking failed: "
+                + ", ".join(host_controls_result["failures"]),
+            )
 
+        with _active_launch_stage("cookie"):
             boot_before = int(observed.get("bootCount", 0))
             await page.evaluate(f"window.__probe.writeBootCount({boot_before + 1})")
             session["bootCountBefore"] = boot_before
@@ -837,6 +971,7 @@ class CamoufoxHost:
             )
             session["cookieEvidence"] = cookie_evidence
 
+        with _active_launch_stage("observed.write"):
             signals = extract_observed_website_signals(observed, font_mode)
             session["configuredIdentityDigest"] = disk_digest
             session["observedWebsiteDigest"] = observed_website_digest(signals)
@@ -2066,6 +2201,22 @@ async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
             }
         )
         return False
+
+    diagnostics_token = None
+    if command == "launch":
+        diagnostics_token = _ACTIVE_LAUNCH_DIAGNOSTICS.set(
+            _LaunchStageRecorder()
+        )
+
+    def send_response(payload: dict) -> None:
+        nonlocal diagnostics_token
+        try:
+            _send(payload)
+        finally:
+            if diagnostics_token is not None:
+                _ACTIVE_LAUNCH_DIAGNOSTICS.reset(diagnostics_token)
+                diagnostics_token = None
+
     try:
         if command == "hello":
             result = host.hello()
@@ -2094,7 +2245,7 @@ async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
         else:  # pragma: no cover - validate_request restricts
             raise ProtocolError("unknown_command", command)
     except ProtocolError as exc:
-        _send(
+        send_response(
             {
                 "id": request_id,
                 "ok": False,
@@ -2103,7 +2254,7 @@ async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
         )
         return command == "shutdown"
     except UnsupportedSchemaVersionError as exc:
-        _send(
+        send_response(
             {
                 "id": request_id,
                 "ok": False,
@@ -2115,7 +2266,7 @@ async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
         )
         return False
     except (ArtifactIntegrityError, TreeIntegrityError) as exc:
-        _send(
+        send_response(
             {
                 "id": request_id,
                 "ok": False,
@@ -2125,7 +2276,7 @@ async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
         return False
     except Exception as exc:  # noqa: BLE001 - sanitized protocol error
         _log(f"internal error: {type(exc).__name__}: {exc}")
-        _send(
+        send_response(
             {
                 "id": request_id,
                 "ok": False,
@@ -2136,7 +2287,7 @@ async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
             }
         )
         return False
-    _send({"id": request_id, "ok": True, "result": result})
+    send_response({"id": request_id, "ok": True, "result": result})
     return command == "shutdown"
 
 

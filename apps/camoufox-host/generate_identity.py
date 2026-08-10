@@ -45,9 +45,10 @@ from identity_policy import (
     verify_artifact,
 )
 from run_spike import (
+    CANDIDATE_EXTRA_IDENTITY_FIELDS,
+    classify_candidate_identity_fields,
     configure_camoufox_cache,
     DownloadGuard,
-    RUNTIME_ONLY_CONFIG_KEYS,
     RELEASE,
     XDG_CACHE_DIR,
     ensure_browser_asset,
@@ -117,6 +118,14 @@ def complete_resolved_config(
         i_know_what_im_doing=True,
     )
     config = reassemble_camou_config(first["env"])
+    initial_candidate_fields = sorted(
+        set(config).intersection(CANDIDATE_EXTRA_IDENTITY_FIELDS)
+    )
+    initial_candidate_audit = classify_candidate_identity_fields(
+        config, initial_candidate_fields
+    )
+    for key in initial_candidate_audit:
+        config.pop(key)
     # Fixed identity policy: timezone is bound to the artifact, not the host.
     config["timezone"] = TIMEZONE_VALUE
 
@@ -134,7 +143,17 @@ def complete_resolved_config(
             i_know_what_im_doing=True,
         )
         sent = reassemble_camou_config(opts["env"])
-        for key in RUNTIME_ONLY_CONFIG_KEYS:
+        # These candidate-only browser fields are classified and type-checked
+        # before removal. They are not part of the v3 Artifact fixpoint.
+        candidate_fields = sorted(
+            (set(sent) - set(config)).intersection(
+                CANDIDATE_EXTRA_IDENTITY_FIELDS
+            )
+        )
+        candidate_audit = classify_candidate_identity_fields(
+            sent, candidate_fields
+        )
+        for key in candidate_audit:
             sent.pop(key, None)
         diff = diff_configs(config, sent)
         if diff["added"]:

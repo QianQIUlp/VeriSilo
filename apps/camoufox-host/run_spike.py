@@ -81,7 +81,67 @@ EXECUTABLE = EXTRACT_DIR / EXECUTABLE_REL
 COOKIE_NAME = "verisilo_probe_cookie"
 CYCLES = 3
 SAMPLE_INTERVAL_SECONDS = 0.25
-RUNTIME_ONLY_CONFIG_KEYS = frozenset({"navigator.maxTouchPoints"})
+# BrowserForge may add browser-visible candidate fields that Artifact v3 does
+# not own.  This policy is deliberately closed: an unknown candidate field is
+# a projection failure, not another key to silently discard.  The pinned
+# engine's native value remains visible when the candidate value is omitted,
+# so maxTouchPoints is host-bound and Artifact control is unavailable.
+CANDIDATE_EXTRA_IDENTITY_FIELDS = {
+    "navigator.maxTouchPoints": {
+        "finalSource": (
+            "pinned Camoufox/Firefox native navigator value after the "
+            "BrowserForge candidate is omitted from final CAMOU_CONFIG"
+        ),
+        "status": "host-bound",
+        "artifactControl": "unavailable",
+        "acceptedCandidateType": "non-negative-int",
+    },
+}
+
+
+class UnclassifiedCandidateIdentityFieldError(RuntimeError):
+    """A browser-visible candidate field is outside the frozen v3 policy."""
+
+
+def classify_candidate_extra_identity_fields(
+    candidate_config: dict, disk_config: dict
+) -> dict[str, dict[str, str]]:
+    """Classify every candidate key that is absent from the raw Artifact.
+
+    Values are intentionally never included in the exception or returned
+    audit.  That keeps failure diagnostics useful without leaking identity
+    material.  The caller may remove a key only after this closed-policy check
+    succeeds.
+    """
+
+    extra_keys = sorted(set(candidate_config) - set(disk_config))
+    return classify_candidate_identity_fields(candidate_config, extra_keys)
+
+
+def classify_candidate_identity_fields(
+    candidate_config: dict, field_names: list[str]
+) -> dict[str, dict[str, str]]:
+    """Validate and classify an explicit set of candidate-only fields."""
+
+    unknown = [
+        key for key in field_names if key not in CANDIDATE_EXTRA_IDENTITY_FIELDS
+    ]
+    if unknown:
+        raise UnclassifiedCandidateIdentityFieldError(
+            "unclassified candidate identity field(s): " + ", ".join(unknown)
+        )
+
+    result: dict[str, dict[str, str]] = {}
+    for key in field_names:
+        value = candidate_config[key]
+        if key == "navigator.maxTouchPoints" and (
+            type(value) is not int or value < 0
+        ):
+            raise UnclassifiedCandidateIdentityFieldError(
+                "candidate identity field has invalid type: " + key
+            )
+        result[key] = dict(CANDIDATE_EXTRA_IDENTITY_FIELDS[key])
+    return result
 
 # Secret-like patterns used to scan the spike's own argv, the browser argv
 # snapshots, and the run logs. The per-run cookie value is included as a
@@ -306,13 +366,13 @@ def install_download_guard() -> bool:
 
 
 def normalize_camou_config_env(env: dict, disk_config: dict) -> tuple[dict, dict, dict]:
-    """Keep optional BrowserForge runtime fields out of Artifact config.
+    """Audit candidate-only fields and restore the exact Artifact config.
 
-    Camoufox 0.5.4 may add ``navigator.maxTouchPoints`` on Windows depending
-    on the generated fingerprint.  It is not part of Artifact v3's closed
-    config contract or ObservedWebsiteDigest.  The Host strips only that
-    runtime-only field, rejects every other mutation, and sends the exact
-    disk config back to Camoufox.
+    Camoufox 0.5.4 can emit ``navigator.maxTouchPoints`` from its randomly
+    generated BrowserForge candidate.  Artifact v3 does not own that field.
+    The closed policy above classifies it as host-bound/unavailable before it
+    is removed.  Every other extra browser-visible key fails closed; no field
+    is silently promoted into the long-term identity.
     """
     chunks = sorted(
         (int(key.rsplit("_", 1)[1]), value)
@@ -322,8 +382,9 @@ def normalize_camou_config_env(env: dict, disk_config: dict) -> tuple[dict, dict
     if not chunks:
         raise RuntimeError("launch_options returned no CAMOU_CONFIG env chunks")
     sent = json.loads("".join(value for _, value in chunks))
+    candidate_extras = classify_candidate_extra_identity_fields(sent, disk_config)
     normalized = dict(sent)
-    for key in RUNTIME_ONLY_CONFIG_KEYS:
+    for key in candidate_extras:
         normalized.pop(key, None)
     from identity_policy import diff_configs
 

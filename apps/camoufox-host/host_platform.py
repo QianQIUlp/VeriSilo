@@ -498,7 +498,13 @@ def terminate_windows_job(session: dict, timeout: float = 8.0) -> dict:
     if job is None:
         name = (session.get("supervisorMeta") or {}).get("jobName")
         if not isinstance(name, str) or not name:
-            if session.get("ctx") is None and not session.get("pid"):
+            name = session.get("expectedJobName")
+        if not isinstance(name, str) or not name:
+            if (
+                session.get("launchAttempted") is not True
+                and session.get("ctx") is None
+                and not session.get("pid")
+            ):
                 return {
                     "exited": True,
                     "managedIdentities": [],

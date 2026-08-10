@@ -121,6 +121,16 @@ def reassemble_camou_config(env: dict) -> dict:
 def extract_observed_website_signals(
     observed: dict, font_mode: str = "inherit"
 ) -> dict:
+    # ObservedWebsiteDigest v2 predates the FP1 ``isDefault`` voice probe.
+    # Keep its exact payload stable while the richer value remains available
+    # in observedFull for the FP1 per-field comparison.
+    digest_voices = [
+        {
+            key: voice.get(key)
+            for key in ("name", "lang", "localService", "voiceURI")
+        }
+        for voice in observed["voices"]
+    ]
     signals = {
         "userAgent": observed["userAgent"],
         "language": observed["language"],
@@ -140,7 +150,7 @@ def extract_observed_website_signals(
         "webglVendor": observed["webglVendor"],
         "webglRenderer": observed["webglRenderer"],
         "webglSummary": observed["webglSummary"],
-        "voices": observed["voices"],
+        "voices": digest_voices,
         "audioHash": observed["audioHash"],
     }
     # In inherit mode font widths are host-bound (the host font set can leak

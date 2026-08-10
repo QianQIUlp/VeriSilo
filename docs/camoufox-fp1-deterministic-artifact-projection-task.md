@@ -125,20 +125,33 @@ probe 与浏览器运行时。每个身份相关来源必须归入且只能归�
 
 账本在第一次真实启动前必须填完下表；任一候选来源没有分类时不得运行 A1：
 
-| 表面/随机源                     | producer | 生命周期分类                                | 身份相关 | `resolvedConfig` key          | 固定/派生机制 | first-party 观察字段                   | 是否进入 digest v2 | A1/A2 预期 | A/B 预期              | evidence 状态 | 排除/待办原因             |
-| ------------------------------- | -------- | ------------------------------------------- | -------- | ----------------------------- | ------------- | -------------------------------------- | ------------------ | ---------- | --------------------- | ------------- | ------------------------- |
-| UA / Navigator                  | 待审计   | 待填写                                      | 是       | `navigator.*`                 | 待填写        | `userAgent`、`platform`、`oscpu` 等    | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
-| Headers                         | 待审计   | 待填写                                      | 是       | `headers.*`                   | 待填写        | 当前 probe 能力或 `unavailable`        | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
-| Locale / Timezone               | 待审计   | 待填写                                      | 是       | `locale:*`、`timezone`        | 待填写        | `language(s)`、timezone                | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
-| Screen / Window / DPR           | 待审计   | 待填写                                      | 是       | `screen.*`、`window.*`        | 待填写        | `screen`、DPR、`windowScreenX/Y`       | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
-| History                         | 待审计   | 待填写                                      | 是       | `window.history.length`       | 待填写        | `historyLength`                        | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
-| Canvas raw/export               | 待审计   | `materialized replay seed` 或 `unavailable` | 是       | `canvas:seed`                 | 待证明        | `canvas.rawHash` / `canvas.exportHash` | 否                 | 待证明     | 由 Artifact diff 决定 | configured    | digest 排除不能作稳定证据 |
-| Audio                           | 待审计   | `materialized replay seed` 或 `unavailable` | 是       | `audio:seed`                  | 待证明        | `audioHash`                            | 待填写             | 待证明     | 由 Artifact diff 决定 | configured    | —                         |
-| WebGL / WebGL2                  | 待审计   | 待填写                                      | 是       | `webGl:*`、`webGl2:*`         | 待填写        | vendor/renderer/summary                | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
-| Fonts / metrics                 | 待审计   | explicit + replay seed 或 `unavailable`     | 是       | `fonts`、`fonts:spacing_seed` | 待证明        | availability/widths                    | inherit 时部分排除 | 待证明     | 由 Artifact diff 决定 | configured    | 必须保留 host-bound 边界  |
-| Voices                          | 待审计   | 待填写                                      | 是       | `voices`                      | 待填写        | `voices`                               | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
-| Media devices                   | 待审计   | 待填写                                      | 是       | `mediaDevices:*`              | 待填写        | `mediaDevices`                         | 待填写             | 相同       | 由 Artifact diff 决定 | configured    | —                         |
-| Browser/process/session entropy | 待审计   | `run/session non-identity entropy`          | 否       | 无                            | 比较前排除    | session/process receipt                | 否                 | 可不同     | 可不同                | observed      | 不得混入身份向量          |
+| 表面/随机源                     | producer                                        | 生命周期分类                        | 身份相关 | `resolvedConfig` key          | 固定/派生机制                                             | first-party 观察字段                                     | 是否进入 digest v2   | A1/A2 预期               | A/B 预期                                    | evidence 状态 | 排除/待办原因                                           |
+| ------------------------------- | ----------------------------------------------- | ----------------------------------- | -------- | ----------------------------- | --------------------------------------------------------- | -------------------------------------------------------- | -------------------- | ------------------------ | ------------------------------------------- | ------------- | ------------------------------------------------------- |
+| UA / Navigator                  | Artifact generator；Camoufox MaskConfig         | Artifact explicit value             | 是       | `navigator.*`                 | 10 个显式 navigator 值覆盖 BrowserForge 候选              | UA、app/name/version/product、platform、oscpu、hardware  | 是                   | 显式字段必须相同         | 仅 `hardwareConcurrency` 应按静态 diff 分离 | configured    | `maxTouchPoints` 单列，不能伪装成 Artifact 控制         |
+| Headers                         | Artifact generator；Camoufox 请求层             | Artifact explicit value             | 是       | `headers.Accept-Encoding`     | 完整 sent config 重放                                     | 当前 JS probe 无可靠 header 通道                         | 否                   | 配置必须相同             | A/B 配置相同                                | configured    | 实际请求头观察为 `unavailable`                          |
+| Locale / Timezone               | Artifact generator；Camoufox MaskConfig         | Artifact explicit value             | 是       | `locale:*`、`timezone`        | 语言、地区、script 与 IANA timezone 显式重放              | `language(s)`、timezone、UTC offset                      | 是                   | 必须相同                 | A/B 配置相同                                | configured    | Direct-only；不宣称与网络出口协调                       |
+| Screen / Window / DPR           | Artifact generator；Camoufox；Firefox UI        | explicit + host-bound               | 是       | `screen.*`、`window.*`        | screen/outer/screen offset 显式；inner/DPR 由固定引擎派生 | `screen`、DPR、完整 `windowGeometry`、session screen X/Y | 部分                 | Artifact-backed 必须相同 | 仅静态 screen/offset diff 对应字段应分离    | configured    | inner geometry 与 DPR 不能从 config 推断为 `applied`    |
+| History                         | Artifact generator；Camoufox MaskConfig         | Artifact explicit value             | 是       | `window.history.length`       | 显式值阻止每次 launch 的随机 history 候选                 | `historyLength`                                          | 是                   | 必须相同                 | 应按静态 diff 分离                          | configured    | —                                                       |
+| Canvas raw/export               | Artifact generator；Camoufox canvas patch       | materialized replay seed            | 是       | `canvas:seed`                 | 同一 materialized seed 交给固定引擎                       | `canvas.rawHash` / `canvas.exportHash`                   | 否                   | 两个 hash 均必须相同     | seed 不同，观察差异由真实结果决定           | configured    | export 历史上曾漂移；真实 A1/A2 是硬 Gate               |
+| Audio                           | Artifact generator；Camoufox audio patch        | materialized replay seed            | 是       | `audio:seed`                  | 同一 materialized seed 交给固定引擎                       | `audioHash`                                              | 是                   | 必须相同                 | seed 不同，观察差异由真实结果决定           | configured    | —                                                       |
+| WebGL / WebGL2                  | Artifact generator；固定 Camoufox 数据库        | Artifact explicit value             | 是       | `webGl:*`、`webGl2:*`         | vendor/renderer/参数/扩展/precision 已物化；候选只补缺失  | WebGL1/WebGL2 vendor、renderer、summary、availability    | WebGL1 部分          | 逐字段必须相同           | A/B 配置相同                                | configured    | probe 是摘要，未覆盖全部 shader precision               |
+| Fonts / metrics                 | Artifact generator；Camoufox font patch         | explicit + materialized replay seed | 是       | `fonts`、`fonts:spacing_seed` | 字体列表与 spacing seed 均物化                            | injected availability、固定 universe widths、负控        | inherit 时部分排除   | 逐字段必须相同           | fonts/seed diff 对应字段由真实结果决定      | configured    | `fontMode=inherit`，完整宿主字体集合仍 host-bound       |
+| Voices                          | Artifact generator；Camoufox voice patch        | Artifact explicit value             | 是       | `voices`                      | 完整 voice 列表已物化                                     | name/lang/URI/local/default                              | 是（保留 v2 旧形状） | 必须相同                 | A/B 配置相同                                | configured    | FP1 新增 default 只留在 `observedFull`                  |
+| Media devices                   | Artifact generator；Camoufox/Firefox fake media | Artifact explicit value             | 是       | `mediaDevices:*`              | enabled 与三类设备计数显式；Windows deterministic prefs   | `mediaDevices`、readiness/counts                         | 是                   | 必须相同                 | A/B 配置相同                                | configured    | 只证明当前固定引擎/本机                                 |
+| `navigator.maxTouchPoints`      | BrowserForge candidate；Firefox native          | currently unavailable / host-bound  | 是       | 无                            | candidate 经闭合 allowlist 审计后删除，最终采用 native 值 | `maxTouchPoints`                                         | 否                   | 同机观察并分类           | 不要求 A/B 不同                             | unavailable   | 未进入 v3；未知额外字段在 spawn 前 fail closed          |
+| Browser/process/session entropy | Host / OS / Playwright                          | run/session non-identity entropy    | 否       | 无                            | 不进入最终 `CAMOU_CONFIG`                                 | 明确标注的 session/process/Job/lock receipt              | 否                   | 可不同                   | 可不同                                      | observed      | UUID、PID、port、临时路径、时间戳、RPC correlation 排除 |
+
+实现审计还确认以下 RNG producer；这里区分“执行路径消费 RNG”与“最终身份被 RNG 改写”：
+
+| producer                         | 何时消费                                        | 候选影响面                                        | FP1 处置                                                                                      |
+| -------------------------------- | ----------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Python `random`                  | 每次 `launch_options()` 的 history/seeds 等候选 | history、Canvas/Audio/font seed、字体、voices     | 47-key Artifact 显式值/seed 先占位，`merge_into`/`set_into` 不覆盖；聚焦回归扰动并逐 key 比较 |
+| NumPy / BrowserForge RNG         | 每次 BrowserForge fingerprint 与 WebGL 候选     | Navigator、screen、WebGL，以及偶发 maxTouchPoints | Artifact 覆盖已声明字段；唯一已分类额外字段为 maxTouchPoints；未知 extra fail closed          |
+| Camoufox 字体/voice 子集随机选择 | 候选缺少 `fonts` / `voices` 时                  | 字体列表、voices                                  | v3 已显式物化，两条随机分支不改变最终投影                                                     |
+| Camoufox noise seed 生成         | 候选缺少三个 seed 时                            | Canvas、Audio、font spacing                       | v3 已物化三个 seed，候选随机 seed 不覆盖                                                      |
+| UUID / PID / port / path / time  | Host/session/probe/process 生命周期             | 无身份 config；仅运行 receipt                     | 归为 non-identity entropy；不得排除任何 Artifact-backed 浏览器观察字段                        |
+
+聚焦静态回归以同一 raw A Artifact 执行 100 组 Python/NumPy/允许环境熵扰动；每一组都必须逐 key、逐类型等于磁盘 47-key config。该回归不宣称 BrowserForge 没有运行，也不替代 A1/A2 浏览器观察。
 
 “待填写/待证明”是执行前工作，不是允许留到 Gate 之后的最终状态。最终表必须把
 每行归为 `configured`、`applied`、`observed`、`unavailable` 之一；只有满足本合同
@@ -250,6 +263,16 @@ Timeout 只冻结以下严格关系：
 `blocked: timeout_budget_unfrozen`，不得由执行 Agent自行选择方便的秒数。
 
 该硬化只改善错误归因和 fail-closed 返回，不得包装为第二 Host 底层挂起已经修复。
+
+FP1 实现审计没有得到可冻结的新严格 timeout 层级：direct Python harness 与
+test-only Rust M3-WI watchdog 均为 120 秒，但 production adapter 的初始 receipt
+窗口是另一条 5 秒合同，不能把其中任一个泛化为 standalone Host 的唯一父端；固定
+Playwright 1.60 的 persistent launch 默认是 180 秒，现有 `goto` 为 60 秒、supervisor
+metadata 为 5 秒、media readiness 为 8 秒，而 `new_page`、fonts/identity evaluate 与
+cookie RPC 没有独立 channel deadline。现有 cleanup 还包含没有总 deadline 的 server
+shutdown 与文件 I/O，因此也无法证明 cleanup 总预算。FP1 本轮据此只实现阶段诊断，
+不增加 operation/command deadline，不扩大任何父端 watchdog，也不把 timeout 层级写成
+已经关闭的 Gate。
 
 ## 9. 唯一真实验证矩阵
 
