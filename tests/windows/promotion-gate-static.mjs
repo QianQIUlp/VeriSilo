@@ -171,7 +171,7 @@ assert.equal(
   "environment/images/",
 );
 assert.deepEqual(JSON.parse(resetConfig).bundle.resources, []);
-assert.deepEqual(JSON.parse(unsignedConfig).bundle.externalBin, []);
+assert.equal(JSON.parse(unsignedConfig).bundle.externalBin, null);
 assert.deepEqual(JSON.parse(unsignedConfig).bundle.resources, []);
 assert.equal(
   JSON.parse(unsignedConfig).bundle.windows.nsis.installerHooks,

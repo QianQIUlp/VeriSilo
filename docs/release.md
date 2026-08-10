@@ -230,8 +230,9 @@ failure. This wiring still requires a real standard-user NSIS
 install/upgrade/uninstall run on Windows 10 and Windows 11. Merely constructing
 the installer from signed inputs is not that E2E evidence.
 
-The unsigned workflow adds `tauri.unsigned.conf.json` last. That override clears
-`externalBin`, `resources`, and `installerHooks`, producing a desktop-only NSIS
+The unsigned workflow adds `tauri.unsigned.conf.json` last. That override removes
+the inherited `externalBin` key with an RFC 7396 `null`, and clears `resources`
+and `installerHooks`, producing a desktop-only NSIS
 instead of invoking unsigned PS1 under `AllSigned`. The loose Host/resources are
 still staged and hashed for the exact-candidate promotion harness, which
 registers the Host explicitly and does not treat the unsigned installer as an
