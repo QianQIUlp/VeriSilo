@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use verisilo_desktop_lib::{
     domain::{
         BrowserKind, CreateSiloInput, NetworkProfile, RuntimeEvidenceState,
-        RuntimeNetworkEvidenceProvenance, RuntimeState, VaultLockState,
+        RuntimeNetworkEvidenceProvenance, RuntimeState, SiloExecutionTarget, VaultLockState,
     },
     engine::SiloEngineConfig,
     launcher::{profile_in_use, LauncherError, RuntimeManager},
@@ -245,6 +245,7 @@ fn run() -> Result<(), String> {
         network_profile: NetworkProfile::Direct {
             proxy_required: false,
         },
+        execution_target: SiloExecutionTarget::Local,
         engine: SiloEngineConfig::default(),
         proxy_credentials: None,
         mihomo_controller_secret: None,
