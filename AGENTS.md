@@ -11,7 +11,12 @@
 
 当前防漂移原则：
 
-- Standard Silo 长期保留，但近期优先关闭 Camoufox Managed Engine 的执行风险；
+- Camoufox Managed Engine 的风险优先验证已经到达终局：M3-0 contract Gate
+  已关闭，原生 Windows M3-WI 因同源码多 Host 启动仍非确定而失败；不得继续拆分
+  R3/R4 或新的 test-only 子 Gate；
+- Camoufox 保留为 experimental Managed Engine 研究线，不得宣称为默认、shipped
+  或 production-ready；当前工程优先级回到原生 Windows Standard Silo 的可运行
+  用户垂直切片；
 - Profile、Identity Artifact、Engine、Network Policy 和 Evidence 是不同生命周期；
 - M2-W 必须在原生 Windows 完成，Linux/WSL/Wine 结果不能替代；
 - M2-W 通过前不接入 Tauri/EngineAdapter；
@@ -19,4 +24,5 @@
 - 不把 `configured`、`applied`、`observed`、`verified` 或 `unavailable` 混为一谈；
 - 主脑既不能完全不审阅执行结果，也不能默认把执行 Agent 的全部劳动重做一遍。
 
-当前具体 Gate 以状态页为准。若状态页与实现或证据冲突，停止推进并让负责主脑解决事实源冲突，不要自行选择更方便的结论。
+当前具体 Gate 以状态页为准。若状态页与实现或证据冲突，停止推进并让负责主脑解决事实源冲突，不要自行选择更方便的结论。Standard Silo 产品任务不得顺手修改
+Camoufox Host、Managed Artifact、代理、WSL、Remote、虚拟化或发布签名。

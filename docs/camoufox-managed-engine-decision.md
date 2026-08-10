@@ -2,7 +2,7 @@
 
 - 状态：**Accepted**
 - 决策形成：2026-08-03
-- 最后确认：2026-08-09
+- 最后确认：2026-08-10
 
 本文记录为什么 VeriSilo 当前优先完成 Camoufox Managed Engine，而不是继续扩张控制面、自研 Chromium，或把虚拟化当成指纹层。
 
@@ -114,6 +114,29 @@ JavaScript getter 覆盖、扩展和 stealth 插件只能处理部分表面信�
 - 产品需要直接控制 Chromium TLS/QUIC 或 V8 特有行为；
 - Camoufox 维护停止、许可证/分发条件不再可接受，或关键缺陷长期无法修复；
 - 产品收入和团队规模能够支持固定上游版本、patch stack、多平台构建和持续升级。
+
+## 2026-08-10 Windows 产品化重评
+
+Camoufox-first 仍是第一条 Managed Identity Engine 的 Accepted 架构方向，M0–M2-W
+和 M3-0 也继续是有效 checkpoint；本次重评不切换到 Controlled Chromium，也不删除
+standalone Host 或 Resolved Identity Artifact。
+
+但原生 Windows M3-WI 的真实桌面集成没有关闭。R2 曾在同一 Profile 上完成十周期
+真实 soak，随后同一 Host/test 源码的 Host matrix 在六次尝试中只有一次通过；最后的
+R2H 预声明序列又在第三项 persistence 的第二 Host `launch` 等待 120 秒后失败。第一
+Host 已干净退出、Job active process count 为零，test-only 的锁释放与 stderr drain
+修正仍不能使多 Host 启动确定。
+
+因此作出以下当前产品决策：
+
+- M3-WI 为 **failed**，不再创建 R3、R4 或新的 test-only 子 Gate；
+- Camoufox Windows Managed 集成标记为 **experimental**，暂停 productionization；
+- M3-0 contract 能力不等于 shipped Managed Silo，既有 `verified: false` 边界不变；
+- 当前实现优先级回到 Standard Silo Windows 的可运行用户垂直切片；
+- 只有获得可复现的第二 Host 启动因果解释，或新的明确产品需求与资源后，主脑才可
+  重新冻结一次 Managed Windows 产品任务；历史单次绿色 receipt 不能作为重开理由。
+
+这项重评结束的是当前风险验证阶段，不是否定 Managed Identity 的长期产品层。
 
 ## 后果
 
