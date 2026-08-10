@@ -24,12 +24,19 @@ import time
 import traceback
 import uuid
 from pathlib import Path
-from threading import Thread
+from threading import Lock, Thread
 from typing import Any, Callable, Optional
 from unittest import mock
 
 import host_v1
-from host_platform import JobHandle, IS_WINDOWS, process_creation_time, process_identity_alive
+from host_platform import (
+    JobHandle,
+    IS_WINDOWS,
+    ProfileLock,
+    probe_supervisor_lock,
+    process_creation_time,
+    process_identity_alive,
+)
 from browser_tree import TreeIntegrityError, build_tree_manifest, verify_tree
 from identity_policy import compute_artifact_digest, configured_identity_digest
 from host_v1 import (
@@ -53,6 +60,13 @@ RUNS_ROOT = Path(
         "VERISILO_WINDOWS_HOST_RUNS_ROOT",
         REPO_ROOT / "artifacts" / "camoufox-m2-windows-gate" / "runs",
     )
+)
+TEST_STDERR_MAX_BYTES = 64 * 1024
+DIAGNOSTIC_SECRET_MARKERS = (
+    "M3-WI-VAULT-TOKEN-SENTINEL-DO-NOT-EMIT",
+    "M3-WI-PROXY-USERNAME-SENTINEL-DO-NOT-EMIT",
+    "M3-WI-PROXY-PASSWORD-SENTINEL-DO-NOT-EMIT",
+    "R2-CLOSE-SECRET-SENTINEL",
 )
 
 
@@ -79,6 +93,126 @@ def _readline_with_timeout(stream: Any, timeout: float) -> bytes:
     return value
 
 
+def _session_state_receipt(state_root: Path) -> list[dict[str, Any]]:
+    """Return only bounded, non-secret lifecycle fields from Host state."""
+    if not state_root.is_dir():
+        return []
+    receipts: list[dict[str, Any]] = []
+    for session_dir in sorted(state_root.iterdir(), key=lambda path: path.name):
+        if not session_dir.is_dir() or len(receipts) >= 8:
+            continue
+        state_file = session_dir / "session.json"
+        if not state_file.is_file():
+            continue
+        try:
+            value = json.loads(state_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            receipts.append({"sessionId": session_dir.name, "stateFile": "unreadable"})
+            continue
+        if not isinstance(value, dict):
+            receipts.append({"sessionId": session_dir.name, "stateFile": "invalid"})
+            continue
+        process_tree = value.get("processTreeExit")
+        job = process_tree.get("job") if isinstance(process_tree, dict) else None
+        close_outcome = value.get("closeOutcome")
+        receipts.append(
+            {
+                "sessionId": session_dir.name,
+                "state": value.get("state"),
+                "profileId": value.get("profileId"),
+                "exitStatus": value.get("exitStatus"),
+                "exitFileObserved": value.get("exitFileObserved"),
+                "closeOutcomeStatus": (
+                    close_outcome.get("status")
+                    if isinstance(close_outcome, dict)
+                    else None
+                ),
+                "processTreeExited": (
+                    process_tree.get("exited")
+                    if isinstance(process_tree, dict)
+                    else None
+                ),
+                "jobActiveProcessCount": (
+                    job.get("activeProcessCount") if isinstance(job, dict) else None
+                ),
+                "quarantined": value.get("quarantine") is not None,
+            }
+        )
+    return receipts
+
+
+def observe_profile_lease(profile_root: Path, profile_id: str) -> dict[str, Any]:
+    """Probe both Windows profile-lock bytes without retaining either lease."""
+    lock_path = profile_root / f"{profile_id}.lock"
+    if not lock_path.exists():
+        return {
+            "lockFileExists": False,
+            "profileByteAvailable": None,
+            "supervisorByteAvailable": None,
+        }
+    profile_available = False
+    try:
+        lock = ProfileLock.acquire(lock_path)
+        lock.release()
+        profile_available = True
+    except OSError:
+        profile_available = False
+    supervisor_available = probe_supervisor_lock(lock_path) if IS_WINDOWS else True
+    return {
+        "lockFileExists": True,
+        "profileByteAvailable": profile_available,
+        "supervisorByteAvailable": supervisor_available,
+    }
+
+
+def wait_for_profile_lease_release(
+    profile_root: Path,
+    state_root: Path,
+    profile_id: str,
+    session_id: str,
+    expected_state: str,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    """Wait on the persisted state and OS lock receipt, not a guessed delay."""
+    deadline = time.monotonic() + timeout
+    last: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        sessions = _session_state_receipt(state_root)
+        session = next(
+            (item for item in sessions if item.get("sessionId") == session_id),
+            None,
+        )
+        lock = observe_profile_lease(profile_root, profile_id)
+        last = {"session": session, "lock": lock}
+        if (
+            session is not None
+            and session.get("state") == expected_state
+            and session.get("closeOutcomeStatus") is not None
+            and lock.get("profileByteAvailable") is True
+            and lock.get("supervisorByteAvailable") is True
+        ):
+            return {
+                "status": "released",
+                "expectedState": expected_state,
+                "session": session,
+                "lock": lock,
+            }
+        time.sleep(0.05)
+    raise TimeoutError(
+        "profile lease release was not observed: "
+        + json.dumps(last, separators=(",", ":"), sort_keys=True)
+    )
+
+
+class HostTransportTimeout(TimeoutError):
+    def __init__(self, receipt: dict[str, Any]) -> None:
+        self.receipt = receipt
+        super().__init__(
+            "Host stdout response timed out during "
+            f"{receipt.get('command')} ({receipt.get('phase')})"
+        )
+
+
 class HostProc:
     def __init__(
         self,
@@ -88,6 +222,14 @@ class HostProc:
         probe_port: int = 0,
     ) -> None:
         self.lines: list[str] = []
+        self.profile_root = Path(profile_root)
+        self.state_root = Path(state_root)
+        self.transport: list[dict[str, Any]] = []
+        self._active_command: Optional[str] = None
+        self._active_started: Optional[float] = None
+        self._stderr_buffer = bytearray()
+        self._stderr_truncated = False
+        self._stderr_lock = Lock()
         self.cmd = [
             str(__import__("sys").executable),
             str(HOST_PY),
@@ -109,6 +251,52 @@ class HostProc:
             stderr=subprocess.PIPE,
             cwd=HOST_DIR,
         )
+        self._stderr_thread = Thread(target=self._drain_stderr, daemon=True)
+        self._stderr_thread.start()
+
+    def _drain_stderr(self) -> None:
+        if self.proc.stderr is None:
+            return
+        while True:
+            chunk = self.proc.stderr.read(4096)
+            if not chunk:
+                return
+            with self._stderr_lock:
+                if len(self._stderr_buffer) < TEST_STDERR_MAX_BYTES:
+                    remaining = TEST_STDERR_MAX_BYTES - len(self._stderr_buffer)
+                    self._stderr_buffer.extend(chunk[:remaining])
+                    if len(chunk) > remaining:
+                        self._stderr_truncated = True
+                else:
+                    self._stderr_truncated = True
+
+    def _stderr_snapshot(self) -> tuple[bytes, bool]:
+        with self._stderr_lock:
+            return bytes(self._stderr_buffer), self._stderr_truncated
+
+    def _diagnostic_receipt(
+        self, command: str, started: float, outcome: str
+    ) -> dict[str, Any]:
+        stderr, truncated = self._stderr_snapshot()
+        text = stderr.decode("utf-8", errors="replace")
+        return {
+            "command": command,
+            "phase": "stdout-response",
+            "outcome": outcome,
+            "durationMs": int((time.monotonic() - started) * 1000),
+            "childPid": self.proc.pid,
+            "childExitCode": self.proc.poll(),
+            "stderrBytes": len(stderr),
+            "stderrTruncated": truncated,
+            "stderrSha256": hashlib.sha256(stderr).hexdigest(),
+            "stderrSecretFree": not any(
+                marker in text for marker in DIAGNOSTIC_SECRET_MARKERS
+            ),
+            "state": _session_state_receipt(self.state_root),
+        }
+
+    def transport_receipt(self) -> list[dict[str, Any]]:
+        return [dict(item) for item in self.transport]
 
     def read_response(self, timeout: float = 120.0) -> dict:
         if self.proc.stdout is None:
@@ -127,10 +315,28 @@ class HostProc:
     def send(self, obj: dict, timeout: float = 120.0, crlf: bool = False) -> dict:
         if self.proc.stdin is None:
             raise RuntimeError("Host stdin is unavailable")
-        payload = json.dumps(obj, separators=(",", ":")).encode("utf-8")
-        self.proc.stdin.write(payload + (b"\r\n" if crlf else b"\n"))
-        self.proc.stdin.flush()
-        return self.read_response(timeout)
+        command = str(obj.get("command", "unknown"))
+        started = time.monotonic()
+        self._active_command = command
+        self._active_started = started
+        try:
+            payload = json.dumps(obj, separators=(",", ":")).encode("utf-8")
+            self.proc.stdin.write(payload + (b"\r\n" if crlf else b"\n"))
+            self.proc.stdin.flush()
+            response = self.read_response(timeout)
+        except TimeoutError as exc:
+            receipt = self._diagnostic_receipt(command, started, "timeout")
+            self.transport.append(receipt)
+            raise HostTransportTimeout(receipt) from exc
+        except Exception:
+            self.transport.append(self._diagnostic_receipt(command, started, "exception"))
+            raise
+        else:
+            self.transport.append(self._diagnostic_receipt(command, started, "response"))
+            return response
+        finally:
+            self._active_command = None
+            self._active_started = None
 
     def send_raw(self, payload: bytes, timeout: float = 30.0) -> dict:
         if self.proc.stdin is None:
@@ -193,9 +399,11 @@ class HostProc:
             assert isinstance(parsed, dict)
 
     def stderr_text(self) -> str:
-        if self.proc.poll() is None or self.proc.stderr is None:
+        if self.proc.poll() is None:
             raise RuntimeError("Host stderr is available only after exact child exit")
-        return self.proc.stderr.read().decode("utf-8", errors="replace")
+        self._stderr_thread.join(timeout=2)
+        stderr, _ = self._stderr_snapshot()
+        return stderr.decode("utf-8", errors="replace")
 
 
 def fresh_roots() -> tuple[tempfile.TemporaryDirectory[str], Path, Path]:
@@ -321,6 +529,7 @@ def test_persistence() -> dict:
     tmp, profile_root, state_root = fresh_roots()
     host1 = HostProc(profile_root, state_root)
     port = 0
+    lease_receipts: list[dict[str, Any]] = []
     try:
         first = host1.launch(ARTIFACT, "windows-persist")
         assert first["ok"] is True, first
@@ -333,6 +542,15 @@ def test_persistence() -> dict:
             closed["result"]["processTreeExit"]["job"]["activeProcessCount"] == 0
         ), closed
         host1.shutdown()
+        lease_receipts.append(
+            wait_for_profile_lease_release(
+                profile_root,
+                state_root,
+                "windows-persist",
+                first_result["sessionId"],
+                "exited",
+            )
+        )
     finally:
         host1.kill()
 
@@ -364,6 +582,15 @@ def test_persistence() -> dict:
         assert sqlite["fileExists"] is True and sqlite["cookieNamePresent"] is True
         assert sqlite["cookieRows"] >= 1
         host2.shutdown()
+        lease_receipts.append(
+            wait_for_profile_lease_release(
+                profile_root,
+                state_root,
+                "windows-persist",
+                second_result["sessionId"],
+                "exited",
+            )
+        )
         return {
             "status": "passed",
             "bootCounts": [first_result["bootCountAfter"], second_result["bootCountAfter"]],
@@ -374,6 +601,9 @@ def test_persistence() -> dict:
             ],
             "observedWebsiteDigest": second_result["observedWebsiteDigest"],
             "cookieSqlite": sqlite,
+            "leaseReceipts": lease_receipts,
+            "transportDiagnostics": host1.transport_receipt()
+            + host2.transport_receipt(),
         }
     finally:
         host2.kill()
@@ -384,6 +614,7 @@ def test_profile_lock_and_crash_recovery() -> dict:
     tmp, profile_root, state_root = fresh_roots()
     host1 = HostProc(profile_root, state_root)
     host2 = HostProc(profile_root, state_root)
+    lease_receipts: list[dict[str, Any]] = []
     try:
         first = host1.launch(ARTIFACT, "windows-lock")
         assert first["ok"] is True, first
@@ -393,6 +624,15 @@ def test_profile_lock_and_crash_recovery() -> dict:
         closed = host1.close(first["result"]["sessionId"])
         assert closed["ok"] is True
         host1.shutdown()
+        lease_receipts.append(
+            wait_for_profile_lease_release(
+                profile_root,
+                state_root,
+                "windows-lock",
+                first["result"]["sessionId"],
+                "exited",
+            )
+        )
 
         crashed = host2.launch(ARTIFACT, "windows-crash")
         assert crashed["ok"] is True, crashed
@@ -419,25 +659,38 @@ def test_profile_lock_and_crash_recovery() -> dict:
             and status["result"]["state"] == "failed"
             and status["result"].get("closeOutcome") is not None
         ), status
-        relaunch = None
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            candidate = host2.launch(ARTIFACT, "windows-crash")
-            if candidate.get("ok") is True:
-                relaunch = candidate
-                break
-            assert candidate.get("error", {}).get("code") == "profile_in_use", candidate
-            time.sleep(0.1)
-        assert relaunch is not None
+        lease_receipts.append(
+            wait_for_profile_lease_release(
+                profile_root,
+                state_root,
+                "windows-crash",
+                session_id,
+                "failed",
+            )
+        )
+        relaunch = host2.launch(ARTIFACT, "windows-crash")
         assert relaunch["ok"] is True, relaunch
-        host2.close(relaunch["result"]["sessionId"])
+        relaunched_closed = host2.close(relaunch["result"]["sessionId"])
+        assert relaunched_closed["ok"] is True, relaunched_closed
         host2.shutdown()
+        lease_receipts.append(
+            wait_for_profile_lease_release(
+                profile_root,
+                state_root,
+                "windows-crash",
+                relaunch["result"]["sessionId"],
+                "exited",
+            )
+        )
         return {
             "status": "passed",
             "profileInUse": second["error"]["code"],
             "crashState": status["result"]["state"],
             "relaunch": True,
             "jobName": meta["jobName"],
+            "leaseReceipts": lease_receipts,
+            "transportDiagnostics": host1.transport_receipt()
+            + host2.transport_receipt(),
         }
     finally:
         host1.kill()
@@ -1208,9 +1461,83 @@ TESTS: list[tuple[str, Callable[[], dict]]] = [
     ("tree-integrity", test_tree_missing_extra_modified_rejection),
     ("pid-reuse", test_pid_reuse_creation_time),
 ]
+SINGLE_TESTS = dict(TESTS)
+
+
+def run_single_test(name: str) -> int:
+    """Run one deterministic R2H case in its caller-owned receipt root."""
+    if not IS_WINDOWS:
+        print("M2-W requires a real Windows host")
+        return 2
+    test = SINGLE_TESTS.get(name)
+    if test is None:
+        raise ValueError(f"unsupported single Host test: {name}")
+    empty_cache = os.environ.get("VERISILO_WINDOWS_HOST_EMPTY_CACHE")
+    if empty_cache:
+        cache_root = Path(empty_cache).resolve()
+        if cache_root.exists():
+            raise RuntimeError("required empty Windows Host regression cache already exists")
+        cache_root.parent.mkdir(parents=True, exist_ok=True)
+        os.environ["VERISILO_CAMOUFOX_CACHE_DIR"] = str(cache_root)
+    RUNS_ROOT.mkdir(parents=True, exist_ok=True)
+    run_id = new_run_id()
+    run_dir = RUNS_ROOT / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
+    print(f"RUN {name} run-id={run_id}")
+    try:
+        result = test()
+        result["runId"] = run_id
+        report_file, report_sha = write_gate_report(run_dir, result)
+        result["reportFile"] = report_file
+        result["reportSha256"] = report_sha
+        status = "passed"
+        error = None
+        print(f"PASS {name} run-id={run_id}")
+    except Exception as exc:  # noqa: BLE001 - receipt-producing test boundary
+        result = {
+            "status": "failed",
+            "runId": run_id,
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+        }
+        if isinstance(exc, HostTransportTimeout):
+            result["transportDiagnostic"] = exc.receipt
+        report_file, report_sha = write_gate_report(run_dir, result)
+        result["reportFile"] = report_file
+        result["reportSha256"] = report_sha
+        status = "failed"
+        error = result["error"]
+        print(f"FAIL {name} run-id={run_id}: {error}")
+    summary = {
+        "schema": "verisilo-camoufox-m3-wi-r2h-single-test/v1",
+        "generatedAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "test": name,
+        "runId": run_id,
+        "status": status,
+        "result": result,
+    }
+    summary_path = RUNS_ROOT / f"summary-{int(time.time())}.json"
+    summary_bytes = (json.dumps(summary, indent=2, ensure_ascii=False) + "\n").encode(
+        "utf-8"
+    )
+    summary_path.write_bytes(summary_bytes)
+    summary_sha = hashlib.sha256(summary_bytes).hexdigest()
+    summary_sidecar = summary_path.with_suffix(".sha256")
+    summary_sidecar.write_text(
+        f"{summary_sha}  {summary_path.name}\n", encoding="utf-8", newline="\n"
+    )
+    print(f"single-summary-file={summary_path.relative_to(REPO_ROOT).as_posix()}")
+    print(f"single-summary-sha256={summary_sha}")
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    return 0 if error is None else 1
 
 
 def main() -> int:
+    if "--single-test" in sys.argv[1:]:
+        index = sys.argv.index("--single-test")
+        if len(sys.argv) != index + 2:
+            raise ValueError("--single-test requires exactly one test name")
+        return run_single_test(sys.argv[index + 1])
     if "--close-context-regression" in sys.argv[1:]:
         result = test_close_context_regression()
         print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -1283,6 +1610,8 @@ if __name__ == "__main__":
     if sys.argv[1:] == ["--close-context-regression"]:
         print(json.dumps(test_close_context_regression(), sort_keys=True))
         raise SystemExit(0)
+    if len(sys.argv) == 3 and sys.argv[1] == "--single-test":
+        raise SystemExit(main())
     if sys.argv[1:]:
         raise SystemExit("unsupported arguments")
     raise SystemExit(main())
