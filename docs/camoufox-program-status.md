@@ -15,7 +15,7 @@
 | M3 研究分支                 | `codex/camoufox-m3-engine-adapter` / `186484feb935076766beab09595a9270f86f78ef`                             | 本地未 push；保留完整 M3-0 与失败的 M3-WI 研究历史                         |
 | M3-0 accepted checkpoint    | `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`                                                                  | fake Host / EngineAdapter contract Gate 已关闭                             |
 | M3-WI 终局 checkpoint       | `186484feb935076766beab09595a9270f86f78ef`                                                                  | R2H 第三项 persistence 失败；没有 Accepted manifest                        |
-| Standard 产品分支           | `codex/standard-silo-windows-preview` / `5b09f042795e257d594d80d89a7a81ce943abdea`                          | 产品候选 `b93259a` 已形成；首次真实验收 failed，未 push                    |
+| Standard 产品分支           | `codex/standard-silo-windows-preview` / `aa72eadaf8300d1cd33a2c32173c06e3e677ca89`                         | Profile Isolation Windows local Preview passed；unsigned，未 push          |
 | 已合并 PR                   | [#12](https://github.com/QianQIUlp/VeriSilo/pull/12) / [#10](https://github.com/QianQIUlp/VeriSilo/pull/10) | M2-W 证据与 Camoufox standalone 已进入 `main`                              |
 
 `d596afd` 与 `1bf0854` 是已接受的 standalone checkpoint。M3 研究分支没有 push，
@@ -118,6 +118,21 @@ tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`�
   smoke，unsigned 构建不得作为 Accepted、正式 installer 或 shipped 产品使用；不自动
   重试，不读取用户 Edge Profile，也不删除或改写现场。
 
+## Standard/Profile Isolation Windows local Preview 收口
+
+- 最终产品 checkpoint 为 `aa72eadaf8300d1cd33a2c32173c06e3e677ca89` / tree
+  `cd126770be02a33c6bb698853813512748b894c8`。原生 Windows Server 上的 source-bound
+  desktop-core acceptance、Edge A/B Profile 与冷启动持久化、默认 Profile metadata
+  前后核对及真实 Preview smoke 已通过；上节记录的历史默认 Profile 影响仍保持
+  **unknown**，本次 metadata 一致只证明本次没有新增影响。
+- 交付物是 **unsigned local Preview**，不是签名 installer、shipped release 或正式发布。
+  已验证平台是 Windows Server；正常 Windows 10/11 client release matrix 仍待补充。
+- Standard/Profile Isolation 只包含独立 Profile、网站状态持久化、单活 ownership 和本机
+  Chrome/Edge 生命周期。它不包含 Managed Identity、设备或浏览器指纹虚拟化、代理隔离、
+  WSL/Remote/Hyper-V 或整机虚拟化。
+- Camoufox 仍在独立 Managed Engine 工作树继续调查，不进入这条产品集成链。Profile
+  隔离层从本 checkpoint 起冻结；除真实回归缺陷外不再扩张。
+
 ## 当前 Gate
 
 | Gate                                            | 状态                                             |
@@ -127,7 +142,7 @@ tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`�
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；仅 fake Host contract** |
 | 原生 Windows M3-WI 真实桌面集成                 | **Failed；Gate 关闭，不再重试**                  |
 | Camoufox Windows Managed 产品化                 | **Experimental；暂停**                           |
-| Standard Silo Windows 用户垂直切片              | **首次执行 failed；候选保留，未 Accepted**       |
+| Standard Silo Windows 用户垂直切片              | **Local Preview passed；unsigned，待 client matrix** |
 
 ## Git 集成历史
 
@@ -155,11 +170,10 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 
 ## 下一阶段
 
-Standard Silo 仍是当前产品主线，但 `b93259a` 只是未 Accepted 候选。任何后续真实验收
-必须由用户重新明确授权，并作为一次独立、安全收口的 acceptance-only 任务：从同一
-产品 commit 出发，使用文件版本元数据而不是启动浏览器探测版本，在启动前先记录默认
-Profile 指纹，所有 app data 与测试 Profile 使用 run-owned root。不得顺手修改产品、
-重建证据系统或隐去本次默认 Profile 影响 unknown 的历史。
+Standard/Profile Isolation Windows local Preview 已在 `aa72ead` 通过并冻结。下一步仅做
+主线集成准备与正常 Windows 10/11 client release matrix；不重复扩张 Profile 隔离层，
+不把 unsigned Preview 改写成 shipped release。Camoufox Managed Engine 继续留在独立
+工作树调查，不进入 Standard 产品集成链。
 
 ## 已知边界
 

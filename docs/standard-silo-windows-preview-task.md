@@ -1,6 +1,17 @@
 # Standard Silo Windows 可运行垂直切片
 
-状态：**冻结执行合同**。精确起始 commit 由主脑派发时指定。
+状态：**已完成并冻结**。Profile Isolation Windows local Preview 在
+`aa72eadaf8300d1cd33a2c32173c06e3e677ca89` / tree
+`cd126770be02a33c6bb698853813512748b894c8` 通过。
+
+## 收口状态
+
+- 当前交付是 unsigned local Preview，不是签名 installer 或 shipped release。
+- 已在原生 Windows Server 验证；正常 Windows 10/11 client release matrix 尚待补充。
+- 能力边界停在独立 Profile、网站状态持久化、单活 ownership 与本机 Chrome/Edge
+  生命周期；不包含 Managed Identity、指纹虚拟化、代理隔离或整机虚拟化。
+- Camoufox 继续在独立 Managed Engine 工作树调查，不属于本产品线集成。
+- Profile 隔离层现已冻结；除真实回归缺陷外不继续扩张。
 
 ## 目标
 
