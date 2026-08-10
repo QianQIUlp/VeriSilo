@@ -238,6 +238,11 @@ still staged and hashed for the exact-candidate promotion harness, which
 registers the Host explicitly and does not treat the unsigned installer as an
 integration result.
 
+The Native Host Cargo binary is also gated by the non-default `native-host`
+feature. Host staging enables that feature explicitly; ordinary Tauri builds do
+not, so Tauri cannot auto-bundle the `src/bin` target as an additional project
+binary after the external sidecar override has been cleared.
+
 ## Authenticode boundary
 
 `authenticode-gate.ps1` treats EXE and PS1 as one signable boundary. Its modes are
