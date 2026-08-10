@@ -15,7 +15,7 @@
 | M3 研究分支                 | `codex/camoufox-m3-engine-adapter` / `186484feb935076766beab09595a9270f86f78ef`                             | 本地未 push；保留完整 M3-0 与失败的 M3-WI 研究历史                         |
 | M3-0 accepted checkpoint    | `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`                                                                  | fake Host / EngineAdapter contract Gate 已关闭                             |
 | M3-WI 终局 checkpoint       | `186484feb935076766beab09595a9270f86f78ef`                                                                  | R2H 第三项 persistence 失败；没有 Accepted manifest                        |
-| Standard 产品分支           | `codex/standard-silo-windows-preview`，起点 `8de389d`                                                       | 当前唯一开放实现主线                                                       |
+| Standard 产品分支           | `codex/standard-silo-windows-preview` / `5b09f042795e257d594d80d89a7a81ce943abdea`                          | 产品候选 `b93259a` 已形成；首次真实验收 failed，未 push                    |
 | 已合并 PR                   | [#12](https://github.com/QianQIUlp/VeriSilo/pull/12) / [#10](https://github.com/QianQIUlp/VeriSilo/pull/10) | M2-W 证据与 Camoufox standalone 已进入 `main`                              |
 
 `d596afd` 与 `1bf0854` 是已接受的 standalone checkpoint。M3 研究分支没有 push，
@@ -100,6 +100,24 @@ tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`�
 - 主脑终局：**M3-WI failed**。Camoufox Windows Managed 集成为 experimental，
   productionization 暂停；不再创建 R3/R4 或新的 test-only 子 Gate。
 
+## Standard Silo Windows preview 首次执行
+
+- 主脑合同提交为 `944dff9`；产品候选为 `b93259a` / tree `76eb5f3`，只修改创建页、
+  UI contract test、样式和人工 Windows runbook。
+- 候选让 Edge-only/Chrome-only 机器自动选择首个有效浏览器，默认路径收敛到
+  Local + Direct；WSL、手工路径与网络配置进入高级设置；本机 stock Silo 运行时短周期
+  核对状态，并诚实展示 `native`、`inherit`、`unavailable`。
+- `pnpm` check/test/build、desktop Rust fmt/test 和 unsigned desktop-only build 通过；
+  起点已有的两项 WSL Clippy warning 未在本任务越界修复。既有 Windows acceptance
+  driver 缺少 `execution_target`，由 `5b09f04` 仅补 `SiloExecutionTarget::Local` 后编译通过。
+- 正式 Edge/desktop-core acceptance 没有开始。执行 Agent 错误地用裸
+  `msedge.exe --version` 探测版本，Edge 实际以默认 Profile 启动；虽从启动前零 Edge
+  进程出发并按精确根 PID 回收整个新进程树，因没有启动前 Profile 指纹，默认 Profile
+  是否被修改为 **unknown**。
+- 主脑 Gate：**failed**。没有 desktop-core receipt、browser E2E summary 或真实 preview
+  smoke，unsigned 构建不得作为 Accepted、正式 installer 或 shipped 产品使用；不自动
+  重试，不读取用户 Edge Profile，也不删除或改写现场。
+
 ## 当前 Gate
 
 | Gate                                            | 状态                                             |
@@ -109,7 +127,7 @@ tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`�
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；仅 fake Host contract** |
 | 原生 Windows M3-WI 真实桌面集成                 | **Failed；Gate 关闭，不再重试**                  |
 | Camoufox Windows Managed 产品化                 | **Experimental；暂停**                           |
-| Standard Silo Windows 用户垂直切片              | **当前唯一开放实现主线**                         |
+| Standard Silo Windows 用户垂直切片              | **首次执行 failed；候选保留，未 Accepted**       |
 
 ## Git 集成历史
 
@@ -137,10 +155,11 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 
 ## 下一阶段
 
-从 `origin/main=8de389d` 的独立产品分支完成 Standard Silo Windows 最薄用户旅程：
-真实桌面端初始化 Vault，自动发现本机 Chrome/Edge，创建 Local + Direct Standard Silo，
-使用独立 Profile 启动、关闭、重开并确认状态保留，同时诚实显示 `native`、`inherit`
-和 `unavailable` 能力。任务不得修改 Camoufox、代理、WSL、Remote、虚拟化或签名发布。
+Standard Silo 仍是当前产品主线，但 `b93259a` 只是未 Accepted 候选。任何后续真实验收
+必须由用户重新明确授权，并作为一次独立、安全收口的 acceptance-only 任务：从同一
+产品 commit 出发，使用文件版本元数据而不是启动浏览器探测版本，在启动前先记录默认
+Profile 指纹，所有 app data 与测试 Profile 使用 run-owned root。不得顺手修改产品、
+重建证据系统或隐去本次默认 Profile 影响 unknown 的历史。
 
 ## 已知边界
 
