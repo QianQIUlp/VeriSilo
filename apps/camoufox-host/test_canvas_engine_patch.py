@@ -36,6 +36,18 @@ PATCH_PATH = (
     / "v152.0.4-beta.28"
     / "0001-verisilo-canvas-export-key.patch"
 )
+BUILD_RECIPE_ROOT = (
+    REPO_ROOT / "apps" / "camoufox-host" / "build" / "canvas-engine-v1"
+)
+DOCKERFILE_PATH = BUILD_RECIPE_ROOT / "Dockerfile"
+STRICT_BUILD_PATH = BUILD_RECIPE_ROOT / "strict_build.py"
+BUILD_HOST_PATH = BUILD_RECIPE_ROOT / "build_host.py"
+BASE_INDEX_DIGEST = (
+    "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea"
+)
+BASE_AMD64_MANIFEST_DIGEST = (
+    "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467"
+)
 
 UPSTREAM_REPO: Path | None = None
 FIREFOX_SOURCE_ARCHIVE: Path | None = None
@@ -107,6 +119,52 @@ def test_source_lock_contract() -> None:
     assert build["supportedBuildExecutionEnvironment"] == "linux"
     assert "Docker" in build["supportedPhysicalHostWrapper"]
     assert build["unsupportedBuildRoutes"] == ["direct native-Windows", "WSL"]
+    assert build["ociBase"] == {
+        "reference": "docker.io/library/ubuntu:24.04",
+        "indexDigest": BASE_INDEX_DIGEST,
+        "linuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
+        "resolvedAtUtc": "2026-08-11T05:46:36Z",
+        "resolutionSource": "Docker Hub registry v2 manifest response",
+    }
+    recipe = build["recipe"]
+    assert recipe["name"] == "camoufox-152.0.4-beta.28-canvas-engine-v1"
+    assert recipe["fixedEnvironment"] == {
+        "BUILD_TARGET": "windows,x86_64",
+        "CARGO_BUILD_JOBS": "1",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "MOZ_BUILD_DATE": "20260811045234",
+        "TZ": "Etc/UTC",
+    }
+    assert recipe["sharedMozbuildCacheAllowed"] is False
+    assert recipe["oneShotRunDirectoryRequired"] is True
+    assert build["resourceGate"]["minimumFreeBytes"] == 80 * 1024**3
+    assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
+    assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
+    assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
+    assert build["builderImageBinding"] is None
+    assert set(build["builderImageBindingRequiredFields"]) == {
+        "imageId",
+        "savedArchiveSha256",
+        "savedArchiveSizeBytes",
+        "recipeSourceCommit",
+        "recipeSourceTree",
+        "recipeSourceLockSha256",
+        "dockerfileSha256",
+        "baseIndexDigest",
+        "baseLinuxAmd64ManifestDigest",
+        "buildxLogSha256",
+        "buildxLogSizeBytes",
+        "buildxMetadataSha256",
+        "imageInspectSha256",
+        "hostToolingSha256",
+    }
+    assert build["runtimeContainer"] == {
+        "readOnlyRoot": True,
+        "inputMount": "/inputs read-only",
+        "distinctEmptyReadWriteMounts": ["/build-home", "/work", "/out"],
+        "dpkgClosureMustRemainStable": True,
+    }
     assert any(
         "SHA-512 verification" in requirement
         for requirement in build["requiredBeforeRuntime"]
@@ -229,6 +287,104 @@ def test_tracked_downstream_patch_digest() -> None:
     assert item["path"] == PATCH_PATH.relative_to(REPO_ROOT).as_posix()
     assert item["sha256"] == _sha256(PATCH_PATH)
     assert item["sizeBytes"] == PATCH_PATH.stat().st_size
+
+
+def test_pinned_oci_build_recipe_is_closed() -> None:
+    lock = _load_lock()
+    build = lock["buildBinding"]
+    recipe = build["recipe"]
+    expected_paths = [
+        DOCKERFILE_PATH.relative_to(REPO_ROOT).as_posix(),
+        STRICT_BUILD_PATH.relative_to(REPO_ROOT).as_posix(),
+        BUILD_HOST_PATH.relative_to(REPO_ROOT).as_posix(),
+    ]
+    assert [item["path"] for item in recipe["files"]] == expected_paths
+    for item in recipe["files"]:
+        path = REPO_ROOT / item["path"]
+        assert path.is_file()
+        assert path.stat().st_size == item["sizeBytes"]
+        assert _sha256(path) == item["sha256"]
+
+    dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+    assert dockerfile.splitlines()[0] == (
+        "FROM ubuntu:24.04@" + BASE_INDEX_DIGEST
+    )
+    assert "ubuntu:latest" not in dockerfile
+    assert f'org.opencontainers.image.base.digest="{BASE_INDEX_DIGEST}"' in dockerfile
+    assert (
+        f'io.verisilo.base.linux-amd64-manifest="{BASE_AMD64_MANIFEST_DIGEST}"'
+        in dockerfile
+    )
+    assert "COPY strict_build.py /usr/local/bin/verisilo-camoufox-strict-build" in dockerfile
+    assert 'ENTRYPOINT ["python3", "/usr/local/bin/verisilo-camoufox-strict-build"]' in dockerfile
+
+    driver = STRICT_BUILD_PATH.read_text(encoding="utf-8")
+    assert EXPECTED_DRIVER_MARKERS <= set(driver.splitlines())
+    ordered_markers = [
+        'label="setup-minimal"',
+        'label=f"upstream-patch-{index:02d}"',
+        'label="verisilo-canvas-patch"',
+        'label="configure-windows-x86_64-and-bootstrap-toolchains"',
+        'label="build-windows-x86_64"',
+        'label="package-windows-x86_64"',
+    ]
+    assert [driver.index(marker) for marker in ordered_markers] == sorted(
+        driver.index(marker) for marker in ordered_markers
+    )
+    for forbidden in ("make fetch", "ubuntu:latest", "page.addInitScript"):
+        assert forbidden not in driver
+
+    host = BUILD_HOST_PATH.read_text(encoding="utf-8")
+    for marker in (
+        'commands.add_parser("prepare-image")',
+        'commands.add_parser("build-engine")',
+        '"--no-cache"',
+        '"--pull=false"',
+        '"--read-only"',
+        'dst=/inputs,readonly',
+    ):
+        assert marker in host
+
+
+EXPECTED_DRIVER_MARKERS = {
+    '        "--batch",',
+    '        "--forward",',
+    '        "--fuzz=0",',
+    '            raise BuildFailure(f"{label} failed with exit code {returncode}")',
+    '    if workspace.exists() or result_dir.exists():',
+    '        raise BuildFailure("one-shot run workspace/output already exists")',
+    '        _verify_seams(lock, source, "postUpstreamPatchSha256")',
+    '        _verify_seams(lock, source, "postDownstreamPatchSha256")',
+    "    mounts = validate_mounts()",
+    '                BUILD_HOME, result_dir / "build-home-before-build.json"',
+    '                BUILD_HOME, result_dir / "build-home-after-build.json"',
+    '            raise BuildFailure("container dpkg closure changed during the build")',
+    '        log.close()',
+}
+
+
+def test_build_recipe_covers_executed_upstream_inputs() -> None:
+    inputs = _load_lock()["sourceInputs"]
+    recipe_paths = {item["path"] for item in inputs["recipeFiles"]}
+    assert {
+        "Makefile",
+        "multibuild.py",
+        "scripts/_mixin.py",
+        "scripts/copy-additions.sh",
+        "scripts/package.py",
+        "scripts/patch.py",
+        "patches/librewolf/pack_vs.py",
+        "assets/base.mozconfig",
+        "assets/windows.mozconfig",
+    } <= recipe_paths
+    tree_paths = {item["path"] for item in inputs["inputTrees"]}
+    assert {
+        "additions",
+        "settings",
+        "assets",
+        "bundle/fonts/macos",
+        "bundle/fonts/linux",
+    } == tree_paths
 
 
 def test_upstream_patch_order_is_closed() -> None:

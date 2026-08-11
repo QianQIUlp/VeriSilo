@@ -326,9 +326,24 @@
         "sizeBytes": 8449
       },
       {
+        "path": "scripts/_mixin.py",
+        "sha256": "e798db2dd10e4ef1e0409156e79a4f4e5b96b519fe67ce8d90f385e48a53acd3",
+        "sizeBytes": 3810
+      },
+      {
+        "path": "scripts/copy-additions.sh",
+        "sha256": "c1f72fe8e015d6d0576894de29192d0a5ae75fe7bac57d3f63b20e7f8f38499b",
+        "sizeBytes": 2231
+      },
+      {
         "path": "scripts/package.py",
         "sha256": "9e278fa4328d5f07f860fb79ef1ef067f439a5d068be32b3bb06cce52f31070f",
         "sizeBytes": 6290
+      },
+      {
+        "path": "patches/librewolf/pack_vs.py",
+        "sha256": "425a73fcfb5e40d0113b6e0e3a71bbf6bec921f727d3298748a81a568d48e592",
+        "sizeBytes": 4287
       },
       {
         "path": ".github/workflows/build.yml",
@@ -375,6 +390,18 @@
         "fileCount": 7,
         "totalBytes": 50273,
         "canonicalTreeSha256": "e289169a6b12fac714e77e98588d9e99f27f358823d519e5a5db0911c5a76e1d"
+      },
+      {
+        "path": "bundle/fonts/macos",
+        "fileCount": 355,
+        "totalBytes": 595326474,
+        "canonicalTreeSha256": "3e826922d8e0ecf4d94aacd6d2f723d884e52d16e30461d2101edc1d386957ad"
+      },
+      {
+        "path": "bundle/fonts/linux",
+        "fileCount": 143,
+        "totalBytes": 42270388,
+        "canonicalTreeSha256": "30b4f9ddd2cec18427a563c2c83b1ee92dc87ff65329f54402f47b0c25b29ccc"
       }
     ],
     "downstreamPatches": [
@@ -403,10 +430,94 @@
     "supportedBuildExecutionEnvironment": "linux",
     "supportedPhysicalHostWrapper": "upstream Linux Docker container supports all physical host platforms",
     "officialReferenceHost": "ubuntu-24.04",
+    "ociBase": {
+      "reference": "docker.io/library/ubuntu:24.04",
+      "indexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+      "linuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+      "resolvedAtUtc": "2026-08-11T05:46:36Z",
+      "resolutionSource": "Docker Hub registry v2 manifest response"
+    },
+    "recipe": {
+      "name": "camoufox-152.0.4-beta.28-canvas-engine-v1",
+      "files": [
+        {
+          "path": "apps/camoufox-host/build/canvas-engine-v1/Dockerfile",
+          "sha256": "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43",
+          "sizeBytes": 1652
+        },
+        {
+          "path": "apps/camoufox-host/build/canvas-engine-v1/strict_build.py",
+          "sha256": "6f9e7594a5c66cc56ea7a83c2bf30bdf617f087fe8e031c97201cedafc6042f0",
+          "sizeBytes": 35116
+        },
+        {
+          "path": "apps/camoufox-host/build/canvas-engine-v1/build_host.py",
+          "sha256": "66fea2e03ff334a5b43765aae46e892107db2ef965861280c63f6a846c7660f1",
+          "sizeBytes": 29983
+        }
+      ],
+      "fixedEnvironment": {
+        "BUILD_TARGET": "windows,x86_64",
+        "CARGO_BUILD_JOBS": "1",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "MOZ_BUILD_DATE": "20260811045234",
+        "TZ": "Etc/UTC"
+      },
+      "order": [
+        "verify-bound-inputs",
+        "extract-firefox-source",
+        "mozbootstrap",
+        "apply-50-upstream-patches",
+        "verify-canvas-seam-preimages",
+        "apply-verisilo-canvas-patch",
+        "verify-canvas-seam-postimages",
+        "configure-windows-x86_64-and-bootstrap-toolchains",
+        "freeze-pre-build-toolchain-tree",
+        "build-windows-x86_64",
+        "package-windows-x86_64",
+        "freeze-post-build-toolchain-tree",
+        "freeze-candidate-archive"
+      ],
+      "sharedMozbuildCacheAllowed": false,
+      "oneShotRunDirectoryRequired": true
+    },
+    "resourceGate": {
+      "minimumFreeBytes": 85899345920,
+      "recommendedFreeBytes": 107374182400,
+      "configuredNominalSwapBytes": 25769803776,
+      "minimumSwapBytes": 25769799680,
+      "minimumLogicalCpu": 2,
+      "recommendedLogicalCpu": 4
+    },
+    "runtimeContainer": {
+      "readOnlyRoot": true,
+      "inputMount": "/inputs read-only",
+      "distinctEmptyReadWriteMounts": ["/build-home", "/work", "/out"],
+      "dpkgClosureMustRemainStable": true
+    },
+    "builderImageBindingRequiredFields": [
+      "imageId",
+      "savedArchiveSha256",
+      "savedArchiveSizeBytes",
+      "recipeSourceCommit",
+      "recipeSourceTree",
+      "recipeSourceLockSha256",
+      "dockerfileSha256",
+      "baseIndexDigest",
+      "baseLinuxAmd64ManifestDigest",
+      "buildxLogSha256",
+      "buildxLogSizeBytes",
+      "buildxMetadataSha256",
+      "imageInspectSha256",
+      "hostToolingSha256"
+    ],
+    "builderImageBinding": null,
     "status": "not-built",
     "binaryBinding": null,
     "requiredBeforeRuntime": [
       "immutable Linux build-environment image digest",
+      "saved builder image archive SHA-256",
       "exact toolchain and mach bootstrap artifact versions/digests",
       "Firefox source SHA-512 verification before extraction",
       "exact downstream recipe digest and logged upstream-patches -> VeriSilo-patch -> build -> package order",
