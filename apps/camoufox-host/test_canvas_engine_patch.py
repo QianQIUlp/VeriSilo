@@ -51,6 +51,38 @@ BASE_INDEX_DIGEST = (
 BASE_AMD64_MANIFEST_DIGEST = (
     "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467"
 )
+PREVIOUS_BUILDER_IMAGE_BINDING = {
+    "baseIndexDigest": BASE_INDEX_DIGEST,
+    "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
+    "buildxLogSha256": (
+        "85d27fa8166f744bfd47f1a2b78cd10447c6fca648e965a307f63b1f81371fbe"
+    ),
+    "buildxLogSizeBytes": 77446,
+    "buildxMetadataSha256": (
+        "e1ec869f7d7dc7d1d254fd626bffe31e267a00d5d6104034b5d98b839fe17744"
+    ),
+    "dockerfileSha256": (
+        "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43"
+    ),
+    "hostToolingSha256": (
+        "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
+    ),
+    "imageId": (
+        "sha256:6e66a3bc3443fcf0880f402c01f15a0b4d903f4ffb454c693b3a5a5dc86ffb0e"
+    ),
+    "imageInspectSha256": (
+        "960548242139490dc8935bb0dab34b3debe7459331d163db778db2799875dfcc"
+    ),
+    "recipeSourceCommit": "25e5c00e5d77ffe6348b21437aca080624a52f27",
+    "recipeSourceLockSha256": (
+        "28116c58ad91e84cf51f6fb502b2fb16231eed9b1ce5b1f0a86d50a7fba61718"
+    ),
+    "recipeSourceTree": "72c98daadb1bb028fde36aa0d7e184c0538adf3c",
+    "savedArchiveSha256": (
+        "571b0393b649f2d9f824895481ade486d73bd4fea30ae71f07be0347d6573cc1"
+    ),
+    "savedArchiveSizeBytes": 479035392,
+}
 
 UPSTREAM_REPO: Path | None = None
 FIREFOX_SOURCE_ARCHIVE: Path | None = None
@@ -60,6 +92,11 @@ PATCHED_SOURCE_TREE: Path | None = None
 
 def _load_lock() -> dict:
     return json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+
+
+def _builder_binding_for_tests() -> dict:
+    active = _load_lock()["buildBinding"]["builderImageBinding"]
+    return dict(active or PREVIOUS_BUILDER_IMAGE_BINDING)
 
 
 def _sha256(path: Path) -> str:
@@ -153,38 +190,7 @@ def test_source_lock_contract() -> None:
     assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
     assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
     assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
-    assert build["builderImageBinding"] == {
-        "baseIndexDigest": BASE_INDEX_DIGEST,
-        "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
-        "buildxLogSha256": (
-            "85d27fa8166f744bfd47f1a2b78cd10447c6fca648e965a307f63b1f81371fbe"
-        ),
-        "buildxLogSizeBytes": 77446,
-        "buildxMetadataSha256": (
-            "e1ec869f7d7dc7d1d254fd626bffe31e267a00d5d6104034b5d98b839fe17744"
-        ),
-        "dockerfileSha256": (
-            "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43"
-        ),
-        "hostToolingSha256": (
-            "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
-        ),
-        "imageId": (
-            "sha256:6e66a3bc3443fcf0880f402c01f15a0b4d903f4ffb454c693b3a5a5dc86ffb0e"
-        ),
-        "imageInspectSha256": (
-            "960548242139490dc8935bb0dab34b3debe7459331d163db778db2799875dfcc"
-        ),
-        "recipeSourceCommit": "25e5c00e5d77ffe6348b21437aca080624a52f27",
-        "recipeSourceLockSha256": (
-            "28116c58ad91e84cf51f6fb502b2fb16231eed9b1ce5b1f0a86d50a7fba61718"
-        ),
-        "recipeSourceTree": "72c98daadb1bb028fde36aa0d7e184c0538adf3c",
-        "savedArchiveSha256": (
-            "571b0393b649f2d9f824895481ade486d73bd4fea30ae71f07be0347d6573cc1"
-        ),
-        "savedArchiveSizeBytes": 479035392,
-    }
+    assert build["builderImageBinding"] is None
     assert set(build["builderImageBindingRequiredFields"]) == {
         "imageId",
         "savedArchiveSha256",
@@ -446,7 +452,7 @@ def test_host_launcher_creates_user_owned_binary_output() -> None:
 
 def test_host_launcher_verifies_historical_recipe_source_blobs() -> None:
     host = _load_python_file("canvas_engine_build_host_history", BUILD_HOST_PATH)
-    binding = _load_lock()["buildBinding"]["builderImageBinding"]
+    binding = _builder_binding_for_tests()
     verified = host._verify_historical_recipe_source(REPO_ROOT, binding)
     assert verified == {
         "commit": binding["recipeSourceCommit"],
@@ -577,7 +583,8 @@ def test_host_launcher_requires_exact_executable_tmpfs_contract() -> None:
 def test_host_launcher_prepared_record_types_are_fail_closed() -> None:
     host = _load_python_file("canvas_engine_build_host_records", BUILD_HOST_PATH)
     lock = _load_lock()
-    binding = lock["buildBinding"]["builderImageBinding"]
+    binding = _builder_binding_for_tests()
+    lock["buildBinding"]["builderImageBinding"] = binding
     source_run_id = "source-run-0001"
     fresh_run_id = "fresh-run-0001"
     source_owner = {
@@ -776,7 +783,7 @@ def test_host_launcher_prepares_fresh_run_from_frozen_bound_image_once() -> None
             "containerdVersion": "containerd 2.2.1",
         }
         lock = json.loads(json.dumps(_load_lock()))
-        binding = dict(lock["buildBinding"]["builderImageBinding"])
+        binding = _builder_binding_for_tests()
         binding.update(
             {
                 "buildxLogSha256": _sha256(source_provenance / "buildx.log"),
@@ -935,11 +942,14 @@ EXPECTED_DRIVER_MARKERS = {
     '        "--batch",',
     '        "--forward",',
     '        "--fuzz=0",',
+    '    "--fuzz=2",',
+    '    "--ignore-whitespace",',
     '            raise BuildFailure(f"{label} failed with exit code {returncode}")',
     '    if workspace.exists() or result_dir.exists():',
     '        raise BuildFailure("one-shot run workspace/output already exists")',
     '        _verify_seams(lock, source, "postUpstreamPatchSha256")',
     '        _verify_seams(lock, source, "postDownstreamPatchSha256")',
+    '        verify_patch_surface(',
     "    mounts = validate_mounts()",
     '                BUILD_HOME, result_dir / "build-home-before-build.json"',
     '                BUILD_HOME, result_dir / "build-home-after-build.json"',
@@ -981,6 +991,193 @@ def test_upstream_patch_order_is_closed() -> None:
     for item in patches:
         assert re.fullmatch(r"[0-9a-f]{64}", item["sha256"])
         assert type(item["sizeBytes"]) is int and item["sizeBytes"] > 0
+
+
+def test_upstream_patch_application_contract_and_commands() -> None:
+    driver = _load_python_file("canvas_engine_strict_patch_policy", STRICT_BUILD_PATH)
+    application = _load_lock()["sourceInputs"]["upstreamPatchApplication"]
+    assert application == {
+        "programVersion": "GNU patch 2.7.6",
+        "command": [
+            "patch",
+            "-p1",
+            "--batch",
+            "--binary",
+            "--forward",
+            "--ignore-whitespace",
+            "--fuzz=2",
+            "--no-backup-if-mismatch",
+            "-i",
+            "{patch}",
+        ],
+        "headerPairCount": 281,
+        "createdPathCount": 19,
+        "surfacePathCount": 222,
+        "pathListCanonicalization": (
+            "ordinal-sorted safe relative POSIX paths, UTF-8, each LF-terminated"
+        ),
+        "surfacePathListSha256": (
+            "6c4dd3fa1e6431773aaa4aa37173052761b43025df966a7438a4d34facde8ae6"
+        ),
+        "surfaceCanonicalization": (
+            "same path order; compact sorted-key UTF-8 JSON array; file rows "
+            "contain path,sha256,size,type=file; absent rows contain "
+            "path,type=absent; mode and mtime excluded"
+        ),
+        "prePatchSurface": {
+            "absentCount": 19,
+            "canonicalSurfaceSha256": (
+                "1a6f9fb5fc08efab2814d8cfbaa306d1202b82b044a2b743de3af95068089408"
+            ),
+            "fileCount": 203,
+            "surfacePathCount": 222,
+            "totalFileBytes": 13879593,
+        },
+        "postPatchSurface": {
+            "absentCount": 0,
+            "canonicalSurfaceSha256": (
+                "761da79324631c5cfccfb00e6621947c70fde9c392a83c7b9a0d8359cf70ca8d"
+            ),
+            "fileCount": 222,
+            "surfacePathCount": 222,
+            "totalFileBytes": 14068638,
+        },
+    }
+
+    upstream = driver.upstream_patch_command(Path("locked-upstream.patch"))
+    downstream = driver.downstream_patch_command(Path("verisilo.patch"))
+    assert "--ignore-whitespace" in upstream
+    assert "--fuzz=2" in upstream
+    assert "--fuzz=0" not in upstream
+    assert "--fuzz=0" in downstream
+    assert "--ignore-whitespace" not in downstream
+
+
+def test_patch_surface_parser_and_state_are_fail_closed() -> None:
+    driver = _load_python_file("canvas_engine_patch_surface", STRICT_BUILD_PATH)
+
+    def mini_lock(patch_name: str, patch_text: str, paths: list[str]) -> tuple[dict, Path]:
+        patch_path = upstream / patch_name
+        patch_path.write_text(patch_text, encoding="utf-8", newline="\n")
+        encoded = "".join(f"{path}\n" for path in sorted(paths)).encode("utf-8")
+        lock = {
+            "sourceInputs": {
+                "upstreamPatches": [{"path": patch_name}],
+                "upstreamPatchApplication": {
+                    "command": list(driver.EXPECTED_UPSTREAM_PATCH_COMMAND),
+                    "createdPathCount": 1,
+                    "headerPairCount": 2,
+                    "pathListCanonicalization": (
+                        "ordinal-sorted safe relative POSIX paths, UTF-8, each "
+                        "LF-terminated"
+                    ),
+                    "postPatchSurface": {},
+                    "prePatchSurface": {},
+                    "programVersion": driver.EXPECTED_UPSTREAM_PATCH_PROGRAM,
+                    "surfaceCanonicalization": (
+                        "same path order; compact sorted-key UTF-8 JSON array; "
+                        "file rows contain path,sha256,size,type=file; absent rows "
+                        "contain path,type=absent; mode and mtime excluded"
+                    ),
+                    "surfacePathCount": len(paths),
+                    "surfacePathListSha256": hashlib.sha256(encoded).hexdigest(),
+                },
+            }
+        }
+        return lock, patch_path
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        upstream = root / "upstream"
+        source = root / "source"
+        upstream.mkdir()
+        source.mkdir()
+        patch_text = """diff --git a/alpha.txt b/alpha.txt
+--- a/alpha.txt
++++ b/alpha.txt
+@@ -1 +1 @@
+-old
++new
+diff --git a/new.txt b/new.txt
+new file mode 100644
+--- /dev/null
++++ b/new.txt
+@@ -0,0 +1 @@
++created
+"""
+        lock, _ = mini_lock("surface.patch", patch_text, ["alpha.txt", "new.txt"])
+        paths, pairs, path_digest = driver.upstream_patch_surface(lock, upstream)
+        assert paths == ["alpha.txt", "new.txt"]
+        assert pairs == 2
+        assert path_digest == lock["sourceInputs"]["upstreamPatchApplication"][
+            "surfacePathListSha256"
+        ]
+
+        (source / "alpha.txt").write_text("old\n", encoding="utf-8", newline="\n")
+        pre = driver.patch_surface_state(source, paths)
+        assert pre["fileCount"] == 1
+        assert pre["absentCount"] == 1
+        assert pre["totalFileBytes"] == 4
+        (source / "new.txt").write_text(
+            "created\n", encoding="utf-8", newline="\n"
+        )
+        assert driver.patch_surface_state(source, paths) != pre
+
+        (source / "alpha.txt").unlink()
+        (source / "alpha.txt").mkdir()
+        try:
+            driver.patch_surface_state(source, paths)
+        except driver.BuildFailure:
+            pass
+        else:
+            raise AssertionError("a directory inside the patch surface was accepted")
+
+        malformed = {
+            "rename.patch": "--- a/alpha.txt\n+++ b/beta.txt\n",
+            "delete.patch": "--- a/alpha.txt\n+++ /dev/null\n",
+            "traversal.patch": "--- a/../escape.txt\n+++ b/../escape.txt\n",
+            "unpaired.patch": "--- a/alpha.txt\nnot-a-new-header\n",
+        }
+        for name, text in malformed.items():
+            bad_lock, _ = mini_lock(name, text, ["alpha.txt", "new.txt"])
+            try:
+                driver.upstream_patch_surface(bad_lock, upstream)
+            except driver.BuildFailure:
+                pass
+            else:
+                raise AssertionError(f"malformed upstream patch was accepted: {name}")
+
+
+def test_patch_program_version_is_fail_closed() -> None:
+    driver = _load_python_file("canvas_engine_patch_program", STRICT_BUILD_PATH)
+    completed = subprocess.CompletedProcess(
+        args=["patch", "--version"],
+        returncode=0,
+        stdout="GNU patch 9.9\n",
+        stderr="",
+    )
+    with tempfile.TemporaryDirectory() as temporary:
+        with mock.patch.object(driver.subprocess, "run", return_value=completed):
+            try:
+                driver.verify_patch_program(dict(), Path(temporary))
+            except driver.BuildFailure:
+                pass
+            else:
+                raise AssertionError("an unexpected GNU patch version was accepted")
+
+
+def test_exact_upstream_patch_surface_postimage() -> None:
+    if UPSTREAM_REPO is None or PATCHED_SOURCE_TREE is None:
+        raise SkipTest("pass exact upstream and patched source trees")
+    driver = _load_python_file("canvas_engine_exact_patch_surface", STRICT_BUILD_PATH)
+    lock = _load_lock()
+    paths, pairs, path_digest = driver.upstream_patch_surface(lock, UPSTREAM_REPO)
+    application = lock["sourceInputs"]["upstreamPatchApplication"]
+    assert pairs == application["headerPairCount"]
+    assert path_digest == application["surfacePathListSha256"]
+    assert driver.patch_surface_state(PATCHED_SOURCE_TREE, paths) == application[
+        "postPatchSurface"
+    ]
 
 
 def test_exact_firefox_source_archive() -> None:
@@ -1196,6 +1393,7 @@ def main() -> int:
         return 1
     expected_tracked_only_skips = {
         "test_exact_firefox_source_archive",
+        "test_exact_upstream_patch_surface_postimage",
         "test_exact_upstream_checkout_inputs",
         "test_patch_applies_to_exact_seam_preimages",
         "test_patched_source_seam_and_caller_graph",

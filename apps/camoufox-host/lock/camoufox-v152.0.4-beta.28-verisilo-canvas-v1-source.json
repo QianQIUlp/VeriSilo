@@ -52,6 +52,41 @@
   },
   "sourceInputs": {
     "upstreamPatchOrderRule": "recursive patches/**/*.patch sorted by basename; non-roverfox first, roverfox last",
+    "upstreamPatchApplication": {
+      "programVersion": "GNU patch 2.7.6",
+      "command": [
+        "patch",
+        "-p1",
+        "--batch",
+        "--binary",
+        "--forward",
+        "--ignore-whitespace",
+        "--fuzz=2",
+        "--no-backup-if-mismatch",
+        "-i",
+        "{patch}"
+      ],
+      "headerPairCount": 281,
+      "createdPathCount": 19,
+      "surfacePathCount": 222,
+      "pathListCanonicalization": "ordinal-sorted safe relative POSIX paths, UTF-8, each LF-terminated",
+      "surfacePathListSha256": "6c4dd3fa1e6431773aaa4aa37173052761b43025df966a7438a4d34facde8ae6",
+      "surfaceCanonicalization": "same path order; compact sorted-key UTF-8 JSON array; file rows contain path,sha256,size,type=file; absent rows contain path,type=absent; mode and mtime excluded",
+      "prePatchSurface": {
+        "absentCount": 19,
+        "canonicalSurfaceSha256": "1a6f9fb5fc08efab2814d8cfbaa306d1202b82b044a2b743de3af95068089408",
+        "fileCount": 203,
+        "surfacePathCount": 222,
+        "totalFileBytes": 13879593
+      },
+      "postPatchSurface": {
+        "absentCount": 0,
+        "canonicalSurfaceSha256": "761da79324631c5cfccfb00e6621947c70fde9c392a83c7b9a0d8359cf70ca8d",
+        "fileCount": 222,
+        "surfacePathCount": 222,
+        "totalFileBytes": 14068638
+      }
+    },
     "upstreamPatches": [
       {
         "path": "patches/playwright/0-playwright.patch",
@@ -447,8 +482,8 @@
         },
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/strict_build.py",
-          "sha256": "6f9e7594a5c66cc56ea7a83c2bf30bdf617f087fe8e031c97201cedafc6042f0",
-          "sizeBytes": 35116
+          "sha256": "a8f626d64c498b7aac87e74a85e5e31402e10538323949fdeffb8b45a9240444",
+          "sizeBytes": 44243
         },
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/build_host.py",
@@ -517,22 +552,7 @@
       "imageInspectSha256",
       "hostToolingSha256"
     ],
-    "builderImageBinding": {
-      "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
-      "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
-      "buildxLogSha256": "85d27fa8166f744bfd47f1a2b78cd10447c6fca648e965a307f63b1f81371fbe",
-      "buildxLogSizeBytes": 77446,
-      "buildxMetadataSha256": "e1ec869f7d7dc7d1d254fd626bffe31e267a00d5d6104034b5d98b839fe17744",
-      "dockerfileSha256": "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43",
-      "hostToolingSha256": "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b",
-      "imageId": "sha256:6e66a3bc3443fcf0880f402c01f15a0b4d903f4ffb454c693b3a5a5dc86ffb0e",
-      "imageInspectSha256": "960548242139490dc8935bb0dab34b3debe7459331d163db778db2799875dfcc",
-      "recipeSourceCommit": "25e5c00e5d77ffe6348b21437aca080624a52f27",
-      "recipeSourceLockSha256": "28116c58ad91e84cf51f6fb502b2fb16231eed9b1ce5b1f0a86d50a7fba61718",
-      "recipeSourceTree": "72c98daadb1bb028fde36aa0d7e184c0538adf3c",
-      "savedArchiveSha256": "571b0393b649f2d9f824895481ade486d73bd4fea30ae71f07be0347d6573cc1",
-      "savedArchiveSizeBytes": 479035392
-    },
+    "builderImageBinding": null,
     "status": "not-built",
     "binaryBinding": null,
     "requiredBeforeRuntime": [

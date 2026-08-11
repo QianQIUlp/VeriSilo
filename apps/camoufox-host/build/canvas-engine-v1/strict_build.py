@@ -26,7 +26,7 @@ import sys
 import tarfile
 import zipfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 VERISILO_ROOT = Path("/inputs/verisilo")
@@ -61,6 +61,19 @@ EXPECTED_BASE_AMD64_MANIFEST_DIGEST = (
 EXPECTED_OUTPUT = "camoufox-152.0.4-beta.28-win.x86_64.zip"
 EXPECTED_SOURCE_DIR = "camoufox-152.0.4-beta.28"
 DEFAULT_MOZ_BUILD_DATE = "20260811045234"
+EXPECTED_UPSTREAM_PATCH_PROGRAM = "GNU patch 2.7.6"
+EXPECTED_UPSTREAM_PATCH_COMMAND = [
+    "patch",
+    "-p1",
+    "--batch",
+    "--binary",
+    "--forward",
+    "--ignore-whitespace",
+    "--fuzz=2",
+    "--no-backup-if-mismatch",
+    "-i",
+    "{patch}",
+]
 
 
 class BuildFailure(RuntimeError):
@@ -353,7 +366,15 @@ def ordered_upstream_patch_paths(upstream: Path) -> list[str]:
     return normal + roverfox
 
 
-def strict_patch_command(patch_path: Path) -> list[str]:
+def upstream_patch_command(patch_path: Path) -> list[str]:
+    return [
+        *EXPECTED_UPSTREAM_PATCH_COMMAND[:-2],
+        "-i",
+        str(patch_path),
+    ]
+
+
+def downstream_patch_command(patch_path: Path) -> list[str]:
     return [
         "patch",
         "-p1",
@@ -365,6 +386,201 @@ def strict_patch_command(patch_path: Path) -> list[str]:
         "-i",
         str(patch_path),
     ]
+
+
+def _safe_patch_surface_path(value: str) -> str:
+    if (
+        not value
+        or value.startswith("/")
+        or "\\" in value
+        or "\x00" in value
+        or "\r" in value
+        or "\n" in value
+    ):
+        raise BuildFailure("upstream patch contains an unsafe surface path")
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise BuildFailure("upstream patch surface path is not canonical")
+    if PurePosixPath(value).as_posix() != value:
+        raise BuildFailure("upstream patch surface path is not POSIX-canonical")
+    return value
+
+
+def _patch_header_path(line: bytes, prefix: bytes) -> str | None:
+    if not line.startswith(prefix):
+        return None
+    raw = line[len(prefix) :]
+    if b"\t" in raw or raw.startswith(b'"'):
+        raise BuildFailure("upstream patch uses an unsupported file header")
+    try:
+        value = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise BuildFailure("upstream patch file header is not UTF-8") from exc
+    if value == "/dev/null":
+        return value
+    expected_root = "a/" if prefix == b"--- " else "b/"
+    if not value.startswith(expected_root):
+        raise BuildFailure("upstream patch file header has an invalid root")
+    return _safe_patch_surface_path(value[2:])
+
+
+def upstream_patch_surface(lock: dict, upstream: Path) -> tuple[list[str], int, str]:
+    application = lock["sourceInputs"].get("upstreamPatchApplication")
+    if type(application) is not dict:
+        raise BuildFailure("source lock has no upstream patch application contract")
+    expected_keys = {
+        "command",
+        "createdPathCount",
+        "headerPairCount",
+        "pathListCanonicalization",
+        "postPatchSurface",
+        "prePatchSurface",
+        "programVersion",
+        "surfaceCanonicalization",
+        "surfacePathCount",
+        "surfacePathListSha256",
+    }
+    if set(application) != expected_keys:
+        raise BuildFailure("upstream patch application contract field set is not exact")
+    if application.get("programVersion") != EXPECTED_UPSTREAM_PATCH_PROGRAM:
+        raise BuildFailure("upstream patch program version contract is not exact")
+    if application.get("command") != EXPECTED_UPSTREAM_PATCH_COMMAND:
+        raise BuildFailure("upstream patch command contract is not exact")
+    if application.get("pathListCanonicalization") != (
+        "ordinal-sorted safe relative POSIX paths, UTF-8, each LF-terminated"
+    ):
+        raise BuildFailure("upstream patch path canonicalization is not exact")
+    if application.get("surfaceCanonicalization") != (
+        "same path order; compact sorted-key UTF-8 JSON array; file rows contain "
+        "path,sha256,size,type=file; absent rows contain path,type=absent; mode and "
+        "mtime excluded"
+    ):
+        raise BuildFailure("upstream patch surface canonicalization is not exact")
+
+    paths: set[str] = set()
+    created_paths: set[str] = set()
+    header_pairs = 0
+    for item in lock["sourceInputs"]["upstreamPatches"]:
+        patch_path = upstream / item["path"]
+        pending_old: str | None = None
+        for line in patch_path.read_bytes().splitlines():
+            old_path = _patch_header_path(line, b"--- ")
+            if old_path is not None:
+                if pending_old is not None:
+                    raise BuildFailure("upstream patch has unpaired old file headers")
+                pending_old = old_path
+                continue
+            new_path = _patch_header_path(line, b"+++ ")
+            if new_path is None:
+                if pending_old is not None:
+                    raise BuildFailure(
+                        "upstream patch file headers are not directly paired"
+                    )
+                continue
+            if pending_old is None:
+                raise BuildFailure("upstream patch has an unpaired new file header")
+            if pending_old == "/dev/null" and new_path == "/dev/null":
+                raise BuildFailure("upstream patch has an empty file-header pair")
+            if pending_old != "/dev/null" and new_path != "/dev/null":
+                if pending_old != new_path:
+                    raise BuildFailure("upstream patch rename is not supported")
+                paths.add(pending_old)
+            elif pending_old == "/dev/null":
+                paths.add(new_path)
+                created_paths.add(new_path)
+            else:
+                raise BuildFailure("upstream patch deletion is not supported")
+            header_pairs += 1
+            pending_old = None
+        if pending_old is not None:
+            raise BuildFailure("upstream patch ends with an unpaired old file header")
+
+    ordered = sorted(paths)
+    encoded = "".join(f"{path}\n" for path in ordered).encode("utf-8")
+    path_list_sha256 = hashlib.sha256(encoded).hexdigest()
+    if header_pairs != application.get("headerPairCount"):
+        raise BuildFailure("upstream patch header-pair count differs from the lock")
+    if len(created_paths) != application.get("createdPathCount"):
+        raise BuildFailure("upstream patch created-path count differs from the lock")
+    if len(ordered) != application.get("surfacePathCount"):
+        raise BuildFailure("upstream patch surface path count differs from the lock")
+    if path_list_sha256 != application.get("surfacePathListSha256"):
+        raise BuildFailure("upstream patch surface path list differs from the lock")
+    return ordered, header_pairs, path_list_sha256
+
+
+def patch_surface_state(source: Path, paths: list[str]) -> dict:
+    source_root = source.resolve(strict=True)
+    rows: list[dict] = []
+    total = 0
+    file_count = 0
+    absent_count = 0
+    for value in paths:
+        safe_value = _safe_patch_surface_path(value)
+        relative = PurePosixPath(safe_value)
+        candidate = source.joinpath(*relative.parts)
+        cursor = source
+        for part in relative.parts[:-1]:
+            cursor /= part
+            if cursor.is_symlink():
+                raise BuildFailure("upstream patch surface has a symlink ancestor")
+            if not cursor.exists():
+                break
+        try:
+            candidate.resolve(strict=False).relative_to(source_root)
+        except ValueError as exc:
+            raise BuildFailure("upstream patch surface escapes the source root") from exc
+        try:
+            metadata = candidate.lstat()
+        except FileNotFoundError:
+            absent_count += 1
+            rows.append({"path": safe_value, "type": "absent"})
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            raise BuildFailure("upstream patch surface contains a non-regular file")
+        data = candidate.read_bytes()
+        total += len(data)
+        file_count += 1
+        rows.append(
+            {
+                "path": safe_value,
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "size": len(data),
+                "type": "file",
+            }
+        )
+    encoded = json.dumps(
+        rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return {
+        "absentCount": absent_count,
+        "canonicalSurfaceSha256": hashlib.sha256(encoded).hexdigest(),
+        "fileCount": file_count,
+        "surfacePathCount": len(paths),
+        "totalFileBytes": total,
+    }
+
+
+def verify_patch_surface(lock: dict, source: Path, paths: list[str], field: str) -> None:
+    application = lock["sourceInputs"]["upstreamPatchApplication"]
+    expected = application.get(field)
+    if type(expected) is not dict or patch_surface_state(source, paths) != expected:
+        raise BuildFailure(f"upstream patch surface mismatch at {field}")
+
+
+def verify_patch_program(environment: dict[str, str], source: Path) -> None:
+    completed = subprocess.run(
+        ["patch", "--version"],
+        cwd=source,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    first_line = completed.stdout.splitlines()[0] if completed.stdout else ""
+    if completed.returncode != 0 or first_line != EXPECTED_UPSTREAM_PATCH_PROGRAM:
+        raise BuildFailure("upstream patch program differs from the source lock")
 
 
 def validate_builder_identity(
@@ -785,20 +1001,32 @@ def execute(args: argparse.Namespace) -> dict:
             label="mozconfig-only",
         )
 
+        patch_surface_paths, _, _ = upstream_patch_surface(lock, upstream)
+        verify_patch_program(environment, source)
+        verify_patch_surface(
+            lock, source, patch_surface_paths, "prePatchSurface"
+        )
+        log.note("upstream patch program and pre-patch surface verified")
+
         patch_paths = lock["sourceInputs"]["upstreamPatches"]
         for index, item in enumerate(patch_paths, start=1):
             log.run(
-                strict_patch_command(upstream / item["path"]),
+                upstream_patch_command(upstream / item["path"]),
                 cwd=source,
                 env=environment,
                 label=f"upstream-patch-{index:02d}",
             )
             _reject_patch_debris(source)
+        verify_patch_surface(
+            lock, source, patch_surface_paths, "postPatchSurface"
+        )
         _verify_seams(lock, source, "postUpstreamPatchSha256")
-        log.note("all 50 upstream patches and Canvas seam preimages verified")
+        log.note(
+            "all 50 upstream patches, bounded patch surface and Canvas seams verified"
+        )
 
         log.run(
-            strict_patch_command(VERISILO_ROOT / DOWNSTREAM_PATCH_REL),
+            downstream_patch_command(VERISILO_ROOT / DOWNSTREAM_PATCH_REL),
             cwd=source,
             env=environment,
             label="verisilo-canvas-patch",
