@@ -93,11 +93,11 @@ EXPECTED_BUILDER_IMAGE_BINDING = {
     "baseIndexDigest": BASE_INDEX_DIGEST,
     "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
     "buildxLogSha256": (
-        "63d999b8b29da4ad5e620d5d280c064645543d300c748cb5a03d6408ba06eb73"
+        "478a16c900147a128bb989e985b37dcbab0a0c048103978a3cc2ee50e6045073"
     ),
-    "buildxLogSizeBytes": 77444,
+    "buildxLogSizeBytes": 77451,
     "buildxMetadataSha256": (
-        "15f4703082637053f5d5df63213ac59aca085cc5f65382d6afbd25a582e9e8ee"
+        "519578df92bf17e7c97fb362f34eafaf710d2259f6e2c9bbf97eb6488f0b358c"
     ),
     "dockerfileSha256": (
         "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43"
@@ -106,20 +106,20 @@ EXPECTED_BUILDER_IMAGE_BINDING = {
         "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
     ),
     "imageId": (
-        "sha256:f81000f9f2943b9c30cc42f16ea445979d2311f563e1ca89db3a4714e5250a58"
+        "sha256:ce94cc5a217e86aca893724e0b42f2b7e873416a3bfa810ba87b1f001cc7e7fa"
     ),
     "imageInspectSha256": (
-        "0d00d1bc702f1a860ec48c352d46ed56b352c9e5a50a22d231c9cb6ccc9e4200"
+        "3f07134030e9de6322f051e85e4e370d17bd9776737bdb80751848e0d4a893ea"
     ),
-    "recipeSourceCommit": "4b381949fc4863961b1ad052ff42dc7d2c9b3aaa",
+    "recipeSourceCommit": "4cd1a58b4949b2f34b48bacfd7fc26600646c396",
     "recipeSourceLockSha256": (
-        "ef41d7636eaf36b34318fa732041893d4318c9aaffb9524aac65b67dd2f54edb"
+        "b8667df1d94486b432ed83456fca14042aee3adb6ebca1caf9698705a7ece925"
     ),
-    "recipeSourceTree": "4d53237dc3eda2fadd29f62a82a1b8d47318af94",
+    "recipeSourceTree": "1bdd243482a5a10c55b89258e2543f4f71330078",
     "savedArchiveSha256": (
-        "ffd48339409da21e2013ee484e68871e58e777e1f27edf785518416b910ce1d1"
+        "97ab5713741e700588cda123b99132ae51f42a818dd2fd0ef997eb23f8aa54e3"
     ),
-    "savedArchiveSizeBytes": 479036416,
+    "savedArchiveSizeBytes": 479037440,
 }
 
 UPSTREAM_REPO: Path | None = None
@@ -315,7 +315,7 @@ def test_source_lock_contract() -> None:
     assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
     assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
     assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
-    assert build["builderImageBinding"] is None
+    assert build["builderImageBinding"] == EXPECTED_BUILDER_IMAGE_BINDING
     assert set(build["builderImageBindingRequiredFields"]) == {
         "imageId",
         "savedArchiveSha256",
