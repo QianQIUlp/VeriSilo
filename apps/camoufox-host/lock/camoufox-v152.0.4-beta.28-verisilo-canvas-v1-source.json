@@ -581,8 +581,8 @@
       "files": [
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/Dockerfile",
-          "sha256": "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43",
-          "sizeBytes": 1652
+          "sha256": "ae3e28d39c2c996d0c70f6fbd4b182f4e1585eb79fd7fc662e50b158300e5e6d",
+          "sizeBytes": 1981
         },
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/strict_build.py",
@@ -641,6 +641,23 @@
       "inputMount": "/inputs read-only",
       "distinctEmptyReadWriteMounts": ["/build-home", "/work", "/out"],
       "dpkgClosureMustRemainStable": true,
+      "hostRuntime": {
+        "policy": "closed",
+        "requiredDpkgPackages": [
+          {
+            "name": "libc6",
+            "architecture": "amd64",
+            "version": "2.39-0ubuntu8.8"
+          },
+          {
+            "name": "libc6-i386",
+            "architecture": "amd64",
+            "version": "2.39-0ubuntu8.8"
+          }
+        ],
+        "requiredExecutablePaths": ["/lib/ld-linux.so.2"],
+        "foreignArchitectures": []
+      },
       "tmpfs": {
         "path": "/tmp",
         "options": ["rw", "nosuid", "nodev", "exec", "mode=1777", "size=4g"],
@@ -663,22 +680,7 @@
       "imageInspectSha256",
       "hostToolingSha256"
     ],
-    "builderImageBinding": {
-      "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
-      "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
-      "buildxLogSha256": "8c7532fbc9d4874306bfad5136bd74332529c1fc361a5a71ffd0a8cb01de6aef",
-      "buildxLogSizeBytes": 77456,
-      "buildxMetadataSha256": "9076e67ff7eb51e394163d01911d6db076d57c973fea97eb532b5c75cc903f78",
-      "dockerfileSha256": "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43",
-      "hostToolingSha256": "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b",
-      "imageId": "sha256:96826cfb0c308b3ca635766a5fce082a5d47235a9b116a64636778717e2eaf52",
-      "imageInspectSha256": "101c846bf07ec7489da09af85cfca2b45c167e6cbd0fc691da359abb825a62a8",
-      "recipeSourceCommit": "a1e336c55bd15a1b44b281ddcac49fd5133673f7",
-      "recipeSourceLockSha256": "9d71f1afab5921e1698c75590dc2f017fd098de34e80d613d70a60ab74a239e8",
-      "recipeSourceTree": "41e35b2ebc1d9db311bcac28d4eff95ff3dcebdf",
-      "savedArchiveSha256": "1d65ff726c17a9dd1cb2836121dd121665068f2a66e0065268130a65ed466295",
-      "savedArchiveSizeBytes": 479039488
-    },
+    "builderImageBinding": null,
     "status": "not-built",
     "binaryBinding": null,
     "requiredBeforeRuntime": [

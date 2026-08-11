@@ -28,6 +28,7 @@ RUN apt-get update \
         git \
         golang-go \
         gzip \
+        libc6-i386=2.39-0ubuntu8.8 \
         libsqlite3-dev \
         lld-18 \
         make \
@@ -46,6 +47,10 @@ RUN apt-get update \
         wget \
         xz-utils \
         zip \
+    && test "$(dpkg-query -W -f='${Architecture}=${Version}' libc6-i386)" = "amd64=2.39-0ubuntu8.8" \
+    && test "$(dpkg-query -W -f='${Architecture}=${Version}' libc6)" = "amd64=2.39-0ubuntu8.8" \
+    && test -x /lib/ld-linux.so.2 \
+    && test -z "$(dpkg --print-foreign-architectures)" \
     && update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-18 100 \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /build-home /inputs /out /work

@@ -62,6 +62,23 @@ BASE_INDEX_DIGEST = (
 BASE_AMD64_MANIFEST_DIGEST = (
     "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467"
 )
+EXPECTED_HOST_RUNTIME = {
+    "policy": "closed",
+    "requiredDpkgPackages": [
+        {
+            "name": "libc6",
+            "architecture": "amd64",
+            "version": "2.39-0ubuntu8.8",
+        },
+        {
+            "name": "libc6-i386",
+            "architecture": "amd64",
+            "version": "2.39-0ubuntu8.8",
+        },
+    ],
+    "requiredExecutablePaths": ["/lib/ld-linux.so.2"],
+    "foreignArchitectures": [],
+}
 EXPECTED_VS_MANIFEST_SHA256 = (
     "ffeef9c51797082dbfef5f6608d75638d3ca3cb11c17cef9f8deea9fde58c188"
 )
@@ -325,7 +342,7 @@ def test_source_lock_contract() -> None:
     assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
     assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
     assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
-    assert build["builderImageBinding"] == EXPECTED_BUILDER_IMAGE_BINDING
+    assert build["builderImageBinding"] is None
     assert set(build["builderImageBindingRequiredFields"]) == {
         "imageId",
         "savedArchiveSha256",
@@ -347,6 +364,7 @@ def test_source_lock_contract() -> None:
         "inputMount": "/inputs read-only",
         "distinctEmptyReadWriteMounts": ["/build-home", "/work", "/out"],
         "dpkgClosureMustRemainStable": True,
+        "hostRuntime": EXPECTED_HOST_RUNTIME,
         "tmpfs": {
             "path": "/tmp",
             "options": [
@@ -979,6 +997,31 @@ def test_pinned_oci_build_recipe_is_closed() -> None:
     )
     assert "COPY strict_build.py /usr/local/bin/verisilo-camoufox-strict-build" in dockerfile
     assert 'ENTRYPOINT ["python3", "/usr/local/bin/verisilo-camoufox-strict-build"]' in dockerfile
+
+    host_runtime = build["runtimeContainer"]["hostRuntime"]
+    assert host_runtime == EXPECTED_HOST_RUNTIME
+    pinned_i386 = "libc6-i386=2.39-0ubuntu8.8"
+    assert re.search(
+        rf"(?m)^\s+{re.escape(pinned_i386)}\s+\\$", dockerfile
+    )
+    assert not re.search(r"(?m)^\s+libc6-i386\s+\\$", dockerfile)
+    assert "dpkg --add-architecture" not in dockerfile
+    assert "libc6:i386" not in dockerfile
+    assert not re.search(r"\b[\w.+-]+:i386\b", dockerfile)
+    for package in host_runtime["requiredDpkgPackages"]:
+        query = (
+            'test "$(dpkg-query -W -f=\'${Architecture}=${Version}\' '
+            + package["name"]
+            + ')" = "'
+            + package["architecture"]
+            + "="
+            + package["version"]
+            + '"'
+        )
+        assert query in dockerfile
+    for path in host_runtime["requiredExecutablePaths"]:
+        assert f"test -x {path}" in dockerfile
+    assert 'test -z "$(dpkg --print-foreign-architectures)"' in dockerfile
 
     driver = STRICT_BUILD_PATH.read_text(encoding="utf-8")
     assert EXPECTED_DRIVER_MARKERS <= set(driver.splitlines())
