@@ -505,3 +505,91 @@ runner、freezer/finalizer、manifest/schema、历史 receipt 或本次 Profile/
 进入 FP2 前仍缺：先对 `observed.media` 内的具体 Playwright RPC 建立有界失败归因和单一
 focused regression，再由新授权执行完整 A1→A2→B1。当前没有 A1/A2 指纹逐字段结果，
 所以不能宣称同一 Artifact 已稳定重放、Canvas raw/export 稳定、A/B 已分离或 FP1 passed。
+
+### 2026-08-11 续执行结论
+
+**Blocked（`blocked-upstream`）。** 这不是 FP1 Accepted，也不改变 M3-WI 的
+`failed` / `experimental` 状态。实现从 `68861a37923f7fcd44f68f1435cc808c87fcc496`
+/ tree `dfe3c5cf9d4d66b23aac1af7886e5426b6266b67` 起步，冻结为
+`bc153f13c18af9f7404e3cb6674e3b29a18de800` / tree
+`e3a788f6a06de9a8860b9c3bfe6ad0583f7f534d`；真实浏览器启动前工作树 clean，运行期间
+没有修改源码。
+
+media readiness 是 full probe 前的可选 Runtime Evidence，不是 Artifact 应用成功的 Host
+launch hard barrier。完整 probe 返回的实际计数才是 `observed`；即使与 configured 不同
+也仍是 observed mismatch，只有无法可靠返回才是 unavailable。旧 helper 的 8 秒本地
+deadline 只在无界 Playwright `evaluate` / wait RPC 返回后检查，因此不能先于父端 watchdog
+产生 typed terminal。本次修复加入 browser enumerate 最多 3 秒、Python channel 最多
+7.75 秒、250 ms response/cancel margin 和 8 秒 media-stage 总预算；固定 terminal reason 为
+`success`、`enumerate_timeout`、`readiness_timeout`、`count_mismatch`、
+`playwright_exception` 或 `unavailable`。局部层级为
+`browser JS ≤ 3s < channel ≤ 7.75s < media stage 8s < parent 120s`；没有伪称已存在全局
+Host command deadline。
+
+聚焦验证全部通过：
+
+- `uv run --frozen --offline python test_identity_artifact.py`：39/39；
+- `uv run --frozen --offline python test_windows_host.py --close-context-regression`：
+  normal/timeout/exception/job-not-exited 四类通过，`secretFree=true`；
+- 修改 Python 文件 `py_compile`、内嵌 media JavaScript 语法、Prettier、Markdown 链接、
+  `git diff --check`：通过。
+
+唯一真实序列只启动一次 A1 和一次 A2；A1/A2 比较失败后立即停止，B1 未启动：
+
+| Run | Host PID / session                          | boot  | media                         | close / ownership                                      |
+| --- | ------------------------------------------- | ----- | ----------------------------- | ------------------------------------------------------ |
+| A1  | `7252` / `024a543c1ddb4d91904498555cc88f20` | `0→1` | `success`，234 ms，计数 1/1/0 | clean close；Job 0；两把 Profile lock 可重取           |
+| A2  | `8552` / `df49c2779d9248b2b9cca0b13cb21a7e` | `1→2` | `success`，203 ms，计数 1/1/0 | clean close；Job 0；Cookie/LocalStorage 延续；锁可重取 |
+| B1  | 未启动                                      | —     | —                             | A1/A2 Canvas export mismatch 后按合同停止              |
+
+A1/A2 使用相同 raw Artifact SHA
+`a214c21ccf4a68c97040af6e5f81b05e40903a127dea33ace6dce7d8f133279f`、相同
+47-key normalized config、configured digest、Profile 和 probe origin，但两个独立 Host。
+Navigator、locale/timezone、screen、完整 window geometry、DPR、Canvas raw、Audio、
+WebGL/WebGL2、fonts/widths、voices/default、history、media 与辅助 ObservedWebsiteDigest
+均深度相同；`maxTouchPoints=0` 保持 host-bound / unavailable。Cookie SQLite 中的值确认为
+A1 写入并被 A2 延续，但值本身未写入日志或 tracked 结果。
+
+唯一不相同的硬比较项是 Canvas export：
+
+| 字段                | A1                                                                        | A2                                                                        | 结果 |
+| ------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---- |
+| `canvas.rawHash`    | `sha256:acd1515152354d8bb340e2cf4d9516f48762504eb370ce5d0b3339801f9cfe10` | 同 A1                                                                     | 相同 |
+| `canvas.exportHash` | `sha256:8a362ea76f7e46a7ce130b372eee1b59c618f71ecc4bf0ab158904a69cb090af` | `sha256:06d110cba2cd32c852359be9ef5227085254722bdf55a823bd2dbf59aad0c87e` | 漂移 |
+
+probe 对确定场景先 hash `getImageData()` RGBA，再独立 hash 同一 canvas 的完整
+`toDataURL("image/png")` 字符串，没有 probe RNG。相同 raw hash 排除了绘制输入和 raw
+像素漂移；相同 raw Artifact、normalized config 和 configured digest 排除了 projection 漂移。
+固定 Camoufox `v152.0.4-beta.28` 的 source tree 已删除 `canvas-spoofing.patch` 及
+per-context `SetCanvasSeed` 路径，现有 `fingerprint-injection.patch` 也没有 Canvas hook；
+因此 `canvas:seed` 虽仍被配置格式接受，却没有可审计的 per-key 应用路径，只能保持
+`configured`，不能写为 `applied`。实际失败边界位于固定 Camoufox/Firefox Canvas export
+路径，不在 Host、Playwright transport、静态 projection 或 probe hash 实现。
+
+A/B 的静态 47-key diff 仍精确为冻结的 13 keys：`audio:seed`、`canvas:seed`、`fonts`、
+`fonts:spacing_seed`、`navigator.hardwareConcurrency`、`screen.availHeight`、
+`screen.availTop`、`screen.availWidth`、`screen.height`、`screen.width`、
+`window.history.length`、`window.screenX`、`window.screenY`。Artifact B raw SHA 为
+`ae7ca69321614e924662e7f162e2f294911fc9facf96db4f4e15d001b0af5db9`；由于 B1 未启动，
+这些 configured 差异没有升级为 applied/observed，Profile B 隔离也未取得浏览器证据。
+
+raw bundle 仍是 gitignored、非 manifest、非 Accepted evidence：
+
+- `artifacts/camoufox-fp1/run-20260811T023336Z-03647283/fp1-run-summary.json`，
+  SHA-256 `a355b68cf27cdfae5991016fb7e0761a1f09c044a117ac268179f0c22669a325`；
+- A1/A2 `attempt.json` SHA-256 分别为
+  `6c74d645b133ddea4cae9ca05bbd1f2b65b91b8a1a7e60bdfcbf8ed5406fa3ae`、
+  `56b39070a8329b5d587f42dfd304219de442c74e441079d68163db13dab87e6f`；
+- `a1-a2-comparison.json` SHA-256
+  `5e8d11e7cc52d44f5c5a02068cb04dc713de9bc6d6b786452e6f045d00c77ccf`。
+
+所有本任务 Python Host、Playwright Node、supervisor、Camoufox、Job 和 probe server 均已
+退出；两个 Job Object 已关闭且 active process 为 0，probe 端口可重新绑定，Profile byte
+0/1 可重新取得；匹配 token 的原子 browser lease 已释放。没有重试、B1、FP2、依赖升级、
+public schema/API 变化、push 或 PR。
+
+继续关闭 FP1 的最小上游提案是：固定并重新绑定一个具有明确、可审计、跨独立 Host
+deterministic Canvas export 应用路径的 Camoufox build（同时更新 archive/tree/binding 并
+使现有 focused tests 重新通过）。另一选择是显式修改 Artifact/FP1 合同，把 export 重新
+分类为 unavailable/session-variable；这会改变共享语义，且本次不得为了跑绿自行采用。
+在主脑授权其中之一以前，不得重跑 A1/A2/B1，也不得进入 FP2。
