@@ -680,7 +680,22 @@
       "imageInspectSha256",
       "hostToolingSha256"
     ],
-    "builderImageBinding": null,
+    "builderImageBinding": {
+      "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+      "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+      "buildxLogSha256": "ec5c12e2937adee761d565bb78cb8a46a29417193b88c4331c198ad485df301f",
+      "buildxLogSizeBytes": 78146,
+      "buildxMetadataSha256": "ee349e20d0239a115d56aa167c2b368d475a3996a3d46948407557ec4477b46e",
+      "dockerfileSha256": "ae3e28d39c2c996d0c70f6fbd4b182f4e1585eb79fd7fc662e50b158300e5e6d",
+      "hostToolingSha256": "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b",
+      "imageId": "sha256:24bfedc4c84ccbbf5b0fdad1c7ce8871594ff69f96a91ed5deea0075048be08b",
+      "imageInspectSha256": "4217fb964f0226c234ba1d1fed83ddff1b30b6d2e085e0a1c2642c1143efff54",
+      "recipeSourceCommit": "8b8294fafd5d5d68088c05bc31def6044d6e0e69",
+      "recipeSourceLockSha256": "6ac8e8ce00e9912dc439b20a5608ed854ef0f41fadcc2e50aa13fcf1c401e3b0",
+      "recipeSourceTree": "99d16659c7e247875076c0e47df3f8f7be3a4564",
+      "savedArchiveSha256": "9765c6a229e94c9ac0e9a0ce03bb0f5829761c6210f23df5848ab249938ca42b",
+      "savedArchiveSizeBytes": 483575808
+    },
     "status": "not-built",
     "binaryBinding": null,
     "requiredBeforeRuntime": [
