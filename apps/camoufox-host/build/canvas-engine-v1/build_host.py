@@ -157,6 +157,25 @@ def _capture(command: list[str], *, cwd: Path | None = None) -> str:
     return completed.stdout.strip()
 
 
+def _capture_bytes(command: list[str], *, cwd: Path | None = None) -> bytes:
+    completed = subprocess.run(
+        command,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        check=False,
+        capture_output=True,
+        timeout=120,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).decode(
+            "utf-8", errors="replace"
+        ).strip()
+        raise HostBuildFailure(
+            f"command failed ({completed.returncode}): {shlex.join(command)}: {detail}"
+        )
+    return completed.stdout
+
+
 def _run_logged(
     command: list[str],
     *,
@@ -653,6 +672,85 @@ def _verify_committed_builder_binding(lock: dict, prepared: dict) -> dict:
     return binding
 
 
+def _verify_historical_recipe_source(verisilo: Path, binding: dict) -> dict:
+    commit = binding["recipeSourceCommit"]
+    expected_tree = binding["recipeSourceTree"]
+    actual_tree = _git(verisilo, "rev-parse", f"{commit}^{{tree}}")
+    if actual_tree != expected_tree:
+        raise HostBuildFailure("historical recipe source tree differs from the lock")
+
+    lock_blob = _capture_bytes(
+        ["git", "-C", str(verisilo), "show", f"{commit}:{LOCK_REL.as_posix()}"]
+    )
+    lock_sha256 = hashlib.sha256(lock_blob).hexdigest()
+    if lock_sha256 != binding["recipeSourceLockSha256"]:
+        raise HostBuildFailure("historical recipe source lock differs from the binding")
+
+    dockerfile_blob = _capture_bytes(
+        [
+            "git",
+            "-C",
+            str(verisilo),
+            "show",
+            f"{commit}:{DOCKERFILE_REL.as_posix()}",
+        ]
+    )
+    dockerfile_sha256 = hashlib.sha256(dockerfile_blob).hexdigest()
+    if dockerfile_sha256 != binding["dockerfileSha256"]:
+        raise HostBuildFailure("historical recipe Dockerfile differs from the binding")
+
+    return {
+        "commit": commit,
+        "tree": actual_tree,
+        "sourceLockSha256": lock_sha256,
+        "dockerfileSha256": dockerfile_sha256,
+    }
+
+
+def _verify_prepared_image_evidence(
+    provenance_dir: Path, binding: dict, container_roots: dict
+) -> dict:
+    expected_files = {
+        "buildxLog": (
+            provenance_dir / "buildx.log",
+            binding["buildxLogSha256"],
+            binding["buildxLogSizeBytes"],
+        ),
+        "buildxMetadata": (
+            provenance_dir / "buildx-metadata.json",
+            binding["buildxMetadataSha256"],
+            None,
+        ),
+        "imageInspect": (
+            provenance_dir / "builder-image-inspect.json",
+            binding["imageInspectSha256"],
+            None,
+        ),
+    }
+    verified_files: dict[str, dict] = {}
+    for name, (path, expected_sha256, expected_size) in expected_files.items():
+        if not path.is_file() or path.is_symlink():
+            raise HostBuildFailure(f"frozen builder evidence is missing: {path.name}")
+        actual_size = path.stat().st_size
+        if expected_size is not None and actual_size != expected_size:
+            raise HostBuildFailure(f"frozen builder evidence size mismatch: {path.name}")
+        actual_sha256 = _sha256(path)
+        if actual_sha256 != expected_sha256:
+            raise HostBuildFailure(f"frozen builder evidence digest mismatch: {path.name}")
+        verified_files[name] = {
+            "sha256": actual_sha256,
+            "sizeBytes": actual_size,
+        }
+
+    tooling_sha256 = _canonical_sha256(container_roots)
+    if tooling_sha256 != binding["hostToolingSha256"]:
+        raise HostBuildFailure("current host tooling differs from the builder image binding")
+    return {
+        "files": verified_files,
+        "hostToolingSha256": tooling_sha256,
+    }
+
+
 def build_engine(args: argparse.Namespace) -> int:
     mount = _validate_data_mount()
     container_roots = _validate_container_roots(mount)
@@ -665,6 +763,10 @@ def build_engine(args: argparse.Namespace) -> int:
     provenance_dir = run_root / "provenance"
     prepared = _strict_json(provenance_dir / "builder-image-result.json")
     binding = _verify_committed_builder_binding(locked["lock"], prepared)
+    historical_recipe = _verify_historical_recipe_source(inputs["verisilo"], binding)
+    prepared_evidence = _verify_prepared_image_evidence(
+        provenance_dir, binding, container_roots
+    )
 
     image_tar = provenance_dir / "builder-image.tar"
     if (
@@ -709,6 +811,8 @@ def build_engine(args: argparse.Namespace) -> int:
         "source": source,
         "otherInputs": other_inputs,
         "committedBuilderImageBinding": binding,
+        "verifiedHistoricalRecipeSource": historical_recipe,
+        "verifiedPreparedImageEvidence": prepared_evidence,
         "image": inspect_summary,
         "status": "build-engine-started",
     }

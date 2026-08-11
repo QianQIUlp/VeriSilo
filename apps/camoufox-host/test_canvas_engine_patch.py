@@ -427,6 +427,103 @@ def test_host_launcher_creates_user_owned_binary_output() -> None:
         assert "saved" in log.read_text(encoding="utf-8")
 
 
+def test_host_launcher_verifies_historical_recipe_source_blobs() -> None:
+    host = _load_python_file("canvas_engine_build_host_history", BUILD_HOST_PATH)
+    binding = _load_lock()["buildBinding"]["builderImageBinding"]
+    verified = host._verify_historical_recipe_source(REPO_ROOT, binding)
+    assert verified == {
+        "commit": binding["recipeSourceCommit"],
+        "tree": binding["recipeSourceTree"],
+        "sourceLockSha256": binding["recipeSourceLockSha256"],
+        "dockerfileSha256": binding["dockerfileSha256"],
+    }
+
+    corruptions = {
+        "recipeSourceTree": "0" * 40,
+        "recipeSourceLockSha256": "0" * 64,
+        "dockerfileSha256": "0" * 64,
+    }
+    for field, value in corruptions.items():
+        altered = dict(binding)
+        altered[field] = value
+        try:
+            host._verify_historical_recipe_source(REPO_ROOT, altered)
+        except host.HostBuildFailure:
+            pass
+        else:
+            raise AssertionError(f"historical recipe verification accepted {field}")
+
+
+def test_host_launcher_rechecks_prepared_image_evidence_and_tooling() -> None:
+    host = _load_python_file("canvas_engine_build_host_evidence", BUILD_HOST_PATH)
+    with tempfile.TemporaryDirectory() as temporary:
+        provenance = Path(temporary)
+        evidence = {
+            "buildx.log": b"buildx-log\n",
+            "buildx-metadata.json": b'{"metadata":"bound"}\n',
+            "builder-image-inspect.json": b'{"inspect":"bound"}\n',
+        }
+        for name, payload in evidence.items():
+            (provenance / name).write_bytes(payload)
+
+        tooling = {
+            "dockerRoot": "/mnt/camoufox-build/docker-data",
+            "containerdRoot": "/mnt/camoufox-build/containerd-root",
+            "dockerVersion": {"Server": {"Version": "29.1.3"}},
+            "buildxVersion": "github.com/docker/buildx 0.30.1",
+            "containerdVersion": "containerd 2.2.1",
+        }
+        binding = {
+            "buildxLogSha256": _sha256(provenance / "buildx.log"),
+            "buildxLogSizeBytes": (provenance / "buildx.log").stat().st_size,
+            "buildxMetadataSha256": _sha256(
+                provenance / "buildx-metadata.json"
+            ),
+            "imageInspectSha256": _sha256(
+                provenance / "builder-image-inspect.json"
+            ),
+            "hostToolingSha256": hashlib.sha256(
+                json.dumps(
+                    tooling,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            ).hexdigest(),
+        }
+        verified = host._verify_prepared_image_evidence(
+            provenance, binding, tooling
+        )
+        assert verified["hostToolingSha256"] == binding["hostToolingSha256"]
+        assert set(verified["files"]) == {
+            "buildxLog",
+            "buildxMetadata",
+            "imageInspect",
+        }
+
+        for name, original in evidence.items():
+            path = provenance / name
+            path.write_bytes(original[:-2] + b"X\n")
+            try:
+                host._verify_prepared_image_evidence(provenance, binding, tooling)
+            except host.HostBuildFailure:
+                pass
+            else:
+                raise AssertionError(f"builder evidence tampering accepted: {name}")
+            path.write_bytes(original)
+
+        altered_tooling = dict(tooling)
+        altered_tooling["buildxVersion"] = "changed"
+        try:
+            host._verify_prepared_image_evidence(
+                provenance, binding, altered_tooling
+            )
+        except host.HostBuildFailure:
+            pass
+        else:
+            raise AssertionError("host tooling drift was accepted")
+
+
 EXPECTED_DRIVER_MARKERS = {
     '        "--batch",',
     '        "--forward",',
