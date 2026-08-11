@@ -452,8 +452,8 @@
         },
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/build_host.py",
-          "sha256": "c4a56220317ed4713b9c1153ffed67369dcd2b819e7838f047f4a5c07be7edfc",
-          "sizeBytes": 29992
+          "sha256": "15b9d6edf48d443c25619ed1ca86fe16495ef5f033b3da33641d4c4fceee40d4",
+          "sizeBytes": 31202
         }
       ],
       "fixedEnvironment": {

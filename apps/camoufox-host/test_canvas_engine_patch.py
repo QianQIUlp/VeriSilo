@@ -15,6 +15,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from unittest import SkipTest
@@ -370,6 +371,31 @@ def test_host_launcher_accepts_containerd_v3_quote_styles() -> None:
             )
 
 
+def test_host_launcher_creates_user_owned_binary_output() -> None:
+    host = _load_python_file("canvas_engine_build_host_binary", BUILD_HOST_PATH)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        output = root / "image.tar"
+        log = root / "save.log"
+        returncode = host._run_binary_output(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "sys.stdout.buffer.write(b'bound-image'); "
+                    "sys.stderr.write('saved\\n')"
+                ),
+            ],
+            cwd=root,
+            output_path=output,
+            log_path=log,
+        )
+        assert returncode == 0
+        assert output.read_bytes() == b"bound-image"
+        assert "saved" in log.read_text(encoding="utf-8")
+
+
 EXPECTED_DRIVER_MARKERS = {
     '        "--batch",',
     '        "--forward",',
@@ -561,7 +587,10 @@ def test_patched_source_seam_and_caller_graph() -> None:
         check=True,
         capture_output=True,
         text=True,
-        timeout=30,
+        # A complete FF152 source-tree scan takes about 138 seconds on the
+        # managed Windows NTFS worktree. Keep the whole-tree caller check,
+        # but bound it above that measured runtime.
+        timeout=180,
     )
     callers = {
         Path(line).relative_to(PATCHED_SOURCE_TREE).as_posix()

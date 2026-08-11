@@ -189,6 +189,47 @@ def _run_logged(
         return process.wait()
 
 
+def _run_binary_output(
+    command: list[str],
+    *,
+    cwd: Path,
+    output_path: Path,
+    log_path: Path,
+) -> int:
+    output_descriptor = os.open(
+        output_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+    )
+    log_descriptor = os.open(
+        log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+    )
+    with os.fdopen(output_descriptor, "wb") as output, os.fdopen(
+        log_descriptor, "w", encoding="utf-8", newline="\n"
+    ) as log:
+        header = f"[{_utc_now()}] {shlex.join(command)} > {output_path.name}\n"
+        print(header, end="", flush=True)
+        log.write(header)
+        log.flush()
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        assert process.stderr is not None
+        for line in process.stderr:
+            print(line, end="", flush=True)
+            log.write(line)
+            log.flush()
+        returncode = process.wait()
+        output.flush()
+        os.fsync(output.fileno())
+        return returncode
+
+
 def _path_is_within(path: Path, root: Path) -> bool:
     resolved = path.resolve(strict=True)
     resolved_root = root.resolve(strict=True)
@@ -529,9 +570,10 @@ def prepare_image(args: argparse.Namespace) -> int:
     _write_json_exclusive(inspect_path, inspect_raw)
     image_tar = provenance_dir / "builder-image.tar"
     save_log = provenance_dir / "docker-save.log"
-    save_exit = _run_logged(
-        [*DOCKER, "image", "save", "--output", str(image_tar), tag],
+    save_exit = _run_binary_output(
+        [*DOCKER, "image", "save", tag],
         cwd=run_root,
+        output_path=image_tar,
         log_path=save_log,
     )
     if save_exit != 0 or not image_tar.is_file():
