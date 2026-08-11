@@ -102,11 +102,11 @@ EXPECTED_BUILDER_IMAGE_BINDING = {
     "baseIndexDigest": BASE_INDEX_DIGEST,
     "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
     "buildxLogSha256": (
-        "478a16c900147a128bb989e985b37dcbab0a0c048103978a3cc2ee50e6045073"
+        "8c7532fbc9d4874306bfad5136bd74332529c1fc361a5a71ffd0a8cb01de6aef"
     ),
-    "buildxLogSizeBytes": 77451,
+    "buildxLogSizeBytes": 77456,
     "buildxMetadataSha256": (
-        "519578df92bf17e7c97fb362f34eafaf710d2259f6e2c9bbf97eb6488f0b358c"
+        "9076e67ff7eb51e394163d01911d6db076d57c973fea97eb532b5c75cc903f78"
     ),
     "dockerfileSha256": (
         "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43"
@@ -115,20 +115,20 @@ EXPECTED_BUILDER_IMAGE_BINDING = {
         "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
     ),
     "imageId": (
-        "sha256:ce94cc5a217e86aca893724e0b42f2b7e873416a3bfa810ba87b1f001cc7e7fa"
+        "sha256:96826cfb0c308b3ca635766a5fce082a5d47235a9b116a64636778717e2eaf52"
     ),
     "imageInspectSha256": (
-        "3f07134030e9de6322f051e85e4e370d17bd9776737bdb80751848e0d4a893ea"
+        "101c846bf07ec7489da09af85cfca2b45c167e6cbd0fc691da359abb825a62a8"
     ),
-    "recipeSourceCommit": "4cd1a58b4949b2f34b48bacfd7fc26600646c396",
+    "recipeSourceCommit": "a1e336c55bd15a1b44b281ddcac49fd5133673f7",
     "recipeSourceLockSha256": (
-        "b8667df1d94486b432ed83456fca14042aee3adb6ebca1caf9698705a7ece925"
+        "9d71f1afab5921e1698c75590dc2f017fd098de34e80d613d70a60ab74a239e8"
     ),
-    "recipeSourceTree": "1bdd243482a5a10c55b89258e2543f4f71330078",
+    "recipeSourceTree": "41e35b2ebc1d9db311bcac28d4eff95ff3dcebdf",
     "savedArchiveSha256": (
-        "97ab5713741e700588cda123b99132ae51f42a818dd2fd0ef997eb23f8aa54e3"
+        "1d65ff726c17a9dd1cb2836121dd121665068f2a66e0065268130a65ed466295"
     ),
-    "savedArchiveSizeBytes": 479037440,
+    "savedArchiveSizeBytes": 479039488,
 }
 
 UPSTREAM_REPO: Path | None = None
@@ -325,7 +325,7 @@ def test_source_lock_contract() -> None:
     assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
     assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
     assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
-    assert build["builderImageBinding"] is None
+    assert build["builderImageBinding"] == EXPECTED_BUILDER_IMAGE_BINDING
     assert set(build["builderImageBindingRequiredFields"]) == {
         "imageId",
         "savedArchiveSha256",
