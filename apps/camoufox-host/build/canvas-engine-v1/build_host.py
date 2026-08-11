@@ -51,6 +51,21 @@ OWNER_NAME = ".verisilo-build-owner.json"
 RUN_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{7,63}")
 SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}")
 DOCKER = ["sudo", "-n", "docker"]
+ORIGINAL_PREPARED_RECORD = "verisilo-camoufox-builder-image-result/v1"
+BOUND_PREPARED_RECORD = "verisilo-camoufox-bound-image-preparation/v1"
+ORIGINAL_PREPARED_STATUS = "prepared-awaiting-source-lock-binding"
+BOUND_PREPARED_STATUS = "prepared-from-frozen-builder-binding"
+FROZEN_BUILDER_EVIDENCE = (
+    "buildx.log",
+    "buildx-metadata.json",
+    "builder-image-inspect.json",
+    "builder-image.tar",
+)
+EXPECTED_TMPFS_CONTRACT = {
+    "path": "/tmp",
+    "options": ["rw", "nosuid", "nodev", "exec", "mode=1777", "size=4g"],
+    "purpose": "execute checksum-verified Mozilla bootstrap temporary tools",
+}
 
 
 class HostBuildFailure(RuntimeError):
@@ -137,6 +152,33 @@ def _write_json_replace(path: Path, value: dict) -> None:
     finally:
         os.close(descriptor)
     os.replace(temporary, path)
+
+
+def _copy_file_exclusive(source: Path, destination: Path) -> None:
+    if not source.is_file() or source.is_symlink():
+        raise HostBuildFailure(f"frozen builder evidence is missing: {source.name}")
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with source.open("rb") as input_stream, os.fdopen(
+            descriptor, "wb", closefd=False
+        ) as output_stream:
+            for chunk in iter(lambda: input_stream.read(1024 * 1024), b""):
+                output_stream.write(chunk)
+            output_stream.flush()
+            os.fsync(output_stream.fileno())
+    finally:
+        os.close(descriptor)
+
+
+def _runtime_tmpfs_spec(lock: dict) -> str:
+    runtime = (lock.get("buildBinding") or {}).get("runtimeContainer") or {}
+    tmpfs = runtime.get("tmpfs")
+    if tmpfs != EXPECTED_TMPFS_CONTRACT:
+        raise HostBuildFailure("source lock executable /tmp contract is not exact")
+    options = tmpfs["options"]
+    if "exec" not in options or "noexec" in options:
+        raise HostBuildFailure("source lock must explicitly enable executable /tmp")
+    return f"{tmpfs['path']}:{','.join(options)}"
 
 
 def _capture(command: list[str], *, cwd: Path | None = None) -> str:
@@ -357,7 +399,8 @@ def _validate_engine_layout(run_root: Path) -> None:
     provenance = run_root / "provenance"
     if not provenance.is_dir() or provenance.is_symlink():
         raise HostBuildFailure("build-engine provenance must be a real directory")
-    if not (provenance / "builder-image-result.json").is_file():
+    prepared_path = provenance / "builder-image-result.json"
+    if not prepared_path.is_file() or prepared_path.is_symlink():
         raise HostBuildFailure("build-engine is missing builder-image-result.json")
     for name in ("build-home", "work", "out"):
         if (run_root / name).exists():
@@ -458,8 +501,17 @@ def _take_ownership(run_root: Path, run_id: str) -> dict:
 
 
 def _load_owner(run_root: Path, run_id: str, token: str) -> dict:
-    owner = _strict_json(run_root / OWNER_NAME)
-    if owner.get("runId") != run_id or owner.get("token") != token:
+    owner_path = run_root / OWNER_NAME
+    if not owner_path.is_file() or owner_path.is_symlink():
+        raise HostBuildFailure("build-engine ownership record must be a real file")
+    owner = _strict_json(owner_path)
+    if (
+        owner.get("recordType") != "verisilo-camoufox-build-owner/v1"
+        or owner.get("runId") != run_id
+        or owner.get("token") != token
+        or type(token) is not str
+        or not token
+    ):
         raise HostBuildFailure("build-engine owner token/run-id mismatch")
     return owner
 
@@ -471,6 +523,50 @@ def _create_output_layout(run_root: Path, names: tuple[str, ...]) -> dict[str, P
         path.mkdir(mode=0o700, exist_ok=False)
         result[name] = path
     return result
+
+
+def _validate_source_run_root(source_run_root: Path, destination_run_root: Path) -> dict:
+    if (
+        not source_run_root.is_dir()
+        or source_run_root.is_symlink()
+        or source_run_root.resolve(strict=True) != source_run_root
+    ):
+        raise HostBuildFailure("source-run-root must be an existing canonical directory")
+    if (
+        source_run_root.parent != RUNS_ROOT
+        or not RUN_ID_RE.fullmatch(source_run_root.name)
+    ):
+        raise HostBuildFailure(
+            f"source-run-root must be exactly {RUNS_ROOT}/<source-run-id>"
+        )
+    if source_run_root == destination_run_root:
+        raise HostBuildFailure("source and destination run roots must be different")
+
+    inputs = source_run_root / "inputs"
+    provenance = source_run_root / "provenance"
+    owner_path = source_run_root / OWNER_NAME
+    if (
+        not inputs.is_dir()
+        or inputs.is_symlink()
+        or not provenance.is_dir()
+        or provenance.is_symlink()
+        or not owner_path.is_file()
+        or owner_path.is_symlink()
+    ):
+        raise HostBuildFailure("source run is missing its real inputs/provenance/owner layout")
+    owner = _strict_json(owner_path)
+    if (
+        owner.get("recordType") != "verisilo-camoufox-build-owner/v1"
+        or owner.get("runId") != source_run_root.name
+        or type(owner.get("token")) is not str
+        or not owner["token"]
+    ):
+        raise HostBuildFailure("source run owner record does not match its directory")
+    return {
+        "runId": source_run_root.name,
+        "provenance": provenance,
+        "owner": owner,
+    }
 
 
 def _image_inspect(tag: str) -> tuple[dict, dict]:
@@ -522,7 +618,7 @@ def prepare_image(args: argparse.Namespace) -> int:
     provenance_dir = layout["provenance"]
     started = _utc_now()
     result: dict = {
-        "recordType": "verisilo-camoufox-builder-image-result/v1",
+        "recordType": ORIGINAL_PREPARED_RECORD,
         "runId": args.run_id,
         "startedAtUtc": started,
         "owner": owner,
@@ -624,22 +720,66 @@ def prepare_image(args: argparse.Namespace) -> int:
         "imageInspectSha256": result["image"]["inspectSha256"],
         "hostToolingSha256": _canonical_sha256(container_roots),
     }
-    result["status"] = "prepared-awaiting-source-lock-binding"
+    result["status"] = ORIGINAL_PREPARED_STATUS
     result["completedAtUtc"] = _utc_now()
     _write_json_exclusive(provenance_dir / "builder-image-result.json", result)
     return 0
 
 
-def _verify_committed_builder_binding(lock: dict, prepared: dict) -> dict:
+def _verify_committed_builder_binding(
+    lock: dict,
+    prepared: dict,
+    *,
+    expected_run_id: str,
+    expected_owner: dict,
+    allow_bound_prepared: bool,
+) -> dict:
     binding = (lock.get("buildBinding") or {}).get("builderImageBinding")
     if type(binding) is not dict:
         raise HostBuildFailure(
             "build-engine requires buildBinding.builderImageBinding in the clean source lock"
         )
+    if prepared.get("runId") != expected_run_id:
+        raise HostBuildFailure("builder-image-result run-id mismatch")
+    if prepared.get("owner") != expected_owner:
+        raise HostBuildFailure("builder-image-result owner lineage mismatch")
+    status = prepared.get("status")
+    record_type = prepared.get("recordType")
+    if status == ORIGINAL_PREPARED_STATUS:
+        if (
+            record_type != ORIGINAL_PREPARED_RECORD
+            or "sourceRunId" in prepared
+            or "sourcePreparedRecord" in prepared
+        ):
+            raise HostBuildFailure("original builder-image-result record type is not exact")
+    elif status == BOUND_PREPARED_STATUS:
+        source_run_id = prepared.get("sourceRunId")
+        source_prepared = prepared.get("sourcePreparedRecord")
+        if (
+            not allow_bound_prepared
+            or record_type != BOUND_PREPARED_RECORD
+            or type(source_run_id) is not str
+            or not RUN_ID_RE.fullmatch(source_run_id)
+            or source_run_id == expected_run_id
+        ):
+            raise HostBuildFailure("bound builder-image-result record type is not exact")
+        if (
+            type(source_prepared) is not dict
+            or set(source_prepared)
+            != {"recordType", "status", "runId", "sha256", "sizeBytes"}
+            or source_prepared.get("recordType") != ORIGINAL_PREPARED_RECORD
+            or source_prepared.get("status") != ORIGINAL_PREPARED_STATUS
+            or source_prepared.get("runId") != source_run_id
+            or not re.fullmatch(r"[0-9a-f]{64}", source_prepared.get("sha256", ""))
+            or type(source_prepared.get("sizeBytes")) is not int
+            or source_prepared["sizeBytes"] <= 0
+        ):
+            raise HostBuildFailure("bound source prepared record is not exact")
+    else:
+        raise HostBuildFailure("builder-image-result status is not accepted")
+
     proposal = prepared.get("bindingProposal")
-    if type(proposal) is not dict or prepared.get("status") != (
-        "prepared-awaiting-source-lock-binding"
-    ):
+    if type(proposal) is not dict:
         raise HostBuildFailure("builder-image-result is not a successful prepare-image result")
     expected_required = {
         "imageId",
@@ -666,6 +806,8 @@ def _verify_committed_builder_binding(lock: dict, prepared: dict) -> dict:
         raise HostBuildFailure("source lock builder-image field contract mismatch")
     if set(binding) != required:
         raise HostBuildFailure("committed builderImageBinding field set is not exact")
+    if set(proposal) != required:
+        raise HostBuildFailure("builder-image-result binding proposal field set is not exact")
     for key in required:
         if binding[key] != proposal[key]:
             raise HostBuildFailure(f"committed builderImageBinding mismatch: {key}")
@@ -751,30 +893,23 @@ def _verify_prepared_image_evidence(
     }
 
 
-def build_engine(args: argparse.Namespace) -> int:
-    mount = _validate_data_mount()
-    container_roots = _validate_container_roots(mount)
-    run_root = Path(args.run_root)
-    inputs = _validate_input_layout(run_root, args.run_id)
-    _validate_engine_layout(run_root)
-    owner = _load_owner(run_root, args.run_id, args.owner_token)
-    source, locked = _validate_verisilo(inputs["verisilo"])
-    other_inputs = _validate_other_inputs(inputs, locked)
-    provenance_dir = run_root / "provenance"
-    prepared = _strict_json(provenance_dir / "builder-image-result.json")
-    binding = _verify_committed_builder_binding(locked["lock"], prepared)
-    historical_recipe = _verify_historical_recipe_source(inputs["verisilo"], binding)
-    prepared_evidence = _verify_prepared_image_evidence(
-        provenance_dir, binding, container_roots
-    )
-
+def _verify_bound_image_archive(provenance_dir: Path, binding: dict) -> dict:
     image_tar = provenance_dir / "builder-image.tar"
-    if (
-        not image_tar.is_file()
-        or image_tar.stat().st_size != binding["savedArchiveSizeBytes"]
-        or _sha256(image_tar) != binding["savedArchiveSha256"]
-    ):
-        raise HostBuildFailure("saved builder image archive no longer matches the lock")
+    if not image_tar.is_file() or image_tar.is_symlink():
+        raise HostBuildFailure("saved builder image archive is missing")
+    actual_size = image_tar.stat().st_size
+    if actual_size != binding["savedArchiveSizeBytes"]:
+        raise HostBuildFailure("saved builder image archive size differs from the lock")
+    actual_sha256 = _sha256(image_tar)
+    if actual_sha256 != binding["savedArchiveSha256"]:
+        raise HostBuildFailure("saved builder image archive digest differs from the lock")
+    return {
+        "sha256": actual_sha256,
+        "sizeBytes": actual_size,
+    }
+
+
+def _verify_live_bound_image(binding: dict) -> dict:
     _, inspect_summary = _image_inspect(binding["imageId"])
     if inspect_summary["id"] != binding["imageId"]:
         raise HostBuildFailure("existing builder image ID differs from the lock")
@@ -789,6 +924,123 @@ def build_engine(args: argparse.Namespace) -> int:
     for key, expected in expected_labels.items():
         if inspect_summary["labels"].get(key) != expected:
             raise HostBuildFailure(f"existing builder image label mismatch: {key}")
+    return inspect_summary
+
+
+def prepare_bound_image(args: argparse.Namespace) -> int:
+    mount = _validate_data_mount()
+    container_roots = _validate_container_roots(mount)
+    run_root = Path(args.run_root)
+    inputs = _validate_input_layout(run_root, args.run_id)
+    _validate_prepare_layout(run_root)
+    source, locked = _validate_verisilo(inputs["verisilo"])
+    _runtime_tmpfs_spec(locked["lock"])
+    other_inputs = _validate_other_inputs(inputs, locked)
+
+    source_run = _validate_source_run_root(Path(args.source_run_root), run_root)
+    source_provenance = source_run["provenance"]
+    source_result_path = source_provenance / "builder-image-result.json"
+    if not source_result_path.is_file() or source_result_path.is_symlink():
+        raise HostBuildFailure("source run has no real builder-image-result.json")
+    source_result_sha256 = _sha256(source_result_path)
+    source_result_size = source_result_path.stat().st_size
+    source_prepared = _strict_json(source_result_path)
+    if _sha256(source_result_path) != source_result_sha256:
+        raise HostBuildFailure("source builder-image-result changed while it was read")
+
+    binding = _verify_committed_builder_binding(
+        locked["lock"],
+        source_prepared,
+        expected_run_id=source_run["runId"],
+        expected_owner=source_run["owner"],
+        allow_bound_prepared=False,
+    )
+    historical_recipe = _verify_historical_recipe_source(
+        inputs["verisilo"], binding
+    )
+    _verify_prepared_image_evidence(
+        source_provenance, binding, container_roots
+    )
+    _verify_bound_image_archive(source_provenance, binding)
+    inspect_summary = _verify_live_bound_image(binding)
+    if (
+        source_result_path.stat().st_size != source_result_size
+        or _sha256(source_result_path) != source_result_sha256
+    ):
+        raise HostBuildFailure("source builder-image-result changed during verification")
+
+    owner = _take_ownership(run_root, args.run_id)
+    if {path.name for path in run_root.iterdir()} != {"inputs", OWNER_NAME}:
+        raise HostBuildFailure("run layout changed after ownership")
+    provenance_dir = _create_output_layout(run_root, ("provenance",))["provenance"]
+    for name in FROZEN_BUILDER_EVIDENCE:
+        _copy_file_exclusive(source_provenance / name, provenance_dir / name)
+
+    copied_evidence = _verify_prepared_image_evidence(
+        provenance_dir, binding, container_roots
+    )
+    copied_archive = _verify_bound_image_archive(provenance_dir, binding)
+    if (
+        source_result_path.stat().st_size != source_result_size
+        or _sha256(source_result_path) != source_result_sha256
+    ):
+        raise HostBuildFailure("source builder-image-result changed during evidence copy")
+
+    completed = _utc_now()
+    result = {
+        "recordType": BOUND_PREPARED_RECORD,
+        "runId": args.run_id,
+        "sourceRunId": source_run["runId"],
+        "startedAtUtc": owner["createdAtUtc"],
+        "completedAtUtc": completed,
+        "owner": owner,
+        "dataMount": mount,
+        "containerRoots": container_roots,
+        "recipeSource": source,
+        "otherInputs": other_inputs,
+        "sourcePreparedRecord": {
+            "recordType": source_prepared["recordType"],
+            "status": source_prepared["status"],
+            "runId": source_run["runId"],
+            "sha256": source_result_sha256,
+            "sizeBytes": source_result_size,
+        },
+        "bindingProposal": dict(binding),
+        "verifiedHistoricalRecipeSource": historical_recipe,
+        "verifiedPreparedImageEvidence": copied_evidence,
+        "verifiedBuilderImageArchive": copied_archive,
+        "image": inspect_summary,
+        "status": BOUND_PREPARED_STATUS,
+    }
+    _write_json_exclusive(provenance_dir / "builder-image-result.json", result)
+    return 0
+
+
+def build_engine(args: argparse.Namespace) -> int:
+    mount = _validate_data_mount()
+    container_roots = _validate_container_roots(mount)
+    run_root = Path(args.run_root)
+    inputs = _validate_input_layout(run_root, args.run_id)
+    _validate_engine_layout(run_root)
+    owner = _load_owner(run_root, args.run_id, args.owner_token)
+    source, locked = _validate_verisilo(inputs["verisilo"])
+    tmpfs_spec = _runtime_tmpfs_spec(locked["lock"])
+    other_inputs = _validate_other_inputs(inputs, locked)
+    provenance_dir = run_root / "provenance"
+    prepared = _strict_json(provenance_dir / "builder-image-result.json")
+    binding = _verify_committed_builder_binding(
+        locked["lock"],
+        prepared,
+        expected_run_id=args.run_id,
+        expected_owner=owner,
+        allow_bound_prepared=True,
+    )
+    historical_recipe = _verify_historical_recipe_source(inputs["verisilo"], binding)
+    prepared_evidence = _verify_prepared_image_evidence(
+        provenance_dir, binding, container_roots
+    )
+    builder_archive = _verify_bound_image_archive(provenance_dir, binding)
+    inspect_summary = _verify_live_bound_image(binding)
 
     phase_owner = {
         "recordType": "verisilo-camoufox-build-engine-start/v1",
@@ -813,6 +1065,7 @@ def build_engine(args: argparse.Namespace) -> int:
         "committedBuilderImageBinding": binding,
         "verifiedHistoricalRecipeSource": historical_recipe,
         "verifiedPreparedImageEvidence": prepared_evidence,
+        "verifiedBuilderImageArchive": builder_archive,
         "image": inspect_summary,
         "status": "build-engine-started",
     }
@@ -837,7 +1090,7 @@ def build_engine(args: argparse.Namespace) -> int:
         "--mount",
         f"type=bind,src={layout['out']},dst=/out",
         "--tmpfs",
-        "/tmp:rw,nosuid,nodev,mode=1777,size=4g",
+        tmpfs_spec,
         "--env",
         f"VERISILO_BUILDER_IMAGE_ID={binding['imageId']}",
         "--env",
@@ -870,7 +1123,7 @@ def build_engine(args: argparse.Namespace) -> int:
         "logSizeBytes": container_log.stat().st_size,
         "readOnlyRoot": True,
         "inputsReadOnly": True,
-        "tmpfsTmp": True,
+        "tmpfs": EXPECTED_TMPFS_CONTRACT,
     }
     strict_result_candidates = [
         layout["out"] / args.run_id / "build-result.json",
@@ -900,6 +1153,10 @@ def main() -> int:
     prepare = commands.add_parser("prepare-image")
     prepare.add_argument("--run-id", required=True)
     prepare.add_argument("--run-root", required=True)
+    bound = commands.add_parser("prepare-bound-image")
+    bound.add_argument("--run-id", required=True)
+    bound.add_argument("--run-root", required=True)
+    bound.add_argument("--source-run-root", required=True)
     engine = commands.add_parser("build-engine")
     engine.add_argument("--run-id", required=True)
     engine.add_argument("--run-root", required=True)
@@ -908,6 +1165,8 @@ def main() -> int:
     try:
         if args.command == "prepare-image":
             return prepare_image(args)
+        if args.command == "prepare-bound-image":
+            return prepare_bound_image(args)
         return build_engine(args)
     except (HostBuildFailure, OSError, ValueError, KeyError) as exc:
         print(f"host-build-failed: {exc}", file=sys.stderr)

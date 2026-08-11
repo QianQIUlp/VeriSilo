@@ -206,6 +206,20 @@ def test_source_lock_contract() -> None:
         "inputMount": "/inputs read-only",
         "distinctEmptyReadWriteMounts": ["/build-home", "/work", "/out"],
         "dpkgClosureMustRemainStable": True,
+        "tmpfs": {
+            "path": "/tmp",
+            "options": [
+                "rw",
+                "nosuid",
+                "nodev",
+                "exec",
+                "mode=1777",
+                "size=4g",
+            ],
+            "purpose": (
+                "execute checksum-verified Mozilla bootstrap temporary tools"
+            ),
+        },
     }
     assert any(
         "SHA-512 verification" in requirement
@@ -379,11 +393,14 @@ def test_pinned_oci_build_recipe_is_closed() -> None:
     host = BUILD_HOST_PATH.read_text(encoding="utf-8")
     for marker in (
         'commands.add_parser("prepare-image")',
+        'commands.add_parser("prepare-bound-image")',
         'commands.add_parser("build-engine")',
         '"--no-cache"',
         '"--pull=false"',
         '"--read-only"',
         'dst=/inputs,readonly',
+        'tmpfs_spec = _runtime_tmpfs_spec(locked["lock"])',
+        '"tmpfs": EXPECTED_TMPFS_CONTRACT',
     ):
         assert marker in host
 
@@ -522,6 +539,396 @@ def test_host_launcher_rechecks_prepared_image_evidence_and_tooling() -> None:
             pass
         else:
             raise AssertionError("host tooling drift was accepted")
+
+
+def test_host_launcher_requires_exact_executable_tmpfs_contract() -> None:
+    host = _load_python_file("canvas_engine_build_host_tmpfs", BUILD_HOST_PATH)
+    lock = _load_lock()
+    expected = "/tmp:rw,nosuid,nodev,exec,mode=1777,size=4g"
+    assert host._runtime_tmpfs_spec(lock) == expected
+
+    variants = []
+    for options in (
+        ["rw", "nosuid", "nodev", "mode=1777", "size=4g"],
+        ["rw", "nosuid", "nodev", "noexec", "mode=1777", "size=4g"],
+        [
+            "rw",
+            "nosuid",
+            "nodev",
+            "exec",
+            "mode=1777",
+            "size=4g",
+            "unknown",
+        ],
+        ["rw", "nosuid", "exec", "nodev", "mode=1777", "size=4g"],
+    ):
+        altered = json.loads(json.dumps(lock))
+        altered["buildBinding"]["runtimeContainer"]["tmpfs"]["options"] = options
+        variants.append(altered)
+    for altered in variants:
+        try:
+            host._runtime_tmpfs_spec(altered)
+        except host.HostBuildFailure:
+            pass
+        else:
+            raise AssertionError("non-exact executable /tmp contract was accepted")
+
+
+def test_host_launcher_prepared_record_types_are_fail_closed() -> None:
+    host = _load_python_file("canvas_engine_build_host_records", BUILD_HOST_PATH)
+    lock = _load_lock()
+    binding = lock["buildBinding"]["builderImageBinding"]
+    source_run_id = "source-run-0001"
+    fresh_run_id = "fresh-run-0001"
+    source_owner = {
+        "recordType": "verisilo-camoufox-build-owner/v1",
+        "runId": source_run_id,
+        "token": "source-token",
+    }
+    fresh_owner = {
+        "recordType": "verisilo-camoufox-build-owner/v1",
+        "runId": fresh_run_id,
+        "token": "fresh-token",
+    }
+    original = {
+        "recordType": host.ORIGINAL_PREPARED_RECORD,
+        "runId": source_run_id,
+        "owner": source_owner,
+        "bindingProposal": dict(binding),
+        "status": host.ORIGINAL_PREPARED_STATUS,
+    }
+    assert host._verify_committed_builder_binding(
+        lock,
+        original,
+        expected_run_id=source_run_id,
+        expected_owner=source_owner,
+        allow_bound_prepared=False,
+    ) == binding
+
+    bound = {
+        "recordType": host.BOUND_PREPARED_RECORD,
+        "runId": fresh_run_id,
+        "sourceRunId": source_run_id,
+        "sourcePreparedRecord": {
+            "recordType": host.ORIGINAL_PREPARED_RECORD,
+            "status": host.ORIGINAL_PREPARED_STATUS,
+            "runId": source_run_id,
+            "sha256": "1" * 64,
+            "sizeBytes": 1,
+        },
+        "owner": fresh_owner,
+        "bindingProposal": dict(binding),
+        "status": host.BOUND_PREPARED_STATUS,
+    }
+    assert host._verify_committed_builder_binding(
+        lock,
+        bound,
+        expected_run_id=fresh_run_id,
+        expected_owner=fresh_owner,
+        allow_bound_prepared=True,
+    ) == binding
+
+    invalid = []
+    wrong_run = dict(original)
+    wrong_run["runId"] = fresh_run_id
+    invalid.append((wrong_run, source_run_id, source_owner, False))
+    wrong_status = dict(original)
+    wrong_status["status"] = "prepared"
+    invalid.append((wrong_status, source_run_id, source_owner, False))
+    wrong_record = dict(original)
+    wrong_record["recordType"] = host.BOUND_PREPARED_RECORD
+    invalid.append((wrong_record, source_run_id, source_owner, False))
+    chained = dict(bound)
+    invalid.append((chained, fresh_run_id, fresh_owner, False))
+    self_sourced = dict(bound)
+    self_sourced["sourceRunId"] = fresh_run_id
+    invalid.append((self_sourced, fresh_run_id, fresh_owner, True))
+    extra_proposal = json.loads(json.dumps(original))
+    extra_proposal["bindingProposal"]["unexpected"] = True
+    invalid.append((extra_proposal, source_run_id, source_owner, False))
+    wrong_owner = dict(original)
+    wrong_owner["owner"] = fresh_owner
+    invalid.append((wrong_owner, source_run_id, source_owner, False))
+    missing_source_record = dict(bound)
+    del missing_source_record["sourcePreparedRecord"]
+    invalid.append((missing_source_record, fresh_run_id, fresh_owner, True))
+    for prepared, expected_run_id, expected_owner, allow_bound in invalid:
+        try:
+            host._verify_committed_builder_binding(
+                lock,
+                prepared,
+                expected_run_id=expected_run_id,
+                expected_owner=expected_owner,
+                allow_bound_prepared=allow_bound,
+            )
+        except host.HostBuildFailure:
+            pass
+        else:
+            raise AssertionError("invalid prepared builder record was accepted")
+
+
+def test_host_launcher_source_run_path_and_layout_are_fail_closed() -> None:
+    host = _load_python_file("canvas_engine_build_host_source", BUILD_HOST_PATH)
+    with tempfile.TemporaryDirectory() as temporary:
+        runs_root = Path(temporary).resolve() / "runs"
+        runs_root.mkdir()
+        source = runs_root / "source-run-0001"
+        destination = runs_root / "fresh-run-0001"
+        source.mkdir()
+        destination.mkdir()
+        (source / "inputs").mkdir()
+        (source / "provenance").mkdir()
+        owner_record = {
+            "recordType": "verisilo-camoufox-build-owner/v1",
+            "runId": source.name,
+            "token": "source-token",
+        }
+        (source / host.OWNER_NAME).write_text(
+            json.dumps(owner_record),
+            encoding="utf-8",
+        )
+        with mock.patch.object(host, "RUNS_ROOT", runs_root):
+            actual = host._validate_source_run_root(source, destination)
+            assert actual == {
+                "runId": source.name,
+                "provenance": source / "provenance",
+                "owner": owner_record,
+            }
+
+            invalid = [source]
+            nested = runs_root / "nested"
+            nested.mkdir()
+            nested_source = nested / "nested-run-0001"
+            nested_source.mkdir()
+            invalid.append(nested_source)
+            for path in invalid:
+                try:
+                    host._validate_source_run_root(path, source)
+                except host.HostBuildFailure:
+                    pass
+                else:
+                    raise AssertionError("invalid source-run-root was accepted")
+
+            owner = json.loads((source / host.OWNER_NAME).read_text(encoding="utf-8"))
+            owner["runId"] = "wrong-run-0001"
+            (source / host.OWNER_NAME).write_text(
+                json.dumps(owner), encoding="utf-8"
+            )
+            try:
+                host._validate_source_run_root(source, destination)
+            except host.HostBuildFailure:
+                pass
+            else:
+                raise AssertionError("source owner/run-id mismatch was accepted")
+
+
+def test_host_launcher_prepares_fresh_run_from_frozen_bound_image_once() -> None:
+    host = _load_python_file("canvas_engine_build_host_reuse", BUILD_HOST_PATH)
+    with tempfile.TemporaryDirectory() as temporary:
+        runs_root = Path(temporary).resolve() / "runs"
+        runs_root.mkdir()
+
+        def make_input_run(run_id: str) -> Path:
+            run = runs_root / run_id
+            inputs = run / "inputs"
+            inputs.mkdir(parents=True)
+            (inputs / "verisilo").mkdir()
+            (inputs / "upstream").mkdir()
+            (inputs / host.FIREFOX_ARCHIVE_NAME).write_bytes(b"firefox")
+            return run
+
+        source_run = runs_root / "source-run-0001"
+        source_provenance = source_run / "provenance"
+        (source_run / "inputs").mkdir(parents=True)
+        source_provenance.mkdir()
+        # A failed build-engine source remains immutable and may retain these.
+        for name in ("build-home", "work", "out"):
+            (source_run / name).mkdir()
+        source_owner = {
+            "recordType": "verisilo-camoufox-build-owner/v1",
+            "runId": source_run.name,
+            "token": "source-owner-token",
+        }
+        (source_run / host.OWNER_NAME).write_text(
+            json.dumps(source_owner), encoding="utf-8"
+        )
+
+        evidence = {
+            "buildx.log": b"bound build log\n",
+            "buildx-metadata.json": b'{"bound":true}\n',
+            "builder-image-inspect.json": b'{"Id":"bound"}\n',
+            "builder-image.tar": b"bound-builder-image",
+        }
+        for name, payload in evidence.items():
+            (source_provenance / name).write_bytes(payload)
+        (source_provenance / "docker-save.log").write_text(
+            "must not be copied\n", encoding="utf-8"
+        )
+        (source_provenance / "host-provenance.json").write_text(
+            '{"mustNotBeCopied":true}\n', encoding="utf-8"
+        )
+
+        tooling = {
+            "dockerRoot": "/mnt/camoufox-build/docker-data",
+            "containerdRoot": "/mnt/camoufox-build/containerd-root",
+            "dockerVersion": {"Server": {"Version": "29.1.3"}},
+            "buildxVersion": "github.com/docker/buildx 0.30.1",
+            "containerdVersion": "containerd 2.2.1",
+        }
+        lock = json.loads(json.dumps(_load_lock()))
+        binding = dict(lock["buildBinding"]["builderImageBinding"])
+        binding.update(
+            {
+                "buildxLogSha256": _sha256(source_provenance / "buildx.log"),
+                "buildxLogSizeBytes": (
+                    source_provenance / "buildx.log"
+                ).stat().st_size,
+                "buildxMetadataSha256": _sha256(
+                    source_provenance / "buildx-metadata.json"
+                ),
+                "imageInspectSha256": _sha256(
+                    source_provenance / "builder-image-inspect.json"
+                ),
+                "savedArchiveSha256": _sha256(
+                    source_provenance / "builder-image.tar"
+                ),
+                "savedArchiveSizeBytes": (
+                    source_provenance / "builder-image.tar"
+                ).stat().st_size,
+                "hostToolingSha256": host._canonical_sha256(tooling),
+            }
+        )
+        lock["buildBinding"]["builderImageBinding"] = binding
+        source_prepared = {
+            "recordType": host.ORIGINAL_PREPARED_RECORD,
+            "runId": source_run.name,
+            "owner": source_owner,
+            "bindingProposal": dict(binding),
+            "status": host.ORIGINAL_PREPARED_STATUS,
+        }
+        source_result_path = source_provenance / "builder-image-result.json"
+        source_result_path.write_text(
+            json.dumps(source_prepared, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        fresh_run = make_input_run("fresh-run-0001")
+        recipe_source = {
+            "branch": "test",
+            "commit": "1" * 40,
+            "tree": "2" * 40,
+            "lockPath": host.LOCK_REL.as_posix(),
+            "lockSha256": "3" * 64,
+            "dockerfileSha256": binding["dockerfileSha256"],
+        }
+        historical = {
+            "commit": binding["recipeSourceCommit"],
+            "tree": binding["recipeSourceTree"],
+            "sourceLockSha256": binding["recipeSourceLockSha256"],
+            "dockerfileSha256": binding["dockerfileSha256"],
+        }
+        image = {
+            "id": binding["imageId"],
+            "labels": {},
+            "os": "linux",
+            "architecture": "amd64",
+        }
+        args = argparse.Namespace(
+            run_id=fresh_run.name,
+            run_root=str(fresh_run),
+            source_run_root=str(source_run),
+        )
+        with (
+            mock.patch.object(host, "RUNS_ROOT", runs_root),
+            mock.patch.object(host, "_validate_data_mount", return_value={
+                "path": str(runs_root.parent),
+                "device": 1,
+                "runsRoot": str(runs_root),
+            }),
+            mock.patch.object(
+                host, "_validate_container_roots", return_value=tooling
+            ),
+            mock.patch.object(
+                host,
+                "_validate_verisilo",
+                return_value=(recipe_source, {"lock": lock, "firefox": {}}),
+            ),
+            mock.patch.object(
+                host,
+                "_validate_other_inputs",
+                return_value={"inputs": "verified"},
+            ),
+            mock.patch.object(
+                host,
+                "_verify_historical_recipe_source",
+                return_value=historical,
+            ),
+            mock.patch.object(
+                host, "_verify_live_bound_image", return_value=image
+            ),
+            mock.patch.object(
+                host,
+                "_run_logged",
+                side_effect=AssertionError("prepare-bound-image invoked buildx"),
+            ),
+            mock.patch.object(
+                host,
+                "_run_binary_output",
+                side_effect=AssertionError("prepare-bound-image invoked docker save"),
+            ),
+        ):
+            assert host.prepare_bound_image(args) == 0
+
+            fresh_provenance = fresh_run / "provenance"
+            assert {path.name for path in fresh_provenance.iterdir()} == {
+                *host.FROZEN_BUILDER_EVIDENCE,
+                "builder-image-result.json",
+            }
+            result = json.loads(
+                (fresh_provenance / "builder-image-result.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            assert result["recordType"] == host.BOUND_PREPARED_RECORD
+            assert result["status"] == host.BOUND_PREPARED_STATUS
+            assert result["runId"] == fresh_run.name
+            assert result["sourceRunId"] == source_run.name
+            assert result["bindingProposal"] == binding
+            assert result["sourcePreparedRecord"]["runId"] == source_run.name
+            assert result["sourcePreparedRecord"]["sha256"] == _sha256(
+                source_result_path
+            )
+            assert result["owner"]["token"] != source_owner["token"]
+            assert (
+                json.loads(
+                    (fresh_run / host.OWNER_NAME).read_text(encoding="utf-8")
+                )["token"]
+                == result["owner"]["token"]
+            )
+
+            copied_tar = fresh_provenance / "builder-image.tar"
+            copied_tar.write_bytes(b"tampered-builder-image")
+            try:
+                host._verify_bound_image_archive(fresh_provenance, binding)
+            except host.HostBuildFailure:
+                pass
+            else:
+                raise AssertionError("bound image archive tampering was accepted")
+
+            tampered_run = make_input_run("tamper-run-0001")
+            (source_provenance / "buildx.log").write_bytes(b"tampered log\n")
+            tampered_args = argparse.Namespace(
+                run_id=tampered_run.name,
+                run_root=str(tampered_run),
+                source_run_root=str(source_run),
+            )
+            try:
+                host.prepare_bound_image(tampered_args)
+            except host.HostBuildFailure:
+                pass
+            else:
+                raise AssertionError("tampered frozen source evidence was accepted")
+            assert not (tampered_run / host.OWNER_NAME).exists()
 
 
 EXPECTED_DRIVER_MARKERS = {

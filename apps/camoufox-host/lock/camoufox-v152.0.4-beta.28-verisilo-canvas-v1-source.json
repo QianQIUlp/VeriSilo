@@ -452,8 +452,8 @@
         },
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/build_host.py",
-          "sha256": "cedddd1b6b2abdd8b05d69f4040b220b1b7fb9ebfff15e18708d59fa1dcbe191",
-          "sizeBytes": 35022
+          "sha256": "d4e32f466d0c0ba099cb52bde1b256fa21b8aa5ee7dd645f201a2a3c1f662c2a",
+          "sizeBytes": 45743
         }
       ],
       "fixedEnvironment": {
@@ -494,7 +494,12 @@
       "readOnlyRoot": true,
       "inputMount": "/inputs read-only",
       "distinctEmptyReadWriteMounts": ["/build-home", "/work", "/out"],
-      "dpkgClosureMustRemainStable": true
+      "dpkgClosureMustRemainStable": true,
+      "tmpfs": {
+        "path": "/tmp",
+        "options": ["rw", "nosuid", "nodev", "exec", "mode=1777", "size=4g"],
+        "purpose": "execute checksum-verified Mozilla bootstrap temporary tools"
+      }
     },
     "builderImageBindingRequiredFields": [
       "imageId",
