@@ -153,7 +153,38 @@ def test_source_lock_contract() -> None:
     assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
     assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
     assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
-    assert build["builderImageBinding"] is None
+    assert build["builderImageBinding"] == {
+        "baseIndexDigest": BASE_INDEX_DIGEST,
+        "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
+        "buildxLogSha256": (
+            "85d27fa8166f744bfd47f1a2b78cd10447c6fca648e965a307f63b1f81371fbe"
+        ),
+        "buildxLogSizeBytes": 77446,
+        "buildxMetadataSha256": (
+            "e1ec869f7d7dc7d1d254fd626bffe31e267a00d5d6104034b5d98b839fe17744"
+        ),
+        "dockerfileSha256": (
+            "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43"
+        ),
+        "hostToolingSha256": (
+            "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
+        ),
+        "imageId": (
+            "sha256:6e66a3bc3443fcf0880f402c01f15a0b4d903f4ffb454c693b3a5a5dc86ffb0e"
+        ),
+        "imageInspectSha256": (
+            "960548242139490dc8935bb0dab34b3debe7459331d163db778db2799875dfcc"
+        ),
+        "recipeSourceCommit": "25e5c00e5d77ffe6348b21437aca080624a52f27",
+        "recipeSourceLockSha256": (
+            "28116c58ad91e84cf51f6fb502b2fb16231eed9b1ce5b1f0a86d50a7fba61718"
+        ),
+        "recipeSourceTree": "72c98daadb1bb028fde36aa0d7e184c0538adf3c",
+        "savedArchiveSha256": (
+            "571b0393b649f2d9f824895481ade486d73bd4fea30ae71f07be0347d6573cc1"
+        ),
+        "savedArchiveSizeBytes": 479035392,
+    }
     assert set(build["builderImageBindingRequiredFields"]) == {
         "imageId",
         "savedArchiveSha256",
