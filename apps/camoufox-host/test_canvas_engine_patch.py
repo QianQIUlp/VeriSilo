@@ -101,8 +101,20 @@ def test_source_lock_contract() -> None:
     )
     assert lock["status"] == "source-patch-only"
     assert lock["verified"] is False
-    assert lock["buildBinding"]["status"] == "not-built"
-    assert lock["buildBinding"]["binaryBinding"] is None
+    build = lock["buildBinding"]
+    assert build["status"] == "not-built"
+    assert build["binaryBinding"] is None
+    assert build["supportedBuildExecutionEnvironment"] == "linux"
+    assert "Docker" in build["supportedPhysicalHostWrapper"]
+    assert build["unsupportedBuildRoutes"] == ["direct native-Windows", "WSL"]
+    assert any(
+        "SHA-512 verification" in requirement
+        for requirement in build["requiredBeforeRuntime"]
+    )
+    assert any(
+        "upstream-patches -> VeriSilo-patch -> build -> package" in requirement
+        for requirement in build["requiredBeforeRuntime"]
+    )
     assert lock["compatibility"]["historicalOfficialBindingModified"] is False
     assert lock["compatibility"]["artifactTopLevelSchema"].endswith("/v3")
 

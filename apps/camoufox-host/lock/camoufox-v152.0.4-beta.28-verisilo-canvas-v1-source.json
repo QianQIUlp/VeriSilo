@@ -400,19 +400,22 @@
   ],
   "buildBinding": {
     "target": "x86_64-pc-windows-msvc",
-    "supportedBuildHost": "linux",
+    "supportedBuildExecutionEnvironment": "linux",
+    "supportedPhysicalHostWrapper": "upstream Linux Docker container supports all physical host platforms",
     "officialReferenceHost": "ubuntu-24.04",
     "status": "not-built",
     "binaryBinding": null,
     "requiredBeforeRuntime": [
       "immutable Linux build-environment image digest",
       "exact toolchain and mach bootstrap artifact versions/digests",
+      "Firefox source SHA-512 verification before extraction",
+      "exact downstream recipe digest and logged upstream-patches -> VeriSilo-patch -> build -> package order",
       "build run identity and logs",
       "Windows archive name/size/sha256",
       "complete extraction-tree manifest",
       "camoufox.exe hash, BuildID, SourceStamp, application.ini and platform.ini hashes"
     ],
-    "unsupportedOnCurrentHost": "Camoufox upstream states its build system is Linux-only and WSL is unsupported; the current native Windows host lacks the supported cross-build environment."
+    "unsupportedBuildRoutes": ["direct native-Windows", "WSL"]
   },
   "compatibility": {
     "artifactTopLevelSchema": "verisilo-camoufox-resolved-identity/v3",
