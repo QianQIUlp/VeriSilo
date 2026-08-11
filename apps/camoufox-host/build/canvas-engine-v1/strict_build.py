@@ -60,6 +60,8 @@ EXPECTED_BASE_AMD64_MANIFEST_DIGEST = (
 )
 EXPECTED_OUTPUT = "camoufox-152.0.4-beta.28-win.x86_64.zip"
 EXPECTED_SOURCE_DIR = "camoufox-152.0.4-beta.28"
+EXPECTED_VERSION = "152.0.4"
+EXPECTED_RELEASE = "beta.28"
 DEFAULT_MOZ_BUILD_DATE = "20260811045234"
 EXPECTED_UPSTREAM_PATCH_PROGRAM = "GNU patch 2.7.6"
 EXPECTED_UPSTREAM_PATCH_COMMAND = [
@@ -874,6 +876,250 @@ def _verify_seams(lock: dict, source: Path, field: str) -> None:
             raise BuildFailure(f"Canvas seam mismatch at {field}: {seam['path']}")
 
 
+def _locked_relative_path(value: object, label: str) -> PurePosixPath:
+    if type(value) is not str or not value or value.startswith("/"):
+        raise BuildFailure(f"{label} must be a safe relative POSIX path")
+    if "\\" in value or "\x00" in value or "\r" in value or "\n" in value:
+        raise BuildFailure(f"{label} must be a safe relative POSIX path")
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise BuildFailure(f"{label} must be a canonical relative POSIX path")
+    relative = PurePosixPath(value)
+    if relative.as_posix() != value:
+        raise BuildFailure(f"{label} must be a canonical relative POSIX path")
+    return relative
+
+
+def _real_directory(root: Path, relative: PurePosixPath, label: str) -> Path:
+    cursor = root
+    paths = [root]
+    for part in relative.parts:
+        cursor /= part
+        paths.append(cursor)
+    for path in paths:
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError as exc:
+            raise BuildFailure(f"{label} directory is missing") from exc
+        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            raise BuildFailure(f"{label} must be a real directory")
+    return cursor
+
+
+def _exact_directory_names(
+    parent: Path, expected: object, label: str
+) -> None:
+    if (
+        type(expected) is not list
+        or not expected
+        or any(type(name) is not str or not name for name in expected)
+        or expected != sorted(set(expected))
+    ):
+        raise BuildFailure(f"{label} directory-name lock is malformed")
+    try:
+        entries = sorted(os.scandir(parent), key=lambda entry: entry.name)
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise BuildFailure(f"{label} version root is missing") from exc
+    actual: list[str] = []
+    for entry in entries:
+        metadata = entry.stat(follow_symlinks=False)
+        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            raise BuildFailure(f"{label} version root contains a non-directory")
+        actual.append(entry.name)
+    if actual != expected:
+        raise BuildFailure(f"{label} directory versions differ from the source lock")
+
+
+def _locked_crt_rows(value: object) -> list[dict]:
+    if type(value) is not list or not value:
+        raise BuildFailure("packaged CRT file lock must be a non-empty array")
+    rows: list[dict] = []
+    for item in value:
+        if type(item) is not dict or set(item) != {"path", "sha256", "size"}:
+            raise BuildFailure("packaged CRT file lock is malformed")
+        relative = _locked_relative_path(item["path"], "packaged CRT member")
+        if len(relative.parts) != 1 or relative.suffix.lower() != ".dll":
+            raise BuildFailure("packaged CRT members must be root DLL names")
+        if type(item["size"]) is not int or item["size"] <= 0:
+            raise BuildFailure("packaged CRT member size is invalid")
+        if (
+            type(item["sha256"]) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) is None
+        ):
+            raise BuildFailure("packaged CRT member SHA-256 is invalid")
+        rows.append(dict(item))
+    if [row["path"] for row in rows] != sorted(
+        {str(row["path"]) for row in rows}
+    ):
+        raise BuildFailure("packaged CRT member lock must be unique and ordinal-sorted")
+    return rows
+
+
+def _exact_flat_tree(root: Path, expected_files: object, expected_tree: object) -> dict:
+    rows = _locked_crt_rows(expected_files)
+    if type(expected_tree) is not dict or set(expected_tree) != {
+        "canonicalTreeSha256",
+        "fileCount",
+        "totalBytes",
+    }:
+        raise BuildFailure("packaged CRT tree lock is malformed")
+    actual_rows: list[dict] = []
+    for entry in sorted(os.scandir(root), key=lambda item: item.name):
+        metadata = entry.stat(follow_symlinks=False)
+        if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            raise BuildFailure("packaged CRT directory must contain only regular files")
+        path = Path(entry.path)
+        actual_rows.append(
+            {
+                "path": entry.name,
+                "sha256": _sha(path),
+                "size": metadata.st_size,
+            }
+        )
+    if actual_rows != rows:
+        raise BuildFailure("packaged CRT files differ from the source lock")
+    actual_tree = _canonical_tree(root)
+    if actual_tree != expected_tree:
+        raise BuildFailure("packaged CRT tree differs from the source lock")
+    return actual_tree
+
+
+def verify_windows_toolchain_manifest(lock: dict, source: Path) -> dict:
+    binding = lock["buildBinding"].get("windowsToolchain")
+    if type(binding) is not dict:
+        raise BuildFailure("Windows toolchain binding is missing")
+    manifest = binding.get("selectionManifest")
+    if type(manifest) is not dict or set(manifest) != {"path", "sha256", "size"}:
+        raise BuildFailure("Windows toolchain selection manifest lock is malformed")
+    relative = _locked_relative_path(manifest["path"], "toolchain selection manifest")
+    parent = _real_directory(
+        source,
+        relative.parent,
+        "Windows toolchain selection manifest parent",
+    )
+    path = parent / relative.name
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError as exc:
+        raise BuildFailure("Windows toolchain selection manifest is missing") from exc
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or stat.S_ISLNK(metadata.st_mode)
+        or type(manifest["size"]) is not int
+        or metadata.st_size != manifest["size"]
+        or type(manifest["sha256"]) is not str
+        or _sha(path) != manifest["sha256"]
+    ):
+        raise BuildFailure("Windows toolchain selection manifest differs from the lock")
+    return dict(manifest)
+
+
+def resolve_bound_windows_toolchain(lock: dict, mozbuild: Path) -> dict:
+    binding = lock["buildBinding"].get("windowsToolchain")
+    if type(binding) is not dict:
+        raise BuildFailure("Windows toolchain binding is missing")
+
+    compiler = binding.get("compiler")
+    sdk = binding.get("windowsSdk")
+    crt = binding.get("crt")
+    if type(compiler) is not dict or type(sdk) is not dict or type(crt) is not dict:
+        raise BuildFailure("Windows toolchain binding is malformed")
+
+    compiler_relative = _locked_relative_path(
+        compiler.get("relativePath"), "MSVC compiler directory"
+    )
+    compiler_path = _real_directory(mozbuild, compiler_relative, "MSVC compiler")
+    _exact_directory_names(
+        compiler_path.parent,
+        compiler.get("versionDirectoryNames"),
+        "MSVC compiler",
+    )
+    if compiler_path.name != compiler.get("version"):
+        raise BuildFailure("MSVC compiler version differs from the source lock")
+
+    include_relative = _locked_relative_path(
+        sdk.get("includeRelativePath"), "Windows SDK include directory"
+    )
+    lib_relative = _locked_relative_path(
+        sdk.get("libRelativePath"), "Windows SDK library directory"
+    )
+    include_path = _real_directory(mozbuild, include_relative, "Windows SDK include")
+    lib_path = _real_directory(mozbuild, lib_relative, "Windows SDK library")
+    _exact_directory_names(
+        include_path.parent,
+        sdk.get("includeVersionDirectoryNames"),
+        "Windows SDK include",
+    )
+    _exact_directory_names(
+        lib_path.parent,
+        sdk.get("libVersionDirectoryNames"),
+        "Windows SDK library",
+    )
+    if include_path.name != sdk.get("version") or lib_path.name != sdk.get("version"):
+        raise BuildFailure("Windows SDK version differs from the source lock")
+
+    crt_relative = _locked_relative_path(crt.get("relativePath"), "packaged CRT")
+    crt_path = _real_directory(mozbuild, crt_relative, "packaged CRT")
+    if (
+        crt_path.name != crt.get("family")
+        or crt_path.parent.name != crt.get("architecture")
+        or crt_path.parent.parent.name != crt.get("redistVersion")
+    ):
+        raise BuildFailure("packaged CRT path differs from the source lock")
+    _exact_directory_names(
+        crt_path.parent.parent.parent,
+        crt.get("redistDirectoryNames"),
+        "MSVC redistributable",
+    )
+    crt_rows = _locked_crt_rows(crt.get("files"))
+    crt_tree = _exact_flat_tree(crt_path, crt_rows, crt.get("tree"))
+    evidence = {
+        "compilerVersion": compiler["version"],
+        "packagedCrt": {
+            "architecture": crt["architecture"],
+            "family": crt["family"],
+            "redistVersion": crt["redistVersion"],
+            **crt_tree,
+        },
+        "selectionManifest": dict(binding["selectionManifest"]),
+        "windowsSdkVersion": sdk["version"],
+    }
+    return {
+        "crtFiles": [crt_path / row["path"] for row in crt_rows],
+        "crtPath": crt_path,
+        "evidence": evidence,
+    }
+
+
+def windows_package_command(crt_files: list[Path]) -> list[str]:
+    if (
+        not crt_files
+        or any(not path.is_absolute() for path in crt_files)
+        or [path.name for path in crt_files]
+        != sorted({path.name for path in crt_files})
+    ):
+        raise BuildFailure("packaged CRT argv must be absolute, unique and ordinal-sorted")
+    return [
+        "python3",
+        "scripts/package.py",
+        "windows",
+        "--includes",
+        "settings/chrome.css",
+        "settings/camoucfg.jvv",
+        "settings/properties.json",
+        *(str(path) for path in crt_files),
+        "--version",
+        EXPECTED_VERSION,
+        "--release",
+        EXPECTED_RELEASE,
+        "--arch",
+        "x86_64",
+        "--fonts",
+        "macos",
+        "linux",
+    ]
+
+
 def _command_versions(environment: dict[str, str], workspace: Path) -> dict:
     commands = {
         "python": ["python3", "--version"],
@@ -914,7 +1160,9 @@ def _dpkg_closure() -> dict:
     }
 
 
-def _validate_zip(path: Path) -> dict:
+def _validate_zip(path: Path, expected_crt_files: object) -> dict:
+    crt_rows = _locked_crt_rows(expected_crt_files)
+    expected_crt_names = {row["path"] for row in crt_rows}
     with zipfile.ZipFile(path) as bundle:
         corrupt = bundle.testzip()
         if corrupt is not None:
@@ -953,6 +1201,25 @@ def _validate_zip(path: Path) -> dict:
         missing = [name for name in required if name not in names]
         if missing:
             raise BuildFailure("candidate ZIP is missing required binding members")
+        observed_crt_names = {
+            name
+            for name in names
+            if "/" not in name
+            and re.fullmatch(
+                r"(?:concrt|msvcp|vccorlib|vcruntime)[^/]*\.dll",
+                name,
+                re.IGNORECASE,
+            )
+        }
+        if observed_crt_names != expected_crt_names:
+            raise BuildFailure("candidate ZIP CRT member closure differs from the lock")
+        crt_member_hashes: dict[str, str] = {}
+        for row in crt_rows:
+            data = bundle.read(row["path"])
+            digest = hashlib.sha256(data).hexdigest()
+            if len(data) != row["size"] or digest != row["sha256"]:
+                raise BuildFailure("candidate ZIP CRT member differs from the lock")
+            crt_member_hashes[row["path"]] = digest
         member_hashes = {
             name: hashlib.sha256(bundle.read(name)).hexdigest() for name in required
         }
@@ -965,6 +1232,7 @@ def _validate_zip(path: Path) -> dict:
             raise BuildFailure("candidate SourceStamp is not a 40-hex revision")
     return {
         "memberCount": len(infos),
+        "packagedCrtMemberSha256": crt_member_hashes,
         "requiredMemberSha256": member_hashes,
         "buildId": build_id,
         "sourceStamp": source_stamp,
@@ -1046,6 +1314,7 @@ def execute(args: argparse.Namespace) -> dict:
         source = upstream / EXPECTED_SOURCE_DIR
         if not source.is_dir():
             raise BuildFailure("setup-minimal did not materialize the expected source")
+        toolchain_manifest = verify_windows_toolchain_manifest(lock, source)
         log.run(["make", "mozbootstrap"], cwd=upstream, env=environment, label="mozbootstrap")
         log.run(
             [
@@ -1095,6 +1364,8 @@ def execute(args: argparse.Namespace) -> dict:
         )
         verify_patch_debris_unchanged(source, patch_debris_baseline)
         _verify_seams(lock, source, "postDownstreamPatchSha256")
+        if verify_windows_toolchain_manifest(lock, source) != toolchain_manifest:
+            raise BuildFailure("Windows toolchain selection manifest changed during patching")
         (source / "_READY").touch()
         log.note("VeriSilo Canvas patch and seam postimages verified")
 
@@ -1105,20 +1376,17 @@ def execute(args: argparse.Namespace) -> dict:
             label="configure-windows-x86_64-and-bootstrap-toolchains",
         )
         _verify_seams(lock, source, "postDownstreamPatchSha256")
+        if verify_windows_toolchain_manifest(lock, source) != toolchain_manifest:
+            raise BuildFailure("Windows toolchain selection manifest changed during configure")
 
         mozbuild = Path(environment["MOZBUILD_STATE_PATH"])
-        crt = (
-            mozbuild
-            / "vs/VC/Redist/MSVC/14.38.33135/x64/Microsoft.VC143.CRT"
-        )
-        if not crt.is_dir() or not list(crt.glob("*.dll")):
-            raise BuildFailure("pinned MSVC 14.38.33135 x64 CRT inputs are missing")
+        bound_toolchain = resolve_bound_windows_toolchain(lock, mozbuild)
         toolchain_before = {
             "versions": _command_versions(environment, upstream),
             "buildHomeTree": _freeze_provenance_tree(
                 BUILD_HOME, result_dir / "build-home-before-build.json"
             ),
-            "packagedCrtTree": _canonical_tree(crt),
+            "windowsToolchain": bound_toolchain["evidence"],
         }
         log.note("Windows configure completed and pre-build toolchains were frozen")
 
@@ -1128,19 +1396,25 @@ def execute(args: argparse.Namespace) -> dict:
             env=environment,
             label="build-windows-x86_64",
         )
+        if verify_windows_toolchain_manifest(lock, source) != toolchain_manifest:
+            raise BuildFailure("Windows toolchain selection manifest changed during build")
+        toolchain_after_build = resolve_bound_windows_toolchain(lock, mozbuild)
         log.run(
-            ["make", "package-windows", "arch=x86_64"],
+            windows_package_command(toolchain_after_build["crtFiles"]),
             cwd=upstream,
             env=environment,
             label="package-windows-x86_64",
         )
+        if verify_windows_toolchain_manifest(lock, source) != toolchain_manifest:
+            raise BuildFailure("Windows toolchain selection manifest changed during package")
+        toolchain_after_package = resolve_bound_windows_toolchain(lock, mozbuild)
         _verify_seams(lock, source, "postDownstreamPatchSha256")
         toolchain_after = {
             "versions": _command_versions(environment, upstream),
             "buildHomeTree": _freeze_provenance_tree(
                 BUILD_HOME, result_dir / "build-home-after-build.json"
             ),
-            "packagedCrtTree": _canonical_tree(crt),
+            "windowsToolchain": toolchain_after_package["evidence"],
         }
         dpkg_after = _dpkg_closure()
         if dpkg_after != dpkg_before:
@@ -1155,7 +1429,9 @@ def execute(args: argparse.Namespace) -> dict:
             "name": candidate.name,
             "sizeBytes": candidate.stat().st_size,
             "sha256": _sha(candidate),
-            **_validate_zip(candidate),
+            **_validate_zip(
+                candidate, lock["buildBinding"]["windowsToolchain"]["crt"]["files"]
+            ),
             "windowsExtractionTreePending": True,
         }
         if archive["buildId"] != args.moz_build_date:
@@ -1183,7 +1459,8 @@ def execute(args: argparse.Namespace) -> dict:
             "inputs": inputs,
             "dpkgClosure": dpkg_binding,
             "toolchainBeforeBuild": toolchain_before,
-            "toolchainAfterBuild": toolchain_after,
+            "toolchainAfterCompile": toolchain_after_build["evidence"],
+            "toolchainAfterPackage": toolchain_after,
             "buildLog": build_log,
             "archive": archive,
             "claims": {

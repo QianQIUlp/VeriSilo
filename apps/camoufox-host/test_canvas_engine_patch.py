@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import zipfile
 from pathlib import Path
 from unittest import SkipTest
 from unittest import mock
@@ -52,6 +53,42 @@ BASE_INDEX_DIGEST = (
 BASE_AMD64_MANIFEST_DIGEST = (
     "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467"
 )
+EXPECTED_VS_MANIFEST_SHA256 = (
+    "ffeef9c51797082dbfef5f6608d75638d3ca3cb11c17cef9f8deea9fde58c188"
+)
+EXPECTED_CRT_TREE_SHA256 = (
+    "97fd9b9e690301e9e066b40aef96f980ed195b226312a016cccb96ef64db73cd"
+)
+EXPECTED_CRT_FILES = {
+    "concrt140.dll": (321696, "b2faf3b85b23c840b654e57d5497a0ad31acd02fb01856cad4725a1715d5f78e"),
+    "msvcp140.dll": (553552, "def46aa6a8f72f27bafac0c43334419486a4d1dcdb6c479a8ef7034b3e1fa4cb"),
+    "msvcp140_1.dll": (35488, "2dd670f874562fbdca5b022df1943d70a57ba91fde559280e3a1daebe4db2380"),
+    "msvcp140_2.dll": (278608, "1d60da3ac2b06482912ca852fa7047436e6e474b4cfffa3bf77f4598cfbf454c"),
+    "msvcp140_atomic_wait.dll": (
+        48800,
+        "e7963645e0d1db08e300614d4c5fa7194bd8173e9ab7a5558859e6b232ed3241",
+    ),
+    "msvcp140_codecvt_ids.dll": (
+        31392,
+        "ae8d922b00cdd93e3ebecc37beb46c800f383ebdeb9f9e5b84e04a72428b6fb3",
+    ),
+    "vccorlib140.dll": (
+        350880,
+        "6b8d8a76c3e6664293407553650e60b94df9aaafc7c92057ea83032bd228e44f",
+    ),
+    "vcruntime140.dll": (
+        123472,
+        "184146852727a9db4eea06178716bec3cdbb1015c911f6b0f915b184ad7775b2",
+    ),
+    "vcruntime140_1.dll": (
+        47264,
+        "e6bfb3662ab4b1969a73441dbe35c96d51441b6bff8cf1fe7430bd5b246ca605",
+    ),
+    "vcruntime140_threads.dll": (
+        37456,
+        "a6222020b500a9a86b36e040c2dbd0e459716db1bf2810a11cd7512ea9b8d89b",
+    ),
+}
 EXPECTED_BUILDER_IMAGE_BINDING = {
     "baseIndexDigest": BASE_INDEX_DIGEST,
     "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
@@ -154,6 +191,93 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def _expect_build_failure(driver, action, message: str) -> None:
+    try:
+        action()
+    except driver.BuildFailure:
+        return
+    raise AssertionError(message)
+
+
+def _synthetic_toolchain_fixture(root: Path) -> tuple[dict, Path, Path, Path]:
+    source = root / "source"
+    mozbuild = root / "mozbuild"
+    manifest = source / "build" / "vs" / "vs2026.yaml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_bytes(b"synthetic-vs2026-manifest\n")
+
+    compiler = mozbuild / "vs" / "VC" / "Tools" / "MSVC" / "1.2.3"
+    sdk_include = mozbuild / "vs" / "Windows Kits" / "10" / "Include" / "4.5.6"
+    sdk_lib = mozbuild / "vs" / "Windows Kits" / "10" / "Lib" / "4.5.6"
+    crt = (
+        mozbuild
+        / "vs"
+        / "VC"
+        / "Redist"
+        / "MSVC"
+        / "1.2.2"
+        / "x64"
+        / "Microsoft.VC145.CRT"
+    )
+    for directory in (compiler, sdk_include, sdk_lib, crt):
+        directory.mkdir(parents=True)
+    (crt.parent.parent.parent / "v145").mkdir()
+    contents = {
+        "msvcp140.dll": b"synthetic-msvcp",
+        "vcruntime140.dll": b"synthetic-vcruntime",
+    }
+    for name, data in contents.items():
+        (crt / name).write_bytes(data)
+    rows = [
+        {
+            "path": name,
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "size": len(data),
+        }
+        for name, data in sorted(contents.items())
+    ]
+    count, total, digest = _canonical_tree(crt)
+    lock = {
+        "buildBinding": {
+            "windowsToolchain": {
+                "selectionManifest": {
+                    "path": "build/vs/vs2026.yaml",
+                    "sha256": _sha256(manifest),
+                    "size": manifest.stat().st_size,
+                },
+                "compiler": {
+                    "version": "1.2.3",
+                    "relativePath": "vs/VC/Tools/MSVC/1.2.3",
+                    "versionDirectoryNames": ["1.2.3"],
+                },
+                "windowsSdk": {
+                    "version": "4.5.6",
+                    "includeRelativePath": "vs/Windows Kits/10/Include/4.5.6",
+                    "includeVersionDirectoryNames": ["4.5.6"],
+                    "libRelativePath": "vs/Windows Kits/10/Lib/4.5.6",
+                    "libVersionDirectoryNames": ["4.5.6"],
+                },
+                "crt": {
+                    "redistVersion": "1.2.2",
+                    "architecture": "x64",
+                    "family": "Microsoft.VC145.CRT",
+                    "relativePath": (
+                        "vs/VC/Redist/MSVC/1.2.2/x64/Microsoft.VC145.CRT"
+                    ),
+                    "redistDirectoryNames": ["1.2.2", "v145"],
+                    "files": rows,
+                    "tree": {
+                        "fileCount": count,
+                        "totalBytes": total,
+                        "canonicalTreeSha256": digest,
+                    },
+                },
+            }
+        }
+    }
+    return lock, source, mozbuild, crt
+
+
 def test_source_lock_contract() -> None:
     lock = _load_lock()
     assert lock["schema"] == "verisilo-camoufox-source-binding/v1"
@@ -191,7 +315,7 @@ def test_source_lock_contract() -> None:
     assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
     assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
     assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
-    assert build["builderImageBinding"] == EXPECTED_BUILDER_IMAGE_BINDING
+    assert build["builderImageBinding"] is None
     assert set(build["builderImageBindingRequiredFields"]) == {
         "imageId",
         "savedArchiveSha256",
@@ -228,6 +352,40 @@ def test_source_lock_contract() -> None:
             ),
         },
     }
+    toolchain = build["windowsToolchain"]
+    assert toolchain["selectionManifest"] == {
+        "path": "build/vs/vs2026.yaml",
+        "sha256": EXPECTED_VS_MANIFEST_SHA256,
+        "size": 136448,
+    }
+    assert toolchain["compiler"] == {
+        "version": "14.50.35717",
+        "relativePath": "vs/VC/Tools/MSVC/14.50.35717",
+        "versionDirectoryNames": ["14.50.35717"],
+    }
+    assert toolchain["windowsSdk"] == {
+        "version": "10.0.26100.0",
+        "includeRelativePath": "vs/Windows Kits/10/Include/10.0.26100.0",
+        "includeVersionDirectoryNames": ["10.0.26100.0"],
+        "libRelativePath": "vs/Windows Kits/10/Lib/10.0.26100.0",
+        "libVersionDirectoryNames": ["10.0.26100.0"],
+    }
+    crt = toolchain["crt"]
+    assert crt["redistVersion"] == "14.50.35710"
+    assert crt["architecture"] == "x64"
+    assert crt["family"] == "Microsoft.VC145.CRT"
+    assert crt["relativePath"] == (
+        "vs/VC/Redist/MSVC/14.50.35710/x64/Microsoft.VC145.CRT"
+    )
+    assert crt["redistDirectoryNames"] == ["14.50.35710", "v145"]
+    assert {
+        item["path"]: (item["size"], item["sha256"]) for item in crt["files"]
+    } == EXPECTED_CRT_FILES
+    assert crt["tree"] == {
+        "fileCount": 10,
+        "totalBytes": 1828608,
+        "canonicalTreeSha256": EXPECTED_CRT_TREE_SHA256,
+    }
     assert any(
         "SHA-512 verification" in requirement
         for requirement in build["requiredBeforeRuntime"]
@@ -248,6 +406,227 @@ def test_source_lock_contract() -> None:
     assert firefox["version"] == "152.0.4"
     assert firefox["sizeBytes"] == 799102676
     assert len(firefox["sha512"]) == 128
+
+
+def test_windows_toolchain_resolution_and_manifest_are_fail_closed() -> None:
+    driver = _load_python_file("canvas_toolchain_driver", STRICT_BUILD_PATH)
+    with tempfile.TemporaryDirectory() as temporary:
+        lock, source, mozbuild, crt = _synthetic_toolchain_fixture(Path(temporary))
+        manifest = source / "build" / "vs" / "vs2026.yaml"
+        expected_manifest = driver.verify_windows_toolchain_manifest(lock, source)
+        assert expected_manifest == lock["buildBinding"]["windowsToolchain"][
+            "selectionManifest"
+        ]
+        resolved = driver.resolve_bound_windows_toolchain(lock, mozbuild)
+        assert [path.name for path in resolved["crtFiles"]] == [
+            "msvcp140.dll",
+            "vcruntime140.dll",
+        ]
+
+        original_manifest = manifest.read_bytes()
+        manifest.write_bytes(original_manifest + b"drift")
+        _expect_build_failure(
+            driver,
+            lambda: driver.verify_windows_toolchain_manifest(lock, source),
+            "toolchain manifest drift was accepted",
+        )
+        manifest.write_bytes(original_manifest)
+
+        extra_version = mozbuild / "vs" / "VC" / "Tools" / "MSVC" / "9.9.9"
+        extra_version.mkdir()
+        _expect_build_failure(
+            driver,
+            lambda: driver.resolve_bound_windows_toolchain(lock, mozbuild),
+            "an unexpected compiler version was accepted",
+        )
+        extra_version.rmdir()
+
+        target = crt / "msvcp140.dll"
+        original = target.read_bytes()
+        target.write_bytes(original + b"drift")
+        _expect_build_failure(
+            driver,
+            lambda: driver.resolve_bound_windows_toolchain(lock, mozbuild),
+            "altered CRT bytes were accepted",
+        )
+        target.write_bytes(original)
+
+        extra_crt = crt / "msvcp140_9.dll"
+        extra_crt.write_bytes(b"unexpected")
+        _expect_build_failure(
+            driver,
+            lambda: driver.resolve_bound_windows_toolchain(lock, mozbuild),
+            "an extra CRT member was accepted",
+        )
+        extra_crt.unlink()
+
+        missing = crt / "vcruntime140.dll"
+        missing_bytes = missing.read_bytes()
+        missing.unlink()
+        _expect_build_failure(
+            driver,
+            lambda: driver.resolve_bound_windows_toolchain(lock, mozbuild),
+            "a missing CRT member was accepted",
+        )
+        missing.write_bytes(missing_bytes)
+
+        nested = crt / "nested"
+        nested.mkdir()
+        _expect_build_failure(
+            driver,
+            lambda: driver.resolve_bound_windows_toolchain(lock, mozbuild),
+            "a non-flat CRT tree was accepted",
+        )
+
+
+def test_windows_toolchain_manifest_rejects_symlink_ancestor() -> None:
+    driver = _load_python_file("canvas_toolchain_symlink_driver", STRICT_BUILD_PATH)
+    with tempfile.TemporaryDirectory() as temporary:
+        lock, source, _, _ = _synthetic_toolchain_fixture(Path(temporary))
+        symlink_ancestor = source / "build" / "vs"
+        real_lstat = Path.lstat
+
+        def lstat_with_symlink_ancestor(path: Path):
+            metadata = real_lstat(path)
+            if path == symlink_ancestor:
+                values = list(metadata)
+                values[0] = driver.stat.S_IFLNK | 0o777
+                return driver.os.stat_result(values)
+            return metadata
+
+        with mock.patch.object(Path, "lstat", lstat_with_symlink_ancestor):
+            _expect_build_failure(
+                driver,
+                lambda: driver.verify_windows_toolchain_manifest(lock, source),
+                "a selection manifest below a symlink ancestor was accepted",
+            )
+
+
+def test_windows_package_command_is_explicit_and_glob_free() -> None:
+    driver = _load_python_file("canvas_package_driver", STRICT_BUILD_PATH)
+    absolute_root = Path(tempfile.gettempdir()).resolve() / "bound-msvc-crt"
+    crt_files = [
+        absolute_root / "concrt140.dll",
+        absolute_root / "vcruntime140.dll",
+    ]
+    command = driver.windows_package_command(crt_files)
+    assert command[:3] == ["python3", "scripts/package.py", "windows"]
+    assert command[command.index("--includes") + 1 : command.index("--version")] == [
+        "settings/chrome.css",
+        "settings/camoucfg.jvv",
+        "settings/properties.json",
+        *(str(path) for path in crt_files),
+    ]
+    assert command[command.index("--version") :] == [
+        "--version",
+        "152.0.4",
+        "--release",
+        "beta.28",
+        "--arch",
+        "x86_64",
+        "--fonts",
+        "macos",
+        "linux",
+    ]
+    assert not any("*" in argument for argument in command)
+    assert not any("14.38" in argument or "VC143" in argument for argument in command)
+
+
+def test_bound_toolchain_is_checked_before_and_after_packaging() -> None:
+    driver = STRICT_BUILD_PATH.read_text(encoding="utf-8")
+    before = driver.index("bound_toolchain = resolve_bound_windows_toolchain")
+    build = driver.index('label="build-windows-x86_64"', before)
+    after_compile = driver.index(
+        "toolchain_after_build = resolve_bound_windows_toolchain", build
+    )
+    package = driver.index("windows_package_command", after_compile)
+    after_package = driver.index(
+        "toolchain_after_package = resolve_bound_windows_toolchain", package
+    )
+    archive = driver.index("**_validate_zip(", after_package)
+    assert before < build < after_compile < package < after_package < archive
+    result = driver[driver.index("        result = {", archive) :]
+    assert '"toolchainAfterCompile": toolchain_after_build["evidence"]' in result
+    assert '"toolchainAfterPackage": toolchain_after' in result
+    assert '"toolchainAfterBuild"' not in result
+
+
+def test_candidate_zip_requires_exact_bound_crt() -> None:
+    driver = _load_python_file("canvas_zip_driver", STRICT_BUILD_PATH)
+    crt_contents = {
+        "msvcp140.dll": b"locked-msvcp",
+        "vcruntime140.dll": b"locked-vcruntime",
+    }
+    rows = [
+        {
+            "path": name,
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "size": len(data),
+        }
+        for name, data in sorted(crt_contents.items())
+    ]
+    common = {
+        "camoufox.exe": b"exe",
+        "application.ini": (
+            b"[App]\nBuildID=20260811045234\nSourceStamp=" + b"a" * 40 + b"\n"
+        ),
+        "platform.ini": b"[Build]\n",
+        "properties.json": b"{}\n",
+        "camoufox.cfg": b"cfg\n",
+    }
+
+    def write_zip(path: Path, crt: dict[str, bytes]) -> None:
+        with zipfile.ZipFile(path, "w") as bundle:
+            for name, data in {**common, **crt}.items():
+                bundle.writestr(name, data)
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        exact = root / "exact.zip"
+        write_zip(exact, crt_contents)
+        result = driver._validate_zip(exact, rows)
+        assert result["packagedCrtMemberSha256"] == {
+            row["path"]: row["sha256"] for row in rows
+        }
+
+        missing = root / "missing.zip"
+        write_zip(missing, {"msvcp140.dll": crt_contents["msvcp140.dll"]})
+        _expect_build_failure(
+            driver,
+            lambda: driver._validate_zip(missing, rows),
+            "a ZIP missing a bound CRT member was accepted",
+        )
+
+        altered = root / "altered.zip"
+        write_zip(altered, {**crt_contents, "msvcp140.dll": b"altered"})
+        _expect_build_failure(
+            driver,
+            lambda: driver._validate_zip(altered, rows),
+            "a ZIP with altered CRT bytes was accepted",
+        )
+
+        extra = root / "extra.zip"
+        write_zip(extra, {**crt_contents, "msvcp140_9.dll": b"unexpected"})
+        _expect_build_failure(
+            driver,
+            lambda: driver._validate_zip(extra, rows),
+            "a ZIP with an unexpected CRT member was accepted",
+        )
+
+        extra_version = root / "extra-version.zip"
+        write_zip(
+            extra_version,
+            {
+                **crt_contents,
+                "msvcp150.dll": b"unexpected-version",
+                "vcruntime150_1.dll": b"unexpected-version-suffix",
+            },
+        )
+        _expect_build_failure(
+            driver,
+            lambda: driver._validate_zip(extra_version, rows),
+            "a ZIP with unexpected non-140 CRT members was accepted",
+        )
 
 
 def test_canvas_contract_golden_vectors() -> None:
@@ -1308,6 +1687,17 @@ def test_exact_firefox_source_archive() -> None:
     assert driver.patch_debris_summary(archive_debris) == expected
 
 
+def test_exact_windows_toolchain_selection_manifest() -> None:
+    if PATCHED_SOURCE_TREE is None:
+        raise SkipTest("pass --patched-source-tree for exact toolchain manifest")
+    lock = _load_lock()
+    expected = lock["buildBinding"]["windowsToolchain"]["selectionManifest"]
+    path = PATCHED_SOURCE_TREE / expected["path"]
+    assert path.is_file()
+    assert path.stat().st_size == expected["size"]
+    assert _sha256(path) == expected["sha256"]
+
+
 def test_exact_upstream_checkout_inputs() -> None:
     if UPSTREAM_REPO is None:
         raise SkipTest("pass --upstream-repo for exact upstream input verification")
@@ -1512,6 +1902,7 @@ def main() -> int:
         "test_exact_firefox_source_archive",
         "test_exact_upstream_patch_surface_postimage",
         "test_exact_upstream_checkout_inputs",
+        "test_exact_windows_toolchain_selection_manifest",
         "test_patch_applies_to_exact_seam_preimages",
         "test_patched_source_seam_and_caller_graph",
     }
