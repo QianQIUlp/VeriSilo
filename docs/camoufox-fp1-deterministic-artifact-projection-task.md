@@ -658,3 +658,38 @@ canvas-B1: A config with only canvas:seed changed to seed B / Profile B /
 这三次不是完整 FP1，也不使用完整 Artifact B 的其他 12 个差异 key。只有 focused
 sequence 一次通过后，才能从再次冻结的最终代码和新 binding 只执行一次完整
 A1→A2→B1。任一失败立即停止，不修改后重跑、不选样、不进入 FP2。
+
+### 2026-08-11 Canvas source patch 实现结果
+
+Canvas source patch 已冻结于
+`eea8606b6512922cfcf071e977a9e0cf2958deaf` / tree
+`5693e8879348970078aeab79c51eab2ecfc333c0`；build-route provenance 与 exact-test
+no-skip closure 追加冻结于 `dbad62d24c6e8f6d57bb29ba5864a308584e9ca4` / tree
+`df761be583b0171335a0955a7af46cb683f6e0bf`。实现新增：
+
+- 固定 FF152 `nsRFPService::GetFingerprintingRandomizationKeyAsString()` seam 的窄
+  downstream patch；只在 `canvas:seed` 存在时派生 Artifact/Silo-scoped key，缺失时
+  保留原 CookieJar fallback；
+- `verisilo-camoufox-source-binding/v1` source lock，绑定 upstream tag/commit/tree、
+  Firefox source archive、50 个 upstream patch、recipe/input trees、downstream patch 与
+  seam pre/post hashes；其状态明确为 `source-patch-only`、`verified:false`、
+  `buildBinding.status=not-built`、`binaryBinding=null`；
+- `canvas:seed` unsigned 32-bit pre-spawn strict validation；`0` 与 `2^32-1` 合法，负数和
+  `2^32` fail closed；
+- focused source-binding tests。默认模式必须提供全部精确 source inputs，任何 skip 都失败；
+  `--tracked-only` 只是显式降级的 tracked-text self-consistency，不是 source/build evidence。
+
+精确静态验证结果：9/9 source-binding tests、40/40 现有 Artifact/Host focused tests、修改
+Python 文件 `py_compile`、source lock Prettier、forward/reverse patch dry-run 与
+`git diff --check` 通过。9/9 只证明精确 archive digest、upstream input closure、patch 可应用、
+seam hashes 和当前 caller-file closure；没有证明完整 source derivation、编译、Windows
+binary 或 runtime behavior。
+
+当前执行结论为 **Blocked（`blocked-build-environment`）**。Camoufox 固定 tag 的 Windows
+build 在 Linux execution environment 中交叉完成；上游也支持 Windows physical host 上的
+Linux Docker container，但不支持 direct native-Windows 或 WSL build。当前机器没有
+Docker/container engine，本轮也没有已授权的外部 Linux build host；安装 machine-level
+container runtime 或触发外部 CI 都超出既有本地实现授权。因此没有生成 candidate
+archive/tree/binding，没有取得 browser lease，没有启动浏览器，也没有执行 Canvas focused
+或完整 FP1 A1→A2→B1。`canvas:seed` 仍不能从 configured 升级为 applied/observed，FP1 与
+M3-WI 都未 Accepted，FP2 未开放。
