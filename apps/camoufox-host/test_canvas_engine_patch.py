@@ -41,6 +41,15 @@ PATCH_PATH = (
     / "v152.0.4-beta.28"
     / "0001-verisilo-canvas-export-key.patch"
 )
+MIDL_COMPAT_PATCH_PATH = (
+    REPO_ROOT
+    / "apps"
+    / "camoufox-host"
+    / "patches"
+    / "camoufox"
+    / "v152.0.4-beta.28"
+    / "0000-verisilo-ff152-midl-cross-build-input.patch"
+)
 BUILD_RECIPE_ROOT = (
     REPO_ROOT / "apps" / "camoufox-host" / "build" / "canvas-engine-v1"
 )
@@ -126,6 +135,7 @@ UPSTREAM_REPO: Path | None = None
 FIREFOX_SOURCE_ARCHIVE: Path | None = None
 PREIMAGE_SOURCE_TREE: Path | None = None
 PATCHED_SOURCE_TREE: Path | None = None
+EXACT_FIREFOX_MIDL_PREIMAGE: bytes | None = None
 
 
 def _load_lock() -> dict:
@@ -315,7 +325,7 @@ def test_source_lock_contract() -> None:
     assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
     assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
     assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
-    assert build["builderImageBinding"] == EXPECTED_BUILDER_IMAGE_BINDING
+    assert build["builderImageBinding"] is None
     assert set(build["builderImageBindingRequiredFields"]) == {
         "imageId",
         "savedArchiveSha256",
@@ -391,7 +401,8 @@ def test_source_lock_contract() -> None:
         for requirement in build["requiredBeforeRuntime"]
     )
     assert any(
-        "upstream-patches -> VeriSilo-patch -> build -> package" in requirement
+        "upstream-patches -> FF152-MIDL-patch -> Canvas-patch -> build -> package"
+        in requirement
         for requirement in build["requiredBeforeRuntime"]
     )
     assert lock["compatibility"]["historicalOfficialBindingModified"] is False
@@ -629,6 +640,134 @@ def test_candidate_zip_requires_exact_bound_crt() -> None:
         )
 
 
+def test_midl_compatibility_patch_is_narrow_and_independently_bound() -> None:
+    patch = MIDL_COMPAT_PATCH_PATH.read_text(encoding="utf-8")
+    assert re.findall(r"^diff --git a/(\S+) b/(\S+)$", patch, re.MULTILINE) == [
+        ("build/midl.py", "build/midl.py")
+    ]
+    deleted = [
+        line
+        for line in patch.splitlines()
+        if line.startswith("-") and not line.startswith("---")
+    ]
+    added = [
+        line
+        for line in patch.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    ]
+    assert deleted == ["-        command = preprocessor + [input]"]
+    assert added == ["+        command = preprocessor + [relativize(input)]"]
+
+    seams = _load_lock()["midlCompatibilitySeamFiles"]
+    assert seams == [
+        {
+            "path": "build/midl.py",
+            "postUpstreamPatchSha256": (
+                "411d59bd795d2517367fdec4c26921c1d257415e71f10d98f10046752c23f248"
+            ),
+            "postCompatibilityPatchSha256": (
+                "c4091b253f215a08cd229a2bbefba1875ec1c68e02b2970978aeee53f6789b14"
+            ),
+        }
+    ]
+
+
+def test_midl_compatibility_patch_relativizes_only_the_subprocess_input() -> None:
+    fixture = """\
+import os
+import subprocess
+
+def relativize(path, base=None):
+    if path.startswith("/"):
+        return os.path.relpath(path, base)
+    if os.path.isabs(path) or path.startswith("-"):
+        return path
+    return os.path.relpath(path, base)
+
+def preprocess(base, input, flags):
+    preprocessor = ["ccache", "clang-cl", "-E"]
+    for _ in (0,):
+        if True:
+            try:
+                raise RuntimeError
+            except RuntimeError:
+                pass
+        command = preprocessor + [input]
+        preprocessed = os.path.join(base, os.path.basename(input))
+        subprocess.run(command, stdout=open(preprocessed, "wb"), check=True)
+        # Read the resulting file, and search for imports, that we'll want to
+        return command
+"""
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        source = root / "build" / "midl.py"
+        source.parent.mkdir(parents=True)
+        source.write_text(fixture, encoding="utf-8", newline="\n")
+        applied = subprocess.run(
+            [
+                "git",
+                "-c",
+                "core.autocrlf=false",
+                "apply",
+                "--whitespace=error-all",
+                str(MIDL_COMPAT_PATCH_PATH),
+            ],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert applied.returncode == 0, applied.stderr or applied.stdout
+        module = _load_python_file("ff152_midl_compat_fixture", source)
+        unix_absolute = "/work/run/source/AccessibleEventId.idl"
+        base = root / "generated"
+        base.mkdir()
+
+        calls: list[list[str]] = []
+
+        def successful_run(command, *, stdout, check):
+            calls.append(command)
+            stdout.close()
+            assert check is True
+            return subprocess.CompletedProcess(command, 0)
+
+        with mock.patch.object(
+            module.subprocess,
+            "run",
+            side_effect=successful_run,
+        ):
+            command = module.preprocess(str(base), unix_absolute, ())
+        operand = command[-1]
+        assert operand == module.os.path.relpath(unix_absolute)
+        assert not operand.startswith("/")
+        assert operand != module.relativize(unix_absolute, str(base))
+        assert calls == [command]
+
+        relative = "imports/oaidl.idl"
+        assert module.relativize(relative) == module.os.path.relpath(relative)
+        windows_absolute = r"C:\Windows Kits\Include\oaidl.idl"
+        real_isabs = module.os.path.isabs
+        with mock.patch.object(
+            module.os.path,
+            "isabs",
+            side_effect=lambda value: value == windows_absolute or real_isabs(value),
+        ):
+            assert module.relativize(windows_absolute) == windows_absolute
+
+        def failed_run(command, *, stdout, check):
+            stdout.close()
+            raise subprocess.CalledProcessError(73, command)
+
+        with mock.patch.object(module.subprocess, "run", side_effect=failed_run):
+            try:
+                module.preprocess(str(base), unix_absolute, ())
+            except subprocess.CalledProcessError as exc:
+                assert exc.returncode == 73
+            else:
+                raise AssertionError("the MIDL preprocessor subprocess error was swallowed")
+
+
 def test_canvas_contract_golden_vectors() -> None:
     contract = _load_lock()["canvasExportContract"]
     assert contract["identityScope"] == "artifact-silo"
@@ -723,12 +862,93 @@ def test_patch_is_narrow_additive_and_binding_scoped() -> None:
 def test_tracked_downstream_patch_digest() -> None:
     lock = _load_lock()
     downstream = lock["sourceInputs"]["downstreamPatches"]
-    assert len(downstream) == 1
-    item = downstream[0]
-    assert item["applyAfterUpstream"] is True
-    assert item["path"] == PATCH_PATH.relative_to(REPO_ROOT).as_posix()
-    assert item["sha256"] == _sha256(PATCH_PATH)
-    assert item["sizeBytes"] == PATCH_PATH.stat().st_size
+    paths = [MIDL_COMPAT_PATCH_PATH, PATCH_PATH]
+    assert [item["path"] for item in downstream] == [
+        path.relative_to(REPO_ROOT).as_posix() for path in paths
+    ]
+    for item, path in zip(downstream, paths, strict=True):
+        assert set(item) == {
+            "applyAfterUpstream",
+            "path",
+            "sha256",
+            "sizeBytes",
+        }
+        assert item["applyAfterUpstream"] is True
+        assert item["sha256"] == _sha256(path)
+        assert item["sizeBytes"] == path.stat().st_size
+
+
+def test_downstream_patch_execution_order_is_closed() -> None:
+    driver = STRICT_BUILD_PATH.read_text(encoding="utf-8")
+    upstream = driver.index('label=f"upstream-patch-{index:02d}"')
+    upstream_postimage = driver.index(
+        'verify_patch_surface(\n            lock, source, patch_surface_paths, "postPatchSurface"',
+        upstream,
+    )
+    canvas_preimage = driver.index(
+        '_verify_seams(lock, source, "postUpstreamPatchSha256")',
+        upstream_postimage,
+    )
+    midl_preimage = driver.index(
+        "_verify_midl_compatibility_seams(", canvas_preimage
+    )
+    midl_preimage_hash = driver.index(
+        '"postUpstreamPatchSha256"', midl_preimage
+    )
+    midl = driver.index(
+        'label="verisilo-ff152-midl-cross-build-patch"', midl_preimage_hash
+    )
+    midl_postimage = driver.index('"postCompatibilityPatchSha256"', midl)
+    canvas = driver.index('label="verisilo-canvas-patch"', midl_postimage)
+    canvas_postimage = driver.index('"postDownstreamPatchSha256"', canvas)
+    configure = driver.index(
+        'label="configure-windows-x86_64-and-bootstrap-toolchains"',
+        canvas_postimage,
+    )
+    assert (
+        upstream
+        < upstream_postimage
+        < canvas_preimage
+        < midl_preimage
+        < midl_preimage_hash
+        < midl
+        < midl_postimage
+        < canvas
+        < canvas_postimage
+        < configure
+    )
+
+    order = _load_lock()["buildBinding"]["recipe"]["order"]
+    assert order[order.index("apply-50-upstream-patches") : order.index(
+        "configure-windows-x86_64-and-bootstrap-toolchains"
+    )] == [
+        "apply-50-upstream-patches",
+        "verify-canvas-seam-preimages",
+        "verify-ff152-midl-compatibility-seam-preimage",
+        "apply-verisilo-ff152-midl-cross-build-patch",
+        "verify-ff152-midl-compatibility-seam-postimage",
+        "apply-verisilo-canvas-patch",
+        "verify-canvas-seam-postimages",
+    ]
+
+
+def test_build_inputs_record_ordered_downstream_patches() -> None:
+    driver = STRICT_BUILD_PATH.read_text(encoding="utf-8")
+    validation = driver.index(
+        'raise BuildFailure("VeriSilo downstream patch order/contract mismatch")'
+    )
+    evidence = driver.index(
+        '"downstreamPatches": [dict(item) for item in downstream_patches]',
+        validation,
+    )
+    execute = driver.index("def execute(", evidence)
+    assert validation < evidence < execute
+
+    expected = _load_lock()["sourceInputs"]["downstreamPatches"]
+    assert [item["path"] for item in expected] == [
+        MIDL_COMPAT_PATCH_PATH.relative_to(REPO_ROOT).as_posix(),
+        PATCH_PATH.relative_to(REPO_ROOT).as_posix(),
+    ]
 
 
 def test_pinned_oci_build_recipe_is_closed() -> None:
@@ -1327,6 +1547,7 @@ EXPECTED_DRIVER_MARKERS = {
     '            raise BuildFailure(f"{label} failed with exit code {returncode}")',
     '    if workspace.exists() or result_dir.exists():',
     '        raise BuildFailure("one-shot run workspace/output already exists")',
+    '        _verify_midl_compatibility_seams(',
     '        _verify_seams(lock, source, "postUpstreamPatchSha256")',
     '        _verify_seams(lock, source, "postDownstreamPatchSha256")',
     '        verify_patch_surface(',
@@ -1646,6 +1867,7 @@ def test_exact_upstream_patch_surface_postimage() -> None:
 
 
 def test_exact_firefox_source_archive() -> None:
+    global EXACT_FIREFOX_MIDL_PREIMAGE
     if FIREFOX_SOURCE_ARCHIVE is None:
         raise SkipTest(
             "pass --firefox-source-archive for exact Firefox source verification"
@@ -1660,6 +1882,10 @@ def test_exact_firefox_source_archive() -> None:
     reject_paths: list[str] = []
     with tarfile.open(FIREFOX_SOURCE_ARCHIVE, "r:xz") as bundle:
         for member in bundle:
+            if member.name == "firefox-152.0.4/build/midl.py":
+                stream = bundle.extractfile(member)
+                assert stream is not None
+                EXACT_FIREFOX_MIDL_PREIMAGE = stream.read()
             if not (member.name.endswith(".orig") or member.name.endswith(".rej")):
                 continue
             assert member.isfile(), member.name
@@ -1685,6 +1911,12 @@ def test_exact_firefox_source_archive() -> None:
         "prePatchDebrisBaseline"
     ]
     assert driver.patch_debris_summary(archive_debris) == expected
+    midl_seam = _load_lock()["midlCompatibilitySeamFiles"][0]
+    assert EXACT_FIREFOX_MIDL_PREIMAGE is not None
+    assert (
+        hashlib.sha256(EXACT_FIREFOX_MIDL_PREIMAGE).hexdigest()
+        == midl_seam["postUpstreamPatchSha256"]
+    )
 
 
 def test_exact_windows_toolchain_selection_manifest() -> None:
@@ -1738,6 +1970,65 @@ def test_exact_upstream_checkout_inputs() -> None:
             expected["totalBytes"],
             expected["canonicalTreeSha256"],
         )
+
+
+def test_midl_compatibility_patch_transforms_exact_archive_preimage_to_final_source() -> None:
+    if FIREFOX_SOURCE_ARCHIVE is None or PATCHED_SOURCE_TREE is None:
+        raise SkipTest("pass exact Firefox archive and final patched source tree")
+
+    seam = _load_lock()["midlCompatibilitySeamFiles"][0]
+    preimage = EXACT_FIREFOX_MIDL_PREIMAGE
+    if preimage is None:
+        with tarfile.open(FIREFOX_SOURCE_ARCHIVE, "r:xz") as bundle:
+            stream = bundle.extractfile(f"firefox-152.0.4/{seam['path']}")
+            assert stream is not None
+            preimage = stream.read()
+    assert hashlib.sha256(preimage).hexdigest() == seam["postUpstreamPatchSha256"]
+
+    final_source = PATCHED_SOURCE_TREE / seam["path"]
+    assert final_source.is_file()
+    assert _sha256(final_source) == seam["postCompatibilityPatchSha256"]
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        target = root / seam["path"]
+        target.parent.mkdir(parents=True)
+        target.write_bytes(preimage)
+        check = subprocess.run(
+            [
+                "git",
+                "-c",
+                "core.autocrlf=false",
+                "apply",
+                "--check",
+                "--whitespace=error-all",
+                str(MIDL_COMPAT_PATCH_PATH),
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert check.returncode == 0, check.stderr or check.stdout
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "core.autocrlf=false",
+                "apply",
+                "--whitespace=error-all",
+                str(MIDL_COMPAT_PATCH_PATH),
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert _sha256(target) == seam["postCompatibilityPatchSha256"]
+        assert target.read_bytes() == final_source.read_bytes()
+        implementation = target.read_text(encoding="utf-8")
+        assert "command = preprocessor + [relativize(input)]" in implementation
+        assert "command = preprocessor + [input]" not in implementation
 
 
 def test_patch_applies_to_exact_seam_preimages() -> None:
@@ -1903,6 +2194,7 @@ def main() -> int:
         "test_exact_upstream_patch_surface_postimage",
         "test_exact_upstream_checkout_inputs",
         "test_exact_windows_toolchain_selection_manifest",
+        "test_midl_compatibility_patch_transforms_exact_archive_preimage_to_final_source",
         "test_patch_applies_to_exact_seam_preimages",
         "test_patched_source_seam_and_caller_graph",
     }

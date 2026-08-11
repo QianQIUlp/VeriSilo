@@ -5,8 +5,9 @@ The OCI image supplies only the Linux build environment. Exact Camoufox,
 Firefox, VeriSilo and output directories are mounted at the fixed paths below.
 The driver refuses reused run directories, validates every bound input before
 extraction, applies the 50 upstream patches with checked return codes, applies
-the VeriSilo patch last, and records the candidate archive and build
-provenance. It does not install, launch or verify the resulting browser.
+the FF152 MIDL compatibility patch before the Canvas identity patch, and
+records the candidate archive and build provenance. It does not install,
+launch or verify the resulting browser.
 """
 
 from __future__ import annotations
@@ -44,6 +45,10 @@ LOCK_REL = Path(
 DOWNSTREAM_PATCH_REL = Path(
     "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/"
     "0001-verisilo-canvas-export-key.patch"
+)
+MIDL_COMPAT_PATCH_REL = Path(
+    "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/"
+    "0000-verisilo-ff152-midl-cross-build-input.patch"
 )
 STRICT_BUILD_PATH_REL = Path(
     "apps/camoufox-host/build/canvas-engine-v1/strict_build.py"
@@ -717,7 +722,24 @@ def validate_bound_inputs(lock: dict, environment: dict[str, str]) -> dict:
     ):
         raise BuildFailure("Firefox source archive size/SHA-512 mismatch")
 
-    for item in inputs["downstreamPatches"]:
+    downstream_patches = inputs.get("downstreamPatches")
+    expected_downstream_paths = [
+        MIDL_COMPAT_PATCH_REL.as_posix(),
+        DOWNSTREAM_PATCH_REL.as_posix(),
+    ]
+    if (
+        type(downstream_patches) is not list
+        or any(
+            type(item) is not dict
+            or set(item) != {"applyAfterUpstream", "path", "sha256", "sizeBytes"}
+            or item["applyAfterUpstream"] is not True
+            for item in downstream_patches
+        )
+    ):
+        raise BuildFailure("VeriSilo downstream patch order/contract mismatch")
+    if [item["path"] for item in downstream_patches] != expected_downstream_paths:
+        raise BuildFailure("VeriSilo downstream patch order/contract mismatch")
+    for item in downstream_patches:
         path = VERISILO_ROOT / item["path"]
         if not path.is_file() or path.stat().st_size != item["sizeBytes"]:
             raise BuildFailure("VeriSilo downstream patch size mismatch")
@@ -759,6 +781,7 @@ def validate_bound_inputs(lock: dict, environment: dict[str, str]) -> dict:
         "verisiloCommit": verisilo_head,
         "verisiloTree": verisilo_tree,
         "firefoxArchiveSha512": firefox["sha512"],
+        "downstreamPatches": [dict(item) for item in downstream_patches],
         "upstreamCommit": actual_head,
         "upstreamTree": actual_tree,
         "upstreamPatchCount": len(expected_patch_paths),
@@ -874,6 +897,15 @@ def _verify_seams(lock: dict, source: Path, field: str) -> None:
         path = source / seam["path"]
         if not path.is_file() or _sha(path) != seam[field]:
             raise BuildFailure(f"Canvas seam mismatch at {field}: {seam['path']}")
+
+
+def _verify_midl_compatibility_seams(lock: dict, source: Path, field: str) -> None:
+    for seam in lock["midlCompatibilitySeamFiles"]:
+        path = source / seam["path"]
+        if not path.is_file() or _sha(path) != seam[field]:
+            raise BuildFailure(
+                f"FF152 MIDL compatibility seam mismatch at {field}: {seam['path']}"
+            )
 
 
 def _locked_relative_path(value: object, label: str) -> PurePosixPath:
@@ -1352,9 +1384,24 @@ def execute(args: argparse.Namespace) -> dict:
             lock, source, patch_surface_paths, "postPatchSurface"
         )
         _verify_seams(lock, source, "postUpstreamPatchSha256")
-        log.note(
-            "all 50 upstream patches, bounded patch surface and Canvas seams verified"
+        _verify_midl_compatibility_seams(
+            lock, source, "postUpstreamPatchSha256"
         )
+        log.note(
+            "all 50 upstream patches, bounded patch surface and downstream seams verified"
+        )
+
+        log.run(
+            downstream_patch_command(VERISILO_ROOT / MIDL_COMPAT_PATCH_REL),
+            cwd=source,
+            env=environment,
+            label="verisilo-ff152-midl-cross-build-patch",
+        )
+        verify_patch_debris_unchanged(source, patch_debris_baseline)
+        _verify_midl_compatibility_seams(
+            lock, source, "postCompatibilityPatchSha256"
+        )
+        _verify_seams(lock, source, "postUpstreamPatchSha256")
 
         log.run(
             downstream_patch_command(VERISILO_ROOT / DOWNSTREAM_PATCH_REL),
@@ -1363,17 +1410,23 @@ def execute(args: argparse.Namespace) -> dict:
             label="verisilo-canvas-patch",
         )
         verify_patch_debris_unchanged(source, patch_debris_baseline)
+        _verify_midl_compatibility_seams(
+            lock, source, "postCompatibilityPatchSha256"
+        )
         _verify_seams(lock, source, "postDownstreamPatchSha256")
         if verify_windows_toolchain_manifest(lock, source) != toolchain_manifest:
             raise BuildFailure("Windows toolchain selection manifest changed during patching")
         (source / "_READY").touch()
-        log.note("VeriSilo Canvas patch and seam postimages verified")
+        log.note("VeriSilo MIDL compatibility and Canvas patch postimages verified")
 
         log.run(
             [str(source / "mach"), "configure"],
             cwd=source,
             env=environment,
             label="configure-windows-x86_64-and-bootstrap-toolchains",
+        )
+        _verify_midl_compatibility_seams(
+            lock, source, "postCompatibilityPatchSha256"
         )
         _verify_seams(lock, source, "postDownstreamPatchSha256")
         if verify_windows_toolchain_manifest(lock, source) != toolchain_manifest:
@@ -1408,6 +1461,9 @@ def execute(args: argparse.Namespace) -> dict:
         if verify_windows_toolchain_manifest(lock, source) != toolchain_manifest:
             raise BuildFailure("Windows toolchain selection manifest changed during package")
         toolchain_after_package = resolve_bound_windows_toolchain(lock, mozbuild)
+        _verify_midl_compatibility_seams(
+            lock, source, "postCompatibilityPatchSha256"
+        )
         _verify_seams(lock, source, "postDownstreamPatchSha256")
         toolchain_after = {
             "versions": _command_versions(environment, upstream),
