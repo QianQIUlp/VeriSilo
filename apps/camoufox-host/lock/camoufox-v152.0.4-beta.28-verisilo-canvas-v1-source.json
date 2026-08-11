@@ -591,8 +591,8 @@
         },
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/build_host.py",
-          "sha256": "d4e32f466d0c0ba099cb52bde1b256fa21b8aa5ee7dd645f201a2a3c1f662c2a",
-          "sizeBytes": 45743
+          "sha256": "02514d382f20a72908dabb26a9e65a6709290b19e2f69d03557b35f794491ca3",
+          "sizeBytes": 47258
         }
       ],
       "fixedEnvironment": {
@@ -657,6 +657,12 @@
         ],
         "requiredExecutablePaths": ["/lib/ld-linux.so.2"],
         "foreignArchitectures": []
+      },
+      "winePrefix": {
+        "policy": "closed",
+        "environmentVariable": "WINEPREFIX",
+        "pathTemplate": "/work/{runId}/.wine-prefix",
+        "defaultHomeFallbackAllowed": false
       },
       "tmpfs": {
         "path": "/tmp",

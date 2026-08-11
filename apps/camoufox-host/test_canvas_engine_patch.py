@@ -79,6 +79,12 @@ EXPECTED_HOST_RUNTIME = {
     "requiredExecutablePaths": ["/lib/ld-linux.so.2"],
     "foreignArchitectures": [],
 }
+EXPECTED_WINE_PREFIX = {
+    "policy": "closed",
+    "environmentVariable": "WINEPREFIX",
+    "pathTemplate": "/work/{runId}/.wine-prefix",
+    "defaultHomeFallbackAllowed": False,
+}
 EXPECTED_VS_MANIFEST_SHA256 = (
     "ffeef9c51797082dbfef5f6608d75638d3ca3cb11c17cef9f8deea9fde58c188"
 )
@@ -365,6 +371,7 @@ def test_source_lock_contract() -> None:
         "distinctEmptyReadWriteMounts": ["/build-home", "/work", "/out"],
         "dpkgClosureMustRemainStable": True,
         "hostRuntime": EXPECTED_HOST_RUNTIME,
+        "winePrefix": EXPECTED_WINE_PREFIX,
         "tmpfs": {
             "path": "/tmp",
             "options": [
@@ -1221,6 +1228,293 @@ def test_host_launcher_requires_exact_executable_tmpfs_contract() -> None:
             pass
         else:
             raise AssertionError("non-exact executable /tmp contract was accepted")
+
+
+def test_host_launcher_requires_exact_wine_prefix_contract_and_run_id() -> None:
+    host = _load_python_file("canvas_engine_build_host_wine_prefix", BUILD_HOST_PATH)
+    lock = _load_lock()
+    run_id = "canvas-run-0001"
+    expected = {
+        "contract": EXPECTED_WINE_PREFIX,
+        "resolvedPath": f"/work/{run_id}/.wine-prefix",
+    }
+    assert host._runtime_wine_prefix(lock, run_id) == expected
+
+    corruptions = (
+        ("policy", "open"),
+        ("environmentVariable", "HOME"),
+        ("pathTemplate", "/tmp/{runId}/wine"),
+        ("defaultHomeFallbackAllowed", True),
+        ("defaultHomeFallbackAllowed", 0),
+    )
+    for field, value in corruptions:
+        altered = json.loads(json.dumps(lock))
+        altered["buildBinding"]["runtimeContainer"]["winePrefix"][field] = value
+        try:
+            host._runtime_wine_prefix(altered, run_id)
+        except host.HostBuildFailure as exc:
+            assert str(exc) == "source lock Wine prefix contract is not exact"
+        else:
+            raise AssertionError(f"non-exact Wine prefix contract accepted: {field}")
+
+    altered = json.loads(json.dumps(lock))
+    altered["buildBinding"]["runtimeContainer"]["winePrefix"]["unexpected"] = True
+    try:
+        host._runtime_wine_prefix(altered, run_id)
+    except host.HostBuildFailure as exc:
+        assert str(exc) == "source lock Wine prefix contract is not exact"
+    else:
+        raise AssertionError("extended Wine prefix contract was accepted")
+
+    for invalid_run_id in (
+        "short",
+        "Canvas-run-0001",
+        "../escape-run-0001",
+        12345678,
+    ):
+        try:
+            host._runtime_wine_prefix(lock, invalid_run_id)
+        except host.HostBuildFailure as exc:
+            assert str(exc) == "Wine prefix run-id is not exact"
+        else:
+            raise AssertionError(f"invalid Wine prefix run-id accepted: {invalid_run_id}")
+
+
+def test_host_launcher_injects_wine_prefix_before_image_and_records_it() -> None:
+    host = _load_python_file("canvas_engine_build_host_wine_command", BUILD_HOST_PATH)
+    with tempfile.TemporaryDirectory() as temporary:
+        runs_root = Path(temporary).resolve() / "runs"
+        run_id = "canvas-run-0001"
+        run_root = runs_root / run_id
+        inputs = run_root / "inputs"
+        provenance_dir = run_root / "provenance"
+        (inputs / "verisilo").mkdir(parents=True)
+        (inputs / "upstream").mkdir()
+        (inputs / host.FIREFOX_ARCHIVE_NAME).write_bytes(b"firefox")
+        provenance_dir.mkdir()
+        (provenance_dir / "builder-image-result.json").write_text(
+            "{}\n", encoding="utf-8"
+        )
+        owner_token = "focused-owner-token"
+        owner = {
+            "recordType": "verisilo-camoufox-build-owner/v1",
+            "runId": run_id,
+            "token": owner_token,
+        }
+        (run_root / host.OWNER_NAME).write_text(
+            json.dumps(owner), encoding="utf-8"
+        )
+
+        lock = json.loads(json.dumps(_load_lock()))
+        binding = _builder_binding_for_tests()
+        lock["buildBinding"]["builderImageBinding"] = binding
+        source = {
+            "branch": "test",
+            "commit": "1" * 40,
+            "tree": "2" * 40,
+            "lockPath": host.LOCK_REL.as_posix(),
+            "lockSha256": "3" * 64,
+            "dockerfileSha256": binding["dockerfileSha256"],
+        }
+        locked = {"lock": lock, "firefox": {}}
+        tooling = {
+            "dockerRoot": "/mnt/camoufox-build/docker-data",
+            "containerdRoot": "/mnt/camoufox-build/containerd-root",
+        }
+        captured: dict[str, object] = {}
+
+        def run_logged(command, *, cwd, log_path, environment):
+            captured["command"] = list(command)
+            captured["cwd"] = cwd
+            captured["environment"] = environment
+            log_path.write_text("focused container failure\n", encoding="utf-8")
+            return 17
+
+        args = argparse.Namespace(
+            run_id=run_id,
+            run_root=str(run_root),
+            owner_token=owner_token,
+        )
+        with (
+            mock.patch.object(host, "RUNS_ROOT", runs_root),
+            mock.patch.object(
+                host,
+                "_validate_data_mount",
+                return_value={
+                    "path": str(runs_root.parent),
+                    "device": 1,
+                    "runsRoot": str(runs_root),
+                },
+            ),
+            mock.patch.object(
+                host, "_validate_container_roots", return_value=tooling
+            ),
+            mock.patch.object(
+                host, "_validate_verisilo", return_value=(source, locked)
+            ),
+            mock.patch.object(
+                host,
+                "_validate_other_inputs",
+                return_value={"inputs": "verified"},
+            ),
+            mock.patch.object(
+                host, "_verify_committed_builder_binding", return_value=binding
+            ),
+            mock.patch.object(
+                host,
+                "_verify_historical_recipe_source",
+                return_value={"historical": "verified"},
+            ),
+            mock.patch.object(
+                host,
+                "_verify_prepared_image_evidence",
+                return_value={"prepared": "verified"},
+            ),
+            mock.patch.object(
+                host,
+                "_verify_bound_image_archive",
+                return_value={"archive": "verified"},
+            ),
+            mock.patch.object(
+                host,
+                "_verify_live_bound_image",
+                return_value={"id": binding["imageId"]},
+            ),
+            mock.patch.object(host, "_run_logged", side_effect=run_logged),
+        ):
+            assert host.build_engine(args) == 17
+
+        command = captured["command"]
+        assert isinstance(command, list)
+        expected_path = f"/work/{run_id}/.wine-prefix"
+        wine_environment = f"WINEPREFIX={expected_path}"
+        wine_index = command.index(wine_environment)
+        image_index = command.index(binding["imageId"])
+        assert command[wine_index - 1] == "--env"
+        assert command.count(wine_environment) == 1
+        assert wine_index < image_index
+        assert not any(
+            isinstance(item, str) and item.startswith("HOME=") for item in command
+        )
+        assert not any(
+            isinstance(item, str) and item.startswith("WINEDEBUG=")
+            for item in command
+        )
+        assert not {"--user", "--chown", "wineboot"}.intersection(command)
+
+        provenance = json.loads(
+            (provenance_dir / "host-provenance.json").read_text(encoding="utf-8")
+        )
+        assert provenance["status"] == "container-failed"
+        assert provenance["container"]["exitCode"] == 17
+        assert provenance["container"]["winePrefix"] == {
+            "contract": EXPECTED_WINE_PREFIX,
+            "resolvedPath": expected_path,
+        }
+        assert provenance["runtimeContainer"]["winePrefix"] == provenance[
+            "container"
+        ]["winePrefix"]
+
+
+def test_host_launcher_records_wine_prefix_before_launcher_exception() -> None:
+    host = _load_python_file("canvas_engine_build_host_wine_initial", BUILD_HOST_PATH)
+    with tempfile.TemporaryDirectory() as temporary:
+        run_id = "canvas-run-0002"
+        run_root = Path(temporary).resolve() / run_id
+        provenance_dir = run_root / "provenance"
+        provenance_dir.mkdir(parents=True)
+        layout = {}
+        for name in ("build-home", "work", "out"):
+            path = run_root / name
+            path.mkdir()
+            layout[name] = path
+
+        lock = json.loads(json.dumps(_load_lock()))
+        binding = _builder_binding_for_tests()
+        lock["buildBinding"]["builderImageBinding"] = binding
+        source = {
+            "branch": "test",
+            "commit": "1" * 40,
+            "tree": "2" * 40,
+            "lockPath": host.LOCK_REL.as_posix(),
+            "lockSha256": "3" * 64,
+            "dockerfileSha256": binding["dockerfileSha256"],
+        }
+        owner = {
+            "recordType": "verisilo-camoufox-build-owner/v1",
+            "runId": run_id,
+            "token": "focused-owner-token",
+        }
+        command_seen: list[str] = []
+
+        def raise_launcher(command, **_kwargs):
+            command_seen.extend(command)
+            raise OSError("focused launcher exception")
+
+        args = argparse.Namespace(
+            run_id=run_id,
+            run_root=str(run_root),
+            owner_token=owner["token"],
+        )
+        with (
+            mock.patch.object(host, "_validate_data_mount", return_value={}),
+            mock.patch.object(host, "_validate_container_roots", return_value={}),
+            mock.patch.object(
+                host,
+                "_validate_input_layout",
+                return_value={
+                    "verisilo": run_root / "verisilo",
+                    "upstream": run_root / "upstream",
+                    "firefox": run_root / host.FIREFOX_ARCHIVE_NAME,
+                },
+            ),
+            mock.patch.object(host, "_validate_engine_layout"),
+            mock.patch.object(host, "_load_owner", return_value=owner),
+            mock.patch.object(
+                host,
+                "_validate_verisilo",
+                return_value=(source, {"lock": lock, "firefox": {}}),
+            ),
+            mock.patch.object(host, "_validate_other_inputs", return_value={}),
+            mock.patch.object(host, "_strict_json", return_value={}),
+            mock.patch.object(
+                host, "_verify_committed_builder_binding", return_value=binding
+            ),
+            mock.patch.object(
+                host, "_verify_historical_recipe_source", return_value={}
+            ),
+            mock.patch.object(
+                host, "_verify_prepared_image_evidence", return_value={}
+            ),
+            mock.patch.object(host, "_verify_bound_image_archive", return_value={}),
+            mock.patch.object(
+                host,
+                "_verify_live_bound_image",
+                return_value={"id": binding["imageId"]},
+            ),
+            mock.patch.object(host, "_create_output_layout", return_value=layout),
+            mock.patch.object(host, "_run_logged", side_effect=raise_launcher),
+        ):
+            try:
+                host.build_engine(args)
+            except OSError as exc:
+                assert str(exc) == "focused launcher exception"
+            else:
+                raise AssertionError("launcher exception was not propagated")
+
+        expected_path = f"/work/{run_id}/.wine-prefix"
+        assert f"WINEPREFIX={expected_path}" in command_seen
+        assert not {"--user", "--chown", "wineboot"}.intersection(command_seen)
+        assert not any(item.startswith("WINEDEBUG=") for item in command_seen)
+        provenance = json.loads(
+            (provenance_dir / "host-provenance.json").read_text(encoding="utf-8")
+        )
+        assert provenance["status"] == "build-engine-started"
+        assert "container" not in provenance
+        assert provenance["runtimeContainer"]["winePrefix"] == {
+            "contract": EXPECTED_WINE_PREFIX,
+            "resolvedPath": expected_path,
+        }
 
 
 def test_host_launcher_prepared_record_types_are_fail_closed() -> None:

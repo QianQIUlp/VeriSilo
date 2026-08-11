@@ -66,6 +66,12 @@ EXPECTED_TMPFS_CONTRACT = {
     "options": ["rw", "nosuid", "nodev", "exec", "mode=1777", "size=4g"],
     "purpose": "execute checksum-verified Mozilla bootstrap temporary tools",
 }
+EXPECTED_WINE_PREFIX_CONTRACT = {
+    "policy": "closed",
+    "environmentVariable": "WINEPREFIX",
+    "pathTemplate": "/work/{runId}/.wine-prefix",
+    "defaultHomeFallbackAllowed": False,
+}
 
 
 class HostBuildFailure(RuntimeError):
@@ -179,6 +185,30 @@ def _runtime_tmpfs_spec(lock: dict) -> str:
     if "exec" not in options or "noexec" in options:
         raise HostBuildFailure("source lock must explicitly enable executable /tmp")
     return f"{tmpfs['path']}:{','.join(options)}"
+
+
+def _runtime_wine_prefix(lock: dict, run_id: str) -> dict:
+    runtime = (lock.get("buildBinding") or {}).get("runtimeContainer") or {}
+    contract = runtime.get("winePrefix")
+    if (
+        type(contract) is not dict
+        or set(contract) != set(EXPECTED_WINE_PREFIX_CONTRACT)
+        or any(
+            type(contract[key]) is not type(expected) or contract[key] != expected
+            for key, expected in EXPECTED_WINE_PREFIX_CONTRACT.items()
+        )
+    ):
+        raise HostBuildFailure("source lock Wine prefix contract is not exact")
+    if type(run_id) is not str or not RUN_ID_RE.fullmatch(run_id):
+        raise HostBuildFailure("Wine prefix run-id is not exact")
+    resolved_path = contract["pathTemplate"].replace("{runId}", run_id)
+    expected_path = f"/work/{run_id}/.wine-prefix"
+    if resolved_path != expected_path:
+        raise HostBuildFailure("resolved Wine prefix path is not exact")
+    return {
+        "contract": dict(contract),
+        "resolvedPath": resolved_path,
+    }
 
 
 def _capture(command: list[str], *, cwd: Path | None = None) -> str:
@@ -1025,6 +1055,7 @@ def build_engine(args: argparse.Namespace) -> int:
     owner = _load_owner(run_root, args.run_id, args.owner_token)
     source, locked = _validate_verisilo(inputs["verisilo"])
     tmpfs_spec = _runtime_tmpfs_spec(locked["lock"])
+    wine_prefix = _runtime_wine_prefix(locked["lock"], args.run_id)
     other_inputs = _validate_other_inputs(inputs, locked)
     provenance_dir = run_root / "provenance"
     prepared = _strict_json(provenance_dir / "builder-image-result.json")
@@ -1067,6 +1098,7 @@ def build_engine(args: argparse.Namespace) -> int:
         "verifiedPreparedImageEvidence": prepared_evidence,
         "verifiedBuilderImageArchive": builder_archive,
         "image": inspect_summary,
+        "runtimeContainer": {"winePrefix": wine_prefix},
         "status": "build-engine-started",
     }
     provenance_path = provenance_dir / "host-provenance.json"
@@ -1091,6 +1123,11 @@ def build_engine(args: argparse.Namespace) -> int:
         f"type=bind,src={layout['out']},dst=/out",
         "--tmpfs",
         tmpfs_spec,
+        "--env",
+        (
+            f"{wine_prefix['contract']['environmentVariable']}="
+            f"{wine_prefix['resolvedPath']}"
+        ),
         "--env",
         f"VERISILO_BUILDER_IMAGE_ID={binding['imageId']}",
         "--env",
@@ -1124,6 +1161,7 @@ def build_engine(args: argparse.Namespace) -> int:
         "readOnlyRoot": True,
         "inputsReadOnly": True,
         "tmpfs": EXPECTED_TMPFS_CONTRACT,
+        "winePrefix": wine_prefix,
     }
     strict_result_candidates = [
         layout["out"] / args.run_id / "build-result.json",
