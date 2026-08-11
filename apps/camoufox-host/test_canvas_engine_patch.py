@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import shutil
@@ -17,6 +18,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from unittest import SkipTest
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -69,6 +71,14 @@ def _sha512(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _load_python_file(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _canonical_tree(root: Path) -> tuple[int, int, str]:
@@ -344,6 +354,20 @@ def test_pinned_oci_build_recipe_is_closed() -> None:
         'dst=/inputs,readonly',
     ):
         assert marker in host
+
+
+def test_host_launcher_accepts_containerd_v3_quote_styles() -> None:
+    host = _load_python_file("canvas_engine_build_host", BUILD_HOST_PATH)
+    for quote in ('"', "'"):
+        dump = (
+            "version = 3\n"
+            f"root = {quote}/mnt/camoufox-build/containerd-root{quote}\n"
+            "state = '/run/containerd'\n"
+        )
+        with mock.patch.object(host, "_capture", return_value=dump):
+            assert host._containerd_root() == Path(
+                "/mnt/camoufox-build/containerd-root"
+            )
 
 
 EXPECTED_DRIVER_MARKERS = {

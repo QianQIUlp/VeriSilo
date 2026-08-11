@@ -219,9 +219,9 @@ def _validate_data_mount() -> dict:
 def _containerd_root() -> Path:
     dump = _capture(["containerd", "config", "dump"])
     for line in dump.splitlines():
-        match = re.fullmatch(r'root\s*=\s*"([^"\n]+)"\s*', line)
+        match = re.fullmatch(r"root\s*=\s*(['\"])([^'\"\n]+)\1\s*", line)
         if match:
-            return Path(match.group(1))
+            return Path(match.group(2))
         if line.startswith("["):
             break
     raise HostBuildFailure("containerd config dump did not expose its top-level root")
