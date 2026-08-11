@@ -83,6 +83,38 @@ PREVIOUS_BUILDER_IMAGE_BINDING = {
     ),
     "savedArchiveSizeBytes": 479035392,
 }
+EXPECTED_BUILDER_IMAGE_BINDING = {
+    "baseIndexDigest": BASE_INDEX_DIGEST,
+    "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
+    "buildxLogSha256": (
+        "8dc2c50cb39fc01c55b201677c62220d1ce5bc57421758bfb499e0df8a73acda"
+    ),
+    "buildxLogSizeBytes": 77778,
+    "buildxMetadataSha256": (
+        "147ec6dcc7a94c6594083383ef93d697bc9e40f95746578ddda14bcfaa7a8395"
+    ),
+    "dockerfileSha256": (
+        "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43"
+    ),
+    "hostToolingSha256": (
+        "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
+    ),
+    "imageId": (
+        "sha256:bf93fbf90499f32ff31be18cabe89fee85a342c752f972a72f51384182489e10"
+    ),
+    "imageInspectSha256": (
+        "8bb317d396f3990ca111a7c410c6bb63e85f8cfe53da27c560c8db4470b7f81b"
+    ),
+    "recipeSourceCommit": "72ba3d30b2cdbb8a11197c6b7d7ba7eeca96e623",
+    "recipeSourceLockSha256": (
+        "904ac16a47ec2800f05d9ac45736d4c58a38aaf4cdff4751187ae696951d0e95"
+    ),
+    "recipeSourceTree": "ce8a6f329b70f5e25152a2cacd4c9bdce064627e",
+    "savedArchiveSha256": (
+        "2548a057a4134e2d16bf77421c86bcb766f32923971a7b2a74f04c4936e19e24"
+    ),
+    "savedArchiveSizeBytes": 479035392,
+}
 
 UPSTREAM_REPO: Path | None = None
 FIREFOX_SOURCE_ARCHIVE: Path | None = None
@@ -190,7 +222,7 @@ def test_source_lock_contract() -> None:
     assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
     assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
     assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
-    assert build["builderImageBinding"] is None
+    assert build["builderImageBinding"] == EXPECTED_BUILDER_IMAGE_BINDING
     assert set(build["builderImageBindingRequiredFields"]) == {
         "imageId",
         "savedArchiveSha256",
