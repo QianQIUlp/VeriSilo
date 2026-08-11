@@ -569,6 +569,11 @@ def validate_artifact_strict(artifact: dict) -> None:
 
     config = artifact.get("resolvedConfig")
     if isinstance(config, dict):
+        canvas_seed = config.get("canvas:seed")
+        if type(canvas_seed) is int and not 0 <= canvas_seed <= 0xFFFFFFFF:
+            errors.append(
+                "resolvedConfig.canvas:seed must be an unsigned 32-bit integer"
+            )
         if (
             isinstance(config.get("screen.availTop"), int)
             and isinstance(config.get("screen.availHeight"), int)

@@ -1,0 +1,48 @@
+diff --git a/toolkit/components/resistfingerprinting/nsRFPService.cpp b/toolkit/components/resistfingerprinting/nsRFPService.cpp
+index 8d3088f..e0ee091 100644
+--- a/toolkit/components/resistfingerprinting/nsRFPService.cpp
++++ b/toolkit/components/resistfingerprinting/nsRFPService.cpp
+@@ -18,2 +18,3 @@
+ #include "MainThreadUtils.h"
++#include "MaskConfig.hpp"
+ #include "ScopedNSSTypes.h"
+@@ -27,2 +28,3 @@
+ #include "mozilla/ContentBlockingNotifier.h"
++#include "mozilla/crypto_hash_sha2.h"
+ #include "mozilla/glean/ResistfingerprintingMetrics.h"
+@@ -3293,2 +3295,27 @@ void nsRFPService::GetFingerprintingRandomizationKeyAsString(
+     nsACString& aRandomizationKeyStr) {
++  const auto& maskConfig = MaskConfig::GetJson();
++  if (MaskConfig::HasKey("canvas:seed", maskConfig)) {
++    auto canvasSeed = MaskConfig::GetUint32("canvas:seed");
++    if (!canvasSeed) {
++      return;
++    }
++
++    constexpr char kDomain[] = "verisilo-canvas-export-v1\0";
++    constexpr size_t kDomainLength = sizeof(kDomain) - 1;
++    uint8_t input[kDomainLength + sizeof(uint32_t)];
++    std::memcpy(input, kDomain, kDomainLength);
++    input[kDomainLength] = static_cast<uint8_t>(*canvasSeed >> 24);
++    input[kDomainLength + 1] = static_cast<uint8_t>(*canvasSeed >> 16);
++    input[kDomainLength + 2] = static_cast<uint8_t>(*canvasSeed >> 8);
++    input[kDomainLength + 3] = static_cast<uint8_t>(*canvasSeed);
++
++    uint8_t digest[32];
++    crypto_hash_sha256(input, sizeof(input), digest);
++    aRandomizationKeyStr.Assign(reinterpret_cast<const char*>(digest),
++                                sizeof(digest));
++    MOZ_ASSERT(aRandomizationKeyStr.Length() == 32,
++               "Expected a SHA-256 Canvas export key");
++    return;
++  }
++
+   NS_ENSURE_TRUE_VOID(aCookieJarSettings);
+diff --git a/toolkit/components/resistfingerprinting/moz.build b/toolkit/components/resistfingerprinting/moz.build
+index e863928..67a8659 100644
+--- a/toolkit/components/resistfingerprinting/moz.build
++++ b/toolkit/components/resistfingerprinting/moz.build
+@@ -25,2 +25,3 @@ SOURCES += [
+ LOCAL_INCLUDES += [
++    "/camoucfg",
+     "/gfx/thebes",

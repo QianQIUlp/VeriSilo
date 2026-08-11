@@ -33,6 +33,7 @@ from identity_policy import (
     diff_configs,
     observed_website_digest,
     read_bundle_metadata,
+    validate_artifact_strict,
     verify_browser_binding,
     verify_artifact,
     verify_artifact_raw,
@@ -1236,6 +1237,22 @@ def test_bool_rejected_for_int_fields() -> None:
     artifact["canonicalDigest"] = compute_artifact_digest(artifact)
     # Rejection must come from the strict type check, not the digest.
     _expect_rejected(artifact, "bool-as-int")
+
+
+def test_canvas_seed_must_be_uint32() -> None:
+    for invalid in (-1, 0x100000000):
+        artifact = load_fixture("identity-a")
+        artifact["resolvedConfig"]["canvas:seed"] = invalid
+        artifact["stableSignalsDeclared"]["canvasSeed"] = invalid
+        _recompute_digests(artifact)
+        _expect_rejected(artifact, f"canvas-seed-{invalid}")
+
+    for valid in (0, 0xFFFFFFFF):
+        artifact = load_fixture("identity-a")
+        artifact["resolvedConfig"]["canvas:seed"] = valid
+        artifact["stableSignalsDeclared"]["canvasSeed"] = valid
+        _recompute_digests(artifact)
+        validate_artifact_strict(artifact)
 
 
 def test_fonts_list_rejects_non_strings() -> None:

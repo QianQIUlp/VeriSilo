@@ -1,0 +1,422 @@
+{
+  "schema": "verisilo-camoufox-source-binding/v1",
+  "engineRevision": "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1",
+  "status": "source-patch-only",
+  "verified": false,
+  "upstream": {
+    "repository": "https://github.com/daijro/camoufox",
+    "tag": "v152.0.4-beta.28",
+    "commit": "0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d",
+    "tree": "1435d544d9b61dee7fcf74cf92462952ca43d38e"
+  },
+  "firefoxSource": {
+    "version": "152.0.4",
+    "url": "https://archive.mozilla.org/pub/firefox/releases/152.0.4/source/firefox-152.0.4.source.tar.xz",
+    "sizeBytes": 799102676,
+    "sha512": "0c5662aba8fb897902af95dbb2fd988b196d9cf9ae8b987ae89e0a6492ac753b8d4b8bb7b3274909c2eb200ab098df356e23cd6084556467f55e69127317f39a"
+  },
+  "canvasExportContract": {
+    "identityScope": "artifact-silo",
+    "managedConfigKey": "canvas:seed",
+    "configuredZeroIsValid": true,
+    "domainSeparatorAsciiEscaped": "verisilo-canvas-export-v1\\0",
+    "domainSeparatorHex": "7665726973696c6f2d63616e7661732d6578706f72742d763100",
+    "seedEncoding": "uint32-big-endian",
+    "keyDerivation": "sha256(domainSeparator || seedBytes)",
+    "keyLengthBytes": 32,
+    "controlledObservable": "Canvas PNG export randomization key used by toDataURL/toBlob paths",
+    "rawPixelsNoised": false,
+    "preservePngDeBGChunk": true,
+    "missingKeyBehavior": "exact Firefox CookieJar fingerprinting-randomization-key fallback",
+    "invalidConfiguredValueBehavior": "no stock fallback and no managed export key; the supported Host rejects this before spawn",
+    "malformedCamouConfigBoundary": "upstream MaskConfig collapses malformed JSON to an empty object, so the supported Host must reject malformed CAMOU_CONFIG before spawn",
+    "notClaimed": ["jpeg", "webp", "bmp", "ico", "cross-realm-consistency"],
+    "goldenVectors": [
+      {
+        "seed": 0,
+        "keyHex": "8d1891e2e64972a4dbdd48041b16953c41108ff7780a21f4afec480ed56b54b1"
+      },
+      {
+        "seed": 2167757908,
+        "keyHex": "780bfd88c04221b98724f6b8d10beb16e127369804c499816e63fb727b938e64"
+      },
+      {
+        "seed": 3261637135,
+        "keyHex": "47e06c233f14b17284db5232c0e94aa7743c05e545e3ddd477946ebfd7a2f62e"
+      },
+      {
+        "seed": 4294967295,
+        "keyHex": "6f310612bb7d136eedeae2bb9c85bd33720a40bd76600569b26f5ee7e425978b"
+      }
+    ]
+  },
+  "sourceInputs": {
+    "upstreamPatchOrderRule": "recursive patches/**/*.patch sorted by basename; non-roverfox first, roverfox last",
+    "upstreamPatches": [
+      {
+        "path": "patches/playwright/0-playwright.patch",
+        "sha256": "af11f54b2d89a7a6952e8f1653a0d2af018bcb73a2d2ebac14a5a1dd510c7e26",
+        "sizeBytes": 137278
+      },
+      {
+        "path": "patches/playwright/1-leak-fixes.patch",
+        "sha256": "ec451f976a730e84165f18caed76ac533f24e99d34f114b1f72888438774e670",
+        "sizeBytes": 1732
+      },
+      {
+        "path": "patches/ghostery/Disable-Onboarding-Messages.patch",
+        "sha256": "dce5eb6f1758602f7dcc810c337ce14b3914760ff73a807796e14c97573bb8f0",
+        "sizeBytes": 929
+      },
+      {
+        "path": "patches/all-addons-private-mode.patch",
+        "sha256": "f3dde19167e4cd0e39e0f60e525df14d5857d58cb99d2f9e89749ad52032e049",
+        "sizeBytes": 787
+      },
+      {
+        "path": "patches/anti-font-fingerprinting.patch",
+        "sha256": "925dabc8d975642bf60311bc291c1914e2d30aa07b0a91953122e7c2a3f25a82",
+        "sizeBytes": 56116
+      },
+      {
+        "path": "patches/audio-context-spoofing.patch",
+        "sha256": "073b552b369064974eeab94646b46c1618d65bef0ee864b346777deeaea13b4e",
+        "sizeBytes": 2417
+      },
+      {
+        "path": "patches/audio-fingerprint-manager.patch",
+        "sha256": "ce541dace41ecf4e1168dc2b0f1ade6e10e51f947d3a257c8d3fd3d9b187708c",
+        "sizeBytes": 16749
+      },
+      {
+        "path": "patches/librewolf/bootstrap.patch",
+        "sha256": "7d91135459ceb58516e4ac6c2138c629f77ca7914a8be9219350b3aa136cbbfb",
+        "sizeBytes": 685
+      },
+      {
+        "path": "patches/browser-init.patch",
+        "sha256": "675c150f99a776e8a9e89814766bdab300d2859795602be018a5ce05a86c0188",
+        "sizeBytes": 9752
+      },
+      {
+        "path": "patches/chromeutil.patch",
+        "sha256": "35d30963aa5e6e05e8fa753532334d8e6afd839654c103e6f622087ec441ba29",
+        "sizeBytes": 7132
+      },
+      {
+        "path": "patches/config.patch",
+        "sha256": "8d86c6f7034e630d7e517e1f5e0361661d312db2d12fcb7b6ad8eadc2544914f",
+        "sizeBytes": 1204
+      },
+      {
+        "path": "patches/cross-process-storage.patch",
+        "sha256": "246543638cbd326796f7d3127c0e360db1b9e6f4dd5500d442fe1f706aad0cc6",
+        "sizeBytes": 4276
+      },
+      {
+        "path": "patches/librewolf/custom-ubo-assets-bootstrap-location.patch",
+        "sha256": "a22fc61e871d8e6ad25ea79a5e7326e2aaa7f92cfe011688dd91e4f2fbdd6e4a",
+        "sizeBytes": 996
+      },
+      {
+        "path": "patches/librewolf/dbus_name.patch",
+        "sha256": "9253991c113f0177ce73947ca626f043dfaffbad5a110bfb34a22aae52064aa1",
+        "sizeBytes": 4731
+      },
+      {
+        "path": "patches/librewolf/devtools-bypass.patch",
+        "sha256": "b2619b732ec6776f5f884934b838561144f1a0598846e6c140d17ccf4891e869",
+        "sizeBytes": 1260
+      },
+      {
+        "path": "patches/librewolf/disable-data-reporting-at-compile-time.patch",
+        "sha256": "926cbcb6e1f47e8a4037deab4637b93d5c6a0541392af23cf7bb42708e0bff7c",
+        "sizeBytes": 1387
+      },
+      {
+        "path": "patches/disable-extension-newtab.patch",
+        "sha256": "248ca904243a31bd8e0ce369e9dde48baa94df18fd01b604a6206c881b9afac7",
+        "sizeBytes": 1361
+      },
+      {
+        "path": "patches/fingerprint-injection.patch",
+        "sha256": "0408cf447924a007df1bc0dc9b10344383c14f3cc5828b44068de706ffadf8d7",
+        "sizeBytes": 13729
+      },
+      {
+        "path": "patches/librewolf/ui-patches/firefox-view.patch",
+        "sha256": "465c07f9a9999b4002d8a70e30644bcc74b169f4a23ff486e9c4b0ea7a1f1fa8",
+        "sizeBytes": 2601
+      },
+      {
+        "path": "patches/font-hijacker.patch",
+        "sha256": "be6699fa828c28b14583187bbc633d8ff5afcb3e69476bf433c4051772c5a7bf",
+        "sizeBytes": 5290
+      },
+      {
+        "path": "patches/font-list-spoofing.patch",
+        "sha256": "a0135b4233ffe2a00212456919b8cae19fe9d75dc21981e5641dcb9566bc288c",
+        "sizeBytes": 10249
+      },
+      {
+        "path": "patches/font-system-fonts-css2.patch",
+        "sha256": "4416682675c4bf7b6e4daf01d64813fdb65bce30c732f8fdd18378f1107cfe37",
+        "sizeBytes": 12857
+      },
+      {
+        "path": "patches/force-default-pointer.patch",
+        "sha256": "526725d9853feaab3c28965a155967108b7be38262ccbd88bf3d8a6192c30da9",
+        "sizeBytes": 1090
+      },
+      {
+        "path": "patches/geolocation-spoofing.patch",
+        "sha256": "90da4888b68bf7ba15c693709f19088f953d85198673ff67796722176ab743d5",
+        "sizeBytes": 5425
+      },
+      {
+        "path": "patches/global-style-sheets.patch",
+        "sha256": "2f02cdd8d17b7b13cc6abfba6f1ed281b48a5b72f9949c556d515e402a86e5db",
+        "sizeBytes": 1630
+      },
+      {
+        "path": "patches/librewolf/ui-patches/handlers.patch",
+        "sha256": "0c889f4b8c0a849799e1f6acd2b8f758d013a8043e323cb580e5abbde0f447c4",
+        "sizeBytes": 4878
+      },
+      {
+        "path": "patches/librewolf/ui-patches/hide-default-browser.patch",
+        "sha256": "f2b0bfa21950db26a252cb82d237265075b7b951983f9aaa6bb8f41046712809",
+        "sizeBytes": 2828
+      },
+      {
+        "path": "patches/locale-spoofing.patch",
+        "sha256": "e040e7cae4affe7c37c37f6bb1a482d861f99c0c3c90191462ae5d67ffb411b1",
+        "sizeBytes": 6875
+      },
+      {
+        "path": "patches/macos-sandbox-crash-fix.patch",
+        "sha256": "d4c47c9cf6c333bbc92f949947fb5aee84c9edc3a39e9c7544ad8b4e56c99ab4",
+        "sizeBytes": 1460
+      },
+      {
+        "path": "patches/media-device-spoofing.patch",
+        "sha256": "a286a37aa1d33550af0ab57c1003f366f361bc958e7270215ca91a5cb987cf3c",
+        "sizeBytes": 4626
+      },
+      {
+        "path": "patches/librewolf/mozilla_dirs.patch",
+        "sha256": "7e241eba0b0adfe9aa026ed1e3673e442373d05203a230046402b64be27aba1e",
+        "sizeBytes": 6587
+      },
+      {
+        "path": "patches/navigator-spoofing.patch",
+        "sha256": "b951b62655927b33bcd8f02bc12dcfaf7051ec64a48526d2974fd70f303b7a58",
+        "sizeBytes": 20401
+      },
+      {
+        "path": "patches/network-patches.patch",
+        "sha256": "ae4c20bf791173ab3b8a9cdb8627668cecefd46e9fc928501b396d0094230a8e",
+        "sizeBytes": 2433
+      },
+      {
+        "path": "patches/no-css-animations.patch",
+        "sha256": "e940f991a1f6996ac6b5241569b589c7f644f3496892994d0f780b792e0fea2e",
+        "sizeBytes": 2086
+      },
+      {
+        "path": "patches/no-search-engines.patch",
+        "sha256": "ef7f85bf74d042d1e2962ac31daf47172b31805c5327e6606491dc8e7d869d80",
+        "sizeBytes": 1512
+      },
+      {
+        "path": "patches/pin-addons.patch",
+        "sha256": "0d1d8093ddd7254c255b41b245a59111dac75985255ec7f50cabbe092e8a0a2e",
+        "sizeBytes": 1206
+      },
+      {
+        "path": "patches/librewolf/ui-patches/remove-organization-policy-banner.patch",
+        "sha256": "21dfd320408ffd57239eabf13df493fe7d575be6b12b07554f8454c233750ab2",
+        "sizeBytes": 514
+      },
+      {
+        "path": "patches/librewolf/rust-gentoo-musl.patch",
+        "sha256": "1bb4b36860308a3b54d786ca0da2d4f4b19a17703b6c6b3155a0dc7a2f9f3372",
+        "sizeBytes": 1045
+      },
+      {
+        "path": "patches/screen-spoofing.patch",
+        "sha256": "859709064fd9b880508d41f43089b71a939d2a74a6d250af5f0b2a8c3d5a4903",
+        "sizeBytes": 3698
+      },
+      {
+        "path": "patches/sessionstore-popup-close-crash.patch",
+        "sha256": "2714e3c4e14ed45aa43ce0970cd8f9c8779e17657330db67c6d4d4ec0b9cf909",
+        "sizeBytes": 1261
+      },
+      {
+        "path": "patches/shadow-root-bypass.patch",
+        "sha256": "f29455be19205edde28b6ed5ab02b9329f902d18eee5c226bdf5c00592acc4ec",
+        "sizeBytes": 550
+      },
+      {
+        "path": "patches/speech-voices-spoofing.patch",
+        "sha256": "73ddfa9655193b4df1e30b5ab1775b13fb333747ea2400f98752be479d49ae31",
+        "sizeBytes": 8897
+      },
+      {
+        "path": "patches/librewolf/sed-patches/stop-undesired-requests.patch",
+        "sha256": "02e316537966e5557fced4a4c40c9d70f4a35ac06607d5ec074ba5ba14a1dfb4",
+        "sizeBytes": 961
+      },
+      {
+        "path": "patches/system-ui-font-spoofing.patch",
+        "sha256": "9c73db14ab465a5c62eac6e38588896f4cc6402334fd8992e9ad5391efc8f1e3",
+        "sizeBytes": 985
+      },
+      {
+        "path": "patches/timezone-spoofing.patch",
+        "sha256": "766ece79d009ddc4024b135cccaaf633ed7ccca2330b0362901d70dc02987e7d",
+        "sizeBytes": 13973
+      },
+      {
+        "path": "patches/librewolf/urlbarprovider-interventions.patch",
+        "sha256": "87acbf01bbdcc2a52ed7e07d8ed8d0ef4fcfd3b38ab57767f330358e9af347c9",
+        "sizeBytes": 636
+      },
+      {
+        "path": "patches/voice-spoofing.patch",
+        "sha256": "476adbedadd74b19db4f38437f20ccff1f7187fc30024c3b140e4908ccab4cbb",
+        "sizeBytes": 3266
+      },
+      {
+        "path": "patches/webgl-spoofing.patch",
+        "sha256": "63d8c2a5997ddc7786ccc60da4e9910dd0447de010823ddab9498559282e6c9e",
+        "sizeBytes": 26078
+      },
+      {
+        "path": "patches/webrtc-ip-spoofing.patch",
+        "sha256": "108aae65952bc4c2752bbbb4846459ba19c3238900c97c71bf9143f35c7332ae",
+        "sizeBytes": 42059
+      },
+      {
+        "path": "patches/windows-theming-bug-modified.patch",
+        "sha256": "992e8ae7ff63927a713f7ac5d7153721332df93ba953054f01e4105414ac28a7",
+        "sizeBytes": 1549
+      }
+    ],
+    "recipeFiles": [
+      {
+        "path": "upstream.sh",
+        "sha256": "10679e6bdd62d25374f10338cb09ffd548971d9014d3dea5dd3f90cb609b1bee",
+        "sizeBytes": 52
+      },
+      {
+        "path": "Makefile",
+        "sha256": "f3ee59236813e78ffe9be8e97060f135b9f22c4091e0c6e268be842d3acc6f71",
+        "sizeBytes": 8746
+      },
+      {
+        "path": "multibuild.py",
+        "sha256": "0f0070b5eb76b7184145eca14156bde66f4e14e66ac424005bdb3f16ded3de27",
+        "sizeBytes": 4968
+      },
+      {
+        "path": "scripts/patch.py",
+        "sha256": "6f7e5095fffdf55afbf1a37fce49d436c30343f9d95250157be609e9f7ee141e",
+        "sizeBytes": 8449
+      },
+      {
+        "path": "scripts/package.py",
+        "sha256": "9e278fa4328d5f07f860fb79ef1ef067f439a5d068be32b3bb06cce52f31070f",
+        "sizeBytes": 6290
+      },
+      {
+        "path": ".github/workflows/build.yml",
+        "sha256": "db82496faa2fd5b0595843eca6a1c46858643d581b53d778ac3f0d506892a42a",
+        "sizeBytes": 4446
+      },
+      {
+        "path": "assets/base.mozconfig",
+        "sha256": "b74bc0c376d6662e3c2883ce053da181e2bb086d9d5210dda49e32492cc92b6b",
+        "sizeBytes": 1222
+      },
+      {
+        "path": "assets/windows.mozconfig",
+        "sha256": "447b3565c7e4afdd4d4af3b694387b4da56bcb3d2da9fed2e115d21c9c87a389",
+        "sizeBytes": 83
+      },
+      {
+        "path": "settings/properties.json",
+        "sha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+        "sizeBytes": 6075
+      },
+      {
+        "path": "settings/camoufox.cfg",
+        "sha256": "2d4e2d1ebca1a7103b03477d7d11dc056ae0f53ab12ef63e55d8bf2ff4b5722a",
+        "sizeBytes": 36394
+      }
+    ],
+    "inputTreeCanonicalization": "compact UTF-8 JSON array sorted ordinal by forward-slash path; object keys sorted; each entry contains path, sha256, size",
+    "inputTrees": [
+      {
+        "path": "additions",
+        "fileCount": 129,
+        "totalBytes": 8491616,
+        "canonicalTreeSha256": "e1e481043f19b1c2ca807e302bdc1a338299a42c302a27c3200c8cd3e1902b85"
+      },
+      {
+        "path": "settings",
+        "fileCount": 6,
+        "totalBytes": 57784,
+        "canonicalTreeSha256": "f70a70ba936817c365d581fdddc4c3e3b43297903530b65d25842aaeaa94be75"
+      },
+      {
+        "path": "assets",
+        "fileCount": 7,
+        "totalBytes": 50273,
+        "canonicalTreeSha256": "e289169a6b12fac714e77e98588d9e99f27f358823d519e5a5db0911c5a76e1d"
+      }
+    ],
+    "downstreamPatches": [
+      {
+        "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0001-verisilo-canvas-export-key.patch",
+        "applyAfterUpstream": true,
+        "sha256": "4fa6d3bbf203e2385e29a72ec2669ee17a571281be7ee2a73598e38918069b02",
+        "sizeBytes": 2121
+      }
+    ]
+  },
+  "seamFiles": [
+    {
+      "path": "toolkit/components/resistfingerprinting/nsRFPService.cpp",
+      "postUpstreamPatchSha256": "5d22f0af2254e21b566530c8d05f87107ba54864738aea82dd135231cf33b379",
+      "postDownstreamPatchSha256": "a10b648f2edb55ff94c31fc9e67212909d1ba46d37d1ece03f681f89dd11e2fb"
+    },
+    {
+      "path": "toolkit/components/resistfingerprinting/moz.build",
+      "postUpstreamPatchSha256": "dae0e9f46aa455b03d858ce3bf5137d63244e7a552cf4b85ed93aa4571240b19",
+      "postDownstreamPatchSha256": "3c7754f9d348d7c5bf821d1603f8f84111eec7ba409d13bb7f378f2814540b66"
+    }
+  ],
+  "buildBinding": {
+    "target": "x86_64-pc-windows-msvc",
+    "supportedBuildHost": "linux",
+    "officialReferenceHost": "ubuntu-24.04",
+    "status": "not-built",
+    "binaryBinding": null,
+    "requiredBeforeRuntime": [
+      "immutable Linux build-environment image digest",
+      "exact toolchain and mach bootstrap artifact versions/digests",
+      "build run identity and logs",
+      "Windows archive name/size/sha256",
+      "complete extraction-tree manifest",
+      "camoufox.exe hash, BuildID, SourceStamp, application.ini and platform.ini hashes"
+    ],
+    "unsupportedOnCurrentHost": "Camoufox upstream states its build system is Linux-only and WSL is unsupported; the current native Windows host lacks the supported cross-build environment."
+  },
+  "compatibility": {
+    "artifactTopLevelSchema": "verisilo-camoufox-resolved-identity/v3",
+    "policyRequirement": "deterministic Canvas Policy v3 variant must be selected fail-closed by the future exact binary binding",
+    "historicalOfficialBindingModified": false
+  }
+}
