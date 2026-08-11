@@ -163,6 +163,46 @@ Host 重放；它不宣称 M3-WI 已修复或桌面 Managed 能力已可发布�
 Artifact/Profile/Engine/Network/Evidence 生命周期分离，以及 production package
 fail-closed 原则全部保持不变。
 
+## 2026-08-11 FP1 Canvas Engine Patch 决策
+
+FP1 的原生 Windows A1/A2 已证明相同 Artifact 的 Canvas raw pixels 稳定，但固定
+Camoufox `v152.0.4-beta.28` 仍把 Firefox browsing-session entropy 用于 PNG export
+metadata，且当前浏览器没有消费 `canvas:seed` 的受控实现。主脑据此授权 VeriSilo
+在固定 FF152/Camoufox source 上维护一个窄的 downstream browser patch；这仍属于
+FP1，不开放 FP2，也不重新打开 Controlled Chromium 或整机隔离路线。
+
+Managed Identity 的 Canvas 身份范围冻结为 **Artifact / Silo**，而不是 Firefox
+anti-tracking 的 top-level-site 或 browsing-session 范围。确定性 key 的规范输入是：
+
+```text
+SHA-256(
+  ASCII("verisilo-canvas-export-v1\0")
+  || uint32_be(Artifact.canvas:seed)
+)
+```
+
+不得加入 site、origin、Profile、PID、时间、process/session UUID 或其他运行熵；配置值
+`0` 仍是有效 seed，是否启用只按 key 是否存在判断。相同 seed 和相同 Canvas operation
+跨独立 browser process 必须得到相同 export observable；不同 seed 必须在合同声明的
+Canvas export 表面产生确定、合法的差异。
+
+实现边界冻结为：
+
+- 只在 Canvas export / `EfficientCanvasRandomization` key seam 消费该值；
+- 不使用 JS/init script，不删除 `deBG`，不恢复旧 pixel-noise patch，不替换全局 RFP key；
+- `canvas:seed` 缺失时逐字节保留 Firefox 原 CookieJar/session/site fallback；
+- v1 首先控制 `toDataURL("image/png")` 及共享同一 PNG encoder key resolver 的 blob
+  export；raw `getImageData()` pixels 不做 noise；其他 MIME 不能被顺带宣称已控制；
+- Artifact 顶层 schema 和现有 47-key config 保持 v3；旧官方 Engine Binding、旧 Artifact
+  fixtures 和 Accepted evidence 不改写。deterministic Canvas classification 只能作为新
+  VeriSilo Engine Binding 对应的闭合 Policy v3 variant，validator 必须由精确 binding
+  选择旧/新语义，不能让二者模糊兼容。
+
+从该 patch 起，Managed Engine Binding 必须同时固定 upstream source revision、Firefox
+source digest、完整 patch 顺序与逐文件 digest、构建 recipe/toolchain、Windows archive
+SHA/size、解压 tree manifest、BuildID/SourceStamp 和配置资产 digest。自建 archive 不得
+冒充 GitHub 官方 release，也不得覆盖历史 official lock/tree/Artifact。
+
 ## 后果
 
 - 当前 Managed Engine 工程路线只完成一个引擎，不同时扩张其他执行后端；standalone 代码已经进入 `main`，但不表示桌面集成或发布 Gate 已通过。

@@ -17,7 +17,7 @@
 | M3-WI 调查结束快照              | `186484feb935076766beab09595a9270f86f78ef` / tree `e33d6d68586a79796ffb9bcc668392e369dc97c6`              | `e96ef3f` 为祖先；调查结束时 tracked tree clean；没有 production fix                |
 | R2 tracked 候选 evidence        | `ecafca9` / `evidence-manifest-m3-wi-r2-windows.json`                                                     | 执行 Agent 候选；主脑未接受，不是 M3-WI Accepted evidence                           |
 | R2H 研究基础                    | `186484f`                                                                                                 | 只有 runner/freezer/schema 与 Host test 变更；无 tracked result/manifest            |
-| 当前 FP1 任务                   | [冻结合同与续执行结果](camoufox-fp1-deterministic-artifact-projection-task.md) / implementation `bc153f1` | media 边界已收口；A1/A2 运行后 Canvas export 漂移，B1 未启动；`blocked-upstream`    |
+| 当前 FP1 任务                   | [冻结合同与续执行结果](camoufox-fp1-deterministic-artifact-projection-task.md) / implementation `bc153f1` | 主脑已授权 Artifact-scoped Canvas Engine Patch；尚未构建或验证 candidate engine     |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                 | 严格进程树、quarantine、JSON 和 RFC3339 收口                                        |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                | evidence manifest 冻结提交；保持不变                                                |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                | M2-W evidence 冻结提交；主脑 Gate 已接受                                            |
@@ -198,13 +198,13 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 
 ## 下一阶段
 
-主脑先审阅 [FP1 `blocked-upstream` 结果](camoufox-fp1-deterministic-artifact-projection-task.md)。
-implementation `bc153f1` 已把 media readiness 收口为有界、typed 结果；唯一真实序列中
-A1/A2 的 media 均 `success`，状态延续和除 Canvas export 外的目标字段族均相同。Canvas
-raw hash 相同而 `toDataURL` export hash 漂移，故按合同没有启动 B1。不得进入 FP2、恢复
-R2/R2H 或重跑选样。继续 FP1 需要主脑先授权一个最小引擎决策：固定并重新绑定具备明确
-deterministic Canvas export 应用路径的 Camoufox build，或明确修改 Artifact/FP1 合同；
-执行 Agent 不得自行升级依赖或把 export 比较降级为 optional。
+主脑已审阅 [FP1 `blocked-upstream` 结果](camoufox-fp1-deterministic-artifact-projection-task.md)
+并授权仍在 FP1 内维护一个固定 FF152/Camoufox downstream Canvas Engine Patch。Managed
+Canvas identity scope 冻结为 Artifact/Silo；seed-derived key 不得包含 site 或 session
+entropy。下一项工作是先冻结 source/patch/build provenance，生成独立的 VeriSilo Windows
+archive/tree/binding，再只执行一次 Canvas focused A1→A2→B1；focused 通过后才允许唯一
+一次完整 FP1 A1→A2→B1。不得覆盖历史 official binding/fixtures/evidence，不得进入 FP2、
+恢复 R2/R2H 或重跑选样。
 
 后续顺序固定为 FP2 跨 realm 一致性 → FP3 网络/地区/WebRTC 协调 → FP4 实站
 兼容性 → 使用届时最终 Managed Engine 冻结新的 clean M3-WI 合同。旧 M3-WI
@@ -216,7 +216,8 @@ deterministic Canvas export 应用路径的 Camoufox build，或明确修改 Art
 - 当前 artifacts 使用 `fontMode=inherit`；宿主字体仍可见，不宣称字体隔离。
 - M2 evidence 没有证明 Canvas 稳定；FP1 A1/A2 已观察到 raw hash 稳定但 export hash
   漂移。固定 `v152.0.4-beta.28` 没有已审计的 `canvas:seed` 应用路径，因此该 seed 只能
-  写为 configured，不能升级为 applied，也不能宣称 Canvas 身份稳定。
+  写为 configured，不能升级为 applied，也不能宣称 Canvas 身份稳定。主脑已授权的
+  downstream patch 仍只是待构建、待验证合同，不能反向升级当前证据。
 - TLS ClientHello、QUIC、跨主机复现和不可检测保持未验证或 unavailable。
 - Linux 用户态树确认覆盖父进程存活期间捕获的后代；最后枚举后的瞬时 fork 需要 Windows Job Object 等内核所有权关闭。
 - self-digest 和 SHA sidecar 是完整性门禁，不是发布者签名。

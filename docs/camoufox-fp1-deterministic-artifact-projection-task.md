@@ -593,3 +593,68 @@ deterministic Canvas export 应用路径的 Camoufox build（同时更新 archiv
 使现有 focused tests 重新通过）。另一选择是显式修改 Artifact/FP1 合同，把 export 重新
 分类为 unavailable/session-variable；这会改变共享语义，且本次不得为了跑绿自行采用。
 在主脑授权其中之一以前，不得重跑 A1/A2/B1，也不得进入 FP2。
+
+### 2026-08-11 Canvas Engine Patch 合同冻结
+
+主脑已经选择上述最小引擎决策：保持 Artifact/Silo-scoped Canvas identity，固定 FF152
+并维护 VeriSilo downstream patch；不得把 export 降级为 optional，也不得把 site 或
+browsing-session entropy 混入 Managed Canvas identity。
+
+#### Browser contract
+
+对存在 `canvas:seed` 的 Managed config（包括值 `0`）：
+
+```text
+same seed + same Canvas operation + independent browser process
+→ exact same PNG/dataURL observable
+
+different seed + same Canvas operation
+→ deterministic different PNG/dataURL observable
+```
+
+key 固定为
+`SHA-256(ASCII("verisilo-canvas-export-v1\0") || uint32_be(seed))`。不得加入
+site/origin、Profile、PID、时间、session UUID 或其他运行熵。patch 只替换 Canvas export
+resolver 的 randomization key；Firefox 原有 PNG encoder/`deBG` 结构继续使用，raw pixels
+不加 noise。`canvas:seed` 缺失时必须原样走 Firefox CookieJar fallback。
+
+FP1 v1 的硬观察表面是 `toDataURL("image/png")`；共享 resolver 的 PNG blob path 需要
+源码/测试覆盖，但本轮不把 iframe、Worker、Service Worker 或跨 realm 一致性写成 FP1
+通过条件。JPEG/WebP 等其他编码不得由 PNG 结果外推为已控制。
+
+#### Binding and compatibility
+
+- upstream Camoufox tag/commit 固定为 `v152.0.4-beta.28` /
+  `0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d`；Firefox 固定为 `152.0.4`；
+- 新 source lock、patch、archive lock、tree manifest 和 rebound Artifact fixtures 使用新名字；
+  不覆盖 official lock、旧 Windows tree manifest、`identity-win-a/b/c` 或历史 evidence；
+- 自建 archive 的 provenance 不能写成 GitHub official digest agreement，且保持
+  `verified:false`；
+- `canvas:seed` 字段和 Artifact 顶层 v3 schema 不变。旧 binding 继续要求 legacy
+  session-variable Canvas policy；新 binding 才允许 deterministic Canvas Policy v3
+  variant。validator 必须用 archive binding fail closed 选择唯一 variant。
+
+#### Focused verification
+
+browser source、patch set、archive、tree 和 focused harness 全部冻结且工作树 clean 后，
+先取得原子 browser lease，只执行一次以下 sequence：
+
+```text
+canvas-A1: seed A / new Profile A / independent process
+canvas-A2: same seed A / same Profile A / second independent process
+canvas-B1: A config with only canvas:seed changed to seed B / Profile B /
+           third independent process
+```
+
+三次必须使用同一 run-owned loopback HTTP origin 和同一 probe bytes；禁止
+`about:blank`、`page.set_content()`、`data:` 或 `file:`。要求：
+
+- A1/A2 raw RGBA、decoded PNG pixels、PNG bytes 和 dataURL hash 全部相同；
+- B1 除 seed 外的最终 config 逐 key/类型等于 A，PNG 合法且 export hash 与 A 不同；
+- 每次 clean close、Job active 0、Profile 两个 lock byte 可重取、无进程残留；
+- `canvas:seed` 缺失时的 stock fallback 至少有源码级 focused regression；若不增加预声明
+  browser control，不得把它写成 runtime-observed。
+
+这三次不是完整 FP1，也不使用完整 Artifact B 的其他 12 个差异 key。只有 focused
+sequence 一次通过后，才能从再次冻结的最终代码和新 binding 只执行一次完整
+A1→A2→B1。任一失败立即停止，不修改后重跑、不选样、不进入 FP2。
