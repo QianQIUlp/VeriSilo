@@ -274,6 +274,23 @@ shutdown 与文件 I/O，因此也无法证明 cleanup 总预算。FP1 本轮据
 不增加 operation/command deadline，不扩大任何父端 watchdog，也不把 timeout 层级写成
 已经关闭的 Gate。
 
+续执行对 `observed.media` 的语义判定是：launch 中的 media readiness 只是一项可选
+Runtime Evidence，不是 Artifact 已应用的硬屏障；后续完整 probe 才是 FP1 的权威 media
+观察。浏览器内 enumerate timeout 或 API unavailable 可以按固定 reason 继续到完整 probe，
+但 channel timeout / Playwright exception 后页面不可安全复用，必须进入既有 fail-closed
+cleanup。readiness 结果本身不把 Artifact 的 configured media count 升级为 `observed`；
+后续完整 probe 返回的实际 count 即为 `observed`，无论是否匹配。只有匹配才能通过 FP1；
+probe 无法可靠返回时标成 `unavailable`。
+
+该聚焦收口复用 probe 已有的最多 3 秒 browser-side enumerate 边界、Host 已有的 8 秒
+media readiness 边界和父端 120 秒 watchdog。既有 250 ms poll cadence 同时作为 channel
+response/cancel-settle margin，因此首个 Python channel await 最多 7.75 秒，实际局部关系是
+`3 < 7.75 < 8 < 120`；余量不足 500 ms 时不再发起新 RPC。这里的 8 秒是 media stage
+deadline，不是新的全局 Host launch command deadline；失败路径虽已有 Playwright close
+5 秒加进程树收口 6 秒的显式预算，但 server shutdown / 文件 I/O 仍无总 deadline，且失败
+A1 的已记录 stage 合计 35.837 秒不包含全部 launch 工作，因此不能据此声称严格的全局
+cleanup margin。本补丁不把尚未冻结的全局 command/cleanup 预算伪装为已建立。
+
 ## 9. 唯一真实验证矩阵
 
 真实验证必须在同一台原生 Windows 交互式桌面、相同固定引擎/Host build、相同本地

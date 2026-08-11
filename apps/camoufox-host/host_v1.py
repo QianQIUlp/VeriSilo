@@ -74,6 +74,9 @@ from host_fonts import (
     host_negative_control_families,
 )
 from run_identity_spike import (
+    MEDIA_READINESS_REASONS,
+    MediaDeviceReadinessError,
+    MediaDeviceReadinessTimeout,
     extract_observed_website_signals,
     wait_for_configured_media_devices,
 )
@@ -251,11 +254,26 @@ class _LaunchStageRecorder:
         event: str,
         started: float,
         exception_class: str | None = None,
+        terminal_reason: str | None = None,
     ) -> None:
         if stage not in FP1_LAUNCH_STAGES:
             raise ValueError(f"unsupported FP1 launch stage: {stage}")
         if event not in {"start", "success", "error", "timeout", "cancelled"}:
             raise ValueError(f"unsupported FP1 launch event: {event}")
+        if terminal_reason is not None and (
+            stage != "observed.media" or terminal_reason not in MEDIA_READINESS_REASONS
+        ):
+            raise ValueError("unsupported FP1 launch terminal reason")
+        reason_events = {
+            "success": {"success"},
+            "enumerate_timeout": {"success", "timeout"},
+            "readiness_timeout": {"timeout"},
+            "count_mismatch": {"success"},
+            "playwright_exception": {"error"},
+            "unavailable": {"success"},
+        }
+        if terminal_reason is not None and event not in reason_events[terminal_reason]:
+            raise ValueError("inconsistent FP1 launch terminal reason and event")
         event_key = "start" if event == "start" else "terminal"
         seen = self._seen.setdefault(stage, set())
         if event_key in seen or self._events >= FP1_STAGE_MAX_EVENTS:
@@ -270,6 +288,8 @@ class _LaunchStageRecorder:
             payload["exceptionClass"] = re.sub(
                 r"[^A-Za-z0-9_.-]", "_", exception_class
             )[:64]
+        if terminal_reason is not None:
+            payload["reason"] = terminal_reason
         encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
         line = "stage-diagnostic " + encoded
         line_bytes = len((line + "\n").encode("utf-8"))
@@ -296,11 +316,17 @@ class _LaunchStageDiagnostic:
         self.recorder = recorder
         self.stage_name = stage
         self.started = 0.0
+        self.terminal_reason: str | None = None
 
     def __enter__(self) -> "_LaunchStageDiagnostic":
         self.started = time.perf_counter()
         self.recorder.record(self.stage_name, "start", self.started)
         return self
+
+    def set_terminal_reason(self, reason: str) -> None:
+        if self.stage_name != "observed.media" or reason not in MEDIA_READINESS_REASONS:
+            raise ValueError("unsupported FP1 launch terminal reason")
+        self.terminal_reason = reason
 
     def __exit__(self, exc_type: Any, _exc: Any, _tb: Any) -> None:
         event = "success"
@@ -318,6 +344,7 @@ class _LaunchStageDiagnostic:
             event,
             self.started,
             exception_class=exception_class,
+            terminal_reason=self.terminal_reason,
         )
 
 
@@ -927,8 +954,17 @@ class CamoufoxHost:
             )
             await page.evaluate("document.fonts.ready")
 
-        with _active_launch_stage("observed.media"):
-            media_readiness = await wait_for_configured_media_devices(page, disk_config)
+        with _active_launch_stage("observed.media") as media_stage:
+            try:
+                media_readiness = await wait_for_configured_media_devices(
+                    page, disk_config
+                )
+            except (MediaDeviceReadinessTimeout, MediaDeviceReadinessError) as exc:
+                if media_stage is not None:
+                    media_stage.set_terminal_reason(exc.reason)
+                raise
+            if media_stage is not None:
+                media_stage.set_terminal_reason(media_readiness["reason"])
 
         with _active_launch_stage("observed.identity"):
             probe_start = time.perf_counter()

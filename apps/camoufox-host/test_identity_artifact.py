@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import hashlib
+import inspect
 import json
 import os
 import random
@@ -42,9 +43,13 @@ from browser_tree import (
     verify_tree,
 )
 from run_identity_spike import (
+    MEDIA_READINESS_REASONS,
+    MediaDeviceReadinessError,
+    MediaDeviceReadinessTimeout,
     extract_observed_website_signals,
     expected_media_device_counts,
     observed_media_device_counts,
+    wait_for_configured_media_devices,
     write_report,
 )
 from run_spike import (
@@ -393,6 +398,237 @@ def test_fp1_probe_fields_preserve_observed_digest_v2_voice_shape() -> None:
     ]
 
 
+class _FakeMediaPage:
+    def __init__(self, *responses: object) -> None:
+        self.responses = list(responses)
+        self.calls = 0
+
+    async def evaluate(self, _script: str, _argument: dict) -> object:
+        self.calls += 1
+        if not self.responses:
+            raise AssertionError("unexpected media evaluate call")
+        response = self.responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        value = response() if callable(response) else response
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
+
+def _media_config() -> dict:
+    return {
+        "mediaDevices:enabled": True,
+        "mediaDevices:micros": 1,
+        "mediaDevices:webcams": 1,
+        "mediaDevices:speakers": 1,
+    }
+
+
+def _media_rpc_result(reason: str, *attempts: tuple[str, ...]) -> dict:
+    return {
+        "reason": reason,
+        "attempts": [
+            [{"kind": kind} for kind in attempt]
+            for attempt in attempts
+        ],
+    }
+
+
+def test_media_readiness_matching_enumeration_succeeds() -> None:
+    page = _FakeMediaPage(
+        _media_rpc_result(
+            "success", ("audioinput", "videoinput", "audiooutput")
+        ),
+        {"continued": True},
+    )
+
+    async def run_case() -> tuple[dict, object]:
+        result = await wait_for_configured_media_devices(
+            page, _media_config(), timeout_seconds=0.02, poll_interval_ms=1
+        )
+        return result, await page.evaluate("continued", {})
+
+    result, continued = asyncio.run(run_case())
+    assert page.calls == 2
+    assert continued == {"continued": True}
+    assert result["reason"] == "success"
+    assert result["matched"] is True
+    assert result["attempts"][-1] == {
+        "counts": {"audioinput": 1, "videoinput": 1, "audiooutput": 1},
+        "matched": True,
+    }
+
+
+def test_media_readiness_enumerate_await_is_bounded() -> None:
+    async def run_case() -> None:
+        cancelled: list[bool] = []
+
+        async def never_returns() -> None:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(True)
+
+        page = _FakeMediaPage(never_returns)
+        try:
+            await wait_for_configured_media_devices(
+                page, _media_config(), timeout_seconds=0.01, poll_interval_ms=1
+            )
+        except MediaDeviceReadinessTimeout as exc:
+            assert exc.reason == "enumerate_timeout"
+        else:
+            raise AssertionError("unbounded enumerate RPC did not time out")
+        assert page.calls == 1
+        assert cancelled == [True]
+
+    asyncio.run(run_case())
+
+
+def test_media_readiness_cancel_settle_is_itself_bounded() -> None:
+    async def run_case() -> None:
+        release = asyncio.Event()
+        finished = asyncio.Event()
+
+        async def cancellation_resistant() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await release.wait()
+            finally:
+                finished.set()
+
+        page = _FakeMediaPage(cancellation_resistant)
+        started = asyncio.get_running_loop().time()
+        try:
+            await wait_for_configured_media_devices(
+                page, _media_config(), timeout_seconds=0.01, poll_interval_ms=1
+            )
+        except MediaDeviceReadinessTimeout as exc:
+            assert exc.reason == "enumerate_timeout"
+        else:
+            raise AssertionError("cancellation-resistant RPC did not time out")
+        assert asyncio.get_running_loop().time() - started < 0.5
+        release.set()
+        await asyncio.wait_for(finished.wait(), timeout=0.1)
+
+    asyncio.run(run_case())
+
+
+def test_media_readiness_poll_await_is_bounded() -> None:
+    async def run_case() -> None:
+        cancelled: list[bool] = []
+
+        async def never_returns(_seconds: float) -> None:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(True)
+
+        page = _FakeMediaPage(
+            _media_rpc_result("success", ("audioinput",)),
+        )
+        try:
+            await wait_for_configured_media_devices(
+                page,
+                _media_config(),
+                timeout_seconds=0.02,
+                poll_interval_ms=1,
+                readiness_wait=never_returns,
+            )
+        except MediaDeviceReadinessTimeout as exc:
+            assert exc.reason == "readiness_timeout"
+        else:
+            raise AssertionError("unbounded readiness RPC did not time out")
+        assert page.calls == 1
+        assert cancelled == [True]
+
+    asyncio.run(run_case())
+
+
+def test_media_readiness_permanent_count_mismatch_is_typed() -> None:
+    class FakeClock:
+        value = 0.0
+
+        def __call__(self) -> float:
+            return self.value
+
+        async def advance(self, seconds: float) -> None:
+            self.value = round(self.value + seconds, 6)
+
+    clock = FakeClock()
+    page = _FakeMediaPage(
+        _media_rpc_result("success", ("audioinput",)),
+        _media_rpc_result("success", ("audioinput",)),
+        _media_rpc_result("success", ("audioinput",)),
+        {"continued": True},
+    )
+
+    async def run_case() -> tuple[dict, object]:
+        result = await wait_for_configured_media_devices(
+            page,
+            _media_config(),
+            timeout_seconds=0.005,
+            poll_interval_ms=1,
+            clock=clock,
+            readiness_wait=clock.advance,
+        )
+        return result, await page.evaluate("continued", {})
+
+    result, continued = asyncio.run(run_case())
+    assert page.calls == 4
+    assert continued == {"continued": True}
+    assert result["reason"] == "count_mismatch"
+    assert result["matched"] is False
+    assert len(result["attempts"]) == 3
+
+
+def test_media_readiness_playwright_exception_is_secret_free() -> None:
+    secret = (
+        "https://127.0.0.1/probe Cookie=secret artifact-seed token=lease "
+        r"proxy=credential C:\Users\qiu\profile"
+    )
+    page = _FakeMediaPage(RuntimeError(secret))
+    try:
+        asyncio.run(
+            wait_for_configured_media_devices(
+                page, _media_config(), timeout_seconds=0.02, poll_interval_ms=1
+            )
+        )
+    except MediaDeviceReadinessError as exc:
+        assert exc.reason == "playwright_exception"
+        assert exc.exception_class == "RuntimeError"
+        encoded = str(exc)
+    else:
+        raise AssertionError("Playwright exception did not fail closed")
+    for sentinel in (
+        "127.0.0.1",
+        "Cookie",
+        "artifact-seed",
+        "lease",
+        "credential",
+        r"C:\Users",
+    ):
+        assert sentinel not in encoded
+
+
+def test_media_readiness_optional_evidence_is_not_a_launch_barrier() -> None:
+    async def run_case(reason: str) -> None:
+        page = _FakeMediaPage(
+            _media_rpc_result(reason),
+            {"continued": True},
+        )
+        result = await wait_for_configured_media_devices(
+            page, _media_config(), timeout_seconds=0.02, poll_interval_ms=1
+        )
+        assert result["reason"] == reason
+        assert result["matched"] is False
+        assert await page.evaluate("continued", {}) == {"continued": True}
+
+    for reason in ("enumerate_timeout", "unavailable"):
+        asyncio.run(run_case(reason))
+
+
 def test_fp1_launch_stage_diagnostics_are_bounded_and_secret_free() -> None:
     import host_v1
 
@@ -412,6 +648,38 @@ def test_fp1_launch_stage_diagnostics_are_bounded_and_secret_free() -> None:
     for stage in host_v1.FP1_LAUNCH_STAGES:
         events = [item["event"] for item in decoded if item["stage"] == stage]
         assert events == ["start", "success"], stage
+
+    def emit_media_terminal(recorder: object, reason: str) -> None:
+        try:
+            with recorder.stage("observed.media") as stage:
+                stage.set_terminal_reason(reason)
+                if reason == "readiness_timeout":
+                    raise MediaDeviceReadinessTimeout(reason)
+                if reason == "playwright_exception":
+                    raise MediaDeviceReadinessError("RuntimeError")
+        except (MediaDeviceReadinessTimeout, MediaDeviceReadinessError):
+            pass
+
+    expected_terminal_events = {
+        "success": "success",
+        "enumerate_timeout": "success",
+        "readiness_timeout": "timeout",
+        "count_mismatch": "success",
+        "playwright_exception": "error",
+        "unavailable": "success",
+    }
+    for reason in sorted(MEDIA_READINESS_REASONS):
+        reason_lines: list[str] = []
+        with mock.patch.object(host_v1, "_log", side_effect=reason_lines.append):
+            emit_media_terminal(host_v1._LaunchStageRecorder(), reason)
+        reason_events = [
+            json.loads(line.split(" ", 1)[1]) for line in reason_lines
+        ]
+        assert [item["event"] for item in reason_events] == [
+            "start",
+            expected_terminal_events[reason],
+        ]
+        assert reason_events[-1]["reason"] == reason
 
     async def timeout_case() -> None:
         timeout_recorder = host_v1._LaunchStageRecorder()
@@ -513,20 +781,28 @@ def test_fp1_launch_stage_diagnostics_are_bounded_and_secret_free() -> None:
     with mock.patch.object(host_v1, "_STDERR_FD", stderr_write), mock.patch.object(
         host_v1, "_LOG_FILE", sink
     ):
-        with host_v1._LaunchStageRecorder().stage("goto"):
-            pass
+        for reason in sorted(MEDIA_READINESS_REASONS):
+            emit_media_terminal(host_v1._LaunchStageRecorder(), reason)
     os.close(stderr_write)
     stderr_lines = os.read(stderr_read, 4096).decode("utf-8").splitlines()
     os.close(stderr_read)
-    assert len(stderr_lines) == 2
-    assert sink.writes == 2
-    assert sink.flushes == 2
+    expected_lines = len(MEDIA_READINESS_REASONS) * 2
+    assert len(stderr_lines) == expected_lines
+    assert sink.writes == expected_lines
+    assert sink.flushes == expected_lines
 
 
 def test_fp1_fake_stage_timeout_crosses_protocol_and_fail_closed_cleanup() -> None:
     import host_v1
 
-    async def run_case(root: Path) -> tuple[bytes, list[str], dict, dict]:
+    secret = (
+        "https://127.0.0.1/probe Cookie=secret artifact-seed token=lease "
+        r"proxy=credential C:\Users\qiu\profile"
+    )
+
+    async def run_case(
+        root: Path, case: str
+    ) -> tuple[bytes, list[str], dict, dict]:
         artifact_root = root / "artifacts"
         profile_root = root / "profiles"
         state_root = root / "state"
@@ -548,11 +824,40 @@ def test_fp1_fake_stage_timeout_crosses_protocol_and_fail_closed_cleanup() -> No
         host.executable = root / "browser" / "camoufox.exe"
         host.session = None
 
-        async def fake_launch(session: dict, _artifact: dict) -> None:
-            session["expectedJobName"] = "Local\\VeriSiloCamoufox-fp1-timeout"
+        class NeverMediaPage:
+            async def evaluate(self, _script: str, _argument: dict) -> None:
+                await asyncio.Event().wait()
+
+        async def never_ready(_seconds: float) -> None:
+            await asyncio.Event().wait()
+
+        helper_kwargs: dict = {"timeout_seconds": 0.02, "poll_interval_ms": 1}
+        if case == "enumerate_timeout":
+            page: object = NeverMediaPage()
+            helper_kwargs["timeout_seconds"] = 0.01
+        elif case == "readiness_timeout":
+            page = _FakeMediaPage(
+                _media_rpc_result("success", ("audioinput",))
+            )
+            helper_kwargs["readiness_wait"] = never_ready
+        elif case == "playwright_exception":
+            page = _FakeMediaPage(RuntimeError(secret))
+        else:
+            raise AssertionError(f"unsupported hard media case: {case}")
+
+        async def fake_launch(session: dict, launch_artifact: dict) -> None:
+            session["expectedJobName"] = f"Local\\VeriSiloCamoufox-fp1-{case}"
             session["launchAttempted"] = True
-            with host_v1._active_launch_stage("new_page"):
-                await asyncio.wait_for(asyncio.Event().wait(), timeout=0.001)
+            with host_v1._active_launch_stage("observed.media") as media_stage:
+                try:
+                    await wait_for_configured_media_devices(
+                        page,
+                        _media_config(),
+                        **helper_kwargs,
+                    )
+                except (MediaDeviceReadinessTimeout, MediaDeviceReadinessError) as exc:
+                    media_stage.set_terminal_reason(exc.reason)
+                    raise
 
         host._launch_browser = fake_launch
         cleanup_observed: dict = {}
@@ -583,12 +888,13 @@ def test_fp1_fake_stage_timeout_crosses_protocol_and_fail_closed_cleanup() -> No
         read_fd, write_fd = os.pipe()
         original_protocol_fd = host_v1._PROTOCOL_FD
         log_lines: list[str] = []
+        profile_id = f"fp1-{case.replace('_', '-')}"
         request = {
-            "id": "fp1-timeout",
+            "id": profile_id,
             "command": "launch",
             "params": {
                 "artifactId": "identity-win-a",
-                "profileId": "fp1-timeout",
+                "profileId": profile_id,
                 "expectedArtifactFileSha256": expected_sha,
             },
         }
@@ -623,47 +929,78 @@ def test_fp1_fake_stage_timeout_crosses_protocol_and_fail_closed_cleanup() -> No
         os.close(read_fd)
         return protocol, log_lines, cleanup_observed, host.session
 
-    with tempfile.TemporaryDirectory(prefix="verisilo-fp1-stage-chain-") as tmp:
-        root = Path(tmp)
-        protocol, log_lines, cleanup, session = asyncio.run(run_case(root))
-        frames = protocol.decode("utf-8").splitlines()
-        assert len(frames) == 1
-        response = json.loads(frames[0])
-        assert response["id"] == "fp1-timeout"
-        assert response["ok"] is False
-        assert response["error"]["code"] == "launch_failed"
-        assert session["state"] == "failed"
-        assert session["processTreeExit"]["exited"] is True
-        assert cleanup == {
-            "timeout": 6,
-            "launchAttempted": True,
-            "expectedJobName": "Local\\VeriSiloCamoufox-fp1-timeout",
-            "profileLockHeld": True,
-        }
+    expected = {
+        "enumerate_timeout": ("timeout", "MediaDeviceReadinessTimeout"),
+        "readiness_timeout": ("timeout", "MediaDeviceReadinessTimeout"),
+        "playwright_exception": ("error", "MediaDeviceReadinessError"),
+    }
+    for case, (terminal_event, exception_class) in expected.items():
+        with tempfile.TemporaryDirectory(
+            prefix=f"verisilo-fp1-stage-{case}-"
+        ) as tmp:
+            root = Path(tmp)
+            protocol, log_lines, cleanup, session = asyncio.run(
+                run_case(root, case)
+            )
+            frames = protocol.decode("utf-8").splitlines()
+            assert len(frames) == 1
+            response = json.loads(frames[0])
+            profile_id = f"fp1-{case.replace('_', '-')}"
+            assert response["id"] == profile_id, response
+            assert response["ok"] is False
+            assert response["error"]["code"] == "launch_failed"
+            assert session["state"] == "failed"
+            assert session["processTreeExit"]["exited"] is True
+            assert cleanup == {
+                "timeout": 6,
+                "launchAttempted": True,
+                "expectedJobName": f"Local\\VeriSiloCamoufox-fp1-{case}",
+                "profileLockHeld": True,
+            }
 
-        stage_events = [
-            json.loads(line.split(" ", 1)[1])
-            for line in log_lines
-            if line.startswith("stage-diagnostic ")
-        ]
-        new_page_events = [
-            event["event"]
-            for event in stage_events
-            if event["stage"] == "new_page"
-        ]
-        response_events = [
-            event["event"]
-            for event in stage_events
-            if event["stage"] == "response_write"
-        ]
-        assert new_page_events == ["start", "timeout"]
-        assert response_events == ["start", "success"]
+            stage_events = [
+                json.loads(line.split(" ", 1)[1])
+                for line in log_lines
+                if line.startswith("stage-diagnostic ")
+            ]
+            media_events = [
+                event
+                for event in stage_events
+                if event["stage"] == "observed.media"
+            ]
+            response_events = [
+                event["event"]
+                for event in stage_events
+                if event["stage"] == "response_write"
+            ]
+            assert [event["event"] for event in media_events] == [
+                "start",
+                terminal_event,
+            ]
+            assert media_events[-1]["reason"] == case
+            assert media_events[-1]["exceptionClass"] == exception_class
+            assert response_events == ["start", "success"]
 
-        lock_path = root / "profiles" / "fp1-timeout.lock"
-        reacquired = host_v1.ProfileLock.acquire(lock_path)
-        reacquired.release()
-        if os.name == "nt":
-            assert host_v1.probe_supervisor_lock(lock_path) is True
+            lock_path = root / "profiles" / f"{profile_id}.lock"
+            reacquired = host_v1.ProfileLock.acquire(lock_path)
+            reacquired.release()
+            if os.name == "nt":
+                assert host_v1.probe_supervisor_lock(lock_path) is True
+
+            combined = (
+                protocol.decode("utf-8", errors="replace")
+                + "\n".join(log_lines)
+                + str(session.get("failure"))
+            )
+            for sentinel in (
+                "127.0.0.1",
+                "Cookie",
+                "artifact-seed",
+                "token=lease",
+                "credential",
+                r"C:\Users",
+            ):
+                assert sentinel not in combined
 
 
 def test_windows_launch_attempt_uses_expected_job_for_fail_closed_cleanup() -> None:
