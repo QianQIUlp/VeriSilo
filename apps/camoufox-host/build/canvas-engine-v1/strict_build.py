@@ -431,9 +431,11 @@ def upstream_patch_surface(lock: dict, upstream: Path) -> tuple[list[str], int, 
     expected_keys = {
         "command",
         "createdPathCount",
+        "debrisBaselineCanonicalization",
         "headerPairCount",
         "pathListCanonicalization",
         "postPatchSurface",
+        "prePatchDebrisBaseline",
         "prePatchSurface",
         "programVersion",
         "surfaceCanonicalization",
@@ -456,6 +458,12 @@ def upstream_patch_surface(lock: dict, upstream: Path) -> tuple[list[str], int, 
         "mtime excluded"
     ):
         raise BuildFailure("upstream patch surface canonicalization is not exact")
+    if application.get("debrisBaselineCanonicalization") != (
+        "ordinal-sorted relative POSIX paths; orig path list is UTF-8 with each "
+        "path LF-terminated; canonical orig state is a compact sorted-key UTF-8 "
+        "JSON array with path,sha256,size; mode and mtime excluded"
+    ):
+        raise BuildFailure("upstream patch debris canonicalization is not exact")
 
     paths: set[str] = set()
     created_paths: set[str] = set()
@@ -798,14 +806,65 @@ def export_upstream(workspace: Path, log: BuildLog) -> Path:
     return upstream
 
 
-def _reject_patch_debris(source: Path) -> None:
-    debris = sorted(
-        path.relative_to(source).as_posix()
-        for suffix in ("*.rej", "*.orig")
-        for path in source.rglob(suffix)
+def patch_debris_state(source: Path) -> dict:
+    orig_files: list[dict] = []
+    reject_paths: list[str] = []
+    for path in source.rglob("*.orig"):
+        metadata = path.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise BuildFailure("patch backup baseline contains a non-regular file")
+        data = path.read_bytes()
+        orig_files.append(
+            {
+                "path": path.relative_to(source).as_posix(),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "size": len(data),
+            }
+        )
+    for path in source.rglob("*.rej"):
+        metadata = path.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise BuildFailure("patch reject state contains a non-regular file")
+        reject_paths.append(path.relative_to(source).as_posix())
+    orig_files.sort(key=lambda row: row["path"])
+    reject_paths.sort()
+    return {"origFiles": orig_files, "rejectPaths": reject_paths}
+
+
+def patch_debris_summary(state: dict) -> dict:
+    orig_files = state["origFiles"]
+    reject_paths = state["rejectPaths"]
+    path_bytes = "".join(f"{row['path']}\n" for row in orig_files).encode("utf-8")
+    canonical = json.dumps(
+        orig_files, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return {
+        "canonicalOrigSha256": hashlib.sha256(canonical).hexdigest(),
+        "origCount": len(orig_files),
+        "origPathListSha256": hashlib.sha256(path_bytes).hexdigest(),
+        "rejectCount": len(reject_paths),
+        "totalOrigBytes": sum(row["size"] for row in orig_files),
+    }
+
+
+def capture_patch_debris_baseline(lock: dict, source: Path) -> dict:
+    state = patch_debris_state(source)
+    if state["rejectPaths"]:
+        raise BuildFailure("pre-patch source contains reject files")
+    expected = lock["sourceInputs"]["upstreamPatchApplication"].get(
+        "prePatchDebrisBaseline"
     )
-    if debris:
-        raise BuildFailure("patch application left reject/backup files")
+    if type(expected) is not dict or patch_debris_summary(state) != expected:
+        raise BuildFailure("pre-patch backup baseline differs from the source lock")
+    return state
+
+
+def verify_patch_debris_unchanged(source: Path, baseline: dict) -> None:
+    current = patch_debris_state(source)
+    if current["rejectPaths"]:
+        raise BuildFailure("patch application left reject files")
+    if current["origFiles"] != baseline["origFiles"]:
+        raise BuildFailure("patch application changed the exact backup baseline")
 
 
 def _verify_seams(lock: dict, source: Path, field: str) -> None:
@@ -1006,7 +1065,10 @@ def execute(args: argparse.Namespace) -> dict:
         verify_patch_surface(
             lock, source, patch_surface_paths, "prePatchSurface"
         )
-        log.note("upstream patch program and pre-patch surface verified")
+        patch_debris_baseline = capture_patch_debris_baseline(lock, source)
+        log.note(
+            "upstream patch program, pre-patch surface and debris baseline verified"
+        )
 
         patch_paths = lock["sourceInputs"]["upstreamPatches"]
         for index, item in enumerate(patch_paths, start=1):
@@ -1016,7 +1078,7 @@ def execute(args: argparse.Namespace) -> dict:
                 env=environment,
                 label=f"upstream-patch-{index:02d}",
             )
-            _reject_patch_debris(source)
+            verify_patch_debris_unchanged(source, patch_debris_baseline)
         verify_patch_surface(
             lock, source, patch_surface_paths, "postPatchSurface"
         )
@@ -1031,7 +1093,7 @@ def execute(args: argparse.Namespace) -> dict:
             env=environment,
             label="verisilo-canvas-patch",
         )
-        _reject_patch_debris(source)
+        verify_patch_debris_unchanged(source, patch_debris_baseline)
         _verify_seams(lock, source, "postDownstreamPatchSha256")
         (source / "_READY").touch()
         log.note("VeriSilo Canvas patch and seam postimages verified")

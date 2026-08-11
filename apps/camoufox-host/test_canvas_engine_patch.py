@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 from unittest import SkipTest
@@ -52,38 +53,6 @@ BASE_AMD64_MANIFEST_DIGEST = (
     "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467"
 )
 PREVIOUS_BUILDER_IMAGE_BINDING = {
-    "baseIndexDigest": BASE_INDEX_DIGEST,
-    "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
-    "buildxLogSha256": (
-        "85d27fa8166f744bfd47f1a2b78cd10447c6fca648e965a307f63b1f81371fbe"
-    ),
-    "buildxLogSizeBytes": 77446,
-    "buildxMetadataSha256": (
-        "e1ec869f7d7dc7d1d254fd626bffe31e267a00d5d6104034b5d98b839fe17744"
-    ),
-    "dockerfileSha256": (
-        "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43"
-    ),
-    "hostToolingSha256": (
-        "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
-    ),
-    "imageId": (
-        "sha256:6e66a3bc3443fcf0880f402c01f15a0b4d903f4ffb454c693b3a5a5dc86ffb0e"
-    ),
-    "imageInspectSha256": (
-        "960548242139490dc8935bb0dab34b3debe7459331d163db778db2799875dfcc"
-    ),
-    "recipeSourceCommit": "25e5c00e5d77ffe6348b21437aca080624a52f27",
-    "recipeSourceLockSha256": (
-        "28116c58ad91e84cf51f6fb502b2fb16231eed9b1ce5b1f0a86d50a7fba61718"
-    ),
-    "recipeSourceTree": "72c98daadb1bb028fde36aa0d7e184c0538adf3c",
-    "savedArchiveSha256": (
-        "571b0393b649f2d9f824895481ade486d73bd4fea30ae71f07be0347d6573cc1"
-    ),
-    "savedArchiveSizeBytes": 479035392,
-}
-EXPECTED_BUILDER_IMAGE_BINDING = {
     "baseIndexDigest": BASE_INDEX_DIGEST,
     "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
     "buildxLogSha256": (
@@ -222,7 +191,7 @@ def test_source_lock_contract() -> None:
     assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
     assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
     assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
-    assert build["builderImageBinding"] == EXPECTED_BUILDER_IMAGE_BINDING
+    assert build["builderImageBinding"] is None
     assert set(build["builderImageBindingRequiredFields"]) == {
         "imageId",
         "savedArchiveSha256",
@@ -1056,6 +1025,23 @@ def test_upstream_patch_application_contract_and_commands() -> None:
             "contain path,sha256,size,type=file; absent rows contain "
             "path,type=absent; mode and mtime excluded"
         ),
+        "debrisBaselineCanonicalization": (
+            "ordinal-sorted relative POSIX paths; orig path list is UTF-8 with "
+            "each path LF-terminated; canonical orig state is a compact "
+            "sorted-key UTF-8 JSON array with path,sha256,size; mode and mtime "
+            "excluded"
+        ),
+        "prePatchDebrisBaseline": {
+            "canonicalOrigSha256": (
+                "ae23e8cf45f40bceed7292ab20965d399be12dc21323b94bd3a7c2c0f3b14da7"
+            ),
+            "origCount": 548,
+            "origPathListSha256": (
+                "5257c70c7d8d471eafbf33862e894324831bfd2a5c78d2f1ef08e7201280360f"
+            ),
+            "rejectCount": 0,
+            "totalOrigBytes": 714909,
+        },
         "prePatchSurface": {
             "absentCount": 19,
             "canonicalSurfaceSha256": (
@@ -1098,12 +1084,19 @@ def test_patch_surface_parser_and_state_are_fail_closed() -> None:
                 "upstreamPatchApplication": {
                     "command": list(driver.EXPECTED_UPSTREAM_PATCH_COMMAND),
                     "createdPathCount": 1,
+                    "debrisBaselineCanonicalization": (
+                        "ordinal-sorted relative POSIX paths; orig path list is "
+                        "UTF-8 with each path LF-terminated; canonical orig state "
+                        "is a compact sorted-key UTF-8 JSON array with "
+                        "path,sha256,size; mode and mtime excluded"
+                    ),
                     "headerPairCount": 2,
                     "pathListCanonicalization": (
                         "ordinal-sorted safe relative POSIX paths, UTF-8, each "
                         "LF-terminated"
                     ),
                     "postPatchSurface": {},
+                    "prePatchDebrisBaseline": {},
                     "prePatchSurface": {},
                     "programVersion": driver.EXPECTED_UPSTREAM_PATCH_PROGRAM,
                     "surfaceCanonicalization": (
@@ -1180,6 +1173,67 @@ new file mode 100644
                 raise AssertionError(f"malformed upstream patch was accepted: {name}")
 
 
+def test_patch_debris_baseline_is_exact_and_fail_closed() -> None:
+    driver = _load_python_file("canvas_engine_patch_debris", STRICT_BUILD_PATH)
+
+    def expect_failure(action, message: str) -> None:
+        try:
+            action()
+        except driver.BuildFailure:
+            pass
+        else:
+            raise AssertionError(message)
+
+    with tempfile.TemporaryDirectory() as temporary:
+        source = Path(temporary)
+        legal_orig = source / "third_party" / "rust" / "crate" / "Cargo.toml.orig"
+        legal_orig.parent.mkdir(parents=True)
+        legal_orig.write_bytes(b"legal vendored manifest\n")
+        expected = driver.patch_debris_summary(driver.patch_debris_state(source))
+        lock = {
+            "sourceInputs": {
+                "upstreamPatchApplication": {
+                    "prePatchDebrisBaseline": expected,
+                }
+            }
+        }
+        baseline = driver.capture_patch_debris_baseline(lock, source)
+        driver.verify_patch_debris_unchanged(source, baseline)
+
+        added_orig = source / "new-backup.orig"
+        added_orig.write_bytes(b"unexpected backup\n")
+        expect_failure(
+            lambda: driver.verify_patch_debris_unchanged(source, baseline),
+            "a new patch backup was accepted",
+        )
+        added_orig.unlink()
+
+        legal_orig.write_bytes(b"modified baseline\n")
+        expect_failure(
+            lambda: driver.verify_patch_debris_unchanged(source, baseline),
+            "a modified legal patch backup was accepted",
+        )
+        legal_orig.write_bytes(b"legal vendored manifest\n")
+
+        legal_orig.unlink()
+        expect_failure(
+            lambda: driver.verify_patch_debris_unchanged(source, baseline),
+            "a deleted legal patch backup was accepted",
+        )
+        legal_orig.write_bytes(b"legal vendored manifest\n")
+
+        reject = source / "failed.cpp.rej"
+        reject.write_bytes(b"rejected hunk\n")
+        expect_failure(
+            lambda: driver.verify_patch_debris_unchanged(source, baseline),
+            "a new patch reject was accepted",
+        )
+        expect_failure(
+            lambda: driver.capture_patch_debris_baseline(lock, source),
+            "a pre-patch reject was accepted into the legal baseline",
+        )
+
+
 def test_patch_program_version_is_fail_closed() -> None:
     driver = _load_python_file("canvas_engine_patch_program", STRICT_BUILD_PATH)
     completed = subprocess.CompletedProcess(
@@ -1221,6 +1275,37 @@ def test_exact_firefox_source_archive() -> None:
     assert FIREFOX_SOURCE_ARCHIVE.is_file()
     assert FIREFOX_SOURCE_ARCHIVE.stat().st_size == source["sizeBytes"]
     assert _sha512(FIREFOX_SOURCE_ARCHIVE) == source["sha512"]
+
+    driver = _load_python_file("canvas_engine_archive_debris", STRICT_BUILD_PATH)
+    orig_files: list[dict] = []
+    reject_paths: list[str] = []
+    with tarfile.open(FIREFOX_SOURCE_ARCHIVE, "r:xz") as bundle:
+        for member in bundle:
+            if not (member.name.endswith(".orig") or member.name.endswith(".rej")):
+                continue
+            assert member.isfile(), member.name
+            prefix, separator, relative = member.name.partition("/")
+            assert prefix == "firefox-152.0.4" and separator and relative
+            if relative.endswith(".rej"):
+                reject_paths.append(relative)
+                continue
+            stream = bundle.extractfile(member)
+            assert stream is not None
+            data = stream.read()
+            orig_files.append(
+                {
+                    "path": relative,
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "size": len(data),
+                }
+            )
+    orig_files.sort(key=lambda row: row["path"])
+    reject_paths.sort()
+    archive_debris = {"origFiles": orig_files, "rejectPaths": reject_paths}
+    expected = _load_lock()["sourceInputs"]["upstreamPatchApplication"][
+        "prePatchDebrisBaseline"
+    ]
+    assert driver.patch_debris_summary(archive_debris) == expected
 
 
 def test_exact_upstream_checkout_inputs() -> None:

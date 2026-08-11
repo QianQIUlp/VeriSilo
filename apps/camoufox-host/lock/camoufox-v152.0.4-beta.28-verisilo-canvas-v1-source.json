@@ -72,6 +72,14 @@
       "pathListCanonicalization": "ordinal-sorted safe relative POSIX paths, UTF-8, each LF-terminated",
       "surfacePathListSha256": "6c4dd3fa1e6431773aaa4aa37173052761b43025df966a7438a4d34facde8ae6",
       "surfaceCanonicalization": "same path order; compact sorted-key UTF-8 JSON array; file rows contain path,sha256,size,type=file; absent rows contain path,type=absent; mode and mtime excluded",
+      "debrisBaselineCanonicalization": "ordinal-sorted relative POSIX paths; orig path list is UTF-8 with each path LF-terminated; canonical orig state is a compact sorted-key UTF-8 JSON array with path,sha256,size; mode and mtime excluded",
+      "prePatchDebrisBaseline": {
+        "canonicalOrigSha256": "ae23e8cf45f40bceed7292ab20965d399be12dc21323b94bd3a7c2c0f3b14da7",
+        "origCount": 548,
+        "origPathListSha256": "5257c70c7d8d471eafbf33862e894324831bfd2a5c78d2f1ef08e7201280360f",
+        "rejectCount": 0,
+        "totalOrigBytes": 714909
+      },
       "prePatchSurface": {
         "absentCount": 19,
         "canonicalSurfaceSha256": "1a6f9fb5fc08efab2814d8cfbaa306d1202b82b044a2b743de3af95068089408",
@@ -482,8 +490,8 @@
         },
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/strict_build.py",
-          "sha256": "a8f626d64c498b7aac87e74a85e5e31402e10538323949fdeffb8b45a9240444",
-          "sizeBytes": 44243
+          "sha256": "9997ed1ce666605a72985a9b19ae2dbc5455b8eb644713734326ed211554e566",
+          "sizeBytes": 47048
         },
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/build_host.py",
@@ -552,22 +560,7 @@
       "imageInspectSha256",
       "hostToolingSha256"
     ],
-    "builderImageBinding": {
-      "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
-      "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
-      "buildxLogSha256": "8dc2c50cb39fc01c55b201677c62220d1ce5bc57421758bfb499e0df8a73acda",
-      "buildxLogSizeBytes": 77778,
-      "buildxMetadataSha256": "147ec6dcc7a94c6594083383ef93d697bc9e40f95746578ddda14bcfaa7a8395",
-      "dockerfileSha256": "4f37cec6a6bce33f44ba3e5caaf2ae4fd2c08394c1e433d1d565523a125d9f43",
-      "hostToolingSha256": "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b",
-      "imageId": "sha256:bf93fbf90499f32ff31be18cabe89fee85a342c752f972a72f51384182489e10",
-      "imageInspectSha256": "8bb317d396f3990ca111a7c410c6bb63e85f8cfe53da27c560c8db4470b7f81b",
-      "recipeSourceCommit": "72ba3d30b2cdbb8a11197c6b7d7ba7eeca96e623",
-      "recipeSourceLockSha256": "904ac16a47ec2800f05d9ac45736d4c58a38aaf4cdff4751187ae696951d0e95",
-      "recipeSourceTree": "ce8a6f329b70f5e25152a2cacd4c9bdce064627e",
-      "savedArchiveSha256": "2548a057a4134e2d16bf77421c86bcb766f32923971a7b2a74f04c4936e19e24",
-      "savedArchiveSizeBytes": 479035392
-    },
+    "builderImageBinding": null,
     "status": "not-built",
     "binaryBinding": null,
     "requiredBeforeRuntime": [
