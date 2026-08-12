@@ -490,20 +490,6 @@ async function scan(): Promise<void> {
   try {
     const startedAt = Date.now();
     const response = await sendMessage({ type: "scan_current_tab" });
-    if (response.started !== true) {
-      if (response.accessRequired !== true) {
-        throw new Error("扩展没有返回可识别的扫描状态。");
-      }
-      showNotice(
-        "success",
-        response.temporaryAccess === true
-          ? "浏览器显示当前标签页已有一次性访问权限，请再次点击扫描。"
-          : response.requested === true
-            ? "已为当前标签页发起站点访问请求。请批准浏览器工具栏或地址栏中的访问提示，然后再次点击扫描；批准后该站点权限会保留，随时可用下方按钮撤销。"
-            : "当前页面仍需站点访问权限；VeriSilo 没有注入或扫描页面。",
-      );
-      return;
-    }
     const report = await waitForCompletedReport(
       startedAt,
       typeof response.origin === "string" ? response.origin : null,
@@ -518,7 +504,7 @@ async function scan(): Promise<void> {
       "success",
       response.mainWorldInjected === false
         ? "基础扫描已完成。页面主环境观察不可用，结论已明确标注覆盖边界。"
-        : "扫描已完成，结果已整理为浏览器信号观测。",
+        : "扫描已完成，结果已整理为身份结论。",
     );
   } catch (error) {
     showNotice("error", message(error));

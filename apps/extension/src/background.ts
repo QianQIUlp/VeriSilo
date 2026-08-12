@@ -30,7 +30,6 @@ import {
   SAVED_REPORT_TTL_MS,
   shouldPersistSavedReport,
 } from "./saved-report-history.js";
-import { requestSiteAccessForTab } from "./site-access.js";
 import {
   clearLabsReceipts,
   enableDedicatedWorkerExperiment,
@@ -194,11 +193,9 @@ async function scanCurrentTab(): Promise<Record<string, unknown>> {
     throw new Error("No active browser tab is available.");
   }
   if (tab.url === undefined) {
-    return {
-      started: false,
-      accessRequired: true,
-      ...(await requestSiteAccessForTab(tab)),
-    };
+    throw new Error(
+      "尚未获得当前页面的一次性访问权限。请关闭侧栏，在目标网页点击 VeriSilo 工具栏图标打开侧栏后再扫描。",
+    );
   }
   if (!/^https?:/u.test(tab.url)) {
     throw new Error("VeriSilo 只扫描普通 HTTP(S) 页面。");
@@ -214,17 +211,8 @@ async function scanCurrentTab(): Promise<Record<string, unknown>> {
       injectImmediately: true,
     });
   } catch {
-    try {
-      const access = await requestSiteAccessForTab(tab);
-      if (!access.alreadyGranted) {
-        return { started: false, accessRequired: true, ...access };
-      }
-    } catch {
-      // Fall through to the bounded unsupported-page guidance below. A
-      // browser-owned permission request is never treated as a successful scan.
-    }
     throw new Error(
-      "无法访问当前页面。浏览器内部页面、扩展商店页面和 PDF 不支持扫描。",
+      "无法访问当前页面。请在普通 HTTP(S) 页面点击 VeriSilo 工具栏图标后重新扫描；浏览器内部页面、商店页面和 PDF 不支持扫描。",
     );
   }
 
@@ -247,7 +235,56 @@ async function scanCurrentTab(): Promise<Record<string, unknown>> {
 
 async function requestCurrentSiteAccess(): Promise<Record<string, unknown>> {
   const tab = await activeTab();
-  return { ...(await requestSiteAccessForTab(tab)) };
+  if (tab.id === undefined) {
+    throw new Error("No active browser tab is available.");
+  }
+  if (tab.url !== undefined && !/^https?:/u.test(tab.url)) {
+    throw new Error("只能为普通 HTTP(S) 页面请求站点访问权限。");
+  }
+
+  if (tab.url !== undefined) {
+    const originPattern = `${new URL(tab.url).origin}/*`;
+    if (
+      await chrome.permissions.contains({
+        origins: [originPattern],
+      })
+    ) {
+      return { requested: false, alreadyGranted: true };
+    }
+  }
+
+  type HostAccessRequestApi = typeof chrome.permissions & {
+    addHostAccessRequest?: (request: { tabId: number }) => Promise<void>;
+  };
+  const permissions = chrome.permissions as HostAccessRequestApi;
+  if (permissions.addHostAccessRequest === undefined) {
+    throw new Error(
+      "此浏览器版本不支持逐站点访问请求。请从目标网页点击 VeriSilo 工具栏图标，以授予本页一次性扫描访问权限。",
+    );
+  }
+
+  try {
+    await permissions.addHostAccessRequest({ tabId: tab.id });
+    return { requested: true, alreadyGranted: false };
+  } catch (error) {
+    if (
+      /already has access|已有.*访问|已经.*访问/iu.test(errorMessage(error))
+    ) {
+      const originPattern =
+        tab.url !== undefined && /^https?:/u.test(tab.url)
+          ? `${new URL(tab.url).origin}/*`
+          : null;
+      const alreadyGranted =
+        originPattern !== null &&
+        (await chrome.permissions.contains({ origins: [originPattern] }));
+      return {
+        requested: false,
+        alreadyGranted,
+        temporaryAccess: !alreadyGranted,
+      };
+    }
+    throw error;
+  }
 }
 
 async function revokeCurrentSiteAccess(): Promise<Record<string, unknown>> {

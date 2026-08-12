@@ -78,9 +78,6 @@ for (const requiredGuidance of [
   "每个 Standard Silo 使用独立 user-data-dir",
   "设备与浏览器指纹继续跟随本机",
   "不宣称指纹控制或 verified 身份",
-  "点击扫描会自动发起当前标签页的",
-  "浏览器会保留获批的当前站点权限",
-  "扩展不会静默获得访问权",
 ]) {
   if (!sidepanelHtml.includes(requiredGuidance)) {
     throw new Error(`Extension Labs guidance is missing: ${requiredGuidance}`);
@@ -92,7 +89,6 @@ for (const staleLabel of [
   "看懂并隔离你的浏览器身份",
   "桌面端 · 专用引擎",
   "桌面端 · 虚拟/远程环境",
-  "请关闭侧栏，在目标网页点击 VeriSilo 工具栏图标",
 ]) {
   if (sidepanelHtml.includes(staleLabel)) {
     throw new Error(
