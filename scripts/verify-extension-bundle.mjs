@@ -78,10 +78,8 @@ for (const requiredGuidance of [
   "每个 Standard Silo 使用独立 user-data-dir",
   "设备与浏览器指纹继续跟随本机",
   "不宣称指纹控制或 verified 身份",
-  "Edge 不会为扫描按钮",
-  "点击该图标",
-  "侧栏无需关闭",
-  "跨站导航或关闭标签页后该权限自动失效",
+  "点击扫描会自动发起当前标签页的",
+  "浏览器会保留获批的当前站点权限",
   "扩展不会静默获得访问权",
 ]) {
   if (!sidepanelHtml.includes(requiredGuidance)) {
@@ -95,7 +93,6 @@ for (const staleLabel of [
   "桌面端 · 专用引擎",
   "桌面端 · 虚拟/远程环境",
   "请关闭侧栏，在目标网页点击 VeriSilo 工具栏图标",
-  "请批准浏览器工具栏或地址栏中的访问提示",
 ]) {
   if (sidepanelHtml.includes(staleLabel)) {
     throw new Error(
