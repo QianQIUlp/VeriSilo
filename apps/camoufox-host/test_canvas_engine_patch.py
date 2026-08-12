@@ -158,7 +158,7 @@ UPSTREAM_REPO: Path | None = None
 FIREFOX_SOURCE_ARCHIVE: Path | None = None
 PREIMAGE_SOURCE_TREE: Path | None = None
 PATCHED_SOURCE_TREE: Path | None = None
-EXACT_FIREFOX_MIDL_PREIMAGE: bytes | None = None
+EXACT_FIREFOX_COMPATIBILITY_PREIMAGES: dict[str, bytes] = {}
 
 
 def _load_lock() -> dict:
@@ -665,40 +665,7 @@ def test_candidate_zip_requires_exact_bound_crt() -> None:
         )
 
 
-def test_midl_compatibility_patch_is_narrow_and_independently_bound() -> None:
-    patch = MIDL_COMPAT_PATCH_PATH.read_text(encoding="utf-8")
-    assert re.findall(r"^diff --git a/(\S+) b/(\S+)$", patch, re.MULTILINE) == [
-        ("build/midl.py", "build/midl.py")
-    ]
-    deleted = [
-        line
-        for line in patch.splitlines()
-        if line.startswith("-") and not line.startswith("---")
-    ]
-    added = [
-        line
-        for line in patch.splitlines()
-        if line.startswith("+") and not line.startswith("+++")
-    ]
-    assert deleted == ["-        command = preprocessor + [input]"]
-    assert added == ["+        command = preprocessor + [relativize(input)]"]
-
-    seams = _load_lock()["midlCompatibilitySeamFiles"]
-    assert seams == [
-        {
-            "path": "build/midl.py",
-            "postUpstreamPatchSha256": (
-                "411d59bd795d2517367fdec4c26921c1d257415e71f10d98f10046752c23f248"
-            ),
-            "postCompatibilityPatchSha256": (
-                "c4091b253f215a08cd229a2bbefba1875ec1c68e02b2970978aeee53f6789b14"
-            ),
-        }
-    ]
-
-
-def test_midl_compatibility_patch_relativizes_only_the_subprocess_input() -> None:
-    fixture = """\
+SYNTHETIC_MIDL_PREIMAGE = """\
 import os
 import subprocess
 
@@ -723,27 +690,113 @@ def preprocess(base, input, flags):
         # Read the resulting file, and search for imports, that we'll want to
         return command
 """
+
+SYNTHETIC_RULES_PREIMAGE = """\
+$(COBJS):
+	$(REPORT_BUILD_VERBOSE)
+	$(call BUILDSTATUS,OBJECT_FILE $@)
+	$(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) $($(notdir $<)_FLAGS) $<
+	$(call BUILDSTATUS,END_Object $@)
+
+$(CWASMOBJS):
+	$(WASM_CC) -o $@ -c $(WASM_CFLAGS) $($(notdir $<)_FLAGS) $<
+
+$(CPPOBJS):
+	$(REPORT_BUILD_VERBOSE)
+	$(call BUILDSTATUS,OBJECT_FILE $@)
+	$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) $($(notdir $<)_FLAGS) $<
+	$(call BUILDSTATUS,END_Object $@)
+
+$(CPPWASMOBJS):
+	$(WASM_CXX) -o $@ -c $(WASM_CXXFLAGS) $($(notdir $<)_FLAGS) $<
+"""
+
+
+def _apply_compatibility_patch_to_synthetic_tree(root: Path) -> tuple[Path, Path]:
+    midl = root / "build" / "midl.py"
+    rules = root / "config" / "rules.mk"
+    midl.parent.mkdir(parents=True)
+    rules.parent.mkdir(parents=True)
+    midl.write_text(SYNTHETIC_MIDL_PREIMAGE, encoding="utf-8", newline="\n")
+    rules.write_text(SYNTHETIC_RULES_PREIMAGE, encoding="utf-8", newline="\n")
+    applied = subprocess.run(
+        [
+            "git",
+            "-c",
+            "core.autocrlf=false",
+            "apply",
+            "--unidiff-zero",
+            "--whitespace=error-all",
+            str(MIDL_COMPAT_PATCH_PATH),
+        ],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert applied.returncode == 0, applied.stderr or applied.stdout
+    return midl, rules
+
+
+def test_ff152_compatibility_patch_is_narrow_and_independently_bound() -> None:
+    patch = MIDL_COMPAT_PATCH_PATH.read_text(encoding="utf-8")
+    assert re.findall(r"^diff --git a/(\S+) b/(\S+)$", patch, re.MULTILINE) == [
+        ("build/midl.py", "build/midl.py"),
+        ("config/rules.mk", "config/rules.mk"),
+    ]
+    deleted = [
+        line
+        for line in patch.splitlines()
+        if line.startswith("-") and not line.startswith("---")
+    ]
+    added = [
+        line
+        for line in patch.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    ]
+    assert deleted == [
+        "-        command = preprocessor + [input]",
+        "-\t$(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) "
+        "$($(notdir $<)_FLAGS) $<",
+        "-\t$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) "
+        "$($(notdir $<)_FLAGS) $<",
+    ]
+    assert added == [
+        "+        command = preprocessor + [relativize(input)]",
+        "+\t$(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) "
+        "$($(notdir $<)_FLAGS) $(call relativize,$<)",
+        "+\t$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) "
+        "$($(notdir $<)_FLAGS) $(call relativize,$<)",
+    ]
+
+    seams = _load_lock()["midlCompatibilitySeamFiles"]
+    assert seams == [
+        {
+            "path": "build/midl.py",
+            "postUpstreamPatchSha256": (
+                "411d59bd795d2517367fdec4c26921c1d257415e71f10d98f10046752c23f248"
+            ),
+            "postCompatibilityPatchSha256": (
+                "c4091b253f215a08cd229a2bbefba1875ec1c68e02b2970978aeee53f6789b14"
+            ),
+        },
+        {
+            "path": "config/rules.mk",
+            "postUpstreamPatchSha256": (
+                "739dfaecfe48f9bc9d4d7727d57e2c16aafef47983ab8efae3bca5e439d09639"
+            ),
+            "postCompatibilityPatchSha256": (
+                "06e00a49804c577c084d1c4ecd790abc12aec894e8b7e1e80914dd826101d091"
+            ),
+        },
+    ]
+
+
+def test_midl_compatibility_patch_relativizes_only_the_subprocess_input() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        source = root / "build" / "midl.py"
-        source.parent.mkdir(parents=True)
-        source.write_text(fixture, encoding="utf-8", newline="\n")
-        applied = subprocess.run(
-            [
-                "git",
-                "-c",
-                "core.autocrlf=false",
-                "apply",
-                "--whitespace=error-all",
-                str(MIDL_COMPAT_PATCH_PATH),
-            ],
-            cwd=root,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        assert applied.returncode == 0, applied.stderr or applied.stdout
+        source, _ = _apply_compatibility_patch_to_synthetic_tree(root)
         module = _load_python_file("ff152_midl_compat_fixture", source)
         unix_absolute = "/work/run/source/AccessibleEventId.idl"
         base = root / "generated"
@@ -791,6 +844,43 @@ def preprocess(base, input, flags):
                 assert exc.returncode == 73
             else:
                 raise AssertionError("the MIDL preprocessor subprocess error was swallowed")
+
+
+def test_ff152_compatibility_patch_relativizes_synthetic_make_object_rules() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        _, rules = _apply_compatibility_patch_to_synthetic_tree(Path(temporary))
+        implementation = rules.read_text(encoding="utf-8")
+
+    def recipe(target: str) -> list[str]:
+        match = re.search(
+            rf"^\$\({re.escape(target)}\):\n((?:\t.*\n)+)",
+            implementation,
+            re.MULTILINE,
+        )
+        assert match is not None
+        return match.group(1).splitlines()
+
+    assert recipe("COBJS") == [
+        "\t$(REPORT_BUILD_VERBOSE)",
+        "\t$(call BUILDSTATUS,OBJECT_FILE $@)",
+        "\t$(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) "
+        "$($(notdir $<)_FLAGS) $(call relativize,$<)",
+        "\t$(call BUILDSTATUS,END_Object $@)",
+    ]
+    assert recipe("CPPOBJS") == [
+        "\t$(REPORT_BUILD_VERBOSE)",
+        "\t$(call BUILDSTATUS,OBJECT_FILE $@)",
+        "\t$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) "
+        "$($(notdir $<)_FLAGS) $(call relativize,$<)",
+        "\t$(call BUILDSTATUS,END_Object $@)",
+    ]
+    assert recipe("CWASMOBJS") == [
+        "\t$(WASM_CC) -o $@ -c $(WASM_CFLAGS) $($(notdir $<)_FLAGS) $<"
+    ]
+    assert recipe("CPPWASMOBJS") == [
+        "\t$(WASM_CXX) -o $@ -c $(WASM_CXXFLAGS) $($(notdir $<)_FLAGS) $<"
+    ]
+    assert implementation.count("$(call relativize,$<)") == 2
 
 
 def test_canvas_contract_golden_vectors() -> None:
@@ -2204,7 +2294,7 @@ def test_exact_upstream_patch_surface_postimage() -> None:
 
 
 def test_exact_firefox_source_archive() -> None:
-    global EXACT_FIREFOX_MIDL_PREIMAGE
+    global EXACT_FIREFOX_COMPATIBILITY_PREIMAGES
     if FIREFOX_SOURCE_ARCHIVE is None:
         raise SkipTest(
             "pass --firefox-source-archive for exact Firefox source verification"
@@ -2215,14 +2305,22 @@ def test_exact_firefox_source_archive() -> None:
     assert _sha512(FIREFOX_SOURCE_ARCHIVE) == source["sha512"]
 
     driver = _load_python_file("canvas_engine_archive_debris", STRICT_BUILD_PATH)
+    compatibility_seams = _load_lock()["midlCompatibilitySeamFiles"]
+    compatibility_paths = {seam["path"] for seam in compatibility_seams}
+    EXACT_FIREFOX_COMPATIBILITY_PREIMAGES = {}
     orig_files: list[dict] = []
     reject_paths: list[str] = []
     with tarfile.open(FIREFOX_SOURCE_ARCHIVE, "r:xz") as bundle:
         for member in bundle:
-            if member.name == "firefox-152.0.4/build/midl.py":
+            prefix = "firefox-152.0.4/"
+            if member.name.startswith(prefix) and member.name[len(prefix) :] in (
+                compatibility_paths
+            ):
                 stream = bundle.extractfile(member)
                 assert stream is not None
-                EXACT_FIREFOX_MIDL_PREIMAGE = stream.read()
+                EXACT_FIREFOX_COMPATIBILITY_PREIMAGES[
+                    member.name[len(prefix) :]
+                ] = stream.read()
             if not (member.name.endswith(".orig") or member.name.endswith(".rej")):
                 continue
             assert member.isfile(), member.name
@@ -2248,12 +2346,14 @@ def test_exact_firefox_source_archive() -> None:
         "prePatchDebrisBaseline"
     ]
     assert driver.patch_debris_summary(archive_debris) == expected
-    midl_seam = _load_lock()["midlCompatibilitySeamFiles"][0]
-    assert EXACT_FIREFOX_MIDL_PREIMAGE is not None
-    assert (
-        hashlib.sha256(EXACT_FIREFOX_MIDL_PREIMAGE).hexdigest()
-        == midl_seam["postUpstreamPatchSha256"]
-    )
+    assert set(EXACT_FIREFOX_COMPATIBILITY_PREIMAGES) == compatibility_paths
+    for seam in compatibility_seams:
+        assert (
+            hashlib.sha256(
+                EXACT_FIREFOX_COMPATIBILITY_PREIMAGES[seam["path"]]
+            ).hexdigest()
+            == seam["postUpstreamPatchSha256"]
+        )
 
 
 def test_exact_windows_toolchain_selection_manifest() -> None:
@@ -2309,27 +2409,35 @@ def test_exact_upstream_checkout_inputs() -> None:
         )
 
 
-def test_midl_compatibility_patch_transforms_exact_archive_preimage_to_final_source() -> None:
+def test_ff152_compatibility_patch_transforms_exact_archive_preimages_to_final_source() -> None:
     if FIREFOX_SOURCE_ARCHIVE is None or PATCHED_SOURCE_TREE is None:
         raise SkipTest("pass exact Firefox archive and final patched source tree")
 
-    seam = _load_lock()["midlCompatibilitySeamFiles"][0]
-    preimage = EXACT_FIREFOX_MIDL_PREIMAGE
-    if preimage is None:
+    seams = _load_lock()["midlCompatibilitySeamFiles"]
+    preimages = dict(EXACT_FIREFOX_COMPATIBILITY_PREIMAGES)
+    if set(preimages) != {seam["path"] for seam in seams}:
+        preimages = {}
         with tarfile.open(FIREFOX_SOURCE_ARCHIVE, "r:xz") as bundle:
-            stream = bundle.extractfile(f"firefox-152.0.4/{seam['path']}")
-            assert stream is not None
-            preimage = stream.read()
-    assert hashlib.sha256(preimage).hexdigest() == seam["postUpstreamPatchSha256"]
+            for seam in seams:
+                stream = bundle.extractfile(f"firefox-152.0.4/{seam['path']}")
+                assert stream is not None
+                preimages[seam["path"]] = stream.read()
 
-    final_source = PATCHED_SOURCE_TREE / seam["path"]
-    assert final_source.is_file()
-    assert _sha256(final_source) == seam["postCompatibilityPatchSha256"]
+    for seam in seams:
+        assert (
+            hashlib.sha256(preimages[seam["path"]]).hexdigest()
+            == seam["postUpstreamPatchSha256"]
+        )
+        final_source = PATCHED_SOURCE_TREE / seam["path"]
+        assert final_source.is_file()
+        assert _sha256(final_source) == seam["postCompatibilityPatchSha256"]
+
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        target = root / seam["path"]
-        target.parent.mkdir(parents=True)
-        target.write_bytes(preimage)
+        for seam in seams:
+            target = root / seam["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(preimages[seam["path"]])
         check = subprocess.run(
             [
                 "git",
@@ -2337,6 +2445,7 @@ def test_midl_compatibility_patch_transforms_exact_archive_preimage_to_final_sou
                 "core.autocrlf=false",
                 "apply",
                 "--check",
+                "--unidiff-zero",
                 "--whitespace=error-all",
                 str(MIDL_COMPAT_PATCH_PATH),
             ],
@@ -2352,6 +2461,7 @@ def test_midl_compatibility_patch_transforms_exact_archive_preimage_to_final_sou
                 "-c",
                 "core.autocrlf=false",
                 "apply",
+                "--unidiff-zero",
                 "--whitespace=error-all",
                 str(MIDL_COMPAT_PATCH_PATH),
             ],
@@ -2361,11 +2471,24 @@ def test_midl_compatibility_patch_transforms_exact_archive_preimage_to_final_sou
             text=True,
             timeout=30,
         )
-        assert _sha256(target) == seam["postCompatibilityPatchSha256"]
-        assert target.read_bytes() == final_source.read_bytes()
-        implementation = target.read_text(encoding="utf-8")
-        assert "command = preprocessor + [relativize(input)]" in implementation
-        assert "command = preprocessor + [input]" not in implementation
+        for seam in seams:
+            target = root / seam["path"]
+            final_source = PATCHED_SOURCE_TREE / seam["path"]
+            assert _sha256(target) == seam["postCompatibilityPatchSha256"]
+            assert target.read_bytes() == final_source.read_bytes()
+
+        midl = (root / "build" / "midl.py").read_text(encoding="utf-8")
+        assert "command = preprocessor + [relativize(input)]" in midl
+        assert "command = preprocessor + [input]" not in midl
+        rules = (root / "config" / "rules.mk").read_text(encoding="utf-8")
+        assert (
+            "$(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) "
+            "$($(notdir $<)_FLAGS) $(call relativize,$<)" in rules
+        )
+        assert (
+            "$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) "
+            "$($(notdir $<)_FLAGS) $(call relativize,$<)" in rules
+        )
 
 
 def test_patch_applies_to_exact_seam_preimages() -> None:
@@ -2531,7 +2654,7 @@ def main() -> int:
         "test_exact_upstream_patch_surface_postimage",
         "test_exact_upstream_checkout_inputs",
         "test_exact_windows_toolchain_selection_manifest",
-        "test_midl_compatibility_patch_transforms_exact_archive_preimage_to_final_source",
+        "test_ff152_compatibility_patch_transforms_exact_archive_preimages_to_final_source",
         "test_patch_applies_to_exact_seam_preimages",
         "test_patched_source_seam_and_caller_graph",
     }
