@@ -38,7 +38,16 @@ import {
   signalFailureLabel,
   userFacingError,
 } from "./ui-language.js";
+import {
+  getUiLocale,
+  initializeUiLocale,
+  installUiLocalization,
+  setUiLocale,
+  translateUiText,
+  type UiLocale,
+} from "./locale.js";
 
+const languageSelect = requiredElement<HTMLSelectElement>("language-select");
 const scanButton = requiredElement<HTMLButtonElement>("scan");
 const requestSiteAccessButton = requiredElement<HTMLButtonElement>(
   "request-site-access",
@@ -113,6 +122,31 @@ let activeSitePermissionRefreshVersion = 0;
 let networkHandoffExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 let activeSiteOriginPattern: string | null = null;
 
+installUiLocalization(document);
+languageSelect.value = getUiLocale();
+void initializeUiLocale().then((locale) => {
+  languageSelect.value = locale;
+  refreshLocalizedViews();
+});
+languageSelect.addEventListener("change", () => {
+  const locale: UiLocale = languageSelect.value === "zh-CN" ? "zh-CN" : "en";
+  void setUiLocale(locale);
+});
+document.addEventListener("verisilo:locale-changed", () => {
+  languageSelect.value = getUiLocale();
+  refreshLocalizedViews();
+});
+
+function refreshLocalizedViews(): void {
+  if (latestReport !== null) {
+    renderReport(latestReport);
+  }
+  void refreshSavedReportHistory();
+  void refreshLabsStatus();
+  void refreshLabsReceipts();
+  void refreshIsolationStatus();
+}
+
 scanButton.addEventListener("click", () => void scan());
 requestSiteAccessButton.addEventListener("click", () => {
   const permissionRequest =
@@ -136,7 +170,9 @@ privacyRestoreButton.addEventListener(
 labsEnableButton.addEventListener("click", () => {
   if (
     !globalThis.confirm(
-      "开启当前站点的网页后台任务检查？它可能让网站短暂异常；发现测试标记泄漏、页面异常、超时或权限变化时会立即恢复并停用。",
+      translateUiText(
+        "开启当前站点的网页后台任务检查？它可能让网站短暂异常；发现测试标记泄漏、页面异常、超时或权限变化时会立即恢复并停用。",
+      ),
     )
   ) {
     return;
@@ -343,7 +379,7 @@ async function refreshLabsReceipts(): Promise<void> {
 }
 
 async function clearLabsReceiptHistory(): Promise<void> {
-  if (!globalThis.confirm("清除全部本地脱敏实验记录？")) {
+  if (!globalThis.confirm(translateUiText("清除全部本地脱敏实验记录？"))) {
     return;
   }
   setBusy(labsClearReceiptsButton, true, "正在清除…");
@@ -844,7 +880,11 @@ async function refreshSavedReportHistory(): Promise<void> {
 }
 
 async function clearSavedReportHistory(): Promise<void> {
-  if (!globalThis.confirm("清除本机保存的全部脱敏报告历史？此操作不可撤销。")) {
+  if (
+    !globalThis.confirm(
+      translateUiText("清除本机保存的全部脱敏报告历史？此操作不可撤销。"),
+    )
+  ) {
     return;
   }
   setBusy(clearReportHistoryButton, true, "正在清除…");
@@ -1297,11 +1337,15 @@ function exportCurrentReport(format: "json" | "html"): void {
     showNotice("error", "请先扫描当前页面。");
     return;
   }
-  if (!window.confirm("导出前会默认脱敏高敏感信号。是否继续？")) {
+  if (
+    !window.confirm(translateUiText("导出前会默认脱敏高敏感信号。是否继续？"))
+  ) {
     return;
   }
   const content =
-    format === "json" ? reportAsJson(latestReport) : reportAsHtml(latestReport);
+    format === "json"
+      ? reportAsJson(latestReport)
+      : reportAsHtml(latestReport, getUiLocale());
   const blob = new Blob([content], {
     type: format === "json" ? "application/json" : "text/html",
   });
@@ -1396,7 +1440,7 @@ function displayOrigin(origin: string): string {
 
 function formatDate(isoDate: string): string {
   try {
-    return new Intl.DateTimeFormat("zh-CN", {
+    return new Intl.DateTimeFormat(getUiLocale(), {
       month: "numeric",
       day: "numeric",
       hour: "2-digit",

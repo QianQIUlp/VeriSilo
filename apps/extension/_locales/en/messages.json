@@ -1,0 +1,11 @@
+{
+  "extensionName": {
+    "message": "VeriSilo Companion"
+  },
+  "extensionDescription": {
+    "message": "Inspect browser information visible to the current page and use on-demand network checks and temporary privacy tools."
+  },
+  "actionTitle": {
+    "message": "Open VeriSilo Companion"
+  }
+}

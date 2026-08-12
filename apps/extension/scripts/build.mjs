@@ -33,6 +33,9 @@ await cp(resolve(root, "sidepanel.html"), resolve(outdir, "sidepanel.html"));
 await cp(resolve(root, "icons"), resolve(outdir, "icons"), {
   recursive: true,
 });
+await cp(resolve(root, "_locales"), resolve(outdir, "_locales"), {
+  recursive: true,
+});
 
 if (process.argv.includes("--watch")) {
   const buildContext = await context(options);

@@ -10,17 +10,44 @@ const extensionPackage = JSON.parse(
   await readFile(resolve(root, "apps/extension/package.json"), "utf8"),
 );
 if (
-  manifest.version !== "0.2.7" ||
+  manifest.version !== "0.2.8" ||
   extensionPackage.version !== manifest.version
 ) {
   throw new Error(
     "Extension package and bundled manifest must use the current aligned version.",
   );
 }
-if (!manifest.description?.includes("查看当前网页可读取的浏览器信息")) {
+if (
+  manifest.default_locale !== "en" ||
+  manifest.name !== "__MSG_extensionName__" ||
+  manifest.description !== "__MSG_extensionDescription__" ||
+  manifest.action?.default_title !== "__MSG_actionTitle__"
+) {
   throw new Error(
-    "Extension manifest must describe local observation without an isolation claim.",
+    "Extension manifest must use the audited bilingual locale messages.",
   );
+}
+for (const locale of ["en", "zh_CN"]) {
+  const messages = JSON.parse(
+    await readFile(resolve(dist, "_locales", locale, "messages.json"), "utf8"),
+  );
+  for (const key of ["extensionName", "extensionDescription", "actionTitle"]) {
+    if (
+      typeof messages[key]?.message !== "string" ||
+      messages[key].message === ""
+    ) {
+      throw new Error(`Extension locale ${locale} is missing message: ${key}`);
+    }
+  }
+  const expectedDescription =
+    locale === "en"
+      ? "Inspect browser information visible to the current page"
+      : "查看当前网页可读取的浏览器信息";
+  if (!messages.extensionDescription.message.includes(expectedDescription)) {
+    throw new Error(
+      `Extension locale ${locale} must describe observation without an isolation claim.`,
+    );
+  }
 }
 
 const expectedIcons = Object.fromEntries(
@@ -79,6 +106,9 @@ for (const requiredGuidance of [
   "设备与浏览器特征继续跟随本机",
   "不提供指纹控制",
   "最近实验记录",
+  'id="language-select"',
+  'value="zh-CN"',
+  'value="en"',
 ]) {
   if (!sidepanelHtml.includes(requiredGuidance)) {
     throw new Error(`Extension Labs guidance is missing: ${requiredGuidance}`);

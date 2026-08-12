@@ -7,6 +7,7 @@ import {
   observedSignalStatusLabel,
   signalFailureLabel,
 } from "./ui-language.js";
+import { translateUiText, type UiLocale } from "./locale.js";
 
 export function redactObservationReport(
   report: ObservationReport,
@@ -25,9 +26,33 @@ export function reportAsJson(report: ObservationReport): string {
   return `${JSON.stringify(redactObservationReport(report), null, 2)}\n`;
 }
 
-export function reportAsHtml(report: ObservationReport): string {
+export function reportAsHtml(
+  report: ObservationReport,
+  locale: UiLocale = "zh-CN",
+): string {
   const safeReport = redactObservationReport(report);
-  const human = summarizeReport(safeReport);
+  const rawHuman = summarizeReport(safeReport);
+  const human = {
+    ...rawHuman,
+    headline: translateUiText(rawHuman.headline, locale),
+    description: translateUiText(rawHuman.description, locale),
+    facts: rawHuman.facts.map((fact) => ({
+      ...fact,
+      label: translateUiText(fact.label, locale),
+      value: translateUiText(fact.value, locale),
+      detail: translateUiText(fact.detail, locale),
+    })),
+    findings: rawHuman.findings.map((finding) => ({
+      ...finding,
+      title: translateUiText(finding.title, locale),
+      detail: translateUiText(finding.detail, locale),
+      action:
+        finding.action === undefined
+          ? undefined
+          : translateUiText(finding.action, locale),
+    })),
+  };
+  const copy = reportCopy(locale);
   const facts = human.facts
     .map(
       (fact) => `
@@ -44,7 +69,7 @@ export function reportAsHtml(report: ObservationReport): string {
         <article class="finding ${escapeHtml(finding.tone)}">
           <strong>${escapeHtml(finding.title)}</strong>
           <p>${escapeHtml(finding.detail)}</p>
-          ${finding.action === undefined ? "" : `<small>建议：${escapeHtml(finding.action)}</small>`}
+          ${finding.action === undefined ? "" : `<small>${escapeHtml(copy.suggestion)}: ${escapeHtml(finding.action)}</small>`}
         </article>`,
     )
     .join("");
@@ -52,22 +77,22 @@ export function reportAsHtml(report: ObservationReport): string {
     .map(
       (signal) => `
         <tr>
-          <td>${escapeHtml(observedSignalName(signal.id))}</td>
-          <td>${escapeHtml(observedSignalStatusLabel(signal.status))}</td>
-          <td>${escapeHtml(observedSignalSourceLabel(signal.source))}</td>
+          <td>${escapeHtml(translateUiText(observedSignalName(signal.id), locale))}</td>
+          <td>${escapeHtml(translateUiText(observedSignalStatusLabel(signal.status), locale))}</td>
+          <td>${escapeHtml(translateUiText(observedSignalSourceLabel(signal.source), locale))}</td>
           <td><pre>${escapeHtml(
             signal.status === "error" || signal.status === "unsupported"
-              ? signalFailureLabel(signal.error)
+              ? translateUiText(signalFailureLabel(signal.error), locale)
               : (JSON.stringify(signal.value) ?? ""),
           )}</pre></td>
         </tr>`,
     )
     .join("");
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="${locale}">
   <head>
     <meta charset="utf-8">
-    <title>VeriSilo 本地浏览器信号观测报告</title>
+    <title>${copy.title}</title>
     <style>
       body { max-width: 960px; font-family: system-ui, sans-serif; margin: 2rem auto; padding: 0 1rem; color: #172036; background: #f6f7fb; }
       header, section, details { border: 1px solid #e1e6ef; border-radius: 1rem; padding: 1.25rem; margin-bottom: 1rem; background: white; }
@@ -88,26 +113,61 @@ export function reportAsHtml(report: ObservationReport): string {
     <header>
       <h1>${escapeHtml(human.headline)}</h1>
       <p>${escapeHtml(human.description)}</p>
-      <div class="meta">网站：${escapeHtml(safeReport.origin)} · 采集：${escapeHtml(safeReport.collectedAt)}</div>
+      <div class="meta">${copy.site}: ${escapeHtml(safeReport.origin)} · ${copy.collected}: ${escapeHtml(safeReport.collectedAt)}</div>
     </header>
     <section>
-      <h2>关键浏览器信号</h2>
+      <h2>${copy.keySignals}</h2>
       <div class="facts">${facts}</div>
     </section>
     <section>
-      <h2>值得关注</h2>
+      <h2>${copy.findings}</h2>
       <div class="findings">${findings}</div>
     </section>
     <details>
-      <summary><strong>技术数据（默认已脱敏）</strong></summary>
-      <p>高敏感值默认隐藏。本报告不证明设备不可识别，也不代表网站无法关联账号。</p>
+      <summary><strong>${copy.technicalData}</strong></summary>
+      <p>${copy.disclosure}</p>
       <table>
-        <thead><tr><th>信号</th><th>状态</th><th>来源</th><th>观察值</th></tr></thead>
+        <thead><tr><th>${copy.signal}</th><th>${copy.status}</th><th>${copy.source}</th><th>${copy.value}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </details>
   </body>
 </html>`;
+}
+
+function reportCopy(locale: UiLocale) {
+  if (locale === "en") {
+    return {
+      title: "VeriSilo Local Browser Signal Report",
+      suggestion: "Suggestion",
+      site: "Site",
+      collected: "Collected",
+      keySignals: "Key browser signals",
+      findings: "Worth reviewing",
+      technicalData: "Technical data (redacted by default)",
+      disclosure:
+        "High-sensitivity values are hidden by default. This report does not prove that the device is unrecognizable or that a site cannot link accounts.",
+      signal: "Signal",
+      status: "Status",
+      source: "Source",
+      value: "Observed value",
+    };
+  }
+  return {
+    title: "VeriSilo 本地浏览器信号观测报告",
+    suggestion: "建议",
+    site: "网站",
+    collected: "采集",
+    keySignals: "关键浏览器信号",
+    findings: "值得关注",
+    technicalData: "技术数据（默认已脱敏）",
+    disclosure:
+      "高敏感值默认隐藏。本报告不证明设备不可识别，也不代表网站无法关联账号。",
+    signal: "信号",
+    status: "状态",
+    source: "来源",
+    value: "观察值",
+  };
 }
 
 function escapeHtml(value: string): string {

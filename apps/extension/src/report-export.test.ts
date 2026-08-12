@@ -63,4 +63,14 @@ describe("report export", () => {
     expect(html).not.toContain(renderer);
     expect(html).toContain("[默认隐藏]");
   });
+
+  it("exports a readable English report when English is selected", () => {
+    const html = reportAsHtml(report, "en");
+
+    expect(html).toContain('<html lang="en">');
+    expect(html).toContain("VeriSilo Local Browser Signal Report");
+    expect(html).toContain("Key browser signals");
+    expect(html).toContain("Graphics-rendering fingerprint summary");
+    expect(html).not.toContain("当前页面观测");
+  });
 });
