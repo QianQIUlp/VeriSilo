@@ -79,6 +79,7 @@ for (const [sizeText, relativePath] of Object.entries(expectedIcons)) {
 }
 
 const sidepanelHtml = await readFile(resolve(dist, "sidepanel.html"), "utf8");
+const sidepanelJs = await readFile(resolve(dist, "sidepanel.js"), "utf8");
 const bundledFiles = await readdir(dist, { recursive: true });
 if (bundledFiles.some((file) => file.endsWith(".map"))) {
   throw new Error("Extension release/test bundle must not ship source maps.");
@@ -109,9 +110,19 @@ for (const requiredGuidance of [
   'id="language-select"',
   'value="zh-CN"',
   'value="en"',
+  'class="scan-explanation"',
+  'class="verdict-explanation"',
+  '<details class="scope-note">',
 ]) {
   if (!sidepanelHtml.includes(requiredGuidance)) {
     throw new Error(`Extension Labs guidance is missing: ${requiredGuidance}`);
+  }
+}
+for (const requiredDisclosure of ["fact-summary", "finding-summary"]) {
+  if (!sidepanelJs.includes(requiredDisclosure)) {
+    throw new Error(
+      `Extension result summaries must preserve expandable details: ${requiredDisclosure}`,
+    );
   }
 }
 for (const staleLabel of [

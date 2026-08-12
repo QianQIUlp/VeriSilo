@@ -1070,9 +1070,13 @@ function renderReport(report: ObservationReport | null): void {
   }
 }
 
-function renderFact(fact: HumanFact): HTMLElement {
-  const element = document.createElement("article");
+function renderFact(fact: HumanFact): HTMLDetailsElement {
+  const element = document.createElement("details");
   element.className = `fact${fact.id === "network" ? " network-fact" : ""}`;
+  const summary = document.createElement("summary");
+  summary.className = "fact-summary";
+  const summaryMain = document.createElement("span");
+  summaryMain.className = "fact-summary-main";
   const label = document.createElement("span");
   label.className = "fact-label";
   label.textContent = fact.label;
@@ -1084,7 +1088,12 @@ function renderFact(fact: HumanFact): HTMLElement {
   detail.className = "fact-detail";
   detail.id = `fact-detail-${fact.id}`;
   detail.textContent = fact.detail;
-  element.append(label, value, detail);
+  const body = document.createElement("div");
+  body.className = "fact-body";
+  summaryMain.append(label, value);
+  summary.append(summaryMain);
+  body.append(detail);
+  element.append(summary, body);
   if (fact.id === "network") {
     const badges = document.createElement("div");
     badges.className = "network-badges";
@@ -1116,7 +1125,7 @@ function renderFact(fact: HumanFact): HTMLElement {
     disclosure.className = "network-disclosure";
     disclosure.textContent =
       "结果属于当前浏览器环境；成功交给正在运行的桌面身份后，桌面端会显示这次结果。点击后会连接 ipwho.is、Cloudflare 1.1.1.1 和 Google Public DNS，这些服务会看到请求的公网地址。两家域名解析服务只做答案对比，不能证明浏览器实际使用的解析路径。不会自动运行。";
-    element.append(badges, actions, disclosure);
+    body.append(badges, actions, disclosure);
   }
   return element;
 }
@@ -1291,13 +1300,13 @@ function observedLanguageRegion(
   return region?.toUpperCase() ?? null;
 }
 
-function renderFinding(finding: HumanFinding): HTMLElement {
-  const element = document.createElement("article");
+function renderFinding(finding: HumanFinding): HTMLDetailsElement {
+  const element = document.createElement("details");
   element.className = `finding ${finding.tone}`;
-  const dot = document.createElement("span");
-  dot.className = "finding-dot";
-  dot.setAttribute("aria-hidden", "true");
+  const summary = document.createElement("summary");
+  summary.className = "finding-summary";
   const body = document.createElement("div");
+  body.className = "finding-body";
   const heading = document.createElement("h3");
   heading.textContent = finding.title;
   const detail = document.createElement("p");
@@ -1309,7 +1318,8 @@ function renderFinding(finding: HumanFinding): HTMLElement {
     action.textContent = `建议：${finding.action}`;
     body.append(action);
   }
-  element.append(dot, body);
+  summary.append(heading);
+  element.append(summary, body);
   return element;
 }
 

@@ -32,6 +32,9 @@ const ENGLISH_TEXT: Record<string, string> = {
   关键浏览器信号: "Key browser signals",
   当前页面能够读取的六组信息: "Six groups of information this page can read",
   重点: "Highlights",
+  扫描说明: "How scanning works",
+  结果说明: "About this result",
+  扫描边界: "Scan boundaries",
   值得关注: "Worth reviewing",
   "从全部信号中提炼的解读，不是扫描进度":
     "Interpretation of all signals, not scan progress",
