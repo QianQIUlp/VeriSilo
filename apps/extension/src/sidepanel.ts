@@ -25,6 +25,19 @@ import {
   type HumanFact,
   type HumanFinding,
 } from "./report-summary.js";
+import {
+  labsBrowserBackgroundLabel,
+  labsEmbeddedPageLabel,
+  labsEvidenceLabel,
+  labsInjectionOrderLabel,
+  labsNewBackgroundTaskLabel,
+  labsVisibleSiteDataLabel,
+  observedSignalName,
+  observedSignalStatusLabel,
+  observationWorkerCoverageLabel,
+  signalFailureLabel,
+  userFacingError,
+} from "./ui-language.js";
 
 const scanButton = requiredElement<HTMLButtonElement>("scan");
 const requestSiteAccessButton = requiredElement<HTMLButtonElement>(
@@ -123,7 +136,7 @@ privacyRestoreButton.addEventListener(
 labsEnableButton.addEventListener("click", () => {
   if (
     !globalThis.confirm(
-      "开启当前站点的 VeriSilo Labs Worker 实验？它可能破坏网站；任何检测到的泄漏、页面异常、超时或权限变化都会立即恢复并停用。",
+      "开启当前站点的网页后台任务检查？它可能让网站短暂异常；发现测试标记泄漏、页面异常、超时或权限变化时会立即恢复并停用。",
     )
   ) {
     return;
@@ -200,7 +213,7 @@ void refreshActiveSitePermissionTarget();
 async function enableWorkerExperiment(
   permissionRequest: Promise<boolean> | null,
 ): Promise<void> {
-  setLabsButtonsBusy(true, "正在观察与验证…");
+  setLabsButtonsBusy(true, "正在开始检查…");
   try {
     if (permissionRequest !== null && !(await permissionRequest)) {
       throw new Error("未授予当前站点权限；实验保持关闭，也没有注入页面。");
@@ -219,23 +232,23 @@ async function enableWorkerExperiment(
       showNotice(
         "success",
         worker.scope?.mode === "local_temporary"
-          ? "网页后台任务检查已启动；覆盖范围有限。它只在当前浏览器临时运行，不属于桌面 Silo。"
-          : "网页后台任务检查已启动并绑定当前桌面 Silo 与网站；由于无法覆盖所有网页运行区域，状态标为“有限覆盖”。",
+          ? "网页后台任务检查已启动；覆盖范围有限，只在当前浏览器中临时运行。"
+          : "网页后台任务检查已启动，并关联当前桌面身份与网站；由于无法覆盖所有网页运行区域，状态标为“有限覆盖”。",
       );
     } else if (worker.state === "leak_detected") {
       showNotice(
         "error",
-        "检测到 canary 泄漏；原 Worker constructor 已恢复，站点实验已停用。",
+        "检测到随机测试标记泄漏；原网页行为已恢复，当前检查已停用。",
       );
     } else {
-      showNotice(
-        "error",
-        "实验未通过验证，已恢复原 Worker constructor 并停用当前站点。",
-      );
+      showNotice("error", "检查未能完成确认，已恢复原网页行为并停用当前站点。");
     }
     await refreshLabsReceipts();
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice(
+      "error",
+      userFacingError(error, "无法开启网页后台任务检查，请稍后重试。"),
+    );
   } finally {
     setLabsButtonsBusy(false);
     await refreshLabsStatus();
@@ -252,10 +265,13 @@ async function stopWorkerExperiment(): Promise<void> {
     if (worker !== null) {
       renderWorkerExperiment(worker);
     }
-    showNotice("success", "已恢复原 Worker constructor，并停用当前站点实验。");
+    showNotice("success", "已恢复原网页行为，并停用当前站点检查。");
     await refreshLabsReceipts();
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice(
+      "error",
+      userFacingError(error, "无法停止当前检查，请稍后重试。"),
+    );
   } finally {
     setLabsButtonsBusy(false);
     await refreshLabsStatus();
@@ -279,7 +295,7 @@ async function refreshLabsStatus(announceAutomaticStop = false): Promise<void> {
       if (worker.state === "failed" || worker.state === "leak_detected") {
         showNotice(
           "error",
-          `Labs 已因“${labsStopLabel(worker.lastReceipt.stopCode)}”停止；原 Worker constructor ${worker.lastReceipt.restore.succeeded ? "已恢复" : "未能确认恢复"}。`,
+          `实验室检查已因“${labsStopLabel(worker.lastReceipt.stopCode)}”停止；原网页行为${worker.lastReceipt.restore.succeeded ? "已恢复" : "未能确认恢复"}。`,
         );
       } else if (
         worker.state === "restored" &&
@@ -287,7 +303,7 @@ async function refreshLabsStatus(announceAutomaticStop = false): Promise<void> {
       ) {
         showNotice(
           "success",
-          `Labs 已因“${labsStopLabel(worker.lastReceipt.stopCode)}”自动停止并恢复。`,
+          `实验室检查已因“${labsStopLabel(worker.lastReceipt.stopCode)}”自动停止并恢复。`,
         );
       }
     }
@@ -297,7 +313,10 @@ async function refreshLabsStatus(announceAutomaticStop = false): Promise<void> {
     }
     labsWorkerStatus.textContent = "状态不可用";
     labsWorkerStatus.className = "status-chip warning";
-    labsScope.textContent = `无法读取实验状态：${message(error)}`;
+    labsScope.textContent = userFacingError(
+      error,
+      "暂时无法读取实验状态，请稍后重试。",
+    );
   }
 }
 
@@ -324,17 +343,20 @@ async function refreshLabsReceipts(): Promise<void> {
 }
 
 async function clearLabsReceiptHistory(): Promise<void> {
-  if (!globalThis.confirm("清除全部本地 Labs 脱敏收据？")) {
+  if (!globalThis.confirm("清除全部本地脱敏实验记录？")) {
     return;
   }
   setBusy(labsClearReceiptsButton, true, "正在清除…");
   try {
     const response = await sendMessage({ type: "clear_labs_receipts" });
     const cleared = typeof response.cleared === "number" ? response.cleared : 0;
-    showNotice("success", `已清除 ${cleared} 份 Labs 脱敏收据。`);
+    showNotice("success", `已清除 ${cleared} 份本地脱敏实验记录。`);
     await refreshLabsReceipts();
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice(
+      "error",
+      userFacingError(error, "无法清除实验记录，请稍后重试。"),
+    );
   } finally {
     setBusy(labsClearReceiptsButton, false);
     await refreshLabsReceipts();
@@ -360,8 +382,8 @@ function renderWorkerExperiment(experiment: LabsExperiment | null): void {
   if (experiment === null) {
     labsWorkerStatus.textContent = "默认关闭";
     labsWorkerStatus.className = "status-chip neutral";
-    labsScope.textContent = "尚未为当前 Silo/站点授权。";
-    labsEvidence.textContent = "尚无 Observe → Apply → Verify → Restore 证据。";
+    labsScope.textContent = "尚未为当前网站开启检查。";
+    labsEvidence.textContent = "尚无实验记录。";
     labsEnableButton.disabled = false;
     labsStopButton.disabled = true;
     return;
@@ -371,17 +393,17 @@ function renderWorkerExperiment(experiment: LabsExperiment | null): void {
   labsEnableButton.disabled = experiment.enabled;
   labsStopButton.disabled = !experiment.enabled;
   if (experiment.scope === null) {
-    labsScope.textContent = "尚未为当前 Silo/站点授权；默认关闭。";
+    labsScope.textContent = "尚未为当前网站开启检查；默认关闭。";
   } else if (experiment.scope.mode === "desktop_silo") {
-    labsScope.textContent = `范围：当前桌面 Silo ${experiment.scope.siloId.slice(0, 8)}… / ${experiment.scope.siteHost}。站点授权到期：${formatDate(experiment.scope.expiresAt)}。`;
+    labsScope.textContent = `范围：当前桌面身份 / ${experiment.scope.siteHost}。检查权限到期：${formatDate(experiment.scope.expiresAt)}。`;
   } else {
-    labsScope.textContent = `范围：${experiment.scope.siteHost} 的本机临时实验，不属于桌面 Silo，关闭浏览器或到期即失效。`;
+    labsScope.textContent = `范围：${experiment.scope.siteHost} 的本机临时实验，不关联桌面身份，关闭浏览器或到期即失效。`;
   }
   labsEvidence.textContent = [
-    `顺序：${experiment.coverage.injectionOrder === "late_or_unknown" ? "无法证明早于页面脚本" : "未尝试"}`,
-    `Worker：${experiment.coverage.newDedicatedWorkers === "same_origin_blob_classic_only" ? "仅新建同源/blob classic" : "未验证"}`,
-    `Window/iframe：${experiment.coverage.windowIframe === "same_origin_probe_passed" ? "同源自检通过" : "未验证"}`,
-    "既有 Worker、module/cross-origin Worker、SharedWorker、ServiceWorker 内存均不覆盖",
+    `启用时机：${labsInjectionOrderLabel(experiment.coverage.injectionOrder)}`,
+    `网页后台任务：${labsNewBackgroundTaskLabel(experiment.coverage.newDedicatedWorkers)}`,
+    `内嵌页面：${labsEmbeddedPageLabel(experiment.coverage.windowIframe)}`,
+    "不覆盖开启检查前已运行、跨站或浏览器长期运行的后台任务",
   ].join("；");
 }
 
@@ -403,12 +425,13 @@ function renderLabsReceipts(receipts: LabsExperimentReceipt[]): void {
     phases.className = "labs-stop-list";
     for (const phase of receipt.phases) {
       const row = document.createElement("li");
-      row.textContent = `${labsPhaseLabel(phase.phase)}：${phase.outcome === "passed" ? "通过" : phase.outcome === "failed" ? "失败" : "未执行"} · ${phase.evidenceCodes.join("、") || "无证据码"}`;
+      const evidence = phase.evidenceCodes.map(labsEvidenceLabel);
+      row.textContent = `${labsPhaseLabel(phase.phase)}：${phase.outcome === "passed" ? "通过" : phase.outcome === "failed" ? "失败" : "未执行"} · ${evidence.join("、") || "没有补充记录"}`;
       phases.append(row);
     }
     const coverage = document.createElement("p");
     coverage.className = "labs-evidence";
-    coverage.textContent = `覆盖：新建 Worker ${receipt.coverage.newDedicatedWorkers}；同源 iframe ${receipt.coverage.windowIframe}；注入顺序 ${receipt.coverage.injectionOrder}；Cookie ${receipt.coverage.cookies}；Service Worker ${receipt.coverage.serviceWorkers}。`;
+    coverage.textContent = `覆盖：${labsNewBackgroundTaskLabel(receipt.coverage.newDedicatedWorkers)}；${labsEmbeddedPageLabel(receipt.coverage.windowIframe)}；启用时机：${labsInjectionOrderLabel(receipt.coverage.injectionOrder)}；网站数据：${labsVisibleSiteDataLabel(receipt.coverage.cookies)}；浏览器后台任务：${labsBrowserBackgroundLabel(receipt.coverage.serviceWorkers)}。`;
     item.append(summary, phases, coverage);
     labsReceiptList.append(item);
   }
@@ -418,10 +441,10 @@ function labsPhaseLabel(
   phase: LabsExperimentReceipt["phases"][number]["phase"],
 ): string {
   return {
-    observe: "Observe 观察",
-    apply: "Apply 应用",
-    verify: "Verify 验证",
-    restore: "Restore 恢复",
+    observe: "开始前检查",
+    apply: "启用检查",
+    verify: "结果确认",
+    restore: "恢复网页",
   }[phase];
 }
 
@@ -433,14 +456,14 @@ function labsStopLabel(code: LabsExperimentReceipt["stopCode"]): string {
     Exclude<LabsExperimentReceipt["stopCode"], null>,
     string
   > = {
-    cross_tab_canary_leak: "跨标签页 canary 泄漏",
-    iframe_canary_leak: "iframe canary 泄漏",
-    worker_canary_leak: "Worker canary 泄漏",
-    service_worker_canary_leak: "Service Worker URL 泄漏",
-    cookie_canary_leak: "Cookie canary 泄漏",
-    window_canary_leak: "页面 canary 泄漏",
+    cross_tab_canary_leak: "随机测试标记传播到其他标签页",
+    iframe_canary_leak: "随机测试标记传播到内嵌页面",
+    worker_canary_leak: "随机测试标记传播到网页后台任务",
+    service_worker_canary_leak: "随机测试标记出现在浏览器后台任务地址中",
+    cookie_canary_leak: "随机测试标记出现在页面可见网站数据中",
+    window_canary_leak: "随机测试标记传播到页面环境",
     page_error: "页面异常",
-    worker_error: "Worker 异常",
+    worker_error: "网页后台任务异常",
     timeout: "运行超时",
     permission_taken_over: "站点权限已撤销或被接管",
     site_navigation: "页面已切换",
@@ -457,9 +480,9 @@ function labsStateLabel(state: LabsExperiment["state"]): string {
   return {
     disabled: "默认关闭",
     permission_missing: "缺少站点权限",
-    applying: "正在应用",
+    applying: "正在开启",
     best_effort: "有限覆盖",
-    verified: "已验证",
+    verified: "检查通过",
     failed: "失败并停用",
     leak_detected: "泄漏即停",
     restored: "已恢复",
@@ -507,7 +530,7 @@ async function scan(): Promise<void> {
         : "扫描已完成，结果已整理为身份结论。",
     );
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice("error", userFacingError(error, "扫描失败，请稍后重试。"));
   } finally {
     setBusy(scanButton, false);
   }
@@ -543,7 +566,7 @@ async function requestSiteAccess(
       showNotice(
         granted ? "success" : "error",
         granted
-          ? "当前站点权限已授予，可以扫描或运行明确启用的 Labs 实验。"
+          ? "当前站点权限已授予，可以扫描或运行明确开启的实验室检查。"
           : "未授予当前站点权限；VeriSilo 没有注入或扫描页面。",
       );
       return;
@@ -570,7 +593,10 @@ async function requestSiteAccess(
         : "未能发起当前站点访问请求。",
     );
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice(
+      "error",
+      userFacingError(error, "无法更改当前站点权限，请稍后重试。"),
+    );
   } finally {
     setBusy(requestSiteAccessButton, false);
   }
@@ -583,11 +609,14 @@ async function revokeSiteAccess(): Promise<void> {
     showNotice(
       "success",
       response.removed === true
-        ? "已撤销当前站点的长期访问权限；正在运行的该站点 Labs 实验也会停止并恢复。"
+        ? "已撤销当前站点的长期访问权限；正在运行的该站点实验室检查也会停止并恢复。"
         : "当前站点没有长期访问权限。工具栏授予的一次性权限会在跨站导航或关闭标签页后失效。",
     );
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice(
+      "error",
+      userFacingError(error, "无法撤销当前站点权限，请稍后重试。"),
+    );
   } finally {
     setBusy(revokeSiteAccessButton, false);
     await refreshActiveSitePermissionTarget();
@@ -611,7 +640,10 @@ async function openPrivateWorkspace(): Promise<void> {
     );
     await refreshIsolationStatus();
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice(
+      "error",
+      userFacingError(error, "无法打开隐私窗口，请检查扩展设置。"),
+    );
   } finally {
     setBusy(openPrivateButton, false);
   }
@@ -640,12 +672,15 @@ async function enableRecommendedProtection(
     showNotice(
       verified === capabilities.length ? "success" : "error",
       verified === capabilities.length
-        ? "推荐保护已应用并复查：WebRTC 非代理 UDP 已限制，网络预测已关闭。"
-        : `已验证 ${verified}/${capabilities.length} 项；其余设置可能被策略或其他扩展接管。`,
+        ? "推荐保护已应用并复查：部分直接网络连接已限制，网络预测已关闭。"
+        : `已确认 ${verified}/${capabilities.length} 项；其余设置可能被策略或其他扩展接管。`,
     );
     await refreshIsolationStatus();
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice(
+      "error",
+      userFacingError(error, "无法启用推荐保护，请稍后重试。"),
+    );
   } finally {
     setPrivacyButtonsBusy(false);
   }
@@ -679,7 +714,7 @@ async function restorePrivacyControls(): Promise<void> {
     );
     await refreshIsolationStatus();
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice("error", userFacingError(error, "无法恢复原设置，请稍后重试。"));
   } finally {
     setPrivacyButtonsBusy(false);
   }
@@ -692,13 +727,13 @@ async function openDesktop(): Promise<void> {
     if (response.desktopOpened !== true) {
       showNotice(
         "error",
-        "未检测到已注册的 VeriSilo Native Host。扩展仍可独立扫描和使用临时工具；桌面联动只在另行安装并注册兼容 Host 后可用。",
+        "未检测到可连接的 VeriSilo 桌面端。扩展仍可独立扫描和使用临时工具；安装并启动兼容的桌面端后才能使用桌面联动。",
       );
       return;
     }
-    showNotice("success", "已通过 Native Host 打开 VeriSilo 桌面端。");
+    showNotice("success", "已打开 VeriSilo 桌面端。");
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice("error", userFacingError(error, "无法连接 VeriSilo 桌面端。"));
   } finally {
     setBusy(desktopButton, false);
   }
@@ -711,7 +746,7 @@ async function openDesktopProject(): Promise<void> {
     await new Promise((resolve) => window.setTimeout(resolve, 100));
     showNotice("success", "已打开 VeriSilo 项目页。");
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice("error", userFacingError(error, "无法打开 VeriSilo 项目页。"));
   } finally {
     setBusy(desktopProjectButton, false);
   }
@@ -731,7 +766,7 @@ async function refreshReport(): Promise<void> {
     if (version !== reportRefreshVersion) {
       return;
     }
-    showNotice("error", message(error));
+    showNotice("error", userFacingError(error, "暂时无法读取扫描结果。"));
   }
 }
 
@@ -820,7 +855,10 @@ async function clearSavedReportHistory(): Promise<void> {
     showNotice("success", `已清除 ${cleared} 份本地脱敏报告。`);
     await refreshSavedReportHistory();
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice(
+      "error",
+      userFacingError(error, "无法清除本地报告，请稍后重试。"),
+    );
   } finally {
     setBusy(clearReportHistoryButton, false);
   }
@@ -839,7 +877,7 @@ async function refreshIsolationStatus(): Promise<void> {
     const privacyGranted = response.privacyGranted === true;
     renderControlStatus(
       webRtcStatus,
-      "WebRTC",
+      "直接连接保护",
       privacyGranted,
       response.webRtc,
     );
@@ -850,7 +888,10 @@ async function refreshIsolationStatus(): Promise<void> {
       response.networkPrediction,
     );
   } catch (error) {
-    privateStatus.textContent = `无法检查当前状态：${message(error)}`;
+    privateStatus.textContent = userFacingError(
+      error,
+      "暂时无法检查隐私窗口权限。",
+    );
   }
 }
 
@@ -909,12 +950,12 @@ async function runNetworkCheck(
       hasUsefulResult ? "success" : "error",
       hasUsefulResult
         ? latestNetworkHandoff?.state === "submitted"
-          ? "当前浏览器环境的出口检查完成，证据已交给正在运行的桌面 Silo。公共 DoH 仅做答案对比，不证明实际 DNS 路径。"
-          : "当前浏览器环境的出口检查完成，结果仅在扩展本地显示。公共 DoH 仅做答案对比，不证明实际 DNS 路径。"
+          ? "当前浏览器环境的出口检查完成，结果已交给正在运行的桌面身份。两家公共域名解析服务只做答案对比，不能证明浏览器实际使用的解析路径。"
+          : "当前浏览器环境的出口检查完成，结果仅在扩展本地显示。两家公共域名解析服务只做答案对比，不能证明浏览器实际使用的解析路径。"
         : "网络检查没有获得有效结果，请查看网络或扩展权限后重试。",
     );
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice("error", userFacingError(error, "网络检查失败，请稍后重试。"));
   } finally {
     setBusy(button, false);
   }
@@ -932,10 +973,10 @@ async function clearNetworkCheck(): Promise<void> {
     renderNetworkFactState();
     showNotice(
       "success",
-      `已从本次浏览器会话中清除网络检查结果${permissionRemoved ? "，并撤销三方检测端点权限" : ""}。`,
+      `已从本次浏览器会话中清除网络检查结果${permissionRemoved ? "，并撤销检测服务访问权限" : ""}。`,
     );
   } catch (error) {
-    showNotice("error", message(error));
+    showNotice("error", userFacingError(error, "无法清除网络检查结果。"));
   }
 }
 
@@ -980,7 +1021,7 @@ function renderReport(report: ObservationReport | null): void {
     textLine(`网站：${report.origin}`),
     textLine(`采集时间：${report.collectedAt}`),
     textLine(
-      `覆盖：MAIN world ${report.coverage.mainWorld} · Worker ${report.coverage.worker}`,
+      `页面环境：${coverageLabel(report)} · 网页后台任务：${observationWorkerCoverageLabel(report.coverage.worker)}`,
     ),
     textLine(`信号组数：${report.signals.length}`),
   );
@@ -1034,7 +1075,7 @@ function renderFact(fact: HumanFact): HTMLElement {
     const disclosure = document.createElement("small");
     disclosure.className = "network-disclosure";
     disclosure.textContent =
-      "结果属于当前浏览器环境；只有成功交给正在运行的桌面 Silo 后，桌面才会把它作为该 Silo 的扩展侧证据。点击后会连接 ipwho.is、Cloudflare 1.1.1.1 和 Google Public DNS，三方会看到请求 IP。公共 DoH 只做答案对比，不证明实际 DNS 路径。不会自动运行。";
+      "结果属于当前浏览器环境；成功交给正在运行的桌面身份后，桌面端会显示这次结果。点击后会连接 ipwho.is、Cloudflare 1.1.1.1 和 Google Public DNS，这些服务会看到请求的公网地址。两家域名解析服务只做答案对比，不能证明浏览器实际使用的解析路径。不会自动运行。";
     element.append(badges, actions, disclosure);
   }
   return element;
@@ -1061,19 +1102,18 @@ function renderNetworkFactState(): void {
   checkButton.textContent =
     latestNetworkCheck === null ? "同意并检查当前环境出口" : "同意并重新检查";
   if (latestNetworkCheck === null) {
-    value.textContent = "本次未验证";
+    value.textContent = "尚未检查";
     detail.textContent =
-      "点击后可查看当前浏览器环境的公网 IP、出口地区、ASN、运营商、时区/语言建议及两家公共 DoH 的答案对比。";
+      "点击后可查看当前浏览器环境的公网地址、出口地区、网络运营商、时区/语言建议，以及两家公共域名解析服务的答案对比。";
     return;
   }
 
   const result = latestNetworkCheck;
   badges.append(networkHandoffChip(latestNetworkHandoff));
   if (result.ip === null) {
-    value.textContent = "出口 IP 获取失败";
-    detail.textContent =
-      result.errors.join("；") || "第三方 IP 服务没有返回有效数据。";
-    badges.append(networkChip("IP 未确认", "attention"));
+    value.textContent = "公网地址获取失败";
+    detail.textContent = "一个或多个检测服务没有返回有效结果。";
+    badges.append(networkChip("公网地址未确认", "attention"));
   } else {
     const location = [
       result.ip.countryCode ?? result.ip.country,
@@ -1082,13 +1122,16 @@ function renderNetworkFactState(): void {
       .filter((part): part is string => part !== null)
       .join(" · ");
     value.textContent = `${result.ip.address}${location === "" ? "" : ` · ${location}`}`;
-    const network = [result.ip.asn, result.ip.organization ?? result.ip.isp]
+    const network = [
+      result.ip.asn === null ? null : `网络编号 ${result.ip.asn}`,
+      result.ip.organization ?? result.ip.isp,
+    ]
       .filter((part): part is string => part !== null)
       .join(" · ");
     detail.textContent = `${network === "" ? "运营商未知" : network}${
       result.ip.timezone === null ? "" : ` · 出口时区 ${result.ip.timezone}`
     }`;
-    badges.append(networkChip("IP 已确认", "good"));
+    badges.append(networkChip("公网地址已确认", "good"));
     badges.append(
       result.ip.networkHint === "cloud_or_hosting"
         ? networkChip("云/机房线路线索", "attention")
@@ -1116,20 +1159,20 @@ function renderNetworkFactState(): void {
     NetworkCheckResult["dns"]["state"],
     { text: string; tone: "good" | "attention" | "neutral" }
   > = {
-    consistent: { text: "公共 DoH 答案一致", tone: "good" },
-    different: { text: "公共 DoH 答案有差异", tone: "attention" },
-    resolver_error: { text: "公共 DoH 返回错误", tone: "attention" },
-    partial: { text: "仅一家公共 DoH 可用", tone: "attention" },
-    failed: { text: "公共 DoH 检查失败", tone: "attention" },
+    consistent: { text: "两家域名解析结果一致", tone: "good" },
+    different: { text: "两家域名解析结果有差异", tone: "attention" },
+    resolver_error: { text: "域名解析服务返回错误", tone: "attention" },
+    partial: { text: "仅一家域名解析服务可用", tone: "attention" },
+    failed: { text: "域名解析检查失败", tone: "attention" },
   };
   const dnsLabel = dnsLabels[result.dns.state];
   badges.append(networkChip(dnsLabel.text, dnsLabel.tone));
   badges.append(
     result.dns.dnssec === "validated"
-      ? networkChip("DNSSEC 两家均验证", "good")
-      : networkChip("DNSSEC 未完整验证", "attention"),
+      ? networkChip("两家解析服务均通过安全校验", "good")
+      : networkChip("域名解析安全校验不完整", "attention"),
   );
-  badges.append(networkChip("IP 信誉/黑名单未评分", "neutral"));
+  badges.append(networkChip("公网地址信誉未评分", "neutral"));
 }
 
 function networkHandoffChip(
@@ -1137,13 +1180,13 @@ function networkHandoffChip(
 ): HTMLElement {
   if (handoff?.state === "submitted") {
     return Date.parse(handoff.expiresAt) > Date.now()
-      ? networkChip("桌面 Silo 已接收", "good")
-      : networkChip("桌面证据已过期", "attention");
+      ? networkChip("桌面端已接收结果", "good")
+      : networkChip("桌面端结果已过期", "attention");
   }
   const reason = handoff?.state === "local_only" ? handoff.reason : null;
   const reasonLabels = {
     desktop_unavailable: "桌面不可用 · 仅本地",
-    runtime_not_ready: "桌面 Silo 未就绪 · 仅本地",
+    runtime_not_ready: "桌面身份未运行 · 仅本地",
     submission_rejected: "桌面拒绝接收 · 仅本地",
   } as const;
   return networkChip(
@@ -1235,13 +1278,16 @@ function renderSignal(signal: ObservedSignal): HTMLDetailsElement {
   element.className = "signal";
   const summary = document.createElement("summary");
   const title = document.createElement("span");
-  title.textContent = humanSignalName(signal.id);
+  title.textContent = observedSignalName(signal.id);
   const status = document.createElement("span");
   status.className = `signal-status ${signal.status === "ok" ? "" : "error"}`;
-  status.textContent = signalStatusLabel(signal.status);
+  status.textContent = observedSignalStatusLabel(signal.status);
   summary.append(title, status);
   const detail = document.createElement("pre");
-  detail.textContent = signal.error ?? safeStringify(signal.value, 2);
+  detail.textContent =
+    signal.status === "error" || signal.status === "unsupported"
+      ? signalFailureLabel(signal.error)
+      : safeStringify(signal.value, 2);
   element.append(summary, detail);
   return element;
 }
@@ -1299,8 +1345,7 @@ function renderControlStatus(
   if (!privacyGranted) {
     element.textContent = `${label}：待授权`;
   } else if (effective) {
-    element.textContent =
-      label === "WebRTC" ? `${label}：策略已回读` : `${label}：已生效`;
+    element.textContent = `${label}：已生效`;
   } else if (state === "controlled_by_other_extensions") {
     element.textContent = `${label}：被其他扩展控制`;
   } else if (state === "not_controllable") {
@@ -1375,38 +1420,6 @@ function coverageLabel(report: ObservationReport): string {
   return mainWorldLabels[report.coverage.mainWorld];
 }
 
-function humanSignalName(signalId: string): string {
-  const names: Record<string, string> = {
-    navigator: "浏览器与设备",
-    ua_ch: "浏览器客户端提示（UA-CH）",
-    timezone: "时区",
-    screen: "屏幕",
-    canvas_hash: "Canvas 特征摘要",
-    webgl: "WebGL 显卡信息",
-    webgpu: "WebGPU 可用性",
-    audio: "音频特征摘要",
-    fonts: "字体可见性",
-    media_devices: "摄像头与麦克风",
-    permissions: "网站权限",
-    storage: "Cookie 与本地存储",
-    webrtc: "WebRTC",
-    window_iframe: "iframe 环境",
-    dedicated_worker: "Dedicated Worker 环境",
-    main_world_navigator: "页面主环境浏览器信息",
-  };
-  return names[signalId] ?? signalId;
-}
-
-function signalStatusLabel(status: ObservedSignal["status"]): string {
-  const labels: Record<ObservedSignal["status"], string> = {
-    ok: "已采集",
-    blocked: "被阻止",
-    unsupported: "不支持",
-    error: "失败",
-  };
-  return labels[status];
-}
-
 function findingRank(tone: HumanFinding["tone"]): number {
   return { attention: 0, info: 1, normal: 2 }[tone];
 }
@@ -1453,8 +1466,4 @@ function requiredElement<T extends HTMLElement>(id: string): T {
     throw new Error(`Missing required element: ${id}`);
   }
   return element as T;
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

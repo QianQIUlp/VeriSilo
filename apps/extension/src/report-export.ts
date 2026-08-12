@@ -1,6 +1,12 @@
 import type { ObservationReport } from "@verisilo/contracts";
 
 import { summarizeReport } from "./report-summary.js";
+import {
+  observedSignalName,
+  observedSignalSourceLabel,
+  observedSignalStatusLabel,
+  signalFailureLabel,
+} from "./ui-language.js";
 
 export function redactObservationReport(
   report: ObservationReport,
@@ -9,7 +15,7 @@ export function redactObservationReport(
     ...report,
     signals: report.signals.map((signal) =>
       signal.sensitivity === "high" && signal.value !== undefined
-        ? { ...signal, value: "[redacted by default]" }
+        ? { ...signal, value: "[默认隐藏]" }
         : signal,
     ),
   };
@@ -46,11 +52,13 @@ export function reportAsHtml(report: ObservationReport): string {
     .map(
       (signal) => `
         <tr>
-          <td>${escapeHtml(signal.id)}</td>
-          <td>${escapeHtml(signal.status)}</td>
-          <td>${escapeHtml(signal.source)}</td>
+          <td>${escapeHtml(observedSignalName(signal.id))}</td>
+          <td>${escapeHtml(observedSignalStatusLabel(signal.status))}</td>
+          <td>${escapeHtml(observedSignalSourceLabel(signal.source))}</td>
           <td><pre>${escapeHtml(
-            signal.error ?? JSON.stringify(signal.value) ?? "",
+            signal.status === "error" || signal.status === "unsupported"
+              ? signalFailureLabel(signal.error)
+              : (JSON.stringify(signal.value) ?? ""),
           )}</pre></td>
         </tr>`,
     )

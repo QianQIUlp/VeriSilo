@@ -27,7 +27,7 @@ const report: ObservationReport = {
 describe("report export", () => {
   it("redacts high-sensitivity signal values by default", () => {
     expect(redactObservationReport(report).signals[0]?.value).toBe(
-      "[redacted by default]",
+      "[默认隐藏]",
     );
   });
 
@@ -35,8 +35,10 @@ describe("report export", () => {
     const html = reportAsHtml(report);
     expect(html).not.toContain("<sensitive>");
     expect(html).toContain("关键浏览器信号");
-    expect(html).toContain("有限 observed 观测");
-    expect(html).toContain("不是 verified 身份证明");
+    expect(html).toContain("覆盖范围有限");
+    expect(html).toContain("不是身份认证");
+    expect(html).toContain("图形绘制特征摘要");
+    expect(html).not.toContain("canvas_hash");
     expect(html).toContain("技术数据（默认已脱敏）");
   });
 
@@ -59,6 +61,6 @@ describe("report export", () => {
     });
 
     expect(html).not.toContain(renderer);
-    expect(html).toContain("[redacted by default]");
+    expect(html).toContain("[默认隐藏]");
   });
 });

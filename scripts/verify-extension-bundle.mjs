@@ -10,14 +10,14 @@ const extensionPackage = JSON.parse(
   await readFile(resolve(root, "apps/extension/package.json"), "utf8"),
 );
 if (
-  manifest.version !== "0.2.6" ||
+  manifest.version !== "0.2.7" ||
   extensionPackage.version !== manifest.version
 ) {
   throw new Error(
     "Extension package and bundled manifest must use the current aligned version.",
   );
 }
-if (!manifest.description?.includes("Local browser signal observation")) {
+if (!manifest.description?.includes("查看当前网页可读取的浏览器信息")) {
   throw new Error(
     "Extension manifest must describe local observation without an isolation claim.",
   );
@@ -73,11 +73,12 @@ for (const requiredGuidance of [
   "普通浏览和多账号隔离不需要开启",
   "只有点击开启才会改变当前网页",
   "当前扩展不支持",
-  "结果是扩展侧 observed",
+  "结果只代表当前页面",
   "信号概览",
-  "每个 Standard Silo 使用独立 user-data-dir",
-  "设备与浏览器指纹继续跟随本机",
-  "不宣称指纹控制或 verified 身份",
+  "每个桌面身份使用独立浏览器资料目录",
+  "设备与浏览器特征继续跟随本机",
+  "不提供指纹控制",
+  "最近实验记录",
 ]) {
   if (!sidepanelHtml.includes(requiredGuidance)) {
     throw new Error(`Extension Labs guidance is missing: ${requiredGuidance}`);
@@ -89,6 +90,11 @@ for (const staleLabel of [
   "看懂并隔离你的浏览器身份",
   "桌面端 · 专用引擎",
   "桌面端 · 虚拟/远程环境",
+  "same_origin_blob_classic_only",
+  "late_or_unknown",
+  "extension observation",
+  "user-data-dir",
+  "Native Host",
 ]) {
   if (sidepanelHtml.includes(staleLabel)) {
     throw new Error(
