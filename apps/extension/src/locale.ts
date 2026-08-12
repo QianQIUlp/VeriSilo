@@ -35,6 +35,12 @@ const ENGLISH_TEXT: Record<string, string> = {
   扫描说明: "How scanning works",
   结果说明: "About this result",
   扫描边界: "Scan boundaries",
+  使用前须知: "Before you begin",
+  临时空间说明: "About private space",
+  桌面端说明: "About the desktop app",
+  技术说明: "Technical notes",
+  本机报告历史: "Local report history",
+  观察限制: "Observation limits",
   值得关注: "Worth reviewing",
   "从全部信号中提炼的解读，不是扫描进度":
     "Interpretation of all signals, not scan progress",

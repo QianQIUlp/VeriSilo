@@ -1075,6 +1075,15 @@ function renderFact(fact: HumanFact): HTMLDetailsElement {
   element.className = `fact${fact.id === "network" ? " network-fact" : ""}`;
   const summary = document.createElement("summary");
   summary.className = "fact-summary";
+  const summaryContent = document.createElement("span");
+  summaryContent.className = "fact-summary-content";
+  const iconShell = document.createElement("span");
+  iconShell.className = "fact-icon-shell";
+  iconShell.setAttribute("aria-hidden", "true");
+  const icon = document.createElement("img");
+  icon.className = "fact-icon";
+  icon.src = factIconPath(fact.id);
+  icon.alt = "";
   const summaryMain = document.createElement("span");
   summaryMain.className = "fact-summary-main";
   const label = document.createElement("span");
@@ -1090,8 +1099,10 @@ function renderFact(fact: HumanFact): HTMLDetailsElement {
   detail.textContent = fact.detail;
   const body = document.createElement("div");
   body.className = "fact-body";
+  iconShell.append(icon);
   summaryMain.append(label, value);
-  summary.append(summaryMain);
+  summaryContent.append(iconShell, summaryMain);
+  summary.append(summaryContent);
   body.append(detail);
   element.append(summary, body);
   if (fact.id === "network") {
@@ -1128,6 +1139,18 @@ function renderFact(fact: HumanFact): HTMLDetailsElement {
     body.append(badges, actions, disclosure);
   }
   return element;
+}
+
+function factIconPath(factId: string): string {
+  const icons: Record<string, string> = {
+    browser: "window",
+    region: "globe-alt",
+    network: "signal",
+    "site-state": "user",
+    display: "computer-desktop",
+    graphics: "cpu-chip",
+  };
+  return `icons/ui/${icons[factId] ?? "window"}.svg`;
 }
 
 function renderNetworkFactState(): void {

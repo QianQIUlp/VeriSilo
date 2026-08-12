@@ -77,6 +77,29 @@ for (const [sizeText, relativePath] of Object.entries(expectedIcons)) {
     );
   }
 }
+for (const iconName of [
+  "computer-desktop.svg",
+  "cpu-chip.svg",
+  "globe-alt.svg",
+  "signal.svg",
+  "user.svg",
+  "window.svg",
+]) {
+  const icon = await readFile(resolve(dist, "icons", "ui", iconName), "utf8");
+  if (!icon.includes('viewBox="0 0 24 24"') || !icon.includes("<path")) {
+    throw new Error(`Extension UI icon is invalid: icons/ui/${iconName}`);
+  }
+}
+const heroiconsLicense = await readFile(
+  resolve(dist, "icons", "ui", "HEROICONS-LICENSE.txt"),
+  "utf8",
+);
+if (
+  !heroiconsLicense.includes("MIT License") ||
+  !heroiconsLicense.includes("Copyright (c) Tailwind Labs, Inc.")
+) {
+  throw new Error("Bundled Heroicons license text is missing or incomplete.");
+}
 
 const sidepanelHtml = await readFile(resolve(dist, "sidepanel.html"), "utf8");
 const sidepanelJs = await readFile(resolve(dist, "sidepanel.js"), "utf8");
@@ -113,12 +136,20 @@ for (const requiredGuidance of [
   'class="scan-explanation"',
   'class="verdict-explanation"',
   '<details class="scope-note">',
+  'class="page-hero-head"',
+  'class="card capability-card capability-disclosure"',
+  'class="history-disclosure"',
+  'class="raw-limit"',
 ]) {
   if (!sidepanelHtml.includes(requiredGuidance)) {
     throw new Error(`Extension Labs guidance is missing: ${requiredGuidance}`);
   }
 }
-for (const requiredDisclosure of ["fact-summary", "finding-summary"]) {
+for (const requiredDisclosure of [
+  "fact-summary",
+  "finding-summary",
+  "icons/ui/",
+]) {
   if (!sidepanelJs.includes(requiredDisclosure)) {
     throw new Error(
       `Extension result summaries must preserve expandable details: ${requiredDisclosure}`,
