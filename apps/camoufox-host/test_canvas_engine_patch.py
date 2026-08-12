@@ -125,11 +125,11 @@ EXPECTED_BUILDER_IMAGE_BINDING = {
     "baseIndexDigest": BASE_INDEX_DIGEST,
     "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
     "buildxLogSha256": (
-        "ec5c12e2937adee761d565bb78cb8a46a29417193b88c4331c198ad485df301f"
+        "9c6e348eb9ad2164b00daf96bdc5ea7baedb48e44ced46247485357d6a5dcd48"
     ),
-    "buildxLogSizeBytes": 78146,
+    "buildxLogSizeBytes": 78272,
     "buildxMetadataSha256": (
-        "ee349e20d0239a115d56aa167c2b368d475a3996a3d46948407557ec4477b46e"
+        "351cae9f7eb1c4b1ea60f828aba5380818264369a8d2bf4478d3fceb5a6a6b93"
     ),
     "dockerfileSha256": (
         "ae3e28d39c2c996d0c70f6fbd4b182f4e1585eb79fd7fc662e50b158300e5e6d"
@@ -138,10 +138,10 @@ EXPECTED_BUILDER_IMAGE_BINDING = {
         "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
     ),
     "imageId": (
-        "sha256:24bfedc4c84ccbbf5b0fdad1c7ce8871594ff69f96a91ed5deea0075048be08b"
+        "sha256:5183cb1c8475b4bf263d78294ce06d553ab08d0f2684aab317f8df89bc0ad964"
     ),
     "imageInspectSha256": (
-        "4217fb964f0226c234ba1d1fed83ddff1b30b6d2e085e0a1c2642c1143efff54"
+        "11500c030374e33572db41488c6809015cd40812e598aee0eea8545d83631d35"
     ),
     "recipeSourceCommit": "8b8294fafd5d5d68088c05bc31def6044d6e0e69",
     "recipeSourceLockSha256": (
@@ -149,7 +149,7 @@ EXPECTED_BUILDER_IMAGE_BINDING = {
     ),
     "recipeSourceTree": "99d16659c7e247875076c0e47df3f8f7be3a4564",
     "savedArchiveSha256": (
-        "9765c6a229e94c9ac0e9a0ce03bb0f5829761c6210f23df5848ab249938ca42b"
+        "e16596f3257ef38f3fcec5f2e8370995cccd184d59b2335e17048fe3f1aa3bfc"
     ),
     "savedArchiveSizeBytes": 483575808,
 }
