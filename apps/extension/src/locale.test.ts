@@ -44,6 +44,12 @@ describe("bilingual UI copy", () => {
     ).toContain("Confirmed 1/2 settings");
   });
 
+  it("translates every segment of a composite device summary", () => {
+    expect(
+      translateUiText("1707 × 960 · 1.5× 缩放 · 16 GB 内存 · 4 线程", "en"),
+    ).toBe("1707 × 960 · 1.5× scale · 16 GB memory · 4 threads");
+  });
+
   it("keeps Chinese copy unchanged when Chinese is selected", () => {
     expect(translateUiText("网络检查", "zh-CN")).toBe("网络检查");
   });
