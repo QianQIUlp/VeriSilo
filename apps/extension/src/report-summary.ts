@@ -48,7 +48,7 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
       id: "browser",
       label: "浏览器与系统",
       value: `${browserLabel(userAgent)} · ${systemLabel(userAgent, platform, bitness)}`,
-      detail: "网站会用它判断兼容性，也会把它作为身份组合的一部分。",
+      detail: "当前页面可读取这些值；扩展只做 observed 观测，不控制或验证它们。",
     },
     {
       id: "region",
@@ -69,7 +69,7 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
       label: "登录与站点数据",
       value: siteStateLabel(storageValue),
       detail:
-        "同一普通浏览器环境中的 Cookie 和站点存储会继续关联访问；Chrome 无痕 / Edge InPrivate 可提供一个临时边界。",
+        "同一普通浏览器环境中的 Cookie 和站点存储会继续关联访问；隐私窗口只提供一个临时边界，长期分离需独立 Silo Profile。",
     },
     {
       id: "display",
@@ -132,7 +132,8 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
       tone: "info",
       title: "页面可读取较强的设备特征",
       detail: `本次可见：${exposedSignals.join("、")}。它们不等于泄漏了真实姓名，但可用于关联多次访问。`,
-      action: "需要更强隔离时使用独立 VeriSilo 桌面环境。",
+      action:
+        "独立 Standard Silo 可分开网站状态，但设备与指纹仍跟随本机。",
     });
   }
 
@@ -172,8 +173,10 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
   const hasAttention = findings.some((finding) => finding.tone === "attention");
   return {
     tone: hasAttention ? "attention" : "normal",
-    headline: hasAttention ? "有几项值得你处理" : "当前身份组合未发现明显矛盾",
-    description: `已采集 ${report.signals.length} 组浏览器信号，并提炼成 ${findings.length} 条解读；其余原始值保留在“技术数据”。`,
+    headline: hasAttention
+      ? "当前页面观测有几项值得关注"
+      : "当前页面观测未发现明显矛盾",
+    description: `已从当前页面采集 ${report.signals.length} 组浏览器信号，并提炼成 ${findings.length} 条解读；这是有限 observed 观测，不是 verified 身份证明。`,
     facts,
     findings,
   };

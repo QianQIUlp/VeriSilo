@@ -59,7 +59,7 @@ export function reportAsHtml(report: ObservationReport): string {
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8">
-    <title>VeriSilo 本地身份观察报告</title>
+    <title>VeriSilo 本地浏览器信号观测报告</title>
     <style>
       body { max-width: 960px; font-family: system-ui, sans-serif; margin: 2rem auto; padding: 0 1rem; color: #172036; background: #f6f7fb; }
       header, section, details { border: 1px solid #e1e6ef; border-radius: 1rem; padding: 1.25rem; margin-bottom: 1rem; background: white; }
@@ -83,7 +83,7 @@ export function reportAsHtml(report: ObservationReport): string {
       <div class="meta">网站：${escapeHtml(safeReport.origin)} · 采集：${escapeHtml(safeReport.collectedAt)}</div>
     </header>
     <section>
-      <h2>关键身份</h2>
+      <h2>关键浏览器信号</h2>
       <div class="facts">${facts}</div>
     </section>
     <section>

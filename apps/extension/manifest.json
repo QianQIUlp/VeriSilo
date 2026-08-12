@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "VeriSilo Companion",
-  "version": "0.2.5",
-  "description": "Browser identity checks, opt-in network verification, and lightweight local isolation for VeriSilo.",
+  "version": "0.2.6",
+  "description": "Local browser signal observation, opt-in network checks, and temporary privacy tools for VeriSilo.",
   "icons": {
     "16": "icons/verisilo-16.png",
     "32": "icons/verisilo-32.png",
@@ -10,7 +10,7 @@
     "128": "icons/verisilo-128.png"
   },
   "action": {
-    "default_title": "Open VeriSilo",
+    "default_title": "Open VeriSilo Companion",
     "default_icon": {
       "16": "icons/verisilo-16.png",
       "32": "icons/verisilo-32.png",

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -6,6 +6,22 @@ const dist = resolve(root, "apps/extension/dist");
 const manifest = JSON.parse(
   await readFile(resolve(dist, "manifest.json"), "utf8"),
 );
+const extensionPackage = JSON.parse(
+  await readFile(resolve(root, "apps/extension/package.json"), "utf8"),
+);
+if (
+  manifest.version !== "0.2.6" ||
+  extensionPackage.version !== manifest.version
+) {
+  throw new Error(
+    "Extension package and bundled manifest must use the current aligned version.",
+  );
+}
+if (!manifest.description?.includes("Local browser signal observation")) {
+  throw new Error(
+    "Extension manifest must describe local observation without an isolation claim.",
+  );
+}
 
 const expectedIcons = Object.fromEntries(
   [16, 32, 48, 128].map((size) => [String(size), `icons/verisilo-${size}.png`]),
@@ -36,6 +52,10 @@ for (const [sizeText, relativePath] of Object.entries(expectedIcons)) {
 }
 
 const sidepanelHtml = await readFile(resolve(dist, "sidepanel.html"), "utf8");
+const bundledFiles = await readdir(dist, { recursive: true });
+if (bundledFiles.some((file) => file.endsWith(".map"))) {
+  throw new Error("Extension release/test bundle must not ship source maps.");
+}
 const isolationPanel = sidepanelHtml.match(
   /<section[^>]+id="panel-isolation"[\s\S]*?<\/section>/u,
 )?.[0];
@@ -53,12 +73,23 @@ for (const requiredGuidance of [
   "普通浏览和多账号隔离不需要开启",
   "只有点击开启才会改变当前网页",
   "当前扩展不支持",
+  "结果是扩展侧 observed",
+  "信号概览",
+  "每个 Standard Silo 使用独立 user-data-dir",
+  "设备与浏览器指纹继续跟随本机",
+  "不宣称指纹控制或 verified 身份",
 ]) {
   if (!sidepanelHtml.includes(requiredGuidance)) {
     throw new Error(`Extension Labs guidance is missing: ${requiredGuidance}`);
   }
 }
-for (const staleLabel of ["不可选 · unsupported", "V0.7 路线"]) {
+for (const staleLabel of [
+  "不可选 · unsupported",
+  "V0.7 路线",
+  "看懂并隔离你的浏览器身份",
+  "桌面端 · 专用引擎",
+  "桌面端 · 虚拟/远程环境",
+]) {
   if (sidepanelHtml.includes(staleLabel)) {
     throw new Error(
       `Extension bundle still exposes stale UI copy: ${staleLabel}`,

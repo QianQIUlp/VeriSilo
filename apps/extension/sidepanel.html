@@ -1116,7 +1116,7 @@
           />
           <div>
             <h1>VeriSilo</h1>
-            <p>看懂并隔离你的浏览器身份</p>
+            <p>观察当前浏览器，长期状态交给独立 Silo</p>
           </div>
         </div>
         <span class="local-pill">仅本机</span>
@@ -1134,7 +1134,7 @@
           aria-controls="panel-overview"
           data-tab="overview"
         >
-          身份概览
+          信号概览
         </button>
         <button
           class="tab"
@@ -1145,7 +1145,7 @@
           aria-controls="panel-isolation"
           data-tab="isolation"
         >
-          轻量隔离
+          临时空间
         </button>
         <button
           class="tab"
@@ -1179,10 +1179,11 @@
           data-panel="overview"
         >
           <article class="card scan-card">
-            <p class="eyebrow">当前网页</p>
-            <h2>网站眼中的你</h2>
+            <p class="eyebrow">当前页面观测</p>
+            <h2>网站当前能读取什么</h2>
             <p>
-              提取最影响账号关联、地区一致性和设备识别的内容。页面扫描与报告默认留在本机；网络检查只有点击后才会联网。
+              提取可能参与账号关联、地区一致性和设备识别的信号。结果是扩展侧 observed
+              观测，不是 verified 身份证明；页面报告默认留在本机，网络检查只有点击后才会联网。
             </p>
             <div class="button-row">
               <button class="button primary" id="scan" type="button">
@@ -1229,7 +1230,7 @@
                   ✓
                 </div>
                 <div>
-                  <h2 id="summary-headline">当前身份组合</h2>
+                  <h2 id="summary-headline">当前页面观测</h2>
                   <p id="summary-description"></p>
                 </div>
               </div>
@@ -1243,8 +1244,8 @@
             <article class="card section-card">
               <div class="section-title">
                 <div>
-                  <h2>你的关键身份</h2>
-                  <p>大多数用户首先需要确认的六组信息</p>
+                  <h2>关键浏览器信号</h2>
+                  <p>当前页面能够读取的六组信息</p>
                 </div>
                 <span class="count-pill">重点</span>
               </div>
@@ -1263,7 +1264,8 @@
             </article>
 
             <div class="scope-note">
-              本次扫描没有发现矛盾，不等于网站无法识别你。网站还可能结合网络出口、TLS/QUIC、行为和账号关系；这些不在扩展的完整控制范围内。
+              本次扫描没有发现矛盾，不等于网站无法识别或关联你。扩展只观察有限页面信号，
+              不控制指纹；网站还可能结合网络出口、TLS/QUIC、行为和账号关系。
             </div>
           </div>
         </section>
@@ -1282,7 +1284,7 @@
               实验室面向需要排查网站兼容性或身份泄漏的高级用户。只有你手动开启后，
               它才会在当前网站放入一个不含账号或个人信息的一次性随机测试标记，
               检查页面、内嵌页面和开启后新建的后台任务之间是否异常传播。
-              普通浏览和多账号隔离不需要开启，请使用“身份概览”或桌面 Silo。
+              普通浏览和多账号隔离不需要开启，请使用“信号概览”或桌面 Silo。
             </p>
             <div class="labs-basics">
               <div class="labs-basic">
@@ -1429,13 +1431,14 @@
           hidden
         >
           <article class="card isolation-hero">
-            <p class="eyebrow">浏览器原生边界</p>
-            <h2>先开一个临时隔离登录空间</h2>
+            <p class="eyebrow">浏览器原生临时边界</p>
+            <h2>打开一个临时隐私窗口</h2>
             <p>
               Chrome 无痕 / Edge InPrivate 与普通窗口的 Cookie、LocalStorage、
-              IndexedDB、缓存和 Service Worker 分开，适合临时登录另一个账号。
+              IndexedDB、缓存和 Service Worker 分开，适合临时登录。它不是长期 Silo，
+              也不能创建多个任意 Cookie 容器；全部隐私窗口共享浏览器的同一个临时上下文。
             </p>
-            <div class="reliable-line">可靠：由浏览器自身隔离网站数据</div>
+            <div class="reliable-line">native：由浏览器自身提供临时网站数据边界</div>
             <button class="button primary" id="open-private" type="button">
               用当前网站打开隐私窗口
             </button>
@@ -1484,71 +1487,61 @@
             <article class="card capability-card">
               <div class="capability-head">
                 <div>
-                  <h3>扩展与桌面端的隔离能力</h3>
+                  <h3>扩展与 Standard Silo 的能力边界</h3>
                   <p>
-                    扩展能直接完成什么；其余能力从 VeriSilo
-                    桌面端进入，是否可用取决于已配置的环境。
+                    扩展只做观测和临时工具；长期 Profile 隔离由 VeriSilo 桌面端完成。
                   </p>
                 </div>
               </div>
               <div class="capability-table">
                 <div class="capability-row">
-                  <span class="capability-name">临时登录状态</span>
+                  <span class="capability-name">临时登录空间</span>
                   <span class="capability-explanation"
-                    >普通窗口与一个浏览器隐私空间分开</span
+                    >隐私窗口与普通窗口分开；全部隐私窗口共享一个临时上下文</span
                   >
-                  <span class="badge reliable">可用</span>
+                  <span class="badge reliable">native · 临时</span>
                 </div>
                 <div class="capability-row">
-                  <span class="capability-name">多账户 Cookie 容器</span>
+                  <span class="capability-name">长期网站状态</span>
                   <span class="capability-explanation"
-                    >Chromium 扩展不能创建任意独立 Cookie 仓库</span
+                    >每个 Standard Silo 使用独立 user-data-dir 保存 Cookie、LocalStorage 和 IndexedDB</span
                   >
-                  <span class="badge desktop">桌面端 · Silo</span>
+                  <span class="badge desktop">native · Silo</span>
                 </div>
                 <div class="capability-row">
-                  <span class="capability-name">站点完整数据</span>
+                  <span class="capability-name">页面信号扫描</span>
                   <span class="capability-explanation"
-                    >LocalStorage、IndexedDB、缓存和 Service Worker 需独立
-                    Profile</span
+                    >只表示当前页面通道观测到的值，不是独立进程或身份验证</span
                   >
-                  <span class="badge desktop">桌面端 · Silo</span>
+                  <span class="badge best-effort">observed · 有限</span>
                 </div>
                 <div class="capability-row">
-                  <span class="capability-name">UA / 语言 / 时区</span>
+                  <span class="capability-name">设备与浏览器指纹</span>
                   <span class="capability-explanation"
-                    >扩展修改覆盖不完整；需由桌面端配置的专用引擎协调</span
+                    >Standard Silo 跟随这台电脑和系统 Chrome / Edge</span
                   >
-                  <span class="badge engine">桌面端 · 专用引擎</span>
+                  <span class="badge engine">inherit</span>
                 </div>
                 <div class="capability-row">
-                  <span class="capability-name">Canvas / 显卡 / 字体</span>
+                  <span class="capability-name">受控指纹</span>
                   <span class="capability-explanation"
-                    >需桌面端配置专用引擎；虚拟环境可提供更强系统边界</span
+                    >扩展和 Standard Silo 均不提供受控指纹能力</span
                   >
-                  <span class="badge engine">桌面端 · 引擎/虚拟环境</span>
+                  <span class="badge engine">unavailable</span>
                 </div>
                 <div class="capability-row">
-                  <span class="capability-name">QUIC / HTTP/3</span>
+                  <span class="capability-name">网络检查</span>
                   <span class="capability-explanation"
-                    >扩展不能控制；需由桌面端配置的网络环境启动并验证</span
+                    >仅在用户点击后观察当前浏览器出口；交给活动 Silo 后仍是 extension observation</span
                   >
-                  <span class="badge engine">桌面端 · 网络环境</span>
+                  <span class="badge best-effort">observed · 主动</span>
                 </div>
                 <div class="capability-row">
-                  <span class="capability-name">TLS 指纹</span>
+                  <span class="capability-name">TLS / QUIC / 实际 DNS 路径</span>
                   <span class="capability-explanation"
-                    >独立 Profile
-                    不改变网络栈，需桌面端配置专用引擎或远端栈</span
+                    >当前扩展不控制，也不把公共 DoH 答案对比当成实际路径证明</span
                   >
-                  <span class="badge engine">桌面端 · 专用/远程网络栈</span>
-                </div>
-                <div class="capability-row">
-                  <span class="capability-name">真实硬件 / 操作系统</span>
-                  <span class="capability-explanation"
-                    >字段改写不等于设备变化，需桌面端配置虚拟、远程或真实环境</span
-                  >
-                  <span class="badge vm">桌面端 · 虚拟/远程环境</span>
+                  <span class="badge engine">unavailable</span>
                 </div>
               </div>
             </article>
@@ -1558,8 +1551,8 @@
             <div>
               <h3>需要多个长期账号身份？</h3>
               <p>
-                VeriSilo 桌面端用独立 user-data-dir
-                分开全部网站数据，并可按需接入专用引擎、虚拟或远程环境。
+                Standard Silo 用独立 user-data-dir 分开并持久保存网站数据；
+                设备与浏览器指纹继续跟随本机，不宣称指纹控制或 verified 身份。
               </p>
             </div>
             <div class="button-row">
@@ -1588,7 +1581,7 @@
             <p class="eyebrow">高级信息</p>
             <h2>原始信号与报告导出</h2>
             <p>
-              这里保留给开发者核对证据。日常使用只需查看“身份概览”；导出时会默认隐藏高敏感值。
+              这里保留给开发者核对证据。日常使用只需查看“信号概览”；导出时会默认隐藏高敏感值。
             </p>
             <div class="button-row">
               <button

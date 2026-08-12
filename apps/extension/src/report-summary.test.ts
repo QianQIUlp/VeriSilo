@@ -117,6 +117,9 @@ describe("human-readable report summary", () => {
     expect(summary.facts[1]?.value).toContain("Asia/Singapore");
     expect(summary.description).toContain(`${report.signals.length} 组`);
     expect(summary.description).toContain("条解读");
+    expect(summary.description).toContain("有限 observed 观测");
+    expect(summary.description).toContain("不是 verified 身份证明");
+    expect(summary.facts[0]?.detail).toContain("不控制或验证");
     expect(summary.facts.find((fact) => fact.id === "network")?.value).toBe(
       "本次未验证",
     );
@@ -126,6 +129,11 @@ describe("human-readable report summary", () => {
     expect(summary.facts.find((fact) => fact.id === "graphics")?.value).toBe(
       "NVIDIA GeForce RTX 4060 Laptop GPU",
     );
+    expect(
+      summary.findings.find(
+        (finding) => finding.id === "high-entropy-signals-visible",
+      )?.action,
+    ).toContain("设备与指纹仍跟随本机");
   });
 
   it("surfaces exposed media labels as an actionable warning", () => {

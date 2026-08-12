@@ -1,6 +1,6 @@
 # Store disclosure draft
 
-**Primary purpose:** VeriSilo Companion locally verifies the browser environment created by the VeriSilo desktop application and explains browser privacy signals on pages the user explicitly scans.
+**Primary purpose:** VeriSilo Companion locally observes and explains browser signals on pages the user explicitly scans. These results are extension-side observations, not verified browser identity or fingerprint-control claims.
 
 The extension can also open the current site in a private window. This uses the browser's regular-versus-private website-data boundary; it does not create arbitrary account containers, and all private windows share the same temporary private context.
 
@@ -13,4 +13,4 @@ The extension can also open the current site in a private window. This uses the 
 - Optional privacy controls are requested only when the user explicitly enables them. They reversibly restrict WebRTC non-proxied UDP and network prediction, apply to the browser context rather than one account or tab, and are verified before the UI reports them as active.
 - Reports export only after an explicit confirmation, and high-sensitivity signal values are redacted by default.
 - The public-DNS comparison does not inspect the browser, proxy, operating-system, router, or ISP resolver and is not presented as DNS leak detection or proof that local DNS is free from interception. IP reputation and blacklist status are not scored in this version.
-- The companion works without the desktop application; in that case Native Messaging handoff fails locally and the network result remains only in extension session storage. Its desktop-project button opens VeriSilo's public project page. Long-lived environment isolation itself is performed by the separately installed desktop application.
+- The companion works without the desktop application; in that case Native Messaging handoff fails locally and the network result remains only in extension session storage. Its desktop-project button opens VeriSilo's public project page. Long-lived website-state isolation is performed by a separately installed Standard Silo desktop application using a per-Silo browser Profile. Standard Silo inherits the native device and browser fingerprint and does not claim controlled or verified identity.

@@ -34,7 +34,9 @@ describe("report export", () => {
   it("escapes report values in the HTML export", () => {
     const html = reportAsHtml(report);
     expect(html).not.toContain("<sensitive>");
-    expect(html).toContain("关键身份");
+    expect(html).toContain("关键浏览器信号");
+    expect(html).toContain("有限 observed 观测");
+    expect(html).toContain("不是 verified 身份证明");
     expect(html).toContain("技术数据（默认已脱敏）");
   });
 

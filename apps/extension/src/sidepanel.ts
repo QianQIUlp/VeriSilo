@@ -692,7 +692,7 @@ async function openDesktop(): Promise<void> {
     if (response.desktopOpened !== true) {
       showNotice(
         "error",
-        "未检测到可用的 VeriSilo 桌面端或 Native Host。插件仍可独立扫描；安装并启动桌面端后再重试。",
+        "未检测到已注册的 VeriSilo Native Host。扩展仍可独立扫描和使用临时工具；桌面联动只在另行安装并注册兼容 Host 后可用。",
       );
       return;
     }
