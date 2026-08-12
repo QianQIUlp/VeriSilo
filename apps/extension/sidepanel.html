@@ -997,6 +997,13 @@
         line-height: 1.28;
       }
 
+      .labs-intro {
+        margin: 13px 0 0;
+        color: #4f5970;
+        font-size: 11.5px;
+        line-height: 1.58;
+      }
+
       .labs-warning > p:not(.eyebrow) {
         margin: 0;
         color: var(--muted);
@@ -1044,6 +1051,98 @@
         background: #ffead5;
         font-size: 10px;
         font-weight: 850;
+        line-height: 1.5;
+      }
+
+      .capability-summary-copy {
+        display: grid;
+        min-width: 0;
+        gap: 3px;
+      }
+
+      .capability-summary-description {
+        color: var(--muted);
+        font-size: 10.5px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+
+      .labs-action-guide {
+        display: grid;
+        gap: 7px;
+        margin: 11px 0 12px;
+        border: 1px solid #e3e4ff;
+        border-radius: 11px;
+        padding: 10px 11px;
+        color: #5556a8;
+        background: #f7f7ff;
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+
+      .labs-action-guide strong {
+        color: #3536aa;
+      }
+
+      .labs-action-guide > span {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 4px;
+      }
+
+      .labs-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+      }
+
+      .labs-action {
+        display: grid;
+        align-content: start;
+        gap: 6px;
+      }
+
+      .labs-action .button {
+        width: 100%;
+      }
+
+      .labs-action-note {
+        color: var(--muted);
+        font-size: 9.5px;
+        line-height: 1.45;
+      }
+
+      .labs-boundary-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .labs-boundary-item + .labs-boundary-item {
+        border-top: 1px solid #edf0f5;
+        padding-top: 12px;
+      }
+
+      .labs-boundary-item h4 {
+        margin: 0 0 5px;
+        color: var(--ink);
+        font-size: 11.5px;
+      }
+
+      .labs-boundary-item p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.55;
+      }
+
+      .labs-boundary-item .labs-evidence {
+        margin-top: 7px;
+      }
+
+      .labs-receipt-note {
+        margin: 0 0 9px;
+        color: var(--muted);
+        font-size: 10.5px;
         line-height: 1.5;
       }
 
@@ -1360,6 +1459,10 @@
           padding-left: 64px;
         }
 
+        .labs-actions {
+          grid-template-columns: 1fr;
+        }
+
         .capability-row {
           grid-template-columns: 1fr auto;
         }
@@ -1577,12 +1680,16 @@
                 <img src="icons/ui/signal.svg" alt="" />
               </span>
               <div>
-                <p class="eyebrow">高级诊断工具 · 默认关闭</p>
-                <h2>临时检查网页是否泄漏身份标记</h2>
+                <p class="eyebrow">网页泄漏实验 · 默认不运行</p>
+                <h2>看看一次性测试标记会不会跑到别处</h2>
               </div>
             </div>
+            <p class="labs-intro">
+              点击开始后，扩展会在当前站点放入一个不含账号信息的随机测试标记，
+              再观察它是否意外出现在同站内嵌页面或之后新建的网页后台任务中。不会读取登录内容。
+            </p>
             <details class="page-explanation">
-              <summary>使用前须知</summary>
+              <summary>风险、范围与自动恢复</summary>
               <div class="page-explanation-body">
                 <p>
                   实验室面向需要排查网站兼容性或身份泄漏的高级用户。只有你手动开启后，
@@ -1613,44 +1720,75 @@
           </article>
 
           <div class="capability-stack">
-            <details class="card capability-card capability-disclosure">
+            <details class="card capability-card capability-disclosure" open>
               <summary class="capability-summary">
                 <span class="capability-summary-row">
-                  <span class="capability-summary-title"
-                    >网页后台任务一致性</span
-                  >
-                  <span class="badge best-effort">有限覆盖</span>
+                  <span class="capability-summary-copy">
+                    <span class="capability-summary-title"
+                      >运行当前站点测试</span
+                    >
+                    <span class="capability-summary-description"
+                      >加入随机标记，观察它是否传播到有限的页面环境</span
+                    >
+                  </span>
+                  <span class="badge best-effort">可运行 · 最长 2 分钟</span>
                 </span>
               </summary>
               <div class="capability-body">
                 <p>
-                  检查开启实验后新建的网页后台任务和同站内嵌页面，是否意外
-                  读到同一个随机测试标记。受浏览器限制，这项检查只能覆盖部分场景。
+                  这项测试检查同站内嵌页面和开始后新建的部分网页后台任务，
+                  是否意外读到同一个随机标记。受浏览器限制，它不能覆盖所有脚本或后台任务。
                 </p>
                 <div class="control-status">
                   <span class="status-chip neutral" id="labs-worker-status"
-                    >默认关闭</span
+                    >当前：未运行</span
                   >
                 </div>
                 <p class="labs-scope" id="labs-scope">
-                  尚未为当前网站开启实验。
+                  当前网页没有加入测试标记。
                 </p>
-                <p class="labs-evidence" id="labs-evidence">尚无实验记录。</p>
-                <div class="button-row">
-                  <button class="button primary" id="labs-enable" type="button">
-                    为当前站点开启 2 分钟
-                  </button>
-                  <button
-                    class="button secondary"
-                    id="labs-stop"
-                    type="button"
-                    disabled
+                <p class="labs-evidence" id="labs-evidence">
+                  开始后会检查：同站内嵌页面，以及开始后新建的部分网页后台任务。
+                </p>
+                <div class="labs-action-guide">
+                  <span
+                    ><strong>开始测试：</strong
+                    >临时加入随机标记并开始观察，最长运行 2 分钟。</span
                   >
-                    立即恢复并停用
-                  </button>
+                  <span
+                    ><strong>结束并恢复：</strong
+                    >提前结束本次测试并撤销临时改动；不会清除登录状态或网站数据。</span
+                  >
+                </div>
+                <div class="labs-actions">
+                  <div class="labs-action">
+                    <button
+                      class="button primary"
+                      id="labs-enable"
+                      type="button"
+                    >
+                      开始 2 分钟测试
+                    </button>
+                    <span class="labs-action-note"
+                      >可能请求当前站点权限；只对当前站点生效。</span
+                    >
+                  </div>
+                  <div class="labs-action">
+                    <button
+                      class="button secondary"
+                      id="labs-stop"
+                      type="button"
+                      disabled
+                    >
+                      结束测试并恢复网页
+                    </button>
+                    <span class="labs-action-note"
+                      >仅在测试运行时可用，不删除 Cookie 或本机记录。</span
+                    >
+                  </div>
                 </div>
                 <details class="permission-help">
-                  <summary>覆盖范围与停止条件</summary>
+                  <summary>这项测试能看到什么、何时会自动停止</summary>
                   <ul class="labs-stop-list">
                     <li>只覆盖开启检查后新建的部分同站网页后台任务。</li>
                     <li>
@@ -1671,58 +1809,67 @@
             <details class="card capability-card capability-disclosure">
               <summary class="capability-summary">
                 <span class="capability-summary-row">
-                  <span class="capability-summary-title"
-                    >为网站数据创建独立空间</span
-                  >
-                  <span class="badge unsupported">当前扩展不支持</span>
+                  <span class="capability-summary-copy">
+                    <span class="capability-summary-title"
+                      >这不是账号隔离功能</span
+                    >
+                    <span class="capability-summary-description"
+                      >不会创建独立登录空间，也不会拦截全部网站数据</span
+                    >
+                  </span>
+                  <span class="badge unsupported">能力边界</span>
                 </span>
               </summary>
               <div class="capability-body">
-                <p>
-                  浏览器扩展无法可靠分开网站的全部登录信息、存储和后台任务。
-                  实验室只观察页面可见的随机测试标记，不读取或改写登录内容。
-                </p>
-                <p class="labs-evidence">
-                  可用替代：桌面端为每个身份创建独立浏览器资料目录，
-                  由浏览器分开登录信息、网站数据、权限和后台任务。
-                </p>
+                <div class="labs-boundary-list">
+                  <div class="labs-boundary-item">
+                    <h4>当前扩展不支持创建独立登录空间</h4>
+                    <p>
+                      浏览器扩展无法可靠分开网站的全部登录信息、存储和后台任务。
+                      实验室只观察页面可见的随机测试标记，不读取或改写登录内容。
+                    </p>
+                    <p class="labs-evidence">
+                      可用替代：桌面端为每个身份创建独立浏览器资料目录，
+                      由浏览器分开登录信息、网站数据、权限和后台任务。
+                    </p>
+                  </div>
+                  <div class="labs-boundary-item">
+                    <h4>当前扩展不支持拦截所有网站数据写入</h4>
+                    <p>
+                      当前扩展不会拦截或改写网站的全部网络响应，也不会申请永久访问所有网站。
+                    </p>
+                    <p class="labs-evidence">
+                      需要网络层控制时，应使用专门的受控环境；桌面端的独立浏览器资料目录
+                      是当前可靠的网站数据边界。
+                    </p>
+                  </div>
+                </div>
               </div>
             </details>
 
             <details class="card capability-card capability-disclosure">
               <summary class="capability-summary">
                 <span class="capability-summary-row">
-                  <span class="capability-summary-title"
-                    >拦截所有网站数据写入</span
-                  >
-                  <span class="badge unsupported">当前扩展不支持</span>
+                  <span class="capability-summary-copy">
+                    <span class="capability-summary-title">最近测试记录</span>
+                    <span class="capability-summary-description"
+                      >只保存脱敏结果，不保存随机测试标记或登录内容</span
+                    >
+                  </span>
+                  <span class="badge desktop">仅本机</span>
                 </span>
               </summary>
               <div class="capability-body">
-                <p>
-                  当前扩展不会拦截或改写网站的全部网络响应，也不会申请永久访问所有网站。
+                <p class="labs-receipt-note">
+                  清除记录只删除本机保存的脱敏测试结果，不会改变网页、站点权限或登录状态。
                 </p>
-                <p class="labs-evidence">
-                  需要网络层控制时，应使用专门的受控环境；桌面端的独立浏览器资料目录
-                  是当前可靠的网站数据边界。
-                </p>
-              </div>
-            </details>
-
-            <details class="card capability-card capability-disclosure">
-              <summary class="capability-summary">
-                <span class="capability-summary-row">
-                  <span class="capability-summary-title">最近实验记录</span>
-                </span>
-              </summary>
-              <div class="capability-body">
                 <p id="labs-receipt-status">正在读取本机脱敏实验记录…</p>
                 <button
                   class="button subtle"
                   id="labs-clear-receipts"
                   type="button"
                 >
-                  清除记录
+                  清除本机测试记录
                 </button>
                 <div
                   class="labs-receipt-list"

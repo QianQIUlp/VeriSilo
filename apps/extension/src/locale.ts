@@ -48,8 +48,15 @@ const ENGLISH_TEXT: Record<string, string> = {
   "本次扫描没有发现矛盾，不等于网站无法识别或关联你。扩展只观察有限页面信号， 不控制指纹；网站还可能结合网络出口、底层网络协议、行为和账号关系。":
     "No conflict found in this scan does not mean the site cannot recognize or link you. The extension observes a limited set of page signals and does not control fingerprints; sites may also use network egress, lower-level protocols, behavior, and account relationships.",
   "高级诊断工具 · 默认关闭": "Advanced diagnostic tool · Off by default",
+  "网页泄漏实验 · 默认不运行": "Page-leak experiment · Not running by default",
   临时检查网页是否泄漏身份标记:
     "Temporarily check whether a page leaks an identity marker",
+  看看一次性测试标记会不会跑到别处:
+    "See whether a one-time test marker spreads elsewhere",
+  "点击开始后，扩展会在当前站点放入一个不含账号信息的随机测试标记， 再观察它是否意外出现在同站内嵌页面或之后新建的网页后台任务中。不会读取登录内容。":
+    "After you start, the extension places a random test marker containing no account information on the current site, then watches whether it appears unexpectedly in same-site embedded pages or web background tasks created afterward. It does not read sign-in content.",
+  风险范围与自动恢复: "Risk, coverage, and automatic restoration",
+  "风险、范围与自动恢复": "Risk, coverage, and automatic restoration",
   "实验室面向需要排查网站兼容性或身份泄漏的高级用户。只有你手动开启后， 它才会在当前网站放入一个不含账号或个人信息的一次性随机测试标记， 检查页面、内嵌页面和开启后新建的后台任务之间是否异常传播。 普通浏览和多账号隔离不需要开启，请使用“信号概览”或桌面 Silo。":
     "Labs is for advanced users investigating site compatibility or identity leakage. Only after you enable it does VeriSilo place a one-time random test marker containing no account or personal data on the current site, then check whether it spreads unexpectedly between the page, embedded pages, and newly created background tasks. Normal browsing and multi-account separation do not require Labs; use Overview or a desktop Silo.",
   默认不运行: "Off by default",
@@ -61,6 +68,40 @@ const ENGLISH_TEXT: Record<string, string> = {
   "可能让当前网站短暂异常。开启前请保存正在编辑的内容；发现异常、 权限变化或测试标记泄漏时会立即停止并恢复。没有桌面连接时不会保存实验授权。":
     "This may briefly disrupt the current site. Save any edits before enabling it. VeriSilo stops and restores the page immediately if it detects an error, a permission change, or test-marker leakage. Experiment authorization is not saved without a desktop connection.",
   网页后台任务一致性: "Web background-task consistency",
+  运行当前站点测试: "Run a test on this site",
+  加入随机标记观察它是否传播到有限的页面环境:
+    "Add a random marker and observe whether it spreads to a limited set of page environments",
+  "加入随机标记，观察它是否传播到有限的页面环境":
+    "Add a random marker and observe whether it spreads to a limited set of page environments",
+  "可运行 · 最长 2 分钟": "Available · Up to 2 minutes",
+  "这项测试检查同站内嵌页面和开始后新建的部分网页后台任务， 是否意外读到同一个随机标记。受浏览器限制，它不能覆盖所有脚本或后台任务。":
+    "This test checks whether same-site embedded pages or some web background tasks created after the test starts unexpectedly read the same random marker. Browser limits prevent it from covering every script or background task.",
+  未运行: "Not running",
+  当前网页没有加入测试标记: "No test marker has been added to this page.",
+  "当前网页没有加入测试标记。": "No test marker has been added to this page.",
+  "开始后会检查：同站内嵌页面，以及开始后新建的部分网页后台任务。":
+    "After starting, VeriSilo checks same-site embedded pages and some web background tasks created after the test begins.",
+  开始测试: "Start test",
+  "开始测试：": "Start test:",
+  临时加入随机标记并开始观察最长运行2分钟:
+    "Temporarily add a random marker and begin observing for up to 2 minutes.",
+  "临时加入随机标记并开始观察，最长运行 2 分钟。":
+    "Temporarily add a random marker and begin observing for up to 2 minutes.",
+  结束并恢复: "End and restore",
+  "结束并恢复：": "End and restore:",
+  "提前结束本次测试并撤销临时改动；不会清除登录状态或网站数据。":
+    "End this test early and undo its temporary changes. This does not clear sign-in state or site data.",
+  开始2分钟测试: "Start 2-minute test",
+  "开始 2 分钟测试": "Start 2-minute test",
+  "可能请求当前站点权限；只对当前站点生效。":
+    "May request permission for the current site; affects only this site.",
+  结束测试并恢复网页: "End test and restore page",
+  "仅在测试运行时可用，不删除 Cookie 或本机记录。":
+    "Available only while the test is running; does not delete cookies or local records.",
+  这项测试能看到什么何时会自动停止:
+    "What this test can see and when it stops automatically",
+  "这项测试能看到什么、何时会自动停止":
+    "What this test can see and when it stops automatically",
   "检查开启实验后新建的网页后台任务和同站内嵌页面，是否意外 读到同一个随机测试标记。受浏览器限制，这项检查只能覆盖部分场景。":
     "Check whether background tasks created after enabling the experiment, or embedded pages on the same site, unexpectedly read the same random test marker. Browser limitations restrict this check to some scenarios.",
   有限覆盖: "Limited coverage",
@@ -80,6 +121,16 @@ const ENGLISH_TEXT: Record<string, string> = {
   "异常、超时、权限变化或随机测试标记泄漏时，都会恢复原网页行为并停止检查。":
     "Errors, timeouts, permission changes, or test-marker leakage restore the original page behavior and stop the check.",
   为网站数据创建独立空间: "Create a separate space for site data",
+  这不是账号隔离功能: "This is not an account-isolation feature",
+  不会创建独立登录空间也不会拦截全部网站数据:
+    "Does not create a separate sign-in space or intercept all site data",
+  "不会创建独立登录空间，也不会拦截全部网站数据":
+    "Does not create a separate sign-in space or intercept all site data",
+  能力边界: "Capability boundary",
+  当前扩展不支持创建独立登录空间:
+    "This extension cannot create a separate sign-in space",
+  当前扩展不支持拦截所有网站数据写入:
+    "This extension cannot intercept all site-data writes",
   "浏览器扩展无法可靠分开网站的全部登录信息、存储和后台任务。 实验室只观察页面可见的随机测试标记，不读取或改写登录内容。":
     "A browser extension cannot reliably separate all site sign-in data, storage, and background tasks. Labs observes only a page-visible random test marker and does not read or modify sign-in content.",
   当前扩展不支持: "Not supported by this extension",
@@ -91,6 +142,14 @@ const ENGLISH_TEXT: Record<string, string> = {
   "需要网络层控制时，应使用专门的受控环境；桌面端的独立浏览器资料目录 是当前可靠的网站数据边界。":
     "Use a dedicated controlled environment when network-layer control is required. The desktop app's separate browser profile directories are the current reliable site-data boundary.",
   最近实验记录: "Recent experiment records",
+  最近测试记录: "Recent test records",
+  只保存脱敏结果不保存随机测试标记或登录内容:
+    "Stores only redacted results, not random test markers or sign-in content",
+  "只保存脱敏结果，不保存随机测试标记或登录内容":
+    "Stores only redacted results, not random test markers or sign-in content",
+  "清除记录只删除本机保存的脱敏测试结果，不会改变网页、站点权限或登录状态。":
+    "Clearing records removes only locally stored redacted test results. It does not change the page, site permissions, or sign-in state.",
+  清除本机测试记录: "Clear local test records",
   "正在读取本机脱敏实验记录…": "Loading local redacted experiment records…",
   清除记录: "Clear records",
   浏览器原生临时边界: "Browser-provided temporary boundary",
@@ -161,6 +220,8 @@ const ENGLISH_TEXT: Record<string, string> = {
     "Not observing a call does not mean the site collected nothing. Deeper page observation begins after you click, cannot be guaranteed to run before the site's own scripts, and does not cover every page or browser background task.",
   "开启当前站点的网页后台任务检查？它可能让网站短暂异常；发现测试标记泄漏、页面异常、超时或权限变化时会立即恢复并停用。":
     "Enable the web background-task check for this site? It may briefly disrupt the site. VeriSilo will restore and stop it if a test marker leaks, the page errors, the check times out, or permissions change.",
+  "开始 2 分钟测试？扩展会临时加入一个不含账号信息的随机测试标记；发现标记泄漏、页面异常、权限变化或到期时会结束测试并尝试恢复网页。不会清除登录状态或网站数据。":
+    "Start a 2-minute test? The extension temporarily adds a random test marker containing no account information. If the marker leaks, the page errors, permissions change, or time expires, VeriSilo ends the test and attempts to restore the page. It does not clear sign-in state or site data.",
   "正在开始检查…": "Starting check…",
   "未授予当前站点权限；实验保持关闭，也没有注入页面。":
     "Site permission was not granted. The experiment remains off and nothing was injected into the page.",
@@ -171,13 +232,19 @@ const ENGLISH_TEXT: Record<string, string> = {
     "The web background-task check is running and linked to the current desktop identity and site. Because it cannot cover every page execution area, its status is limited coverage.",
   "检测到随机测试标记泄漏；原网页行为已恢复，当前检查已停用。":
     "Random test-marker leakage was detected. Original page behavior was restored and the check was stopped.",
+  "检测到随机测试标记泄漏；本次测试已停止，临时网页改动已撤销。登录状态和网站数据未被清除。":
+    "Random test-marker leakage was detected. The test stopped and its temporary page changes were undone. Sign-in state and site data were not cleared.",
   "检查未能完成确认，已恢复原网页行为并停用当前站点。":
     "The check could not be confirmed. Original page behavior was restored and the check was stopped for this site.",
+  "检查未能完成确认；本次测试已停止，并尝试撤销临时网页改动。":
+    "The test could not be confirmed. It was stopped, and VeriSilo attempted to undo its temporary page changes.",
   "无法开启网页后台任务检查，请稍后重试。":
     "Could not start the web background-task check. Try again shortly.",
   "正在恢复…": "Restoring…",
   "已恢复原网页行为，并停用当前站点检查。":
     "Original page behavior was restored and the check was stopped for this site.",
+  "已结束本次测试并撤销临时网页改动；登录状态和网站数据未被清除。":
+    "The test ended and its temporary page changes were undone. Sign-in state and site data were not cleared.",
   "无法停止当前检查，请稍后重试。":
     "Could not stop the current check. Try again shortly.",
   状态不可用: "Status unavailable",
@@ -795,6 +862,7 @@ function translateDynamicText(text: string): string {
       (page, worker) =>
         `Page environment: ${translateUiText(page, "en")} · Web background tasks: ${translateUiText(worker, "en")}`,
     ],
+    [/^当前：(.+)$/u, (state) => `Current: ${translateUiText(state, "en")}`],
     [
       /^(.+) · (.+)$/u,
       (left, right) =>

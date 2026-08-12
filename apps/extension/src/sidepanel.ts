@@ -171,7 +171,7 @@ labsEnableButton.addEventListener("click", () => {
   if (
     !globalThis.confirm(
       translateUiText(
-        "开启当前站点的网页后台任务检查？它可能让网站短暂异常；发现测试标记泄漏、页面异常、超时或权限变化时会立即恢复并停用。",
+        "开始 2 分钟测试？扩展会临时加入一个不含账号信息的随机测试标记；发现标记泄漏、页面异常、权限变化或到期时会结束测试并尝试恢复网页。不会清除登录状态或网站数据。",
       ),
     )
   ) {
@@ -274,10 +274,13 @@ async function enableWorkerExperiment(
     } else if (worker.state === "leak_detected") {
       showNotice(
         "error",
-        "检测到随机测试标记泄漏；原网页行为已恢复，当前检查已停用。",
+        "检测到随机测试标记泄漏；本次测试已停止，临时网页改动已撤销。登录状态和网站数据未被清除。",
       );
     } else {
-      showNotice("error", "检查未能完成确认，已恢复原网页行为并停用当前站点。");
+      showNotice(
+        "error",
+        "检查未能完成确认；本次测试已停止，并尝试撤销临时网页改动。",
+      );
     }
     await refreshLabsReceipts();
   } catch (error) {
@@ -301,7 +304,10 @@ async function stopWorkerExperiment(): Promise<void> {
     if (worker !== null) {
       renderWorkerExperiment(worker);
     }
-    showNotice("success", "已恢复原网页行为，并停用当前站点检查。");
+    showNotice(
+      "success",
+      "已结束本次测试并撤销临时网页改动；登录状态和网站数据未被清除。",
+    );
     await refreshLabsReceipts();
   } catch (error) {
     showNotice(
@@ -416,20 +422,21 @@ function workerExperimentFromResponse(
 
 function renderWorkerExperiment(experiment: LabsExperiment | null): void {
   if (experiment === null) {
-    labsWorkerStatus.textContent = "默认关闭";
+    labsWorkerStatus.textContent = "当前：未运行";
     labsWorkerStatus.className = "status-chip neutral";
-    labsScope.textContent = "尚未为当前网站开启检查。";
-    labsEvidence.textContent = "尚无实验记录。";
+    labsScope.textContent = "当前网页没有加入测试标记。";
+    labsEvidence.textContent =
+      "开始后会检查：同站内嵌页面，以及开始后新建的部分网页后台任务。";
     labsEnableButton.disabled = false;
     labsStopButton.disabled = true;
     return;
   }
-  labsWorkerStatus.textContent = labsStateLabel(experiment.state);
+  labsWorkerStatus.textContent = `当前：${labsStateLabel(experiment.state)}`;
   labsWorkerStatus.className = `status-chip ${labsStateTone(experiment.state)}`;
   labsEnableButton.disabled = experiment.enabled;
   labsStopButton.disabled = !experiment.enabled;
   if (experiment.scope === null) {
-    labsScope.textContent = "尚未为当前网站开启检查；默认关闭。";
+    labsScope.textContent = "当前网页没有加入测试标记。";
   } else if (experiment.scope.mode === "desktop_silo") {
     labsScope.textContent = `范围：当前桌面身份 / ${experiment.scope.siteHost}。检查权限到期：${formatDate(experiment.scope.expiresAt)}。`;
   } else {
@@ -514,7 +521,7 @@ function labsStopLabel(code: LabsExperimentReceipt["stopCode"]): string {
 
 function labsStateLabel(state: LabsExperiment["state"]): string {
   return {
-    disabled: "默认关闭",
+    disabled: "未运行",
     permission_missing: "缺少站点权限",
     applying: "正在开启",
     best_effort: "有限覆盖",
