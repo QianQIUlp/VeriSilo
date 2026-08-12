@@ -32,6 +32,11 @@ import {
 } from "./saved-report-history.js";
 import { requestSiteAccessForTab } from "./site-access.js";
 import {
+  armToolbarScan,
+  clearToolbarScanForTab,
+  consumeToolbarScan,
+} from "./toolbar-scan.js";
+import {
   clearLabsReceipts,
   enableDedicatedWorkerExperiment,
   getLabsReceipts,
@@ -64,6 +69,7 @@ initializeLabsBackground();
 chrome.action.onClicked.addListener((tab) => {
   if (tab.id !== undefined) {
     void chrome.sidePanel.open({ tabId: tab.id }).catch(() => undefined);
+    void continueToolbarAuthorizedScan(tab).catch(() => undefined);
   }
 });
 
@@ -78,6 +84,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading" || changeInfo.url !== undefined) {
     void chrome.storage.session.remove(reportKey(tabId));
+    void clearToolbarScanForTab(tabId);
     // Chromium can report status="loading" even for history.pushState/hash
     // updates. Labs probes the current realm before deciding that the old one
     // disappeared, so same-document wrappers are restored instead of merely
@@ -88,6 +95,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   void chrome.storage.session.remove(reportKey(tabId));
+  void clearToolbarScanForTab(tabId);
   labsTabRemoved(tabId);
 });
 
@@ -190,15 +198,23 @@ async function handleMessage(
 
 async function scanCurrentTab(): Promise<Record<string, unknown>> {
   const tab = await activeTab();
+  return scanTab(tab, true);
+}
+
+async function scanTab(
+  tab: chrome.tabs.Tab,
+  allowToolbarAuthorization: boolean,
+): Promise<Record<string, unknown>> {
   if (tab.id === undefined) {
     throw new Error("No active browser tab is available.");
   }
   if (tab.url === undefined) {
-    return {
-      started: false,
-      accessRequired: true,
-      ...(await requestSiteAccessForTab(tab)),
-    };
+    if (allowToolbarAuthorization) {
+      return requestScanAccess(tab.id);
+    }
+    throw new Error(
+      "浏览器没有为当前标签页授予一次性访问权限；页面没有被扫描。",
+    );
   }
   if (!/^https?:/u.test(tab.url)) {
     throw new Error("VeriSilo 只扫描普通 HTTP(S) 页面。");
@@ -214,15 +230,6 @@ async function scanCurrentTab(): Promise<Record<string, unknown>> {
       injectImmediately: true,
     });
   } catch {
-    try {
-      const access = await requestSiteAccessForTab(tab);
-      if (!access.alreadyGranted) {
-        return { started: false, accessRequired: true, ...access };
-      }
-    } catch {
-      // Fall through to the bounded unsupported-page guidance below. A
-      // browser-owned permission request is never treated as a successful scan.
-    }
     throw new Error(
       "无法访问当前页面。浏览器内部页面、扩展商店页面和 PDF 不支持扫描。",
     );
@@ -243,6 +250,28 @@ async function scanCurrentTab(): Promise<Record<string, unknown>> {
   }
 
   return { started: true, mainWorldInjected, origin };
+}
+
+async function requestScanAccess(
+  tabId: number,
+): Promise<Record<string, unknown>> {
+  await armToolbarScan(tabId);
+  return {
+    started: false,
+    accessRequired: true,
+    toolbarActionRequired: true,
+    requested: false,
+    alreadyGranted: false,
+  };
+}
+
+async function continueToolbarAuthorizedScan(
+  tab: chrome.tabs.Tab,
+): Promise<void> {
+  if (tab.id === undefined || !(await consumeToolbarScan(tab.id))) {
+    return;
+  }
+  await scanTab(tab, false);
 }
 
 async function requestCurrentSiteAccess(): Promise<Record<string, unknown>> {

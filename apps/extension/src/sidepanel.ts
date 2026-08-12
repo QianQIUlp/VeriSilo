@@ -494,6 +494,25 @@ async function scan(): Promise<void> {
       if (response.accessRequired !== true) {
         throw new Error("扩展没有返回可识别的扫描状态。");
       }
+      if (response.toolbarActionRequired === true) {
+        setBusy(scanButton, true, "等待工具栏授权…");
+        showNotice(
+          "success",
+          "Edge 不会为扫描按钮自动弹出权限框。请点击地址栏旁标有“1”的 VeriSilo 图标一次；若图标未固定，请先打开“扩展”菜单再点击 VeriSilo。侧栏无需关闭，授权后扫描会自动继续。",
+        );
+        const report = await waitForCompletedReport(startedAt, null, 30_000);
+        if (report === null) {
+          throw new Error(
+            "30 秒内没有收到工具栏授权。请重新点击扫描，再点击标有“1”的 VeriSilo 图标；扩展没有扫描页面。",
+          );
+        }
+        renderReport(report);
+        showNotice(
+          "success",
+          "已通过工具栏获得当前标签页的一次性访问权限并完成扫描；跨站导航或关闭标签页后权限会自动失效。",
+        );
+        return;
+      }
       showNotice(
         "success",
         response.temporaryAccess === true
@@ -530,8 +549,9 @@ async function scan(): Promise<void> {
 async function waitForCompletedReport(
   startedAt: number,
   expectedOrigin: string | null,
+  timeoutMs = 7_000,
 ): Promise<ObservationReport | null> {
-  const deadline = startedAt + 7_000;
+  const deadline = startedAt + timeoutMs;
   while (Date.now() < deadline) {
     const response = await sendMessage({ type: "get_current_report" });
     const parsed = observationReportSchema.safeParse(response.report);
@@ -580,7 +600,7 @@ async function requestSiteAccess(
     showNotice(
       response.requested === true ? "success" : "error",
       response.requested === true
-        ? "已向浏览器发起站点访问请求。请点击地址栏中的“允许”提示，授权后再扫描。"
+        ? "浏览器已登记站点访问请求，但 Edge 不一定显示弹窗。若没有提示，请点击 VeriSilo 工具栏图标一次以授予当前标签页的一次性访问权限；侧栏无需关闭。"
         : "未能发起当前站点访问请求。",
     );
   } catch (error) {
