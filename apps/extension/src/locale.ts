@@ -12,6 +12,8 @@ const ENGLISH_TEXT: Record<string, string> = {
   "观察当前浏览器，长期状态交给独立 Silo":
     "Inspect this browser; keep long-term identities in separate Silos",
   仅本机: "Local only",
+  关闭仅本机提示: "Dismiss local-only indicator",
+  关闭提示: "Dismiss message",
   信号概览: "Overview",
   临时空间: "Private space",
   实验室: "Labs",
@@ -327,6 +329,8 @@ const ENGLISH_TEXT: Record<string, string> = {
     "Could not revoke permission for this site. Try again shortly.",
   "正在打开…": "Opening…",
   "浏览器没有创建隐私窗口。": "The browser did not create a private window.",
+  "浏览器尚未允许 VeriSilo 在隐私窗口中运行。请打开“扩展管理 → VeriSilo Companion”，允许在 Chrome 无痕或 Edge InPrivate 中运行，然后重试。":
+    "The browser has not allowed VeriSilo to run in private windows. Open Extension management → VeriSilo Companion, enable Allow in Incognito in Chrome or Allow in InPrivate in Edge, then try again.",
   "已在 Chrome 无痕 / Edge InPrivate 中打开当前网站。它与普通窗口的网站数据分开；关闭全部隐私窗口后临时网站数据会被清除。":
     "Opened the current site in Chrome Incognito or Edge InPrivate. Its site data is separate from regular windows and is cleared after all private windows close.",
   "无法打开隐私窗口，请检查扩展设置。":

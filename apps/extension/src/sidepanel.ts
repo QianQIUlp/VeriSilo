@@ -74,6 +74,12 @@ const reportHistoryList = requiredElement<HTMLDivElement>(
   "report-history-list",
 );
 const notice = requiredElement<HTMLDivElement>("notice");
+const noticeMessage = requiredElement<HTMLSpanElement>("notice-message");
+const dismissNoticeButton =
+  requiredElement<HTMLButtonElement>("dismiss-notice");
+const localPill = requiredElement<HTMLSpanElement>("local-pill");
+const dismissLocalPillButton =
+  requiredElement<HTMLButtonElement>("dismiss-local-pill");
 const reportEmpty = requiredElement<HTMLElement>("report-empty");
 const reportContent = requiredElement<HTMLDivElement>("report-content");
 const verdict = requiredElement<HTMLElement>("verdict");
@@ -196,6 +202,10 @@ clearReportHistoryButton.addEventListener(
   "click",
   () => void clearSavedReportHistory(),
 );
+dismissNoticeButton.addEventListener("click", dismissNotice);
+dismissLocalPillButton.addEventListener("click", () => {
+  localPill.hidden = true;
+});
 for (const tab of tabButtons) {
   tab.addEventListener("click", () => selectTab(tab.dataset.tab ?? "overview"));
 }
@@ -814,8 +824,7 @@ async function refreshReport(): Promise<void> {
 }
 
 function refreshActiveTabContext(): void {
-  notice.textContent = "";
-  notice.className = "notice";
+  dismissNotice();
   void refreshReport();
   void refreshLabsStatus();
   void refreshActiveSitePermissionTarget();
@@ -1516,7 +1525,14 @@ function textLine(text: string): HTMLSpanElement {
 
 function showNotice(tone: "error" | "success", text: string): void {
   notice.className = `notice ${tone}`;
-  notice.textContent = text;
+  noticeMessage.textContent = text;
+  notice.hidden = false;
+}
+
+function dismissNotice(): void {
+  notice.hidden = true;
+  notice.className = "notice";
+  noticeMessage.textContent = "";
 }
 
 function setPrivacyButtonsBusy(busy: boolean, busyText?: string): void {

@@ -10,7 +10,7 @@ const extensionPackage = JSON.parse(
   await readFile(resolve(root, "apps/extension/package.json"), "utf8"),
 );
 if (
-  manifest.version !== "0.2.8" ||
+  manifest.version !== "0.2.10" ||
   extensionPackage.version !== manifest.version
 ) {
   throw new Error(
@@ -145,10 +145,35 @@ for (const requiredGuidance of [
   'class="card capability-card capability-disclosure"',
   'class="history-disclosure"',
   'class="raw-limit"',
+  'id="dismiss-local-pill"',
+  'id="dismiss-notice"',
+  'class="notice-message"',
+  ".local-pill[hidden]",
 ]) {
   if (!sidepanelHtml.includes(requiredGuidance)) {
     throw new Error(`Extension Labs guidance is missing: ${requiredGuidance}`);
   }
+}
+for (const requiredDismissBehavior of [
+  'dismissNoticeButton.addEventListener("click"',
+  'dismissLocalPillButton.addEventListener("click"',
+  "notice.hidden = false",
+  "localPill.hidden = true",
+]) {
+  if (!sidepanelJs.includes(requiredDismissBehavior)) {
+    throw new Error(
+      `Extension dismissible status behavior is missing: ${requiredDismissBehavior}`,
+    );
+  }
+}
+if (
+  !sidepanelJs.includes(
+    "The browser has not allowed VeriSilo to run in private windows.",
+  )
+) {
+  throw new Error(
+    "Extension bundle is missing the English private-window permission error.",
+  );
 }
 for (const requiredDisclosure of [
   "fact-summary",

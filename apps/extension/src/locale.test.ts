@@ -6,6 +6,18 @@ describe("bilingual UI copy", () => {
   it("translates primary navigation and permission guidance", () => {
     expect(translateUiText("信号概览", "en")).toBe("Overview");
     expect(translateUiText("扫描当前页面", "en")).toBe("Scan current page");
+    expect(translateUiText("关闭仅本机提示", "en")).toBe(
+      "Dismiss local-only indicator",
+    );
+    expect(translateUiText("关闭提示", "en")).toBe("Dismiss message");
+    expect(
+      translateUiText(
+        "浏览器尚未允许 VeriSilo 在隐私窗口中运行。请打开“扩展管理 → VeriSilo Companion”，允许在 Chrome 无痕或 Edge InPrivate 中运行，然后重试。",
+        "en",
+      ),
+    ).toBe(
+      "The browser has not allowed VeriSilo to run in private windows. Open Extension management → VeriSilo Companion, enable Allow in Incognito in Chrome or Allow in InPrivate in Edge, then try again.",
+    );
     expect(
       translateUiText(
         "先在目标网页点击工具栏中的 VeriSilo 图标。仍失败时，再请求该站点访问权限。",

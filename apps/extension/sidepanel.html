@@ -133,6 +133,43 @@
         content: "";
       }
 
+      .local-pill[hidden] {
+        display: none;
+      }
+
+      .dismiss-control {
+        display: inline-grid;
+        width: 20px;
+        height: 20px;
+        flex: none;
+        place-items: center;
+        border: 0;
+        border-radius: 999px;
+        padding: 0;
+        color: inherit;
+        background: transparent;
+        cursor: pointer;
+        font: inherit;
+        font-size: 17px;
+        font-weight: 500;
+        line-height: 1;
+        opacity: 0.72;
+      }
+
+      .dismiss-control:hover {
+        background: rgba(16, 24, 40, 0.08);
+        opacity: 1;
+      }
+
+      .dismiss-control:focus-visible {
+        outline: 2px solid #6670d8;
+        outline-offset: 1px;
+      }
+
+      .local-pill .dismiss-control {
+        margin: -3px -4px -3px 0;
+      }
+
       .topbar-actions {
         display: flex;
         align-items: center;
@@ -165,8 +202,17 @@
         line-height: 1.5;
       }
 
-      .notice:empty {
+      .notice[hidden] {
         display: none;
+      }
+
+      .notice-message {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .notice .dismiss-control {
+        margin: -3px -5px -3px 0;
       }
 
       .notice.error {
@@ -1507,11 +1553,33 @@
               <option value="en">English</option>
             </select>
           </label>
-          <span class="local-pill">仅本机</span>
+          <span class="local-pill" id="local-pill">
+            <span>仅本机</span>
+            <button
+              class="dismiss-control"
+              id="dismiss-local-pill"
+              type="button"
+              aria-label="关闭仅本机提示"
+              title="关闭仅本机提示"
+            >
+              ×
+            </button>
+          </span>
         </div>
       </header>
 
-      <div id="notice" class="notice" role="status" aria-live="polite"></div>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden>
+        <span class="notice-message" id="notice-message"></span>
+        <button
+          class="dismiss-control"
+          id="dismiss-notice"
+          type="button"
+          aria-label="关闭提示"
+          title="关闭提示"
+        >
+          ×
+        </button>
+      </div>
 
       <nav class="tabbar" role="tablist" aria-label="VeriSilo 功能">
         <button
