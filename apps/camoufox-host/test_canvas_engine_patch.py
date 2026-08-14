@@ -709,6 +709,12 @@ $(CPPOBJS):
 
 $(CPPWASMOBJS):
 	$(WASM_CXX) -o $@ -c $(WASM_CXXFLAGS) $($(notdir $<)_FLAGS) $<
+
+%.res: $(or $(RCFILE),%.rc) $(MOZILLA_DIR)/config/create_res.py
+	$(REPORT_BUILD)
+	$(call BUILDSTATUS,START_Res $@)
+	$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py $(DEFINES) $(INCLUDES) -o $@ $<
+	$(call BUILDSTATUS,END_Res $@)
 """
 
 
@@ -761,6 +767,8 @@ def test_ff152_compatibility_patch_is_narrow_and_independently_bound() -> None:
         "$($(notdir $<)_FLAGS) $<",
         "-\t$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) "
         "$($(notdir $<)_FLAGS) $<",
+        "-\t$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py "
+        "$(DEFINES) $(INCLUDES) -o $@ $<",
     ]
     assert added == [
         "+        command = preprocessor + [relativize(input)]",
@@ -768,6 +776,8 @@ def test_ff152_compatibility_patch_is_narrow_and_independently_bound() -> None:
         "$($(notdir $<)_FLAGS) $(call relativize,$<)",
         "+\t$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) "
         "$($(notdir $<)_FLAGS) $(call relativize,$<)",
+        "+\t$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py "
+        "$(DEFINES) $(INCLUDES) -o $@ $(call relativize,$<)",
     ]
 
     seams = _load_lock()["midlCompatibilitySeamFiles"]
@@ -787,7 +797,7 @@ def test_ff152_compatibility_patch_is_narrow_and_independently_bound() -> None:
                 "739dfaecfe48f9bc9d4d7727d57e2c16aafef47983ab8efae3bca5e439d09639"
             ),
             "postCompatibilityPatchSha256": (
-                "06e00a49804c577c084d1c4ecd790abc12aec894e8b7e1e80914dd826101d091"
+                "b41f128e28829e5550197611d40f37ea563804cca35ea56374c502c5787d41f9"
             ),
         },
     ]
@@ -846,7 +856,7 @@ def test_midl_compatibility_patch_relativizes_only_the_subprocess_input() -> Non
                 raise AssertionError("the MIDL preprocessor subprocess error was swallowed")
 
 
-def test_ff152_compatibility_patch_relativizes_synthetic_make_object_rules() -> None:
+def test_ff152_compatibility_patch_relativizes_synthetic_make_and_resource_rules() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         _, rules = _apply_compatibility_patch_to_synthetic_tree(Path(temporary))
         implementation = rules.read_text(encoding="utf-8")
@@ -880,7 +890,12 @@ def test_ff152_compatibility_patch_relativizes_synthetic_make_object_rules() -> 
     assert recipe("CPPWASMOBJS") == [
         "\t$(WASM_CXX) -o $@ -c $(WASM_CXXFLAGS) $($(notdir $<)_FLAGS) $<"
     ]
-    assert implementation.count("$(call relativize,$<)") == 2
+    assert (
+        "\t$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py "
+        "$(DEFINES) $(INCLUDES) -o $@ $(call relativize,$<)"
+        in implementation
+    )
+    assert implementation.count("$(call relativize,$<)") == 3
 
 
 def test_canvas_contract_golden_vectors() -> None:
@@ -2488,6 +2503,14 @@ def test_ff152_compatibility_patch_transforms_exact_archive_preimages_to_final_s
         assert (
             "$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) "
             "$($(notdir $<)_FLAGS) $(call relativize,$<)" in rules
+        )
+        assert (
+            "$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py "
+            "$(DEFINES) $(INCLUDES) -o $@ $(call relativize,$<)" in rules
+        )
+        assert (
+            "$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py "
+            "$(DEFINES) $(INCLUDES) -o $@ $<" not in rules
         )
 
 

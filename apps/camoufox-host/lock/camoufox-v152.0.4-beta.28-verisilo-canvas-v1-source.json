@@ -451,8 +451,8 @@
       {
         "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0000-verisilo-ff152-midl-cross-build-input.patch",
         "applyAfterUpstream": true,
-        "sha256": "7de1c7c7d66de7bd3267c5d69d721123d5fc9f16fbd0d28512cb0262b90a3f84",
-        "sizeBytes": 981
+        "sha256": "8d407bdc4010f7b2989f206a70909bfa9ad89046ddb9e17fa76092c864433600",
+        "sizeBytes": 1184
       },
       {
         "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0001-verisilo-canvas-export-key.patch",
@@ -471,7 +471,7 @@
     {
       "path": "config/rules.mk",
       "postUpstreamPatchSha256": "739dfaecfe48f9bc9d4d7727d57e2c16aafef47983ab8efae3bca5e439d09639",
-      "postCompatibilityPatchSha256": "06e00a49804c577c084d1c4ecd790abc12aec894e8b7e1e80914dd826101d091"
+      "postCompatibilityPatchSha256": "b41f128e28829e5550197611d40f37ea563804cca35ea56374c502c5787d41f9"
     }
   ],
   "seamFiles": [

@@ -18,3 +18,6 @@ diff --git a/config/rules.mk b/config/rules.mk
 @@ -668 +668 @@ $(CPPOBJS):
 -	$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) $($(notdir $<)_FLAGS) $<
 +	$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) $($(notdir $<)_FLAGS) $(call relativize,$<)
+@@ -795 +795 @@ endif
+-	$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py $(DEFINES) $(INCLUDES) -o $@ $<
++	$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py $(DEFINES) $(INCLUDES) -o $@ $(call relativize,$<)
