@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -6,6 +6,49 @@ const dist = resolve(root, "apps/extension/dist");
 const manifest = JSON.parse(
   await readFile(resolve(dist, "manifest.json"), "utf8"),
 );
+const extensionPackage = JSON.parse(
+  await readFile(resolve(root, "apps/extension/package.json"), "utf8"),
+);
+if (
+  manifest.version !== "0.2.10" ||
+  extensionPackage.version !== manifest.version
+) {
+  throw new Error(
+    "Extension package and bundled manifest must use the current aligned version.",
+  );
+}
+if (
+  manifest.default_locale !== "en" ||
+  manifest.name !== "__MSG_extensionName__" ||
+  manifest.description !== "__MSG_extensionDescription__" ||
+  manifest.action?.default_title !== "__MSG_actionTitle__"
+) {
+  throw new Error(
+    "Extension manifest must use the audited bilingual locale messages.",
+  );
+}
+for (const locale of ["en", "zh_CN"]) {
+  const messages = JSON.parse(
+    await readFile(resolve(dist, "_locales", locale, "messages.json"), "utf8"),
+  );
+  for (const key of ["extensionName", "extensionDescription", "actionTitle"]) {
+    if (
+      typeof messages[key]?.message !== "string" ||
+      messages[key].message === ""
+    ) {
+      throw new Error(`Extension locale ${locale} is missing message: ${key}`);
+    }
+  }
+  const expectedDescription =
+    locale === "en"
+      ? "Inspect browser information visible to the current page"
+      : "查看当前网页可读取的浏览器信息";
+  if (!messages.extensionDescription.message.includes(expectedDescription)) {
+    throw new Error(
+      `Extension locale ${locale} must describe observation without an isolation claim.`,
+    );
+  }
+}
 
 const expectedIcons = Object.fromEntries(
   [16, 32, 48, 128].map((size) => [String(size), `icons/verisilo-${size}.png`]),
@@ -34,8 +77,36 @@ for (const [sizeText, relativePath] of Object.entries(expectedIcons)) {
     );
   }
 }
+for (const iconName of [
+  "computer-desktop.svg",
+  "cpu-chip.svg",
+  "globe-alt.svg",
+  "signal.svg",
+  "user.svg",
+  "window.svg",
+]) {
+  const icon = await readFile(resolve(dist, "icons", "ui", iconName), "utf8");
+  if (!icon.includes('viewBox="0 0 24 24"') || !icon.includes("<path")) {
+    throw new Error(`Extension UI icon is invalid: icons/ui/${iconName}`);
+  }
+}
+const heroiconsLicense = await readFile(
+  resolve(dist, "icons", "ui", "HEROICONS-LICENSE.txt"),
+  "utf8",
+);
+if (
+  !heroiconsLicense.includes("MIT License") ||
+  !heroiconsLicense.includes("Copyright (c) Tailwind Labs, Inc.")
+) {
+  throw new Error("Bundled Heroicons license text is missing or incomplete.");
+}
 
 const sidepanelHtml = await readFile(resolve(dist, "sidepanel.html"), "utf8");
+const sidepanelJs = await readFile(resolve(dist, "sidepanel.js"), "utf8");
+const bundledFiles = await readdir(dist, { recursive: true });
+if (bundledFiles.some((file) => file.endsWith(".map"))) {
+  throw new Error("Extension release/test bundle must not ship source maps.");
+}
 const isolationPanel = sidepanelHtml.match(
   /<section[^>]+id="panel-isolation"[\s\S]*?<\/section>/u,
 )?.[0];
@@ -48,17 +119,85 @@ if (/V0\.\d/u.test(isolationPanel) || /正式路线/u.test(isolationPanel)) {
   );
 }
 for (const requiredGuidance of [
-  "高级诊断工具 · 默认关闭",
+  "网页泄漏实验 · 默认不运行",
+  "看看一次性测试标记会不会跑到别处",
   "不含账号或个人信息",
   "普通浏览和多账号隔离不需要开启",
   "只有点击开启才会改变当前网页",
   "当前扩展不支持",
+  "开始 2 分钟测试",
+  "结束测试并恢复网页",
+  "不会清除登录状态或网站数据",
+  "这不是账号隔离功能",
+  "结果只代表当前页面",
+  "信号概览",
+  "每个桌面身份使用独立浏览器资料目录",
+  "设备与浏览器特征继续跟随本机",
+  "不提供指纹控制",
+  "最近测试记录",
+  'id="language-select"',
+  'value="zh-CN"',
+  'value="en"',
+  'class="scan-explanation"',
+  'class="verdict-explanation"',
+  '<details class="scope-note">',
+  'class="page-hero-head"',
+  'class="card capability-card capability-disclosure"',
+  'class="history-disclosure"',
+  'class="raw-limit"',
+  'id="dismiss-local-pill"',
+  'id="dismiss-notice"',
+  'class="notice-message"',
+  ".local-pill[hidden]",
 ]) {
   if (!sidepanelHtml.includes(requiredGuidance)) {
     throw new Error(`Extension Labs guidance is missing: ${requiredGuidance}`);
   }
 }
-for (const staleLabel of ["不可选 · unsupported", "V0.7 路线"]) {
+for (const requiredDismissBehavior of [
+  'dismissNoticeButton.addEventListener("click"',
+  'dismissLocalPillButton.addEventListener("click"',
+  "notice.hidden = false",
+  "localPill.hidden = true",
+]) {
+  if (!sidepanelJs.includes(requiredDismissBehavior)) {
+    throw new Error(
+      `Extension dismissible status behavior is missing: ${requiredDismissBehavior}`,
+    );
+  }
+}
+if (
+  !sidepanelJs.includes(
+    "The browser has not allowed VeriSilo to run in private windows.",
+  )
+) {
+  throw new Error(
+    "Extension bundle is missing the English private-window permission error.",
+  );
+}
+for (const requiredDisclosure of [
+  "fact-summary",
+  "finding-summary",
+  "icons/ui/",
+]) {
+  if (!sidepanelJs.includes(requiredDisclosure)) {
+    throw new Error(
+      `Extension result summaries must preserve expandable details: ${requiredDisclosure}`,
+    );
+  }
+}
+for (const staleLabel of [
+  "不可选 · unsupported",
+  "V0.7 路线",
+  "看懂并隔离你的浏览器身份",
+  "桌面端 · 专用引擎",
+  "桌面端 · 虚拟/远程环境",
+  "same_origin_blob_classic_only",
+  "late_or_unknown",
+  "extension observation",
+  "user-data-dir",
+  "Native Host",
+]) {
   if (sidepanelHtml.includes(staleLabel)) {
     throw new Error(
       `Extension bundle still exposes stale UI copy: ${staleLabel}`,

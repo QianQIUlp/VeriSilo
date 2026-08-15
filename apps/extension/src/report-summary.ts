@@ -48,7 +48,7 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
       id: "browser",
       label: "浏览器与系统",
       value: `${browserLabel(userAgent)} · ${systemLabel(userAgent, platform, bitness)}`,
-      detail: "网站会用它判断兼容性，也会把它作为身份组合的一部分。",
+      detail: "当前页面可以读取这些值；扩展只负责展示，不会改变或认证它们。",
     },
     {
       id: "region",
@@ -60,16 +60,16 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
     {
       id: "network",
       label: "网络出口",
-      value: "本次未验证",
+      value: "尚未检查",
       detail:
-        "IP、ASN、出口地区和 DNS 是多账号环境的关键部分；扩展不会自动连接检测服务。",
+        "公网地址、网络运营商、出口地区和域名解析可能影响网站看到的地区；扩展不会自动连接检测服务。",
     },
     {
       id: "site-state",
       label: "登录与站点数据",
       value: siteStateLabel(storageValue),
       detail:
-        "同一普通浏览器环境中的 Cookie 和站点存储会继续关联访问；Chrome 无痕 / Edge InPrivate 可提供一个临时边界。",
+        "同一普通浏览器环境中的登录信息和网站数据会继续关联访问；隐私窗口只提供临时隔离，长期分离需要桌面端的独立身份。",
     },
     {
       id: "display",
@@ -81,7 +81,7 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
       id: "graphics",
       label: "显卡与图形",
       value: graphicsLabel(webGlValue),
-      detail: "WebGL/WebGPU 可暴露显卡型号和驱动渲染路径。",
+      detail: "网站可通过图形功能读取显卡型号和驱动渲染方式。",
     },
   ];
 
@@ -108,7 +108,7 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
     report.signals.some(
       (signal) => signal.id === "canvas_hash" && signal.status === "ok",
     )
-      ? "Canvas"
+      ? "图形绘制特征"
       : null,
     report.signals.some(
       (signal) => signal.id === "audio" && signal.status === "ok",
@@ -132,7 +132,8 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
       tone: "info",
       title: "页面可读取较强的设备特征",
       detail: `本次可见：${exposedSignals.join("、")}。它们不等于泄漏了真实姓名，但可用于关联多次访问。`,
-      action: "需要更强隔离时使用独立 VeriSilo 桌面环境。",
+      action:
+        "桌面端的独立身份可以分开网站状态，但设备与浏览器特征仍跟随本机。",
     });
   }
 
@@ -142,8 +143,8 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
       tone: "info",
       title: "网站登录状态会正常保存",
       detail:
-        "Cookie、LocalStorage 和 IndexedDB 可用；它们便于保持登录，也能关联同一浏览器环境中的访问。",
-      action: "不同账户需要真正分离时，使用独立 Silo 或临时隔离窗口。",
+        "登录信息和网站存储可用；它们便于保持登录，也能关联同一浏览器环境中的访问。",
+      action: "不同账户需要真正分离时，使用桌面端独立身份或临时隐私窗口。",
     });
   }
 
@@ -172,8 +173,10 @@ export function summarizeReport(report: ObservationReport): HumanReportSummary {
   const hasAttention = findings.some((finding) => finding.tone === "attention");
   return {
     tone: hasAttention ? "attention" : "normal",
-    headline: hasAttention ? "有几项值得你处理" : "当前身份组合未发现明显矛盾",
-    description: `已采集 ${report.signals.length} 组浏览器信号，并提炼成 ${findings.length} 条解读；其余原始值保留在“技术数据”。`,
+    headline: hasAttention
+      ? "当前页面观测有几项值得关注"
+      : "当前页面观测未发现明显矛盾",
+    description: `已从当前页面读取 ${report.signals.length} 组浏览器信息，并整理成 ${findings.length} 条解读；结果覆盖范围有限，不是身份认证。`,
     facts,
     findings,
   };

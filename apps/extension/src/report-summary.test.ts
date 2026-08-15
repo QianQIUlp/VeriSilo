@@ -117,8 +117,11 @@ describe("human-readable report summary", () => {
     expect(summary.facts[1]?.value).toContain("Asia/Singapore");
     expect(summary.description).toContain(`${report.signals.length} 组`);
     expect(summary.description).toContain("条解读");
+    expect(summary.description).toContain("覆盖范围有限");
+    expect(summary.description).toContain("不是身份认证");
+    expect(summary.facts[0]?.detail).toContain("不会改变或认证");
     expect(summary.facts.find((fact) => fact.id === "network")?.value).toBe(
-      "本次未验证",
+      "尚未检查",
     );
     expect(summary.facts.find((fact) => fact.id === "site-state")?.value).toBe(
       "会保留登录状态",
@@ -126,6 +129,11 @@ describe("human-readable report summary", () => {
     expect(summary.facts.find((fact) => fact.id === "graphics")?.value).toBe(
       "NVIDIA GeForce RTX 4060 Laptop GPU",
     );
+    expect(
+      summary.findings.find(
+        (finding) => finding.id === "high-entropy-signals-visible",
+      )?.action,
+    ).toContain("设备与浏览器特征仍跟随本机");
   });
 
   it("surfaces exposed media labels as an actionable warning", () => {
