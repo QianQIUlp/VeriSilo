@@ -1,7 +1,7 @@
 # Store reviewer test instructions
 
 - 状态：**粘贴到 Chrome Web Store / Edge Partner Center 的 Test instructions 草稿**
-- 对应扩展包：`VeriSilo-Companion-0.2.10-chrome-edge.zip`（MV3）
+- 对应扩展包：`VeriSilo-Companion-0.2.11-chrome-edge.zip`（MV3）
 - 注意：本扩展与桌面端通过 Native Messaging 协作，但**扩展本身可独立工作**。请勿把"桌面端未安装时桥接不可用"判定为缺陷——这是设计内的降级行为。
 
 ## Before you start

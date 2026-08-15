@@ -10,7 +10,7 @@
 
 ## 1. 拿 ID（P5，账号持有人）
 
-- Chrome：Developer Dashboard → Add new item → 上传 `VeriSilo-Companion-0.2.10-chrome-edge.zip`（SHA-256 见 [`store-release-evidence.md`](store-release-evidence.md)）→ 保存 Draft → 记下 Item ID。
+- Chrome：Developer Dashboard → Add new item → 上传 `VeriSilo-Companion-0.2.11-chrome-edge.zip`（SHA-256 见 [`store-release-evidence.md`](store-release-evidence.md)）→ 保存 Draft → 记下 Item ID。
 - Edge：Partner Center → Microsoft Edge → 创建 Extension → 上传同一 ZIP → 保存 Draft → 记下扩展 ID。
 - 注意：本计划采用 **CWS 自动生成 key**。因此本地旁加载的 unpacked ID 与商店 ID 不同，无法在提交前用商店 ID 做本地正握手；正握手安排在商店侧可安装后（unlisted / trusted testers / 审核通过未发布）。
 
