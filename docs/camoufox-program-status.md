@@ -1,7 +1,7 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**可变项目状态页**
-- 更新日期：2026-08-11
+- 更新日期：2026-08-15
 
 本文只记录当前执行阶段、证据 checkpoint 和下一项任务。长期产品意图见[身份平台北极星](identity-platform-north-star.md)，路线原因见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。每次 Gate 变化后更新本文，不用本文反向改写长期决策。
 
@@ -17,7 +17,7 @@
 | M3-WI 调查结束快照              | `186484feb935076766beab09595a9270f86f78ef` / tree `e33d6d68586a79796ffb9bcc668392e369dc97c6`                     | `e96ef3f` 为祖先；调查结束时 tracked tree clean；没有 production fix                    |
 | R2 tracked 候选 evidence        | `ecafca9` / `evidence-manifest-m3-wi-r2-windows.json`                                                            | 执行 Agent 候选；主脑未接受，不是 M3-WI Accepted evidence                               |
 | R2H 研究基础                    | `186484f`                                                                                                        | 只有 runner/freezer/schema 与 Host test 变更；无 tracked result/manifest                |
-| 当前 FP1 任务                   | [冻结合同与续执行结果](camoufox-fp1-deterministic-artifact-projection-task.md) / source implementation `eea8606` | Canvas source patch 已精确绑定；当前无可用受支持构建环境，尚无 candidate Windows binary |
+| 当前 FP1 任务                   | [冻结合同与续执行结果](camoufox-fp1-deterministic-artifact-projection-task.md) / candidate source `4f1f01f00844e1888139b4236424550c94a6e10f` / runtime seam `970b357d8e2cf0ffb619d2e478519a12242abc5a` | self-built Windows candidate archive/lock/tree 已完成并精确绑定；状态为 `compiled-not-runtime-verified`；Canvas focused 与完整 FP1 均未执行 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -156,7 +156,7 @@ regression”的 integration extraction 均冻结在
 | 原生 Windows M2-W                               | **Accepted；三项核心 Gate 关闭**                                         |
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
-| FP1 Deterministic Artifact Projection           | **Blocked build environment；source patch 未编译/运行；未 Accepted**     |
+| FP1 Deterministic Artifact Projection           | **Candidate build/finalization complete；Windows runtime pending；未 Accepted** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -190,6 +190,20 @@ regression”的 integration extraction 均冻结在
     `df761be583b0171335a0955a7af46cb683f6e0bf`。精确 source closure 9/9、Artifact/Host 回归
     40/40 与 Python 静态检查通过；这些结果只证明 source inputs、patch application、seam
     hashes 和当前 caller-file closure，不是 compile、binary 或 runtime evidence。
+17. `blocked-build-environment` 已在受控 Linux builder 上解除。source commit
+    `4f1f01f00844e1888139b4236424550c94a6e10f` / tree
+    `35da4d372bf8f468062c6eb5ea64187be1c6d595` 生成 Windows archive
+    `8221486f42f547603339da7442e4c412671afc66d6742d01f99918f12f85be1d`
+    （493,054,882 bytes）。独立 self-built asset lock raw SHA-256 为
+    `0ce34b8a44c90e6c313aad66030a800359bbca78b97ca565cbdefa4e4eb95cfe`；tree
+    manifest raw/canonical SHA-256 分别为
+    `68ae52e3d11bba5b2868b68ea90af962840c6890a4418fc24199ba9a96138bf3` /
+    `ebc35ddbdc59c32b9856b56a9dcfc6e375d5a090abc6b498238e6cd874c09dfa`，
+    绑定 503 files / 981,198,096 bytes。runtime seam、deterministic policy、rebound
+    fixtures 和 probe 冻结于 `970b357d8e2cf0ffb619d2e478519a12242abc5a` / tree
+    `6119c15f18aebe49cae488cd0f9870ba37ad42e4`。该 checkpoint 只关闭
+    build/finalization 与静态绑定子步骤，保持 `verified:false`；没有取得 browser lease，
+    也没有运行 Canvas focused 或完整 FP1。
 
 下面的“M2-W 冻结目标”定义阶段目标。Windows 任务现有验收合同继续有效，但 PR #11 中的产品语义、禁止范围和证据措辞优先；若二者冲突，停止扩大实现并退回主脑裁决。
 
@@ -205,16 +219,12 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 
 ## 下一阶段
 
-固定 FF152/Camoufox downstream Canvas source patch 与 source binding 已冻结。Camoufox
-支持在 Linux execution environment 中交叉构建 Windows target，也支持在 Windows physical
-host 上使用其 Linux Docker container；direct native-Windows 和 WSL build 不受支持。当前
-机器没有 Docker/container engine，也没有已授权的外部 Linux build host，因此不存在无需
-新增 machine-level runtime 或外部写入即可执行的受支持路线。下一项工作是在受控 Linux
-build environment 中锁定 toolchain/provenance 并生成独立 VeriSilo Windows
-archive/tree/binding。取得并冻结该 binary 后，才只执行一次 Canvas focused
-A1→A2→B1；focused 通过后才允许唯一一次完整 FP1 A1→A2→B1。不得用 WSL 或未经支持的
-原生 Windows recipe 替代，不得覆盖历史 official binding/fixtures/evidence，不得进入 FP2、
-恢复 R2/R2H 或重跑选样。
+`blocked-build-environment` 已解除，固定 FF152/Camoufox downstream Canvas patch 已形成
+独立 self-built Windows candidate。当前下一动作不是继续构建或轮询 builder，而是从已冻结
+的 clean tracked checkpoint 只执行一次合同规定的 Canvas focused A1→A2→seed-B1。
+focused 任一条件失败立即停止；只有 focused 一次通过并再次冻结结果后，才允许唯一一次
+完整 FP1 A1→A2→B1。不得覆盖历史 official binding/fixtures/evidence，不得恢复 R2/R2H、
+选样或进入 FP2。
 
 后续顺序固定为 FP2 跨 realm 一致性 → FP3 网络/地区/WebRTC 协调 → FP4 实站
 兼容性 → 使用届时最终 Managed Engine 冻结新的 clean M3-WI 合同。旧 M3-WI
@@ -224,10 +234,11 @@ A1→A2→B1；focused 通过后才允许唯一一次完整 FP1 A1→A2→B1。�
 ## 已知边界
 
 - 当前 artifacts 使用 `fontMode=inherit`；宿主字体仍可见，不宣称字体隔离。
-- M2 evidence 没有证明 Canvas 稳定；FP1 A1/A2 已观察到 raw hash 稳定但 export hash
-  漂移。`eea8606` 已提供精确绑定的 `canvas:seed` source consumption path，但尚未编译成
-  Windows binary，也没有 runtime observation，因此该 seed 仍只能写为 configured，不能
-  升级为 applied 或宣称 Canvas 身份稳定。
+- M2 evidence 没有证明 Canvas 稳定；旧 official build 的 FP1 A1/A2 只观察到 raw hash
+  稳定而 export hash 漂移。固定 source patch 现已编译为精确绑定的 self-built Windows
+  candidate，archive/tree/binding 已完成静态 finalization，但尚无该 candidate 的 runtime
+  observation。因此 `canvas:seed` 仍只能写为 configured，不能升级为 applied/observed，
+  也不能宣称 Canvas 身份稳定。
 - TLS ClientHello、QUIC、跨主机复现和不可检测保持未验证或 unavailable。
 - Linux 用户态树确认覆盖父进程存活期间捕获的后代；最后枚举后的瞬时 fork 需要 Windows Job Object 等内核所有权关闭。
 - self-digest 和 SHA sidecar 是完整性门禁，不是发布者签名。

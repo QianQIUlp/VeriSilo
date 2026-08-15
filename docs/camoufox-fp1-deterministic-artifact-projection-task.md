@@ -1,6 +1,6 @@
 # Camoufox Managed Fingerprint Core FP1 — Deterministic Artifact Projection
 
-- 状态：**Frozen task contract / Execution failed**
+- 状态：**Frozen task contract / Candidate finalized / Runtime pending**
 - 冻结日期：2026-08-10
 - 当前 Gate：**FP1**
 - 前置 checkpoint：M3-0 Accepted at
@@ -50,6 +50,11 @@ Windows 输入固定为：
 Artifact raw bytes、sidecar、固定 Camoufox/Playwright/BrowserForge、browser archive
 和 browser tree 沿用当前 pin。FP1 不升级上游，不下载 `latest`，也不以未合并的
 upstream PR 替代仓库内已物化的 Artifact。
+
+上表是 FP1 原始 official-binding 基线。后续 Canvas Engine Patch 合同显式要求独立
+self-built binding 与 rebound fixtures；对新引擎执行 focused 和完整 FP1 时，运行输入以
+本文末尾 2026-08-15 checkpoint 为准。旧 `identity-win-a/b/c`、official archive lock 和旧
+Windows tree manifest 保持逐字节历史保护，不在原路径重绑。
 
 ## 2. 唯一目标与成功定义
 
@@ -693,3 +698,55 @@ container runtime 或触发外部 CI 都超出既有本地实现授权。因此�
 archive/tree/binding，没有取得 browser lease，没有启动浏览器，也没有执行 Canvas focused
 或完整 FP1 A1→A2→B1。`canvas:seed` 仍不能从 configured 升级为 applied/observed，FP1 与
 M3-WI 都未 Accepted，FP2 未开放。
+
+### 2026-08-15 Windows candidate build/finalization checkpoint
+
+上一节的 `blocked-build-environment` 是当时的执行结论；该环境阻断现已解除。受支持的
+Linux container build 从 source commit
+`4f1f01f00844e1888139b4236424550c94a6e10f` / tree
+`35da4d372bf8f468062c6eb5ea64187be1c6d595` 完成 Windows target 编译。原 source lock
+保持 raw bytes 不变，由新的 browser asset lock 追加二进制闭环；不得把 source lock
+历史字段改写成 post-build 状态。
+
+| 对象 | 精确绑定 |
+| --- | --- |
+| build run | `canvas-engine-20260815t041500z-4f1f01f` |
+| source lock SHA-256 | `1b6271855474ac6d264eaa7f5830b4125457e488747f9c53f9b9bbae321e8b82` |
+| Windows archive | SHA-256 `8221486f42f547603339da7442e4c412671afc66d6742d01f99918f12f85be1d`；493,054,882 bytes |
+| build result | SHA-256 `55b4a5f7f62742ab9eebb59cd953ab9ce2dc0c7a38e519c179c75c8c37989a61`；`compiled-not-runtime-verified` |
+| binary metadata | BuildID `20260811045234`；SourceStamp `e39c605adc0fc049a165d7fe4a3f6517b761edf7` |
+| `camoufox.exe` | SHA-256 `bb247f1c21a8e8aa4c590bec01b499ced307cd9fdf6974e24309fa7e52963a16` |
+| asset lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-canvas-v1-windows-x86_64.json`；raw SHA-256 `0ce34b8a44c90e6c313aad66030a800359bbca78b97ca565cbdefa4e4eb95cfe` |
+| tree manifest | `tests/fixtures/camoufox/browser-tree-manifest-verisilo-canvas-v1-windows.json`；raw SHA-256 `68ae52e3d11bba5b2868b68ea90af962840c6890a4418fc24199ba9a96138bf3`；canonical SHA-256 `ebc35ddbdc59c32b9856b56a9dcfc6e375d5a090abc6b498238e6cd874c09dfa`；503 files / 981,198,096 bytes |
+| runtime seam checkpoint | `970b357d8e2cf0ffb619d2e478519a12242abc5a` / tree `6119c15f18aebe49cae488cd0f9870ba37ad42e4` |
+
+新的 lock 明确使用 `verisilo-camoufox-browser-asset/v3`、`assetKind=self-built`、
+`verified:false` 和 `evidenceClass=compiled-not-runtime-verified`；它不声称 GitHub
+official digest agreement，也不覆盖历史 official lock/tree/evidence。
+
+新 binding 对应的 rebound runtime inputs 为：
+
+| 用途 | 路径 | raw SHA-256 |
+| --- | --- | --- |
+| focused A / full A | `tests/fixtures/camoufox/identity-win-canvas-v1-a.json` | `240feeddd7b3e36de48f1c2c89f1b4a1397e4f94dcbbc369099bd75738c86ee2` |
+| full B | `tests/fixtures/camoufox/identity-win-canvas-v1-b.json` | `765260741bb9d428a9b6a453c6d9f955b7219191654b6d8ce4e1c33bf2d4a68e` |
+| focused seed-B | `tests/fixtures/camoufox/identity-win-canvas-v1-seed-b.json` | `18fe872d40d948f149f0b517cd1d49f353f9edfec53e637c58e6fc054946b1df` |
+
+validator 只在完整、精确的新 browser binding 下选择 deterministic Canvas Policy v3；
+旧 official fixtures 继续选择 legacy Canvas classification，未知、交叉或部分 binding
+均 fail closed。Host 的 self-built 路径要求显式 asset lock/browser root，并在 cache copy
+前和每次 launch 前按 lock-bound raw/canonical manifest 核对完整 tree；Host v1 stdout
+JSONL wire shape 保持不变。probe 保留旧 raw/export 字段，并增加 PNG bytes、合法 decode、
+decoded pixels 与 dataURL 的独立 hash。
+
+静态冻结前的精确验证结果：source/input closure 39/39（0 skip）、Artifact/Host 49/49、
+候选 finalizer 6/6、focused harness 10/10、四类 Windows close regression、真实解压树
+503/503 文件逐字节校验、Python `py_compile`、probe JavaScript syntax 与
+`git diff --check` 均通过。Prettier 的本地依赖在机器级故障恢复后尚未还原，因此本轮只取得
+JavaScript 语法证据，不把 Prettier 写成已运行。
+
+本 checkpoint 没有取得 browser lease、没有启动该 candidate，也没有执行 Canvas focused
+或完整 FP1 A1→A2→B1。因此 archive/lock/tree finalization 不能把 `canvas:seed` 从
+configured 提升为 applied/observed，不能宣称 Canvas contract 已通过 runtime，FP1 仍开放，
+M3-WI 仍为 `failed` / `experimental`，FP2 未开放。下一次真实运行仍严格是一次
+Canvas focused A1→A2→seed-B1；通过并再次冻结后才允许一次完整 FP1 A1→A2→B1。
