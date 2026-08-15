@@ -16,6 +16,8 @@
     "format:check": "prettier --check .",
     "assets:generate": "pnpm --filter @verisilo/extension icons:generate && node scripts/generate-tauri-icon.mjs",
     "assets:check": "pnpm --filter @verisilo/extension icons:check && node scripts/generate-tauri-icon.mjs --check",
+    "store-assets:generate": "pnpm --filter @verisilo/extension store-assets:generate",
+    "store-assets:check": "pnpm --filter @verisilo/extension store-assets:check",
     "desktop-core:fmt": "cargo fmt --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml -- --check",
     "desktop-core:check": "cargo check --offline --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml",
     "desktop-core:test": "cargo test --offline --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml",
