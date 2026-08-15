@@ -1,6 +1,6 @@
 # Camoufox Managed Fingerprint Core FP1 — Deterministic Artifact Projection
 
-- 状态：**Frozen task contract / Canvas focused passed / Full FP1 pending**
+- 状态：**Frozen task contract / Canvas focused passed / Full FP1 Failed at A1 clean close / 未 Accepted**
 - 冻结日期：2026-08-10
 - 当前 Gate：**FP1**
 - 前置 checkpoint：M3-0 Accepted at
@@ -788,3 +788,52 @@ Windows host 上 observed passed”。它仍保持 `verified:false`；missing-se
 因此 FP1 未 Accepted，M3-WI 未改变，FP2 未开放。下一步只允许从再次冻结的 clean
 checkpoint 执行一次完整 FP1；B1 必须使用
 `identity-win-canvas-v1-b.json`，不得用 focused seed-B 替代。
+
+### 2026-08-15 Full FP1 one-shot lifecycle failure checkpoint
+
+完整 FP1 的一次性路径从 clean HEAD
+`7a5465e8f971a81ef067be4735c764ce3cb0ea29` / tree
+`460a386f12fc46b004a2d8121d31cb0208d07b05` 执行。运行前再次逐字节验证
+503-file browser tree、A/B 两份 47-key Artifact、冻结的 13-key 静态 diff、focused
+通过报告、端口与进程终态；gitignored full harness 与无浏览器测试的 raw SHA-256 分别为
+`409cebe8ef3ff6ea7da072f585a6b62762b87a811dda5820f7f25a4496464dce` 和
+`4b2243fc5f56230ea5ae1e00113249aeb68e6322ad3146bf2cb326f193f0a2d5`，14/14 通过。
+media readiness 只保留为辅助证据，权威硬 Gate 仍是完整 probe 返回的实际设备计数。
+
+| 对象 | 结果 |
+| --- | --- |
+| run | `fp1-full-20260815T090107649930Z` |
+| report | SHA-256 `9c90b95d3f4932535d6d3fb46be5232429ae5587dc66d7e3ee565386566a49a7`；5,741 bytes；sidecar 内容匹配 |
+| one-shot claim | SHA-256 `50573440ad2cfec3b9621319d71032ff0dc7914f026f44f7398125014557d95a`；候选级唯一 claim 已消费 |
+| 实际序列 | 仅 `A1 hello → launch → close → shutdown`；A2/B1 未启动 |
+| A1 session | `f5ba8345c4334164bf99a8260ec82685`；boot `0→1`；supervisor PID 9452 / browser PID 3912 |
+| A1 raw observation | `state/f5ba8345c4334164bf99a8260ec82685/observed.json`；SHA-256 `69f64f2dd7632b42da42120feb58ec817220ba9ca88bc075d2b1f04aad98d6d3` |
+| A1 protocol / stderr | SHA-256 `37122c60a71642b5ae1e9317822d68a5cbb136fd3b00b32849ded7b1c9d5c141` / `09724bcf939ffc86949c49f5795f881b4d7176d091122ff1ff8786c2aa38b1f3` |
+| A1 session receipt | SHA-256 `c518e598b7b68035e1d0aa9b09bb9de186d4ddd421a1cd8b66d99acdc647a49b` |
+| Gate | **Failed：`unclean_close` / `state='failed'`** |
+
+A1 的 identity observation 本身已完整返回：normalized 47-key sent config 通过 Host 的
+disk/sent/digest Gate；Canvas raw、decoded pixels、PNG bytes 和 dataURL 与 focused A
+一致；media readiness 在 343 ms 首次匹配，完整 probe 也实际观察到 1 个
+`audioinput`、1 个 `videoinput`、0 个 `audiooutput`；Cookie、LocalStorage boot 和
+SQLite 证据均已写盘。因此这次失败不是 media、Canvas 或配置投影失败。
+
+硬失败发生在 A1 close：`page.close()` 在 16 ms 内成功，随后 `ctx.close()` 在现有
+10 秒生命周期预算内未返回（记录 9,992 ms timeout）；没有自然 exit file，
+`exitStatus=null`。Host 随后按 fail-closed 所有权执行 named Job 强制清理，最终
+`activeProcessCount=0`、`remaining=[]`，但 forced cleanup 不能冒充 clean close。
+独立终态复核确认 supervisor/browser/Host/full runner 均不存活、18191 无 listener 且可
+重新 bind、A Profile 与全局 lease 的两个锁 byte 均可重新取得、tracked worktree clean。
+
+报告中的 `observations=[]` 与 `windowsRuntimeObserved=false` 是保守短路语义：helper 在
+clean-close validation 抛错前没有把 A1 提升为公开 observation；raw `observed.json` 和
+protocol 已证明 A1 确实运行并得到部分 Windows runtime observation。它们不能被解释成
+A1 未启动，也不能越过生命周期 Gate 升级为完整 FP1 证据。
+
+`ctx.close()` 内部究竟停在 Playwright channel acknowledgement、closed future、API
+request dispose 还是 Firefox shutdown，现有 raw evidence 不足，根因必须保持
+`inconclusive`。没有证据支持修改 media/probe/digest、放宽 forced cleanup、增加 retry、
+猜测性延长 timeout，或恢复 R2/R2H。该候选同实现的一次性 full claim 不得删除或复用；
+若以后继续，只允许先为 `ctx.close()` 增加 secret-free focused 子阶段诊断和 fake
+regression，在定位具体 subcall 并冻结新的 evidence-backed fix 后再由主脑决定新的有限
+验证。当前最终 Gate 为 **FP1 Failed / 未 Accepted**；M3-WI 保持原状态，FP2 继续关闭。
