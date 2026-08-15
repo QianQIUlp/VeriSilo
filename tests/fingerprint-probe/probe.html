@@ -59,6 +59,60 @@
           .join("");
       }
 
+      function pngBytesFromDataUrl(dataUrl) {
+        const prefix = "data:image/png;base64,";
+        if (!dataUrl.startsWith(prefix)) {
+          throw new Error("canvas export was not a PNG data URL");
+        }
+        const decoded = atob(dataUrl.slice(prefix.length));
+        const bytes = new Uint8Array(decoded.length);
+        for (let index = 0; index < decoded.length; index++) {
+          bytes[index] = decoded.charCodeAt(index);
+        }
+        return bytes;
+      }
+
+      async function decodePngPixels(bytes, expectedWidth, expectedHeight) {
+        const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+        const signatureValid =
+          bytes.length >= signature.length &&
+          signature.every((value, index) => bytes[index] === value);
+        if (!signatureValid) {
+          throw new Error("canvas export has an invalid PNG signature");
+        }
+        const bitmap = await createImageBitmap(
+          new Blob([bytes], { type: "image/png" }),
+        );
+        try {
+          if (
+            bitmap.width !== expectedWidth ||
+            bitmap.height !== expectedHeight
+          ) {
+            throw new Error("decoded PNG dimensions do not match the canvas");
+          }
+          const decodedCanvas = document.createElement("canvas");
+          decodedCanvas.width = bitmap.width;
+          decodedCanvas.height = bitmap.height;
+          const decodedContext = decodedCanvas.getContext("2d");
+          decodedContext.drawImage(bitmap, 0, 0);
+          const pixels = decodedContext.getImageData(
+            0,
+            0,
+            bitmap.width,
+            bitmap.height,
+          ).data;
+          return {
+            signatureValid,
+            decodeValid: true,
+            width: bitmap.width,
+            height: bitmap.height,
+            decodedPngPixelsHash: "sha256:" + (await sha256Hex(pixels)),
+          };
+        } finally {
+          bitmap.close();
+        }
+      }
+
       function withTimeout(promise, ms, fallback) {
         return new Promise((resolve) => {
           const timer = setTimeout(() => resolve(fallback), ms);
@@ -106,9 +160,30 @@
         const data = ctx.getImageData(0, 0, 240, 120).data;
         const rawHash = "sha256:" + (await sha256Hex(data));
         const dataUrl = canvas.toDataURL("image/png");
-        const exportHash =
+        const dataUrlHash =
           "sha256:" + (await sha256Hex(new TextEncoder().encode(dataUrl)));
-        return { rawHash, exportHash };
+        const pngBytes = pngBytesFromDataUrl(dataUrl);
+        const pngBytesHash = "sha256:" + (await sha256Hex(pngBytes));
+        const decoded = await decodePngPixels(
+          pngBytes,
+          canvas.width,
+          canvas.height,
+        );
+        return {
+          rawHash,
+          rawRgbaHash: rawHash,
+          exportHash: dataUrlHash,
+          dataUrlHash,
+          pngBytesHash,
+          decodedPngPixelsHash: decoded.decodedPngPixelsHash,
+          png: {
+            signatureValid: decoded.signatureValid,
+            decodeValid: decoded.decodeValid,
+            width: decoded.width,
+            height: decoded.height,
+            mimeType: "image/png",
+          },
+        };
       }
 
       async function identityAudioHash() {

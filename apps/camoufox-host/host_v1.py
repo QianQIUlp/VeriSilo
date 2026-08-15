@@ -56,6 +56,12 @@ from browser_tree import (
     load_tree_manifest,
     verify_tree,
 )
+from browser_asset import (
+    BrowserAssetError,
+    SELF_BUILT_ASSET_KIND,
+    asset_kind,
+    verify_self_built_browser_root,
+)
 from host_platform import (
     IS_WINDOWS,
     JobHandle,
@@ -85,7 +91,6 @@ from run_spike import (
     UnclassifiedCandidateIdentityFieldError,
     configure_camoufox_cache,
     DownloadGuard,
-    EXECUTABLE,
     REPO_ROOT,
     SUPERVISOR,
     XDG_CACHE_DIR,
@@ -95,6 +100,7 @@ from run_spike import (
     installed_versions,
     load_asset_lock,
     normalize_camou_config_env,
+    resolve_asset_lock_path,
     seed_camoufox_cache,
     start_probe_server,
     start_xvfb,
@@ -562,11 +568,17 @@ class CamoufoxHost:
         tree_manifest: Path,
         display: Optional[str],
         probe_port: int = 0,
+        asset_lock: Optional[Path] = None,
+        browser_root: Optional[Path] = None,
     ) -> None:
         self.artifact_root = artifact_root.absolute()
         self.profile_root = profile_root.absolute()
         self.state_root = state_root.absolute()
         self.tree_manifest = tree_manifest.absolute()
+        self.asset_lock_arg = asset_lock.absolute() if asset_lock is not None else None
+        self.browser_root_arg = (
+            browser_root.absolute() if browser_root is not None else None
+        )
         self.display_arg = display
         self.probe_port = probe_port
         self.playwright: Any = None
@@ -582,10 +594,23 @@ class CamoufoxHost:
         ensure_no_reparse_points(self.artifact_root)
         ensure_no_reparse_points(self.profile_root)
         ensure_no_reparse_points(self.state_root)
-        lock = load_asset_lock()
-        if lock.get("digestAgreement") is not True:
-            raise SystemExit("asset lock digestAgreement is not true")
-        executable = ensure_browser_asset(lock, allow_download=False)
+        if (self.asset_lock_arg is None) != (self.browser_root_arg is None):
+            raise SystemExit("asset lock and browser root must be provided together")
+        asset_lock_path = resolve_asset_lock_path(self.asset_lock_arg)
+        lock = load_asset_lock(asset_lock_path)
+        kind = asset_kind(lock)
+        executable = ensure_browser_asset(
+            lock,
+            allow_download=False,
+            browser_root=self.browser_root_arg,
+            tree_manifest=(
+                self.tree_manifest if kind == SELF_BUILT_ASSET_KIND else None
+            ),
+            # A self-built tree must be checked before any of its bytes are
+            # copied into Camoufox's cache. launch() checks it again before
+            # every browser spawn.
+            verify_tree_contents=True,
+        )
         cache_root = Path(
             os.environ.get("VERISILO_CAMOUFOX_CACHE_DIR", str(XDG_CACHE_DIR))
         )
@@ -655,7 +680,25 @@ class CamoufoxHost:
         verify_browser_binding(
             artifact, self.lock, self.executable, installed_versions()
         )
-        verify_tree(self.executable.parent, load_tree_manifest(self.tree_manifest))
+        if asset_kind(self.lock) == SELF_BUILT_ASSET_KIND:
+            try:
+                rebound_executable, _ = verify_self_built_browser_root(
+                    self.lock,
+                    self.browser_root_arg,
+                    repo_root=REPO_ROOT,
+                    tree_manifest_path=self.tree_manifest,
+                    verify_tree_contents=True,
+                )
+            except BrowserAssetError as exc:
+                raise ArtifactIntegrityError(
+                    f"self-built browser root rejected before launch: {exc}"
+                ) from exc
+            if rebound_executable != self.executable:
+                raise ArtifactIntegrityError(
+                    "self-built browser executable changed after Host preparation"
+                )
+        else:
+            verify_tree(self.executable.parent, load_tree_manifest(self.tree_manifest))
 
         profile_dir = self.profile_root / profile_id
         profile_dir.mkdir(parents=True, exist_ok=True)
@@ -2496,6 +2539,18 @@ def main() -> int:
             )
         ),
     )
+    parser.add_argument(
+        "--asset-lock",
+        type=Path,
+        default=None,
+        help="Pinned self-built asset lock; requires --browser-root when explicit",
+    )
+    parser.add_argument(
+        "--browser-root",
+        type=Path,
+        default=None,
+        help="Extracted self-built browser root; requires --asset-lock",
+    )
     parser.add_argument("--display", default=None)
     parser.add_argument(
         "--probe-port",
@@ -2516,6 +2571,8 @@ def main() -> int:
         tree_manifest=args.tree_manifest,
         display=args.display,
         probe_port=args.probe_port,
+        asset_lock=args.asset_lock,
+        browser_root=args.browser_root,
     )
     return asyncio.run(run_host(host))
 

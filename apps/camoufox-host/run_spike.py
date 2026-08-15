@@ -42,6 +42,15 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, Optional
 
+from browser_asset import (
+    BrowserAssetError,
+    SELF_BUILT_ASSET_KIND,
+    asset_kind,
+    load_asset_lock as load_browser_asset_lock,
+    validate_asset_lock,
+    verify_self_built_browser_root,
+)
+
 IS_WINDOWS = os.name == "nt"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -77,6 +86,15 @@ EXTRACT_DIR = BROWSER_DIR / (
     else "camoufox-152.0.4-beta.28-lin-x86_64"
 )
 EXECUTABLE = EXTRACT_DIR / EXECUTABLE_REL
+SELF_BUILT_ASSET_LOCK = LOCK_DIR / (
+    "camoufox-v152.0.4-beta.28-verisilo-canvas-v1-windows-x86_64.json"
+)
+# Updated only after the deterministic finalizer has emitted and re-read the
+# tracked self-built lock.  An arbitrary structurally valid CLI lock must never
+# become its own trust anchor.
+EXPECTED_SELF_BUILT_ASSET_LOCK_SHA256 = (
+    "0ce34b8a44c90e6c313aad66030a800359bbca78b97ca565cbdefa4e4eb95cfe"
+)
 
 COOKIE_NAME = "verisilo_probe_cookie"
 CYCLES = 3
@@ -187,13 +205,38 @@ def new_run_id() -> str:
     return f"run-{int(time.time())}-{uuid.uuid4().hex[:8]}"
 
 
-def load_asset_lock() -> dict:
-    path = LOCK_DIR / f"camoufox-{RELEASE}-{PLATFORM}.json"
-    if not path.exists():
-        raise SystemExit(
-            f"missing asset lock {path}; run `uv run python fetch-browser.py --record` first"
+def resolve_asset_lock_path(path: Path | str | None = None) -> Path:
+    selected = (
+        Path(path)
+        if path is not None
+        else LOCK_DIR / f"camoufox-{RELEASE}-{PLATFORM}.json"
+    )
+    try:
+        selected = selected.resolve(strict=True)
+    except OSError as exc:
+        raise SystemExit(f"missing asset lock {selected}: {exc}") from exc
+    official = (LOCK_DIR / f"camoufox-{RELEASE}-{PLATFORM}.json").resolve()
+    self_built = SELF_BUILT_ASSET_LOCK.resolve(strict=False)
+    if selected not in {official, self_built}:
+        raise SystemExit("asset lock path is not an allowed pinned repository lock")
+    return selected
+
+
+def load_asset_lock(path: Path | str | None = None) -> dict:
+    selected = resolve_asset_lock_path(path)
+    self_built = SELF_BUILT_ASSET_LOCK.resolve(strict=False)
+    if selected == self_built:
+        raw_sha = sha256_file(selected)
+        if raw_sha != EXPECTED_SELF_BUILT_ASSET_LOCK_SHA256:
+            raise SystemExit("self-built asset lock raw SHA-256 is not the compiled pin")
+    try:
+        return load_browser_asset_lock(
+            selected,
+            expected_release=RELEASE,
+            expected_platform=PLATFORM,
         )
-    return json.loads(path.read_text())
+    except BrowserAssetError as exc:
+        raise SystemExit(f"asset lock rejected: {exc}") from exc
 
 
 def sha256_file(path: Path) -> str:
@@ -207,7 +250,40 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def ensure_browser_asset(lock: dict, allow_download: bool = True) -> Path:
+def ensure_browser_asset(
+    lock: dict,
+    allow_download: bool = True,
+    *,
+    browser_root: Path | str | None = None,
+    tree_manifest: Path | str | None = None,
+    verify_tree_contents: bool = True,
+) -> Path:
+    try:
+        kind = validate_asset_lock(
+            lock,
+            expected_release=RELEASE,
+            expected_platform=PLATFORM,
+        )
+    except BrowserAssetError as exc:
+        raise SystemExit(f"asset lock rejected: {exc}") from exc
+    if kind == SELF_BUILT_ASSET_KIND:
+        if browser_root is None:
+            raise SystemExit("self-built asset lock requires an explicit browser root")
+        if allow_download:
+            raise SystemExit("self-built browser assets can never use automatic download")
+        try:
+            executable, _ = verify_self_built_browser_root(
+                lock,
+                browser_root,
+                repo_root=REPO_ROOT,
+                tree_manifest_path=tree_manifest,
+                verify_tree_contents=verify_tree_contents,
+            )
+        except BrowserAssetError as exc:
+            raise SystemExit(f"self-built browser root rejected: {exc}") from exc
+        return executable
+    if browser_root is not None or tree_manifest is not None:
+        raise SystemExit("explicit browser-root injection requires the pinned self-built lock")
     archive = ARTIFACT_DIR / ASSET_NAME
     if not archive.exists():
         if not allow_download:
@@ -260,15 +336,17 @@ def seed_camoufox_cache(
     launch_options() finds fontconfig/version metadata without downloading.
     The cache lives under artifacts/ (gitignored) and is derived only from the
     pinned archive that fetch-browser.py verified."""
+    kind = asset_kind(lock)
     sha8 = lock["sha256"][:8]
     folder = f"152.0.4-beta.28-{sha8}"
     install_dir = install_dir or CAMOUFOX_INSTALL_DIR
-    dest = install_dir / "browsers" / "official" / folder
+    namespace = "official" if kind == "official" else "verisilo"
+    dest = install_dir / "browsers" / namespace / folder
     version_json = dest / "version.json"
     seeded = False
     if not (dest / EXECUTABLE_REL).exists() or not version_json.exists():
         print(f"seeding camoufox cache from verified archive ({folder}) ...")
-        shutil.copytree(EXTRACT_DIR, dest, dirs_exist_ok=True)
+        shutil.copytree(executable.parent, dest, dirs_exist_ok=True)
         version_json.write_text(
             json.dumps(
                 {
@@ -286,7 +364,7 @@ def seed_camoufox_cache(
     config = {}
     if config_path.exists():
         config = json.loads(config_path.read_text())
-    config["active_version"] = f"browsers/official/{folder}"
+    config["active_version"] = f"browsers/{namespace}/{folder}"
     config_path.write_text(json.dumps(config, indent=2) + "\n")
     (install_dir / ".0.5_FLAG").touch()
     return seeded

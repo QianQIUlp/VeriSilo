@@ -230,6 +230,51 @@ def declared_stable_signals(config: dict, locale: str) -> dict:
     }
 
 
+def rebind_identity_artifact(
+    source: dict,
+    *,
+    artifact_id: str,
+    binding: dict,
+    canvas_seed: int | None = None,
+) -> dict:
+    """Create a deterministic fixture/candidate rebind without browser I/O.
+
+    Provenance fields and the historical resolved identity are preserved. The
+    browser binding selects the Canvas Policy v3 variant. ``canvas_seed`` is
+    optional so a focused contrast can change only that config value, its
+    declaration, and the two derived digests beyond the ordinary rebind.
+    """
+
+    if canvas_seed is not None and (
+        type(canvas_seed) is not int or not 0 <= canvas_seed <= 0xFFFFFFFF
+    ):
+        raise ValueError("canvas_seed must be an unsigned 32-bit integer")
+
+    artifact = copy.deepcopy(source)
+    source_policy = source["policy"]
+    artifact["artifactId"] = artifact_id
+    artifact["browserBinding"] = copy.deepcopy(binding)
+    artifact["policy"] = identity_policy(
+        target_os=source_policy["targetOs"],
+        font_mode=source_policy["fontMode"],
+        window=tuple(source_policy["window"]),
+        locale=source_policy["locale"],
+        ff_version=source_policy["ffVersion"],
+        timezone_mode=source_policy["timezoneMode"],
+        browser_binding=binding,
+    )
+    if canvas_seed is not None:
+        artifact["resolvedConfig"]["canvas:seed"] = canvas_seed
+        artifact["stableSignalsDeclared"]["canvasSeed"] = canvas_seed
+    artifact["configuredIdentityDigest"] = configured_identity_digest(
+        artifact["resolvedConfig"]
+    )
+    artifact.pop("canonicalDigest", None)
+    artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+    assert_artifact_clean(artifact)
+    return artifact
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, type=Path, help="Output artifact path (.json)")
@@ -285,6 +330,7 @@ def main() -> int:
     if DownloadGuard.tripped:
         raise SystemExit("unpinned download attempted during generation; aborting")
 
+    binding = browser_binding(lock, executable)
     policy = identity_policy(
         target_os=args.os,
         font_mode=args.font_mode,
@@ -292,13 +338,14 @@ def main() -> int:
         locale=args.locale,
         ff_version=args.ff_version,
         timezone_mode=TIMEZONE_MODE,
+        browser_binding=binding,
     )
     artifact = {
         "schema": ARTIFACT_SCHEMA,
         "artifactId": args.id,
         "policy": policy,
         "browserRelease": RELEASE,
-        "browserBinding": browser_binding(lock, executable),
+        "browserBinding": binding,
         "generatedBy": "VeriSilo generate_identity.py (M2.0.2)",
         "generatedAtUtc": datetime.now(timezone.utc)
         .isoformat()

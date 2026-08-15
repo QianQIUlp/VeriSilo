@@ -110,6 +110,49 @@ CANVAS_CLASSIFICATION = {
     "identity": "not stable; excluded from ObservedWebsiteDigest",
 }
 
+# Canvas Policy v3 has two deliberately closed variants.  The legacy variant
+# preserves the byte-for-byte policy embedded in the accepted official
+# Camoufox fixtures.  The deterministic variant is selected only by the exact
+# VeriSilo-patched Windows browser binding; no individual binding field is a
+# sufficient capability signal.
+LEGACY_CANVAS_POLICY_VARIANT = "legacy-session-variable"
+DETERMINISTIC_CANVAS_POLICY_VARIANT = "deterministic-artifact-v1"
+
+LEGACY_BROWSER_BINDINGS = (
+    {
+        "archiveSha256": "924f3109ccd6d47cd6a0384d67a345fadf975d48b6319f8dbbd5954c588982bd",
+        "archiveSizeBytes": 663387175,
+        "buildId": "20260719045650",
+        "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+        "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+    },
+    {
+        "archiveSha256": "386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d",
+        "archiveSizeBytes": 492370020,
+        "buildId": "20260719045835",
+        "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+        "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+    },
+)
+
+DETERMINISTIC_CANVAS_BROWSER_BINDING = {
+    "archiveSha256": "8221486f42f547603339da7442e4c412671afc66d6742d01f99918f12f85be1d",
+    "archiveSizeBytes": 493054882,
+    "buildId": "20260811045234",
+    "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+    "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+}
+
+DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS = [
+    key for key in SESSION_VARIABLE_SIGNAL_KEYS if key != "canvasExportHash"
+]
+
+DETERMINISTIC_CANVAS_CLASSIFICATION = {
+    "rawPixels": "stable raw RGBA; canvas:seed does not add pixel noise",
+    "exportEncoding": "artifact-silo deterministic PNG export from canvas:seed",
+    "identity": "stable hard-observed Canvas surface; excluded from ObservedWebsiteDigest v2",
+}
+
 CANONICAL_JSON_RULE = (
     "UTF-8, recursively sorted object keys, compact separators (,/:), "
     "ensure_ascii=false, allow_nan=false; artifact digest excludes only "
@@ -394,6 +437,52 @@ class UnsupportedSchemaVersionError(ArtifactIntegrityError):
     version. This is a version contract error, NOT a missing-field error."""
 
 
+def _browser_binding_matches_exact(actual: Any, expected: dict) -> bool:
+    """Compare a binding as a closed, exact-type capability tuple.
+
+    In particular, bool must not compare equal to an integer size and an
+    otherwise-correct object with an extra field must not select a policy.
+    """
+
+    return (
+        type(actual) is dict
+        and set(actual) == set(expected)
+        and all(
+            type(actual[key]) is type(expected_value)
+            and actual[key] == expected_value
+            for key, expected_value in expected.items()
+        )
+    )
+
+
+def canvas_policy_variant_for_browser_binding(binding: Any) -> str:
+    """Select exactly one Canvas Policy v3 variant or fail closed."""
+
+    matches: list[str] = []
+    if any(
+        _browser_binding_matches_exact(binding, expected)
+        for expected in LEGACY_BROWSER_BINDINGS
+    ):
+        matches.append(LEGACY_CANVAS_POLICY_VARIANT)
+    if _browser_binding_matches_exact(binding, DETERMINISTIC_CANVAS_BROWSER_BINDING):
+        matches.append(DETERMINISTIC_CANVAS_POLICY_VARIANT)
+    if len(matches) != 1:
+        raise ArtifactIntegrityError(
+            "browserBinding does not select exactly one approved Canvas Policy v3 variant"
+        )
+    return matches[0]
+
+
+def _canvas_policy_fields_for_browser_binding(binding: Any) -> tuple[list[str], dict]:
+    variant = canvas_policy_variant_for_browser_binding(binding)
+    if variant == DETERMINISTIC_CANVAS_POLICY_VARIANT:
+        return (
+            list(DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS),
+            dict(DETERMINISTIC_CANVAS_CLASSIFICATION),
+        )
+    return list(SESSION_VARIABLE_SIGNAL_KEYS), dict(CANVAS_CLASSIFICATION)
+
+
 # --------------------------------------------------------------------------
 # Canonical JSON and digests
 # --------------------------------------------------------------------------
@@ -475,7 +564,17 @@ def identity_policy(
     locale: str = "en-US",
     ff_version: int = 152,
     timezone_mode: str = "fixed",
+    browser_binding: dict | None = None,
 ) -> dict:
+    if browser_binding is None:
+        # Preserve the legacy default for existing callers and fixtures. New
+        # artifact generation always supplies its resolved browser binding.
+        session_variable_fields = list(SESSION_VARIABLE_SIGNAL_KEYS)
+        canvas_classification = dict(CANVAS_CLASSIFICATION)
+    else:
+        session_variable_fields, canvas_classification = (
+            _canvas_policy_fields_for_browser_binding(browser_binding)
+        )
     return {
         "schema": POLICY_SCHEMA,
         "version": 3,
@@ -486,9 +585,9 @@ def identity_policy(
         "ffVersion": ff_version,
         "timezoneMode": timezone_mode,
         "stableWebsiteFields": list(STABLE_WEBSITE_SIGNAL_KEYS),
-        "sessionVariableFields": list(SESSION_VARIABLE_SIGNAL_KEYS),
+        "sessionVariableFields": session_variable_fields,
         "unavailableFields": dict(UNAVAILABLE_SIGNALS),
-        "canvasClassification": dict(CANVAS_CLASSIFICATION),
+        "canvasClassification": canvas_classification,
         "requiredConfigKeys": sorted(REQUIRED_CONFIG_KEYS),
         "canonicalJsonRule": CANONICAL_JSON_RULE,
     }
@@ -544,6 +643,17 @@ def validate_artifact_strict(artifact: dict) -> None:
         ):
             errors.append(f"{digest_key} must be sha256:<64 hex chars>")
 
+    binding = artifact.get("browserBinding")
+    expected_session_variable_fields: list[str] | None = None
+    expected_canvas_classification: dict | None = None
+    try:
+        (
+            expected_session_variable_fields,
+            expected_canvas_classification,
+        ) = _canvas_policy_fields_for_browser_binding(binding)
+    except ArtifactIntegrityError as exc:
+        errors.append(str(exc))
+
     policy = artifact.get("policy")
     if isinstance(policy, dict):
         if policy.get("schema") != POLICY_SCHEMA:
@@ -558,11 +668,19 @@ def validate_artifact_strict(artifact: dict) -> None:
             errors.append("policy.timezoneMode must be fixed or network-bound")
         if policy.get("stableWebsiteFields") != STABLE_WEBSITE_SIGNAL_KEYS:
             errors.append("policy.stableWebsiteFields does not match the canonical list")
-        if policy.get("sessionVariableFields") != SESSION_VARIABLE_SIGNAL_KEYS:
+        if (
+            expected_session_variable_fields is not None
+            and policy.get("sessionVariableFields")
+            != expected_session_variable_fields
+        ):
             errors.append("policy.sessionVariableFields does not match the canonical list")
         if policy.get("unavailableFields") != UNAVAILABLE_SIGNALS:
             errors.append("policy.unavailableFields does not match the canonical map")
-        if policy.get("canvasClassification") != CANVAS_CLASSIFICATION:
+        if (
+            expected_canvas_classification is not None
+            and policy.get("canvasClassification")
+            != expected_canvas_classification
+        ):
             errors.append("policy.canvasClassification does not match the canonical map")
         if policy.get("requiredConfigKeys") != sorted(REQUIRED_CONFIG_KEYS):
             errors.append("policy.requiredConfigKeys does not match the canonical key set")
@@ -582,7 +700,6 @@ def validate_artifact_strict(artifact: dict) -> None:
             if config["screen.availTop"] + config["screen.availHeight"] > config["screen.height"]:
                 errors.append("screen avail geometry inconsistent")
 
-    binding = artifact.get("browserBinding")
     if isinstance(binding, dict):
         if not HEX64_RE.fullmatch(str(binding.get("archiveSha256", ""))):
             errors.append("browserBinding.archiveSha256 must be a 64-hex sha256")

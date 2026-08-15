@@ -21,13 +21,25 @@ from unittest import mock
 
 import numpy as np
 
+import browser_asset
+import host_v1
+import run_spike as run_spike_module
 from identity_policy import (
     ARTIFACT_SCHEMA,
+    CANVAS_CLASSIFICATION,
+    DETERMINISTIC_CANVAS_BROWSER_BINDING,
+    DETERMINISTIC_CANVAS_CLASSIFICATION,
+    DETERMINISTIC_CANVAS_POLICY_VARIANT,
+    DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS,
+    LEGACY_CANVAS_POLICY_VARIANT,
     OBSERVED_DIGEST_SCHEMA,
+    SESSION_VARIABLE_SIGNAL_KEYS,
+    STABLE_WEBSITE_SIGNAL_KEYS,
     ArtifactIntegrityError,
     UnsupportedSchemaVersionError,
     canonical_digest,
     canonical_json_bytes,
+    canvas_policy_variant_for_browser_binding,
     compute_artifact_digest,
     configured_identity_digest,
     diff_configs,
@@ -60,10 +72,23 @@ from run_spike import (
     firefox_user_prefs_for_config,
     normalize_camou_config_env,
 )
-from generate_identity import complete_resolved_config, write_artifact_with_sidecar
+from generate_identity import (
+    complete_resolved_config,
+    rebind_identity_artifact,
+    write_artifact_with_sidecar,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "camoufox"
+
+LEGACY_FIXTURE_SHA256 = {
+    "identity-a": "2ba26226903d82c0134daa61297defb48930c83f1249c3d4c36bcca16f8cac9e",
+    "identity-b": "f142ab0e006a40682a92d2a5b04f88b6a418edf3331084437b672b74dd63b67e",
+    "identity-c": "132b108c488e43b01b206412b954ae4f94260d949d22acc89187076e8d1c7640",
+    "identity-win-a": "a214c21ccf4a68c97040af6e5f81b05e40903a127dea33ace6dce7d8f133279f",
+    "identity-win-b": "ae7ca69321614e924662e7f162e2f294911fc9facf96db4f4e15d001b0af5db9",
+    "identity-win-c": "47572ab26176833807da59889bc07a6ed07e186e9014364e4fde6e0d6d7c10f6",
+}
 
 
 def load_fixture(name: str) -> dict:
@@ -129,6 +154,388 @@ def test_windows_fixtures_pass_strict_validation() -> None:
         }
         sidecar = path.with_suffix(".json.sha256").read_text(encoding="utf-8").split()[0]
         assert sidecar == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_self_built_asset_lock_is_compiled_pinned_and_nonofficial() -> None:
+    path = (
+        Path(__file__).resolve().parent
+        / "lock"
+        / "camoufox-v152.0.4-beta.28-verisilo-canvas-v1-windows-x86_64.json"
+    )
+    raw = path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    assert digest == run_spike_module.EXPECTED_SELF_BUILT_ASSET_LOCK_SHA256
+    lock = browser_asset.load_asset_lock(
+        path,
+        expected_release="v152.0.4-beta.28",
+        expected_platform="windows-x86_64",
+    )
+    assert browser_asset.asset_kind(lock) == "self-built"
+    assert lock["verified"] is False
+    assert lock["evidenceClass"] == "compiled-not-runtime-verified"
+    assert lock["sha256"] == (
+        "8221486f42f547603339da7442e4c412671afc66d6742d01f99918f12f85be1d"
+    )
+    assert lock["sizeBytes"] == 493054882
+    assert "digestAgreement" not in lock
+    assert "githubAsset" not in lock
+    assert lock["sourceBinding"]["commit"] == (
+        "4f1f01f00844e1888139b4236424550c94a6e10f"
+    )
+    assert lock["treeManifest"] == {
+        **lock["treeManifest"],
+        "rawSha256": (
+            "68ae52e3d11bba5b2868b68ea90af962840c6890a4418fc24199ba9a96138bf3"
+        ),
+        "canonicalSha256": (
+            "ebc35ddbdc59c32b9856b56a9dcfc6e375d5a090abc6b498238e6cd874c09dfa"
+        ),
+        "fileCount": 503,
+        "totalBytes": 981198096,
+    }
+
+
+def test_asset_lock_selection_and_root_injection_are_fail_closed() -> None:
+    host_dir = Path(__file__).resolve().parent
+    self_built_path = (
+        host_dir
+        / "lock"
+        / "camoufox-v152.0.4-beta.28-verisilo-canvas-v1-windows-x86_64.json"
+    )
+    self_built = run_spike_module.load_asset_lock(self_built_path)
+    try:
+        run_spike_module.ensure_browser_asset(
+            self_built, allow_download=False, browser_root=None
+        )
+    except SystemExit as exc:
+        assert "requires an explicit browser root" in str(exc)
+    else:
+        raise AssertionError("self-built asset without a browser root was accepted")
+
+    official_path = (
+        host_dir / "lock" / "camoufox-v152.0.4-beta.28-windows-x86_64.json"
+    )
+    official = run_spike_module.load_asset_lock(official_path)
+    with tempfile.TemporaryDirectory() as tmp:
+        browser_root = Path(tmp) / "browser"
+        browser_root.mkdir()
+        try:
+            run_spike_module.ensure_browser_asset(
+                official,
+                allow_download=False,
+                browser_root=browser_root,
+            )
+        except SystemExit as exc:
+            assert "requires the pinned self-built lock" in str(exc)
+        else:
+            raise AssertionError("official lock accepted an injected browser root")
+
+        copied_lock = Path(tmp) / self_built_path.name
+        copied_lock.write_bytes(self_built_path.read_bytes())
+        try:
+            run_spike_module.resolve_asset_lock_path(copied_lock)
+        except SystemExit as exc:
+            assert "allowed pinned repository lock" in str(exc)
+        else:
+            raise AssertionError("an arbitrary copied lock became a trust anchor")
+
+
+def test_self_built_launch_rechecks_the_pinned_tree_before_profile_use() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        artifact_root = root / "artifacts"
+        artifact_root.mkdir()
+        (artifact_root / "identity.json").write_bytes(b"{}\n")
+        browser_root = root / "browser"
+        browser_root.mkdir()
+        executable = browser_root / "camoufox.exe"
+        executable.write_bytes(b"bound executable")
+        tree_manifest = root / "tree.json"
+        tree_manifest.write_bytes(b"{}\n")
+
+        host = object.__new__(host_v1.CamoufoxHost)
+        host.artifact_root = artifact_root
+        host.profile_root = root / "profiles"
+        host.state_root = root / "state"
+        host.tree_manifest = tree_manifest
+        host.browser_root_arg = browser_root
+        host.lock = {"schema": browser_asset.SELF_BUILT_ASSET_SCHEMA}
+        host.executable = executable
+        host.session = None
+
+        with (
+            mock.patch.object(
+                host_v1,
+                "verify_artifact_raw",
+                return_value=({}, "a" * 64),
+            ),
+            mock.patch.object(host_v1, "verify_browser_binding"),
+            mock.patch.object(
+                host_v1,
+                "verify_self_built_browser_root",
+                side_effect=browser_asset.BrowserAssetError(
+                    "locked manifest changed"
+                ),
+            ) as recheck,
+        ):
+            try:
+                asyncio.run(host.launch("identity", "profile-a", "a" * 64))
+            except ArtifactIntegrityError as exc:
+                assert "locked manifest changed" in str(exc)
+            else:
+                raise AssertionError("launch continued after the locked-tree recheck failed")
+
+        recheck.assert_called_once_with(
+            host.lock,
+            browser_root,
+            repo_root=host_v1.REPO_ROOT,
+            tree_manifest_path=tree_manifest,
+            verify_tree_contents=True,
+        )
+        assert not host.profile_root.exists()
+
+
+def test_self_built_cache_seed_uses_separate_verisilo_namespace() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        browser_root = root / "browser"
+        browser_root.mkdir()
+        executable = browser_root / "camoufox.exe"
+        executable.write_bytes(b"synthetic executable")
+        (browser_root / "ordinary.dat").write_bytes(b"ordinary")
+        install = root / "cache" / "camoufox"
+        install.mkdir(parents=True)
+        lock = {
+            "schema": browser_asset.SELF_BUILT_ASSET_SCHEMA,
+            "sha256": "a" * 64,
+        }
+        assert run_spike_module.seed_camoufox_cache(
+            lock, executable, install_dir=install
+        ) is True
+        config = json.loads((install / "config.json").read_text(encoding="utf-8"))
+        active = config["active_version"]
+        assert active.startswith("browsers/verisilo/")
+        assert "/official/" not in active
+        assert (install / active / "ordinary.dat").read_bytes() == b"ordinary"
+
+
+def test_host_hello_wire_shape_remains_v1_under_asset_injection() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        tree = root / "tree.json"
+        tree.write_bytes(b"{}\n")
+        host = object.__new__(host_v1.CamoufoxHost)
+        host.artifact_root = root / "artifacts"
+        host.profile_root = root / "profiles"
+        host.state_root = root / "state"
+        host.tree_manifest = tree
+        host.probe_port = 0
+        host.lock = {
+            "release": "v152.0.4-beta.28",
+            "sha256": "a" * 64,
+        }
+        host.session = None
+        hello = host.hello()
+        assert set(hello) == {
+            "protocol",
+            "hostVersion",
+            "pythonVersion",
+            "artifactRoot",
+            "profileRoot",
+            "stateRoot",
+            "maxFrameBytes",
+            "probePortPolicy",
+            "browserRelease",
+            "assetSha256",
+            "treeManifest",
+            "treeManifestSha256",
+            "platform",
+            "state",
+            "verified",
+            "evidenceClass",
+        }
+
+
+def test_legacy_fixtures_and_policy_remain_byte_exact() -> None:
+    for name, expected_sha in LEGACY_FIXTURE_SHA256.items():
+        path = FIXTURES / f"{name}.json"
+        raw = path.read_bytes()
+        artifact = verify_artifact(path)
+        assert hashlib.sha256(raw).hexdigest() == expected_sha
+        assert artifact["policy"]["sessionVariableFields"] == (
+            SESSION_VARIABLE_SIGNAL_KEYS
+        )
+        assert artifact["policy"]["canvasClassification"] == CANVAS_CLASSIFICATION
+        assert (
+            canvas_policy_variant_for_browser_binding(artifact["browserBinding"])
+            == LEGACY_CANVAS_POLICY_VARIANT
+        )
+
+
+def test_deterministic_canvas_fixtures_are_exact_rebinds() -> None:
+    historical_a = load_fixture("identity-win-a")
+    historical_b = load_fixture("identity-win-b")
+    expected_sources = {
+        "identity-win-canvas-v1-a": (historical_a, None),
+        "identity-win-canvas-v1-b": (historical_b, None),
+        "identity-win-canvas-v1-seed-b": (historical_a, 3261637135),
+    }
+
+    for name, (source, canvas_seed) in expected_sources.items():
+        path = FIXTURES / f"{name}.json"
+        raw = path.read_bytes()
+        artifact = verify_artifact(path)
+        expected = rebind_identity_artifact(
+            source,
+            artifact_id=name,
+            binding=DETERMINISTIC_CANVAS_BROWSER_BINDING,
+            canvas_seed=canvas_seed,
+        )
+        assert artifact == expected
+        assert artifact["schema"] == ARTIFACT_SCHEMA
+        assert len(artifact["resolvedConfig"]) == 47
+        assert artifact["browserBinding"] == DETERMINISTIC_CANVAS_BROWSER_BINDING
+        assert (
+            canvas_policy_variant_for_browser_binding(artifact["browserBinding"])
+            == DETERMINISTIC_CANVAS_POLICY_VARIANT
+        )
+        assert artifact["policy"]["stableWebsiteFields"] == (
+            STABLE_WEBSITE_SIGNAL_KEYS
+        )
+        assert artifact["policy"]["sessionVariableFields"] == (
+            DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS
+        )
+        assert artifact["policy"]["canvasClassification"] == (
+            DETERMINISTIC_CANVAS_CLASSIFICATION
+        )
+        assert artifact["configuredIdentityDigest"] == configured_identity_digest(
+            artifact["resolvedConfig"]
+        )
+        assert artifact["canonicalDigest"] == compute_artifact_digest(artifact)
+        assert not raw.startswith(b"\xef\xbb\xbf")
+        assert b"\r\n" not in raw
+        assert raw.endswith(b"\n")
+        expected_sidecar = (
+            f"{hashlib.sha256(raw).hexdigest()}  {path.name}\n".encode("ascii")
+        )
+        assert path.with_suffix(".json.sha256").read_bytes() == expected_sidecar
+
+    focused_a = load_fixture("identity-win-canvas-v1-a")
+    focused_seed_b = load_fixture("identity-win-canvas-v1-seed-b")
+    assert sorted(
+        key
+        for key in focused_a
+        if focused_a[key] != focused_seed_b[key]
+    ) == [
+        "artifactId",
+        "canonicalDigest",
+        "configuredIdentityDigest",
+        "resolvedConfig",
+        "stableSignalsDeclared",
+    ]
+    assert diff_configs(
+        focused_a["resolvedConfig"], focused_seed_b["resolvedConfig"]
+    ) == {"added": [], "removed": [], "changed": ["canvas:seed"]}
+    assert sorted(
+        key
+        for key in focused_a["stableSignalsDeclared"]
+        if focused_a["stableSignalsDeclared"][key]
+        != focused_seed_b["stableSignalsDeclared"][key]
+    ) == ["canvasSeed"]
+    assert focused_seed_b["resolvedConfig"]["canvas:seed"] == 3261637135
+    assert focused_seed_b["stableSignalsDeclared"]["canvasSeed"] == 3261637135
+
+
+def test_canvas_policy_binding_selection_fails_closed() -> None:
+    deterministic = load_fixture("identity-win-canvas-v1-a")
+    legacy = load_fixture("identity-win-a")
+
+    def assert_binding_rejected(binding: dict, label: str) -> None:
+        artifact = copy.deepcopy(deterministic)
+        artifact["browserBinding"] = binding
+        _recompute_digests(artifact)
+        try:
+            validate_artifact_strict(artifact)
+        except ArtifactIntegrityError:
+            return
+        raise AssertionError(f"strict validator accepted {label}")
+
+    # A valid deterministic policy under an official binding, and a legacy
+    # policy under the patched binding, are both cross-variant artifacts.
+    cross_variant = copy.deepcopy(deterministic)
+    cross_variant["browserBinding"] = copy.deepcopy(legacy["browserBinding"])
+    _recompute_digests(cross_variant)
+    try:
+        validate_artifact_strict(cross_variant)
+    except ArtifactIntegrityError:
+        pass
+    else:
+        raise AssertionError("deterministic policy with legacy binding must fail")
+
+    cross_variant = copy.deepcopy(legacy)
+    cross_variant["browserBinding"] = copy.deepcopy(
+        DETERMINISTIC_CANVAS_BROWSER_BINDING
+    )
+    _recompute_digests(cross_variant)
+    try:
+        validate_artifact_strict(cross_variant)
+    except ArtifactIntegrityError:
+        pass
+    else:
+        raise AssertionError("legacy policy with deterministic binding must fail")
+
+    mismatches = {
+        "archiveSha256": legacy["browserBinding"]["archiveSha256"],
+        "archiveSizeBytes": legacy["browserBinding"]["archiveSizeBytes"],
+        "buildId": legacy["browserBinding"]["buildId"],
+        "sourceStamp": "0" * 40,
+        "propertiesJsonSha256": "0" * 64,
+    }
+    for field, value in mismatches.items():
+        binding = copy.deepcopy(DETERMINISTIC_CANVAS_BROWSER_BINDING)
+        binding[field] = value
+        try:
+            canvas_policy_variant_for_browser_binding(binding)
+        except ArtifactIntegrityError:
+            pass
+        else:
+            raise AssertionError(f"partial binding mismatch accepted: {field}")
+        assert_binding_rejected(binding, f"binding mismatch {field}")
+
+    partial = copy.deepcopy(DETERMINISTIC_CANVAS_BROWSER_BINDING)
+    partial.pop("sourceStamp")
+    try:
+        canvas_policy_variant_for_browser_binding(partial)
+    except ArtifactIntegrityError:
+        pass
+    else:
+        raise AssertionError("partial binding accepted")
+    assert_binding_rejected(partial, "partial binding")
+
+    unknown = {
+        "archiveSha256": "0" * 64,
+        "archiveSizeBytes": 1,
+        "buildId": "unknown",
+        "sourceStamp": "0" * 40,
+        "propertiesJsonSha256": "0" * 64,
+    }
+    try:
+        canvas_policy_variant_for_browser_binding(unknown)
+    except ArtifactIntegrityError:
+        pass
+    else:
+        raise AssertionError("unknown complete binding accepted")
+    assert_binding_rejected(unknown, "unknown complete binding")
+
+
+def test_observed_digest_v2_contract_does_not_absorb_canvas() -> None:
+    assert OBSERVED_DIGEST_SCHEMA == "verisilo-camoufox-observed-website/v2"
+    assert "canvasExportHash" not in STABLE_WEBSITE_SIGNAL_KEYS
+    deterministic = load_fixture("identity-win-canvas-v1-a")
+    assert deterministic["policy"]["stableWebsiteFields"] == (
+        STABLE_WEBSITE_SIGNAL_KEYS
+    )
+    assert "canvasExportHash" not in deterministic["policy"]["stableWebsiteFields"]
 
 
 def test_canonical_json_deterministic() -> None:
@@ -355,7 +762,10 @@ def test_fp1_probe_fields_preserve_observed_digest_v2_voice_shape() -> None:
         "windowGeometry:",
         'identityWebGL("webgl2")',
         "isDefault: voice.default",
-        "rawHash, exportHash",
+        "rawRgbaHash: rawHash",
+        "decodedPngPixelsHash",
+        "pngBytesHash",
+        "dataUrlHash",
     ):
         assert marker in probe, marker
 
@@ -821,7 +1231,7 @@ def test_fp1_fake_stage_timeout_crosses_protocol_and_fail_closed_cleanup() -> No
         host.display_arg = None
         host.probe_port = 0
         host.playwright = object()
-        host.lock = {}
+        host.lock = {"schema": browser_asset.OFFICIAL_ASSET_SCHEMA}
         host.executable = root / "browser" / "camoufox.exe"
         host.session = None
 
