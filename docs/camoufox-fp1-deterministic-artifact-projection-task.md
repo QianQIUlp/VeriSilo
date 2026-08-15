@@ -1,6 +1,6 @@
 # Camoufox Managed Fingerprint Core FP1 — Deterministic Artifact Projection
 
-- 状态：**Frozen task contract / Candidate finalized / Runtime pending**
+- 状态：**Frozen task contract / Canvas focused passed / Full FP1 pending**
 - 冻结日期：2026-08-10
 - 当前 Gate：**FP1**
 - 前置 checkpoint：M3-0 Accepted at
@@ -750,3 +750,41 @@ JavaScript 语法证据，不把 Prettier 写成已运行。
 configured 提升为 applied/observed，不能宣称 Canvas contract 已通过 runtime，FP1 仍开放，
 M3-WI 仍为 `failed` / `experimental`，FP2 未开放。下一次真实运行仍严格是一次
 Canvas focused A1→A2→seed-B1；通过并再次冻结后才允许一次完整 FP1 A1→A2→B1。
+
+### 2026-08-15 Canvas focused runtime checkpoint
+
+上述一次性 focused 路径已从 clean HEAD
+`96546259574f73ec50f4c3715c3d978641155d8d` / tree
+`4a3248f4564ddb5f8983b93db74faca9a77f77d8` 执行。候选 archive、asset lock、tree
+manifest、rebound A/seed-B fixtures 和 probe 均与上一 checkpoint 精确相同；本地
+gitignored harness raw SHA-256 为
+`c9016d747b72cecbce64495f5bd27761520c518480084468b9595e5f33157d73`。候选级原子
+one-shot claim 已消费，没有重试或样本选择。
+
+| 对象 | 结果 |
+| --- | --- |
+| run | `canvas-focused-20260815T081637990579Z` |
+| report | SHA-256 `1329506655594e5a65b73ffbad6edb0f7f45f6ddeecd92ecc6d7f1f3e8263460`；18,864 bytes；sidecar 匹配 |
+| A1/A2 Artifact | raw SHA-256 `240feeddd7b3e36de48f1c2c89f1b4a1397e4f94dcbbc369099bd75738c86ee2` |
+| seed-B Artifact | raw SHA-256 `18fe872d40d948f149f0b517cd1d49f353f9edfec53e637c58e6fc054946b1df`；相对 A 的 47-key config 只改变 `canvas:seed` |
+| A raw RGBA | `sha256:acd1515152354d8bb340e2cf4d9516f48762504eb370ce5d0b3339801f9cfe10`；A1=A2 |
+| A decoded PNG pixels | `sha256:ba28621cd5cfb8ef73dc52ffbb1882fbbaa8bdc1c52f37929894f66e191e1f71`；A1=A2 |
+| A PNG bytes | `sha256:2f9d2d223c4eed37e334569db0447daa3cb2ac7e30a4f96a046dac6464d14c8d`；A1=A2 |
+| A dataURL | `sha256:72962259071308c39c0ed11bb90976d0fce49e765de49d39ee9fa179134d9d3e`；A1=A2 |
+| seed-B pixels | raw RGBA 与 decoded PNG pixels 均等于 A |
+| seed-B export | PNG bytes `sha256:72f0ae10f0a7ee3ac60529311bd6806eb535e15cd5970a5570994dabd988e2b3`；dataURL `sha256:ef41ec1f2b3fbc31b75b917debe99c9aa0c51a8c4fdc35ce81a1ba1d99114d4e`；均不同于 A |
+
+A1、A2、seed-B1 使用三个不同 Host、session、supervisor/browser process identity；A
+Profile boot `0→1→2`，seed-B Profile `0→1`。三次 PNG signature/decode/240×120/mime
+检查都成立；每次 close 为 `exited` / exit 0、Job active 0、forced cleanup
+`not_needed`、managed residual 为空，Profile 与 supervisor 两个 lock byte 均可重取。
+terminal 后目标进程为 0、probe port 无 listener、tracked worktree clean。独立复核同时
+重算了 report、sidecar、one-shot claim、三份 Host protocol/stderr hash；每个 protocol
+恰有 hello/launch/close/shutdown 四个成功 response。
+
+本 checkpoint 只允许写成“该 self-built candidate 的 Canvas focused contract 在此原生
+Windows host 上 observed passed”。它仍保持 `verified:false`；missing-seed fallback 只有
+冻结的源码级 regression，没有 runtime control。完整 47-key A1→A2→full-B1 尚未执行，
+因此 FP1 未 Accepted，M3-WI 未改变，FP2 未开放。下一步只允许从再次冻结的 clean
+checkpoint 执行一次完整 FP1；B1 必须使用
+`identity-win-canvas-v1-b.json`，不得用 focused seed-B 替代。
