@@ -1,26 +1,25 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**可变项目状态页**
-- 更新日期：2026-08-09
+- 更新日期：2026-08-10
 
 本文只记录当前执行阶段、证据 checkpoint 和下一项任务。长期产品意图见[身份平台北极星](identity-platform-north-star.md)，路线原因见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。每次 Gate 变化后更新本文，不用本文反向改写长期决策。
 
 ## Git 状态
 
-| 对象                        | 当前值                                               | 含义                                                                                |
-| --------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `origin/main` 基线          | `dab74e9be00287e0d357874db883748370bcb2aa`           | PR #11 已合并；主线仍未包含 Camoufox M0–M2.0.3                                      |
-| Camoufox 分支               | `codex/camoufox-m0-m2-minimal`                       | 自包含的 Linux Managed Engine 垂直切片                                              |
-| M2.0.3 代码 checkpoint      | `3b53830`                                            | 严格进程树、quarantine、JSON 和 RFC3339 收口                                        |
-| Linux accepted checkpoint   | `d596afd76e59ba64915b036fbc732a2c28f1ec54`           | evidence manifest 冻结提交；保持不变                                                |
-| M2-W 同步基线               | `9e88c0aa2486dd18a3ef241b1d4dcca3a7890efc`           | 以 merge 方式把 `origin/main` 合入 Camoufox 分支的提交                              |
-| Windows accepted checkpoint | `1bf0854e4fac7142baef9792967851593b804912`           | M2-W evidence 冻结提交；主脑 Gate 已接受                                            |
-| M2-W execution code         | `3511d120862283c3b90f91589f5f33d1de8325f9`           | Windows runtime/test 与 tracked Artifact 字节闭环代码；manifest 绑定 tree `b42d7d9` |
-| Windows stacked Draft PR    | [#12](https://github.com/QianQIUlp/VeriSilo/pull/12) | 目标为 Camoufox 分支；合并后由 PR #10 汇总进入 `main`                               |
-| Camoufox Draft PR           | [#10](https://github.com/QianQIUlp/VeriSilo/pull/10) | 目标为 `main`；未合并前不能称为主线或 shipped 能力                                  |
-| 上下文文档 PR               | [#11](https://github.com/QianQIUlp/VeriSilo/pull/11) | 已合并；四份事实源现在是 `main` 的规范上下文                                        |
+| 对象                        | 当前值                                                                                                      | 含义                                                                       |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `origin/main` 基线          | `8de389db366d1d9ff510b1e885fab7f49a89aad0`                                                                  | PR #10 已合并；包含 M0–M2-W standalone Host、Artifact 与 accepted evidence |
+| Linux accepted checkpoint   | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                  | 保持 accepted，不因 M3 失败改写                                            |
+| Windows accepted checkpoint | `1bf0854e4fac7142baef9792967851593b804912`                                                                  | M2-W standalone Windows Gate accepted                                      |
+| M3 研究分支                 | `codex/camoufox-m3-engine-adapter` / `186484feb935076766beab09595a9270f86f78ef`                             | 本地未 push；保留完整 M3-0 与失败的 M3-WI 研究历史                         |
+| M3-0 accepted checkpoint    | `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`                                                                  | fake Host / EngineAdapter contract Gate 已关闭                             |
+| M3-WI 终局 checkpoint       | `186484feb935076766beab09595a9270f86f78ef`                                                                  | R2H 第三项 persistence 失败；没有 Accepted manifest                        |
+| Standard 产品分支           | `codex/standard-silo-windows-preview` / `aa72eadaf8300d1cd33a2c32173c06e3e677ca89`                         | Profile Isolation Windows local Preview passed；unsigned，未 push          |
+| 已合并 PR                   | [#12](https://github.com/QianQIUlp/VeriSilo/pull/12) / [#10](https://github.com/QianQIUlp/VeriSilo/pull/10) | M2-W 证据与 Camoufox standalone 已进入 `main`                              |
 
-`d596afd` 是已经接受的 Linux 证据 checkpoint，不因文档合并或 Windows 工作而改写。`9e88c0a` 是 M2-W 内容同步基线，不替代既有 Linux evidence manifest。Windows 分支通过 `13cebd8` 合入同步基线，最终由 `1bf0854` 冻结主脑已接受的 Windows evidence；旧起点结果仅作为 `preSyncEvidence` 保留。
+`d596afd` 与 `1bf0854` 是已接受的 standalone checkpoint。M3 研究分支没有 push，
+不属于 `origin/main` 或 shipped 产品；其中的真实 Windows run 只能按各自 Gate 结论解释。
 
 ## 已关闭阶段
 
@@ -89,16 +88,63 @@ tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`�
 
 主脑没有重跑完整 Windows 测试；判定基于执行 Agent 的原生 Windows evidence，以及对远程 Git ancestry、diff scope、tracked bytes、manifest cross-reference 和 protected hashes 的最小核对。
 
+## M3 研究结论
+
+- M3-0 在 `e96ef3f` 关闭了 fake Host package、transport、failure matrix、
+  RuntimeManager lifecycle 和 evidence 语义；它没有真实浏览器 run-id。
+- M3-WI 的 R2 十周期真实 soak 证明同一 Profile、Cookie 和 observed digest 可以在
+  一次受控序列中稳定保持，但同一 Host/test 源码的后续 Host matrix 六次只有一次通过。
+- 最后的 R2H test-only 候选为 `186484f` / tree `e33d6d6`。预声明序列的 persistence
+  与 lock-crash 各通过一次，第三项 persistence 在第二 Host `launch` 等待 stdout
+  response 120 秒后失败；没有重试、没有 evidence manifest、没有 Accepted commit。
+- 主脑终局：**M3-WI failed**。Camoufox Windows Managed 集成为 experimental，
+  productionization 暂停；不再创建 R3/R4 或新的 test-only 子 Gate。
+
+## Standard Silo Windows preview 首次执行
+
+- 主脑合同提交为 `944dff9`；产品候选为 `b93259a` / tree `76eb5f3`，只修改创建页、
+  UI contract test、样式和人工 Windows runbook。
+- 候选让 Edge-only/Chrome-only 机器自动选择首个有效浏览器，默认路径收敛到
+  Local + Direct；WSL、手工路径与网络配置进入高级设置；本机 stock Silo 运行时短周期
+  核对状态，并诚实展示 `native`、`inherit`、`unavailable`。
+- `pnpm` check/test/build、desktop Rust fmt/test 和 unsigned desktop-only build 通过；
+  起点已有的两项 WSL Clippy warning 未在本任务越界修复。既有 Windows acceptance
+  driver 缺少 `execution_target`，由 `5b09f04` 仅补 `SiloExecutionTarget::Local` 后编译通过。
+- 正式 Edge/desktop-core acceptance 没有开始。执行 Agent 错误地用裸
+  `msedge.exe --version` 探测版本，Edge 实际以默认 Profile 启动；虽从启动前零 Edge
+  进程出发并按精确根 PID 回收整个新进程树，因没有启动前 Profile 指纹，默认 Profile
+  是否被修改为 **unknown**。
+- 主脑 Gate：**failed**。没有 desktop-core receipt、browser E2E summary 或真实 preview
+  smoke，unsigned 构建不得作为 Accepted、正式 installer 或 shipped 产品使用；不自动
+  重试，不读取用户 Edge Profile，也不删除或改写现场。
+
+## Standard/Profile Isolation Windows local Preview 收口
+
+- 最终产品 checkpoint 为 `aa72eadaf8300d1cd33a2c32173c06e3e677ca89` / tree
+  `cd126770be02a33c6bb698853813512748b894c8`。原生 Windows Server 上的 source-bound
+  desktop-core acceptance、Edge A/B Profile 与冷启动持久化、默认 Profile metadata
+  前后核对及真实 Preview smoke 已通过；上节记录的历史默认 Profile 影响仍保持
+  **unknown**，本次 metadata 一致只证明本次没有新增影响。
+- 交付物是 **unsigned local Preview**，不是签名 installer、shipped release 或正式发布。
+  已验证平台是 Windows Server；正常 Windows 10/11 client release matrix 仍待补充。
+- Standard/Profile Isolation 只包含独立 Profile、网站状态持久化、单活 ownership 和本机
+  Chrome/Edge 生命周期。它不包含 Managed Identity、设备或浏览器指纹虚拟化、代理隔离、
+  WSL/Remote/Hyper-V 或整机虚拟化。
+- Camoufox 仍在独立 Managed Engine 工作树继续调查，不进入这条产品集成链。Profile
+  隔离层从本 checkpoint 起冻结；除真实回归缺陷外不再扩张。
+
 ## 当前 Gate
 
-| Gate                                            | 状态                                     |
-| ----------------------------------------------- | ---------------------------------------- |
-| Linux 资产固定、Artifact 重放与 standalone Host | **Accepted，M0–M2.0.3 关闭**             |
-| 原生 Windows M2-W                               | **Accepted；三项核心 Gate 关闭**         |
-| EngineAdapter / Tauri 集成                      | **M3 Gate 已允许；等待 #12 与 #10 合并** |
-| Managed Identity UI、代理联动、生产打包         | **后续阶段**                             |
+| Gate                                            | 状态                                             |
+| ----------------------------------------------- | ------------------------------------------------ |
+| Linux 资产固定、Artifact 重放与 standalone Host | **Accepted，M0–M2.0.3 关闭**                     |
+| 原生 Windows M2-W                               | **Accepted；三项核心 Gate 关闭**                 |
+| M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；仅 fake Host contract** |
+| 原生 Windows M3-WI 真实桌面集成                 | **Failed；Gate 关闭，不再重试**                  |
+| Camoufox Windows Managed 产品化                 | **Experimental；暂停**                           |
+| Standard Silo Windows 用户垂直切片              | **Local Preview passed；unsigned，待 client matrix** |
 
-## PR #11 合并后的实际衔接
+## Git 集成历史
 
 1. [PR #11](https://github.com/QianQIUlp/VeriSilo/pull/11) 已合入 `main`，merge commit 为 `dab74e9`。
 2. `origin/main` 已以 **merge** 方式合入 Camoufox 分支，生成同步基线 `9e88c0a`；没有 rebase，也没有改写 M0–M2.0.3 或 `d596afd` 的证据历史。
@@ -106,7 +152,9 @@ tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`�
 4. 合并后按根 `AGENTS.md` 重新阅读四份事实源；旧基线 run-id 作为 `preSyncEvidence` 保留，没有冒充新基线结果。
 5. 执行 Agent 只针对实际证据缺口修复了 Windows platformdirs cache 绑定、媒体枚举就绪、report/Artifact 精确字节 sidecar 和 evidence-side bounded Job cleanup；tracked Artifact 现为 UTF-8/LF/no-BOM 且禁用 Git 文本转换；没有接入 Tauri、EngineAdapter、UI 或安装器，也没有修改 Artifact v3 / ObservedWebsiteDigest v2 语义。
 6. 最终 tracked manifest 由 summary/report/sidecar 与严格验证后的 tracked Artifact bytes 自动派生，绑定 receipt-producing code revision `3511d12`；主脑已接受 M2-W。
-7. Windows stacked [Draft PR #12](https://github.com/QianQIUlp/VeriSilo/pull/12) 将 accepted checkpoint 合入 Camoufox 分支，再由 PR #10 汇总进入 `main`。
+7. Windows stacked [PR #12](https://github.com/QianQIUlp/VeriSilo/pull/12) 在 7/7 checks 通过后合并。
+8. 汇总 [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10) 随后合入 `main`，merge commit 为 `8de389d`。
+9. M3 分支从 `8de389d` 创建；M3-0 accepted，M3-WI 最终 failed，分支未 push。
 
 下面的“M2-W 冻结目标”定义阶段目标。Windows 任务现有验收合同继续有效，但 PR #11 中的产品语义、禁止范围和证据措辞优先；若二者冲突，停止扩大实现并退回主脑裁决。
 
@@ -122,7 +170,10 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 
 ## 下一阶段
 
-先合并 stacked PR #12，再完成 PR #10 到 `main` 的集成。M3 必须从 PR #10 的 `main` merge commit 建立新分支，目标只限 standalone Host 与现有 EngineAdapter/Tauri 的 package entrypoint、bootstrap、receipt 和 capability-state 映射；不得借机扩张 UI、安装器、网络身份、Controlled Chromium 或虚拟化后端。
+Standard/Profile Isolation Windows local Preview 已在 `aa72ead` 通过并冻结。下一步仅做
+主线集成准备与正常 Windows 10/11 client release matrix；不重复扩张 Profile 隔离层，
+不把 unsigned Preview 改写成 shipped release。Camoufox Managed Engine 继续留在独立
+工作树调查，不进入 Standard 产品集成链。
 
 ## 已知边界
 
@@ -131,7 +182,9 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 - TLS ClientHello、QUIC、跨主机复现和不可检测保持未验证或 unavailable。
 - Linux 用户态树确认覆盖父进程存活期间捕获的后代；最后枚举后的瞬时 fork 需要 Windows Job Object 等内核所有权关闭。
 - self-digest 和 SHA sidecar 是完整性门禁，不是发布者签名。
-- PR #10 未合并前，主线 EngineAdapter 和桌面产品不具备该 Host 能力。
+- M3-0 与失败的 M3-WI 只存在于本地研究分支；`main` 不具备 shipped Camoufox
+  Managed Silo，且当前没有受信 signer、签名 Host package 或发布 runtime。
+- Standard Silo 的独立 Profile 不等于指纹控制；产品文案必须保持这一边界。
 
 ## 更新规则
 

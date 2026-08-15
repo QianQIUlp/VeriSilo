@@ -118,7 +118,9 @@ VeriSilo 不提供“匿名分数”，不宣传“不可检测”，不把单�
 
 ## 长期顺序与当前优先级
 
-长期产品顺序仍然是 Standard、Managed、Isolated 三层并存；当前工程优先级采用风险优先：现有控制面已经较成熟，最缺失、最可能推翻产品方向的是受控指纹执行层，因此先打通一个 Camoufox Managed Identity 垂直切片，再接入既有 EngineAdapter/Tauri，最后考虑更昂贵的整机环境。
+长期产品顺序仍然是 Standard、Managed、Isolated 三层并存。2026-08 的风险优先阶段已经完成了 Camoufox standalone、Artifact、原生 Windows Host 和 M3-0 contract 接缝，并在 M3-WI 中确认真实 Windows 多 Host 重启仍存在非确定性。这个结果证明 Managed Identity 架构具有可行性，同时也说明它当前不适合作为默认 Windows 产品路径。
+
+因此当前工程优先级回到最薄的 Standard Silo Windows 用户旅程：安装或运行桌面端、创建 Local + Direct Silo、启动系统 Chrome/Edge 的独立 Profile、关闭并再次使用、查看诚实的本地证据。Camoufox 保留为 experimental Managed Engine；只有新的明确需求和可复现的生命周期因果证据出现时，才重新开放 Windows productionization。这个优先级变化不删除 Managed 层，也不把 Standard 的 Profile 隔离夸大为指纹控制。
 
 具体决策与重评条件见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。
 

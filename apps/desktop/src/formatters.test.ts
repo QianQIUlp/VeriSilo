@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { describeActivation, describeNetwork } from "./formatters.js";
+import {
+  activationStatusLabel,
+  describeActivation,
+  describeNetwork,
+} from "./formatters.js";
 
 describe("desktop formatters", () => {
   it("labels a terminal runtime failure as blocked instead of running", () => {
@@ -27,6 +31,10 @@ describe("desktop formatters", () => {
         networkEvidence: null,
       }),
     ).toBe("Silo 启动失败");
+  });
+
+  it("presents a stopped runtime as user-visible idle", () => {
+    expect(activationStatusLabel("stopped")).toBe("空闲");
   });
 
   it("never describes a direct Silo as proxy protected", () => {

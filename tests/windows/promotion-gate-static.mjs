@@ -25,6 +25,7 @@ const [
   resetConfig,
   unsignedConfig,
   releaseHooks,
+  cargoManifest,
 ] = await Promise.all([
   read(".github/workflows/windows-e2e-real.yml"),
   read(".github/workflows/windows-release.yml"),
@@ -41,6 +42,7 @@ const [
   read("apps/desktop/src-tauri/tauri.release-reset.conf.json"),
   read("apps/desktop/src-tauri/tauri.unsigned.conf.json"),
   read("apps/desktop/src-tauri/windows/release-hooks.nsh"),
+  read("apps/desktop/src-tauri/Cargo.toml"),
 ]);
 
 for (const workflow of [unsignedRelease, signedRelease]) {
@@ -171,12 +173,22 @@ assert.equal(
   "environment/images/",
 );
 assert.deepEqual(JSON.parse(resetConfig).bundle.resources, []);
-assert.deepEqual(JSON.parse(unsignedConfig).bundle.externalBin, []);
+assert.equal(JSON.parse(unsignedConfig).bundle.externalBin, null);
 assert.deepEqual(JSON.parse(unsignedConfig).bundle.resources, []);
 assert.equal(
   JSON.parse(unsignedConfig).bundle.windows.nsis.installerHooks,
   null,
 );
+assert.match(
+  cargoManifest,
+  /\[\[bin\]\][\s\S]*?name = "verisilo-native-host"[\s\S]*?required-features = \["native-host"\]/u,
+);
+for (const workflow of [unsignedRelease, signedRelease]) {
+  assert.match(
+    workflow,
+    /cargo build[^\n]+--features native-host[^\n]+--bin verisilo-native-host/u,
+  );
+}
 assert.match(unsignedRelease, /tauri\.unsigned\.conf\.json/u);
 assert.match(unsignedRelease, /desktop-only current-user NSIS installer/u);
 assert.doesNotMatch(signedRelease, /tauri\.unsigned\.conf\.json/u);

@@ -97,25 +97,28 @@ function page() {
     if (operation === "write") {
       localStorage.setItem("marker", value);
       sessionStorage.setItem("marker", value);
-      document.cookie = "verisilo_e2e=" + encodeURIComponent(value) + "; Path=/; SameSite=Lax";
+      document.cookie = "verisilo_e2e_persistent=" + encodeURIComponent(value) + "; Max-Age=86400; Path=/; SameSite=Lax";
+      document.cookie = "verisilo_e2e_session=" + encodeURIComponent(value) + "; Path=/; SameSite=Lax";
       await writeIndexedDb(value);
       finish(true, "written");
     } else if (operation === "read") {
       const actual = [
         localStorage.getItem("marker") ?? "",
         sessionStorage.getItem("marker") ?? "",
-        cookies().verisilo_e2e ?? "",
+        cookies().verisilo_e2e_persistent ?? "",
+        cookies().verisilo_e2e_session ?? "",
         await indexedDbValue(),
       ];
       finish(actual.every((item) => item === expected), actual.join(","));
     } else if (operation === "read-lifecycle") {
       const persistent = [
         localStorage.getItem("marker") ?? "",
+        cookies().verisilo_e2e_persistent ?? "",
         await indexedDbValue(),
       ];
       const ephemeral = [
         sessionStorage.getItem("marker") ?? "",
-        cookies().verisilo_e2e ?? "",
+        cookies().verisilo_e2e_session ?? "",
       ];
       finish(
         persistent.every((item) => item === expectedPersistent) &&

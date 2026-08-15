@@ -149,8 +149,7 @@ async function selfTest() {
       ]) ||
     !Array.isArray(resetConfig.bundle?.resources) ||
     resetConfig.bundle.resources.length !== 0 ||
-    !Array.isArray(unsignedConfig.bundle?.externalBin) ||
-    unsignedConfig.bundle.externalBin.length !== 0 ||
+    unsignedConfig.bundle?.externalBin !== null ||
     !Array.isArray(unsignedConfig.bundle?.resources) ||
     unsignedConfig.bundle.resources.length !== 0 ||
     unsignedConfig.bundle?.windows?.nsis?.installerHooks !== null

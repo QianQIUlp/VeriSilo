@@ -79,6 +79,78 @@ describe("desktop product copy", () => {
     expect(createPanelSource).not.toContain("Hyper-V");
   });
 
+  it("keeps the Standard Silo default path local, direct, automatic, and short", () => {
+    const summaryIndex = createPanelSource.indexOf(
+      'className="standard-default-summary"',
+    );
+    const advancedIndex = createPanelSource.indexOf(
+      'className="create-advanced-toggle"',
+    );
+    expect(summaryIndex).toBeGreaterThan(-1);
+    expect(advancedIndex).toBeGreaterThan(summaryIndex);
+    expect(createPanelSource).toContain("推荐设置已就绪");
+    expect(createPanelSource).toContain(
+      "已自动选择本机浏览器并使用 Direct 直连。只需命名、核对边界并确认创建。",
+    );
+    expect(createPanelSource).toContain(
+      "切换浏览器、手工路径、Linux 运行位置或网络方式",
+    );
+    expect(createPanelSource).toContain("aria-expanded={advancedOpen}");
+    expect(createPanelSource).toContain("const nextOpen = !advancedOpen");
+    expect(createPanelSource).toContain("hidden={!advancedOpen}");
+    expect(appSource).not.toContain("void detectCreateWsl()");
+    expect(appSource).toContain(
+      "browsers.find((browser) => browser.kind === browserKind) ?? browsers[0]",
+    );
+    expect(appSource).toContain("!browserSelectionExplicitRef.current");
+    expect(
+      appSource.match(/browserSelectionExplicitRef\.current = true;/gu)
+        ?.length ?? 0,
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  it("polls only an active local stock runtime without reloading sensitive panels", () => {
+    const pollStart = appSource.indexOf(
+      "const pollLocalRuntimeStatus = useCallback",
+    );
+    const pollEnd = appSource.indexOf("const localRuntimeActive", pollStart);
+    const pollSource = appSource.slice(pollStart, pollEnd);
+    const intervalStart = appSource.indexOf(
+      "if (!localRuntimeActive)",
+      pollEnd,
+    );
+    const intervalEnd = appSource.indexOf(
+      "const candidateOptions",
+      intervalStart,
+    );
+    const intervalSource = appSource.slice(pollEnd, intervalEnd);
+
+    expect(pollStart).toBeGreaterThan(-1);
+    expect(pollEnd).toBeGreaterThan(pollStart);
+    expect(pollSource).toContain("desktopApi.status()");
+    expect(pollSource).not.toContain("discoverBrowsers");
+    expect(pollSource).not.toContain("listNetworkEvidence");
+    expect(pollSource).not.toContain("detectWsl");
+    expect(intervalSource).toContain("2_000");
+    expect(intervalSource).toContain("window.clearInterval(interval)");
+    expect(intervalSource).toContain('silo.executionTarget.kind === "local"');
+    expect(intervalSource).toContain('silo.engine.adapter === "stock"');
+  });
+
+  it("explains Standard capability evidence and browser-owned stopping honestly", () => {
+    for (const state of ["native", "inherit", "unavailable"] as const) {
+      expect(appSource).toContain(`<CapabilityState state="${state}" />`);
+    }
+    expect(appSource).toContain("本机原生");
+    expect(appSource).toContain("跟随本机");
+    expect(appSource).toContain("当前不可用");
+    expect(appSource).toContain(
+      "Standard Silo 不提供受控指纹，不会把 Profile 隔离标成指纹验证",
+    );
+    expect(appSource).toContain("关闭浏览器窗口以停止");
+    expect(appSource).toMatch(/不会\s*强制关闭其他 Chrome 或 Edge\s*窗口/u);
+  });
+
   it("keeps a launched identity read-only and stops WSL from the Silo card", () => {
     expect(appSource).toContain("silo.identityLockedAt !== null");
     expect(appSource).toContain("请创建新的 Silo");

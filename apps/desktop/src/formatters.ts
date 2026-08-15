@@ -32,6 +32,22 @@ export function describeActivation(activation: RuntimeActivation): string {
   return labels[activation.state];
 }
 
+export function activationStatusLabel(
+  state: RuntimeActivation["state"],
+): string {
+  const labels: Record<RuntimeActivation["state"], string> = {
+    idle: "空闲",
+    preflight: "启动中",
+    launching: "启动中",
+    running: "运行中",
+    verification_failed: "已阻止",
+    recovery_required: "需要确认",
+    stopped: "空闲",
+    failed: "启动失败",
+  };
+  return labels[state];
+}
+
 export function describeNetwork(profile: NetworkProfile): string {
   switch (profile.mode) {
     case "direct":
