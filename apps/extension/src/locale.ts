@@ -518,6 +518,21 @@ const ENGLISH_TEXT: Record<string, string> = {
     "This page cannot be accessed. Browser-internal pages, extension stores, and PDFs are not supported.",
   "没有获得所需权限，操作未执行。":
     "The required permission was not granted. Nothing was changed.",
+  "尚未获得当前页面的一次性访问权限。请关闭侧栏，在目标网页点击 VeriSilo 工具栏图标打开侧栏后再扫描。":
+    "The browser has not granted one-time access to the current page. Close the side panel, click the VeriSilo toolbar icon on the target page, then open the panel again before scanning.",
+  "VeriSilo 只扫描普通 HTTP(S) 页面。":
+    "VeriSilo only scans ordinary HTTP(S) pages.",
+  "无法访问当前页面。请在普通 HTTP(S) 页面点击 VeriSilo 工具栏图标后重新扫描；浏览器内部页面、商店页面和 PDF 不支持扫描。":
+    "VeriSilo cannot access the current page. Click the VeriSilo toolbar icon on an ordinary HTTP(S) page and scan again; browser-internal pages, store pages, and PDFs are not supported.",
+  "只能为普通 HTTP(S) 页面请求站点访问权限。":
+    "Site access can only be requested for ordinary HTTP(S) pages.",
+  "此浏览器版本不支持逐站点访问请求。请从目标网页点击 VeriSilo 工具栏图标，以授予本页一次性扫描访问权限。":
+    "This browser version does not support per-site access requests. Click the VeriSilo toolbar icon on the target page to grant one-time scan access for that page.",
+  "无法识别当前普通 HTTP(S) 站点，或当前站点没有可撤销的长期权限。":
+    "VeriSilo could not identify the current ordinary HTTP(S) site, or the current site has no revocable persistent permission.",
+  "尚未授权网络检查服务。VeriSilo 没有发送任何出口或 DNS 检查请求。":
+    "The network check services have not been authorized. VeriSilo has not sent any egress or DNS check request.",
+  "IP 出口": "IP egress",
   未知: "Unknown",
   未知平台: "Unknown platform",
   浏览器与系统: "Browser and system",
@@ -741,6 +756,10 @@ function observeLocalizationRoot(root: Document | HTMLElement): void {
 
 function translateDynamicText(text: string): string {
   const replacements: Array<[RegExp, (...values: string[]) => string]> = [
+    [
+      /^IP 出口：(.+)$/u,
+      (reason) => `IP egress: ${translateUiText(reason, "en")}`,
+    ],
     [
       /^实验室检查已因“(.+)”停止；原网页行为(.+)。$/u,
       (reason, restoration) =>
