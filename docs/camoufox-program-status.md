@@ -17,7 +17,7 @@
 | M3-WI 调查结束快照              | `186484feb935076766beab09595a9270f86f78ef` / tree `e33d6d68586a79796ffb9bcc668392e369dc97c6`                     | `e96ef3f` 为祖先；调查结束时 tracked tree clean；没有 production fix                    |
 | R2 tracked 候选 evidence        | `ecafca9` / `evidence-manifest-m3-wi-r2-windows.json`                                                            | 执行 Agent 候选；主脑未接受，不是 M3-WI Accepted evidence                               |
 | R2H 研究基础                    | `186484f`                                                                                                        | 只有 runner/freezer/schema 与 Host test 变更；无 tracked result/manifest                |
-| 当前 FP1 任务                   | [冻结合同与续执行结果](camoufox-fp1-deterministic-artifact-projection-task.md) / candidate source `4f1f01f00844e1888139b4236424550c94a6e10f` / full execution checkpoint `7a5465e8f971a81ef067be4735c764ce3cb0ea29` | Canvas focused 已通过；唯一 full FP1 在 A1 `ctx.close()` timeout 后 fail-closed 停止，FP1 Failed / 未 Accepted，同候选不重跑 |
+| 当前 FP1 任务                   | [冻结合同与续执行结果](camoufox-fp1-deterministic-artifact-projection-task.md) / candidate source `4f1f01f00844e1888139b4236424550c94a6e10f` / full execution checkpoint `7a5465e8f971a81ef067be4735c764ce3cb0ea29` / close-bound source closure `9ee93e4` | Canvas focused 已通过；唯一 full FP1 在 A1 `ctx.close()` timeout 后 fail-closed 停止，FP1 Failed / 未 Accepted，同候选不重跑；close 根因已收口为上游 Juggler `Browser.close` 无界 pre-quit await，修复以补丁 `0002` 冻结，待重建候选后走 focused + 新 full FP1 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -215,11 +215,19 @@ regression”的 integration extraction 均冻结在
 19. 唯一 full FP1 从 clean HEAD `7a5465e8f971a81ef067be4735c764ce3cb0ea29` / tree
     `460a386f12fc46b004a2d8121d31cb0208d07b05` 启动，run
     `fp1-full-20260815T090107649930Z` 的 report SHA-256 为
-    `9c90b95d3f4932535d6d3fb46be5232429ae5587dc66d7e3ee565386566a49a7`。
+    `9c90b95d3f4932535d6f3fb46be5232429ae5587dc66d7e3ee565386566a49a7`。
     A1 的 47-key sent config、Canvas、media `1/1/0`、Cookie/LocalStorage/SQLite observation
     均成功，但 `page.close()` 成功后 `ctx.close()` 在 9,992 ms timeout；Host 以 named Job
     强制清理至 active 0 / remaining 空，因此生命周期 Gate 为 `unclean_close`。A2/B1 未
     启动，候选 full one-shot claim 已消费；FP1 Failed / 未 Accepted，M3-WI 不变，FP2 关闭。
+20. 2026-08-16 close 根因收口：实验 C 校正 marker 时间线后当日 11/11 干净关闭，确认
+    竞态为间歇性、与 media 后端激活非充分因果；结合实验 A 的 pipe 健康
+    证据与上游取证，根因定位为 camoufox Juggler `Browser.close` 的无界 pre-quit
+    await（idleTasks/startComplete/XPI startup promises）。下游补丁
+    `0002-verisilo-juggler-bounded-close.patch` 以 3 s 共享 deadline 加必然 quit，
+    source engine revision 升为 `canvas-export-v1-close-bound-v1`，源闭合冻结于
+    `9ee93e4`（tracked-only 33 项通过；二进制 binding 未动）。重建、rebind、focused
+    与新 full FP1 未执行。
 
 下面的“M2-W 冻结目标”定义阶段目标。Windows 任务现有验收合同继续有效，但 PR #11 中的产品语义、禁止范围和证据措辞优先；若二者冲突，停止扩大实现并退回主脑裁决。
 
@@ -235,13 +243,16 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 
 ## 下一阶段
 
-`blocked-build-environment` 已解除，固定 FF152/Camoufox downstream Canvas patch 已形成
-独立 self-built Windows candidate，且 Canvas focused A1→A2→seed-B1 已通过。随后解锁的
-唯一 full FP1 已在 A1 clean-close Gate 失败并按合同停止；同候选、同实现的 claim 不得删除、
-覆盖或重跑。现有证据只把失败定位到 Playwright persistent-context `ctx.close()` 生命周期层，
-内部 subcall 仍为 `inconclusive`。若继续，只允许先做 secret-free focused 子阶段诊断与 fake
-regression，定位具体 subcall 后冻结一个新的 evidence-backed fix；不得猜测性加 timeout、
-把 forced Job cleanup 当 clean、恢复 R2/R2H 或进入 FP2。
+`ctx.close()` 根因已收口：上游 camoufox Juggler `Browser.close` 的无界 pre-quit await
+在 Windows 上间歇性 stall，导致 close 响应不发、进程不退、只能 forced Job cleanup。
+修复以下游补丁 `0002-verisilo-juggler-bounded-close.patch` 冻结（3 s 共享 deadline、
+超时阶段记日志、必然 `quit(eForceQuit)`），source engine revision 为
+`canvas-export-v1-close-bound-v1`，源闭合 checkpoint `9ee93e4`。当前唯一待办链路：
+受控 builder（lespaul）重建 Windows 候选 → 新 archive/tree 校验与 self-built binding
+（同步提升 `SELF_BUILT_ENGINE_REVISION` 与 Policy 变体）→ focused A1/A2/seed-B1 与
+close 回归 → 从新候选执行唯一一次新的 full FP1。在此之前 FP1 保持 Failed / 未
+Accepted；`8221486f…` 候选的 one-shot claim 不复用；不得把 forced Job cleanup 当
+clean、恢复 R2/R2H 或进入 FP2。
 
 后续顺序固定为 FP2 跨 realm 一致性 → FP3 网络/地区/WebRTC 协调 → FP4 实站
 兼容性 → 使用届时最终 Managed Engine 冻结新的 clean M3-WI 合同。旧 M3-WI
@@ -260,6 +271,11 @@ regression，定位具体 subcall 后冻结一个新的 evidence-backed fix；�
   `ctx.close()` timeout 并触发 forced Job cleanup；生命周期失败使 A1 不能进入完整
   A1/A2 比较，A2/B1 也未启动。该部分 observation 不改变 FP1 Failed / 未 Accepted。
 - TLS ClientHello、QUIC、跨主机复现和不可检测保持未验证或 unavailable。
+- close 竞态的修复是行为级 bound（保证退出与响应路径可达），不是对某个上游
+  promise 为何 stall 的机理证明；`0002` 的阶段日志将在未来再现时给出具体卡点。
+- `test_windows_host.py` protocol 检查的 `"stage":"response write"` 断言在当前
+  Host 代码下不可满足（记录器仅 `launch` 激活），clean `0455dec` 同样失败；属存量
+  过期断言，列入 backlog 单独修正，不影响本阶段 Gate。
 - Linux 用户态树确认覆盖父进程存活期间捕获的后代；最后枚举后的瞬时 fork 需要 Windows Job Object 等内核所有权关闭。
 - self-digest 和 SHA sidecar 是完整性门禁，不是发布者签名。
 - M3 分支已经在 fake Host 合同测试中经过 `RuntimeManager`/EngineAdapter 接缝，但 production Tauri 仍未通过受信 package 调用真实 standalone Host；“contract Gate 通过”不等于桌面 Managed Identity 能力已经 shipped。

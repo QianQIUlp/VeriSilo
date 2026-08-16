@@ -837,3 +837,54 @@ request dispose 还是 Firefox shutdown，现有 raw evidence 不足，根因必
 若以后继续，只允许先为 `ctx.close()` 增加 secret-free focused 子阶段诊断和 fake
 regression，在定位具体 subcall 并冻结新的 evidence-backed fix 后再由主脑决定新的有限
 验证。当前最终 Gate 为 **FP1 Failed / 未 Accepted**；M3-WI 保持原状态，FP2 继续关闭。
+
+### 2026-08-16 close 根因收口与 bounded-close 修复决策
+
+主脑授权"穷尽所有办法解决 FP1，先不进 FP2"。诊断按上述允许路径继续：
+
+1. **实验 C（校正 marker 时间戳）**：新 harness 以逐行实时 stderr 时间线替代批量
+   排空，复用实验 A 的 Host 钩子，并加入 close 期间进程 CPU 采样与超时点线程快照。
+   `close-media-baseline-20260816T070221012301Z` 首跑即干净关闭（`ctx.close` 784 ms
+   success、exit 0、无 Job 清理；该次 harness 记录层的 `TypeError` 只影响 result.json
+   分类，不影响 Host close 回执），随后 `close-hang-hunt-20260816T070700549038Z`
+   连续 8 次全新 A1 会话全部干净关闭。当日累计 11/11 clean。
+2. **竞态性质确认**：08-15 的 3 次挂死与 08-16 的 11 次干净关闭使用同一二进制、同一
+   Artifact、同一 Host 与同构序列；`mediaDeviceReadiness.matched=true` 在两组都出现，
+   因此"伪媒体后端激活"只是伴随现象而非充分原因。该形态与 M3-WI R2 时代官方构建
+   6 次中 2 次 `ctx.close` timeout 的间歇史一致，属跨版本、按系统状态成簇的关闭竞态。
+3. **上游代码级收敛**（证据链）：
+   - Playwright driver 对 FF persistent context 的 `doClose` 返回 `"close-browser"`，
+     Python `ctx.close()` 最终进入 Juggler `Browser.close`；
+   - camoufox `0583c3e` 自维护 Juggler 的
+     `additions/juggler/protocol/BrowserHandler.js` `['Browser.close']` 在
+     `Services.startup.quit(eForceQuit)` 之前依次 `await`：idleTasks/window-close
+     竞速、`this._startCompletePromise`、`Promise.all(XPIProvider.startupPromises
+     ++ enabledAddonsStartupPromises)`，全部无超时；任一 stall 即"close 响应不发 +
+     进程不退"，与实验 A/B 的全部观测吻合；
+   - 实验 A 中 `request.dispose` 在卡死 RPC 前 10 ms 以 3.6 ms 往返成功，排除
+     预存死管（上游同版本 issue #719 的 dead-pipe 形态）；
+   - `connection.disconnected()` 断连兜底调用同一个 `['Browser.close']`，因此不存在
+     Host/transport 侧绕开该路径的手段；修复点只能在浏览器补丁。
+4. **修复冻结**：新增下游补丁
+   `0002-verisilo-juggler-bounded-close.patch`（SHA-256
+   `efb006d5b2b05756fc310b52eb48e0bdab5e8b23e780fa08534a7fc099c22ce7`），为整个
+   pre-quit 序列加 3,000 ms 共享 deadline：超时或拒绝的阶段以
+   `[verisilo-juggler-close]` 前缀 dump 到 stderr 后跳过，保证必然到达
+   `quit(eForceQuit)`。补丁只改 `juggler/protocol/BrowserHandler.js` 一个文件，
+   seam pre/post SHA-256 为 `7eadb3dd…61afc0` / `3b5d24b6…3b38e`（pre 即上游
+   additions 原文件：50 个上游补丁无一触及 juggler 路径）。源级 engine revision
+   升为 `canvas-export-v1-close-bound-v1`；二进制 asset binding 与
+   `SELF_BUILT_ENGINE_REVISION` 在重建候选验证前保持指向现有 `8221486f…` 候选。
+   源闭合冻结于 `9ee93e4`，strict_build 以 `--fuzz=0` 应用 0002 并校验新 seam，
+   tracked-only 闭合并 33 项通过。
+
+后续限定链路（未完成前 FP1 仍为 Failed）：受控 builder 上重建 Windows 候选 → 新
+archive/tree 校验与新 self-built binding（同时提升 `SELF_BUILT_ENGINE_REVISION` 与
+Policy 变体绑定）→ focused A1/A2/seed-B1 与 close 回归 → 从新候选执行唯一一次新的
+full FP1。诊断运行与上游取证留存于 gitignored
+`artifacts/camoufox-fp1/close-diagnosis/`（含 `upstream-juggler/` 原文件）。
+
+Backlog（与本修复无关的存量异常）：`test_windows_host.py` protocol 检查断言
+`"stage":"response write"` 必须出现，但当前 Host 只在 `launch` 命令激活 stage 记录器，
+纯 hello 会话不可能满足；该断言在 clean `0455dec` 同样失败，属过期测试断言，需单独
+修正，不得混入本修复链路。
