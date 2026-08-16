@@ -228,6 +228,12 @@ regression”的 integration extraction 均冻结在
     source engine revision 升为 `canvas-export-v1-close-bound-v1`，源闭合冻结于
     `9ee93e4`（tracked-only 33 项通过；二进制 binding 未动）。重建、rebind、focused
     与新 full FP1 未执行。
+21. builder 镜像因 strict_build 驱动变更需重建：`b6a9f0b` 将 lock 的
+    `builderImageBinding` 置 null（prepare-image 的前置条件），tracked 33 项仍通过。
+    构建 bundle（`verisilo-b6a9f0b.bundle`，SHA-256
+    `15bded3d…0bf5d41`）与 lespaul 阶段一脚本
+    `lespaul-run-closebound-image.sh` 已备好；lespaul 当前离线，镜像重建、binding
+    提交、引擎构建与后续验证待其开机后执行。分支已推送至 PR #16。
 
 下面的“M2-W 冻结目标”定义阶段目标。Windows 任务现有验收合同继续有效，但 PR #11 中的产品语义、禁止范围和证据措辞优先；若二者冲突，停止扩大实现并退回主脑裁决。
 
