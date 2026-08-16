@@ -1,0 +1,68 @@
+diff --git a/juggler/protocol/BrowserHandler.js b/juggler/protocol/BrowserHandler.js
+--- a/juggler/protocol/BrowserHandler.js
++++ b/juggler/protocol/BrowserHandler.js
+@@ -6,6 +6,7 @@
+ 
+ const {AddonManager} = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+ const {XPIProvider} = ChromeUtils.importESModule("resource://gre/modules/addons/XPIProvider.sys.mjs");
++const {setTimeout, clearTimeout} = ChromeUtils.importESModule('resource://gre/modules/Timer.sys.mjs');
+ const {TargetRegistry} = ChromeUtils.importESModule("chrome://juggler/content/TargetRegistry.js");
+ const {Helper} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
+ const {PageHandler} = ChromeUtils.importESModule("chrome://juggler/content/protocol/PageHandler.js");
+@@ -136,22 +137,51 @@
+   }
+ 
+   async ['Browser.close']() {
++    // VERISILO: the pre-quit awaits below are unbounded upstream. When any
++    // of them stalls (observed intermittently on Windows), the close
++    // response is never sent and the process never quits, forcing the
++    // caller to kill the browser tree. Bound the whole pre-quit sequence
++    // with one shared deadline, log any stage that misses it or rejects,
++    // and still reach Services.startup.quit().
++    const verisiloCloseDeadline = Date.now() + 3000;
++    const verisiloBoundedStage = (promise, stage) => {
++      let timer = null;
++      const deadlineFallback = new Promise(resolve => {
++        const remaining = Math.max(0, verisiloCloseDeadline - Date.now());
++        timer = setTimeout(() => {
++          dump(`[verisilo-juggler-close] stage '${stage}' missed the ${remaining}ms deadline; continuing quit\n`);
++          resolve(null);
++        }, remaining);
++      });
++      const settled = Promise.resolve(promise).then(
++        value => {
++          clearTimeout(timer);
++          return value;
++        },
++        error => {
++          clearTimeout(timer);
++          dump(`[verisilo-juggler-close] stage '${stage}' rejected: ${error}\n`);
++          return null;
++        },
++      );
++      return Promise.race([settled, deadlineFallback]);
++    };
+     let browserWindow = Services.wm.getMostRecentWindow(
+       "navigator:browser"
+     );
+     if (browserWindow && browserWindow.gBrowserInit) {
+       // idleTasksFinishedPromise does not resolve when the window
+       // is closed early enough, so we race against window closure.
+-      await Promise.race([
++      await verisiloBoundedStage(Promise.race([
+         browserWindow.gBrowserInit.idleTasksFinishedPromise,
+         waitForWindowClosed(browserWindow),
+-      ]);
++      ]), 'idleTasksOrWindowClosed');
+     }
+-    await this._startCompletePromise;
+-    await Promise.all([
++    await verisiloBoundedStage(this._startCompletePromise, 'startComplete');
++    await verisiloBoundedStage(Promise.all([
+       ...XPIProvider.startupPromises,
+       ...XPIProvider.enabledAddonsStartupPromises,
+-    ]);
++    ]), 'xpiStartupPromises');
+     this._onclose();
+     Services.startup.quit(Ci.nsIAppStartup.eForceQuit);
+   }

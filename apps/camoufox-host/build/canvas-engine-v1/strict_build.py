@@ -46,6 +46,10 @@ DOWNSTREAM_PATCH_REL = Path(
     "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/"
     "0001-verisilo-canvas-export-key.patch"
 )
+CLOSE_BOUND_PATCH_REL = Path(
+    "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/"
+    "0002-verisilo-juggler-bounded-close.patch"
+)
 MIDL_COMPAT_PATCH_REL = Path(
     "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/"
     "0000-verisilo-ff152-midl-cross-build-input.patch"
@@ -54,7 +58,9 @@ STRICT_BUILD_PATH_REL = Path(
     "apps/camoufox-host/build/canvas-engine-v1/strict_build.py"
 )
 
-EXPECTED_ENGINE_REVISION = "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1"
+EXPECTED_ENGINE_REVISION = (
+    "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1-close-bound-v1"
+)
 EXPECTED_UPSTREAM_COMMIT = "0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d"
 EXPECTED_UPSTREAM_TREE = "1435d544d9b61dee7fcf74cf92462952ca43d38e"
 EXPECTED_BASE_INDEX_DIGEST = (
@@ -726,6 +732,7 @@ def validate_bound_inputs(lock: dict, environment: dict[str, str]) -> dict:
     expected_downstream_paths = [
         MIDL_COMPAT_PATCH_REL.as_posix(),
         DOWNSTREAM_PATCH_REL.as_posix(),
+        CLOSE_BOUND_PATCH_REL.as_posix(),
     ]
     if (
         type(downstream_patches) is not list
@@ -1408,6 +1415,16 @@ def execute(args: argparse.Namespace) -> dict:
             cwd=source,
             env=environment,
             label="verisilo-canvas-patch",
+        )
+        verify_patch_debris_unchanged(source, patch_debris_baseline)
+        _verify_midl_compatibility_seams(
+            lock, source, "postCompatibilityPatchSha256"
+        )
+        log.run(
+            downstream_patch_command(VERISILO_ROOT / CLOSE_BOUND_PATCH_REL),
+            cwd=source,
+            env=environment,
+            label="verisilo-juggler-close-bound-patch",
         )
         verify_patch_debris_unchanged(source, patch_debris_baseline)
         _verify_midl_compatibility_seams(

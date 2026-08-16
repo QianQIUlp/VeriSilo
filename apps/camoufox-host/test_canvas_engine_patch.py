@@ -50,6 +50,16 @@ MIDL_COMPAT_PATCH_PATH = (
     / "v152.0.4-beta.28"
     / "0000-verisilo-ff152-midl-cross-build-input.patch"
 )
+CLOSE_BOUND_PATCH_PATH = (
+    REPO_ROOT
+    / "apps"
+    / "camoufox-host"
+    / "patches"
+    / "camoufox"
+    / "v152.0.4-beta.28"
+    / "0002-verisilo-juggler-bounded-close.patch"
+)
+JUGGLER_CLOSE_SEAM_PATH = "juggler/protocol/BrowserHandler.js"
 BUILD_RECIPE_ROOT = (
     REPO_ROOT / "apps" / "camoufox-host" / "build" / "canvas-engine-v1"
 )
@@ -315,7 +325,7 @@ def test_source_lock_contract() -> None:
     lock = _load_lock()
     assert lock["schema"] == "verisilo-camoufox-source-binding/v1"
     assert lock["engineRevision"] == (
-        "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1"
+        "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1-close-bound-v1"
     )
     assert lock["status"] == "source-patch-only"
     assert lock["verified"] is False
@@ -992,7 +1002,7 @@ def test_patch_is_narrow_additive_and_binding_scoped() -> None:
 def test_tracked_downstream_patch_digest() -> None:
     lock = _load_lock()
     downstream = lock["sourceInputs"]["downstreamPatches"]
-    paths = [MIDL_COMPAT_PATCH_PATH, PATCH_PATH]
+    paths = [MIDL_COMPAT_PATCH_PATH, PATCH_PATH, CLOSE_BOUND_PATCH_PATH]
     assert [item["path"] for item in downstream] == [
         path.relative_to(REPO_ROOT).as_posix() for path in paths
     ]
@@ -1030,7 +1040,10 @@ def test_downstream_patch_execution_order_is_closed() -> None:
     )
     midl_postimage = driver.index('"postCompatibilityPatchSha256"', midl)
     canvas = driver.index('label="verisilo-canvas-patch"', midl_postimage)
-    canvas_postimage = driver.index('"postDownstreamPatchSha256"', canvas)
+    close_bound = driver.index(
+        'label="verisilo-juggler-close-bound-patch"', canvas
+    )
+    canvas_postimage = driver.index('"postDownstreamPatchSha256"', close_bound)
     configure = driver.index(
         'label="configure-windows-x86_64-and-bootstrap-toolchains"',
         canvas_postimage,
@@ -1044,6 +1057,7 @@ def test_downstream_patch_execution_order_is_closed() -> None:
         < midl
         < midl_postimage
         < canvas
+        < close_bound
         < canvas_postimage
         < configure
     )
@@ -1059,6 +1073,8 @@ def test_downstream_patch_execution_order_is_closed() -> None:
         "verify-ff152-midl-compatibility-seam-postimage",
         "apply-verisilo-canvas-patch",
         "verify-canvas-seam-postimages",
+        "apply-verisilo-juggler-close-bound-patch",
+        "verify-juggler-close-bound-seam-postimage",
     ]
 
 
@@ -1078,6 +1094,7 @@ def test_build_inputs_record_ordered_downstream_patches() -> None:
     assert [item["path"] for item in expected] == [
         MIDL_COMPAT_PATCH_PATH.relative_to(REPO_ROOT).as_posix(),
         PATCH_PATH.relative_to(REPO_ROOT).as_posix(),
+        CLOSE_BOUND_PATCH_PATH.relative_to(REPO_ROOT).as_posix(),
     ]
 
 
@@ -2545,21 +2562,22 @@ def test_patch_applies_to_exact_seam_preimages() -> None:
             timeout=30,
         )
         assert check.returncode == 0, check.stderr or check.stdout
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "core.autocrlf=false",
-                "apply",
-                "--whitespace=error-all",
-                str(PATCH_PATH),
-            ],
-            cwd=root,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        for patch_path in (PATCH_PATH, CLOSE_BOUND_PATCH_PATH):
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "core.autocrlf=false",
+                    "apply",
+                    "--whitespace=error-all",
+                    str(patch_path),
+                ],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
         for seam in lock["seamFiles"]:
             assert _sha256(root / seam["path"]) == seam["postDownstreamPatchSha256"]
         implementation = (
@@ -2572,6 +2590,100 @@ def test_patch_applies_to_exact_seam_preimages() -> None:
         assert implementation.index('MaskConfig::HasKey("canvas:seed", maskConfig)') < (
             implementation.index("NS_ENSURE_TRUE_VOID(aCookieJarSettings)")
         )
+        close_bound = (root / "juggler" / "protocol" / "BrowserHandler.js").read_text(
+            encoding="utf-8"
+        )
+        _assert_juggler_close_bound_invariants(close_bound)
+
+
+def _assert_juggler_close_bound_invariants(source: str) -> None:
+    """Structural contract of the bounded Juggler Browser.close patch."""
+
+    close_at = source.index("async ['Browser.close']()")
+    method_end = source.index("async ['Browser.grantPermissions']", close_at)
+    method = source[close_at:method_end]
+    assert "Date.now() + 3000" in method
+    assert method.count("verisiloBoundedStage(Promise.race([") == 1
+    assert method.count("verisiloBoundedStage(this._startCompletePromise") == 1
+    assert method.count("verisiloBoundedStage(Promise.all([") == 1
+    assert "Promise.race([settled, deadlineFallback])" in method
+    assert "clearTimeout(timer);" in method
+    assert method.count("Services.startup.quit(Ci.nsIAppStartup.eForceQuit);") == 1
+    assert method.index("verisiloBoundedStage(Promise.race([") < method.index(
+        "verisiloBoundedStage(this._startCompletePromise"
+    )
+    assert method.index("verisiloBoundedStage(this._startCompletePromise") < method.index(
+        "verisiloBoundedStage(Promise.all(["
+    )
+    assert method.index("'xpiStartupPromises')") < method.index(
+        "Services.startup.quit(Ci.nsIAppStartup.eForceQuit);"
+    )
+    for unbounded in (
+        "    await this._startCompletePromise;\n",
+        "    await Promise.all([\n",
+        "      ]);\n",
+    ):
+        assert unbounded not in method, unbounded
+    assert (
+        "const {setTimeout, clearTimeout} = "
+        "ChromeUtils.importESModule('resource://gre/modules/Timer.sys.mjs');"
+    ) in source
+
+
+def test_juggler_close_bound_patch_contract_is_closed() -> None:
+    """Offline closure for the tracked close-bound patch and its seam hashes."""
+
+    lock = _load_lock()
+    downstream = lock["sourceInputs"]["downstreamPatches"]
+    close_entry = next(
+        item
+        for item in downstream
+        if item["path"] == CLOSE_BOUND_PATCH_PATH.relative_to(REPO_ROOT).as_posix()
+    )
+    assert close_entry["applyAfterUpstream"] is True
+    assert close_entry["sha256"] == _sha256(CLOSE_BOUND_PATCH_PATH)
+    assert close_entry["sizeBytes"] == CLOSE_BOUND_PATCH_PATH.stat().st_size
+
+    seam = next(
+        item
+        for item in lock["seamFiles"]
+        if item["path"] == JUGGLER_CLOSE_SEAM_PATH
+    )
+    patch = CLOSE_BOUND_PATCH_PATH.read_text(encoding="utf-8")
+    assert patch.count(f"diff --git a/{JUGGLER_CLOSE_SEAM_PATH}") == 1
+    added = [
+        line[1:]
+        for line in patch.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    ]
+    removed = [
+        line[1:]
+        for line in patch.splitlines()
+        if line.startswith("-") and not line.startswith("---")
+    ]
+    assert (
+        "    await this._startCompletePromise;"
+        in [line for line in removed if "startCompletePromise" in line]
+    )
+    assert "    await verisiloBoundedStage(Promise.all([" in added
+    assert "    await verisiloBoundedStage(this._startCompletePromise, 'startComplete');" in added
+    assert any("'idleTasksOrWindowClosed'" in line for line in added)
+    assert any("'startComplete'" in line for line in added)
+    assert any("'xpiStartupPromises'" in line for line in added)
+    assert any("Date.now() + 3000" in line for line in added)
+    assert any(
+        "ChromeUtils.importESModule('resource://gre/modules/Timer.sys.mjs');"
+        in line
+        for line in added
+    )
+    # The preimage is the upstream additions file, byte-identical to the
+    # camoufox v152.0.4-beta.28 checkout; the postimage is the patched tree.
+    assert seam["postUpstreamPatchSha256"] == (
+        "7eadb3dd570cd98688d4c3120f7ab36fe1cdc808f89ff51b61ce19db2661afc0"
+    )
+    assert seam["postDownstreamPatchSha256"] == (
+        "3b5d24b610e85370e3c55f2c2d619b0c0bdf388061c3fa4290ab20f33db3b38e"
+    )
 
 
 def test_patched_source_seam_and_caller_graph() -> None:

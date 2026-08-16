@@ -1,6 +1,6 @@
 {
   "schema": "verisilo-camoufox-source-binding/v1",
-  "engineRevision": "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1",
+  "engineRevision": "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1-close-bound-v1",
   "status": "source-patch-only",
   "verified": false,
   "upstream": {
@@ -30,7 +30,13 @@
     "missingKeyBehavior": "exact Firefox CookieJar fingerprinting-randomization-key fallback",
     "invalidConfiguredValueBehavior": "no stock fallback and no managed export key; the supported Host rejects this before spawn",
     "malformedCamouConfigBoundary": "upstream MaskConfig collapses malformed JSON to an empty object, so the supported Host must reject malformed CAMOU_CONFIG before spawn",
-    "notClaimed": ["jpeg", "webp", "bmp", "ico", "cross-realm-consistency"],
+    "notClaimed": [
+      "jpeg",
+      "webp",
+      "bmp",
+      "ico",
+      "cross-realm-consistency"
+    ],
     "goldenVectors": [
       {
         "seed": 0,
@@ -459,6 +465,12 @@
         "applyAfterUpstream": true,
         "sha256": "4fa6d3bbf203e2385e29a72ec2669ee17a571281be7ee2a73598e38918069b02",
         "sizeBytes": 2121
+      },
+      {
+        "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0002-verisilo-juggler-bounded-close.patch",
+        "sha256": "efb006d5b2b05756fc310b52eb48e0bdab5e8b23e780fa08534a7fc099c22ce7",
+        "sizeBytes": 3059,
+        "applyAfterUpstream": true
       }
     ]
   },
@@ -484,6 +496,11 @@
       "path": "toolkit/components/resistfingerprinting/moz.build",
       "postUpstreamPatchSha256": "dae0e9f46aa455b03d858ce3bf5137d63244e7a552cf4b85ed93aa4571240b19",
       "postDownstreamPatchSha256": "3c7754f9d348d7c5bf821d1603f8f84111eec7ba409d13bb7f378f2814540b66"
+    },
+    {
+      "path": "juggler/protocol/BrowserHandler.js",
+      "postUpstreamPatchSha256": "7eadb3dd570cd98688d4c3120f7ab36fe1cdc808f89ff51b61ce19db2661afc0",
+      "postDownstreamPatchSha256": "3b5d24b610e85370e3c55f2c2d619b0c0bdf388061c3fa4290ab20f33db3b38e"
     }
   ],
   "buildBinding": {
@@ -507,21 +524,30 @@
       "compiler": {
         "version": "14.50.35717",
         "relativePath": "vs/VC/Tools/MSVC/14.50.35717",
-        "versionDirectoryNames": ["14.50.35717"]
+        "versionDirectoryNames": [
+          "14.50.35717"
+        ]
       },
       "windowsSdk": {
         "version": "10.0.26100.0",
         "includeRelativePath": "vs/Windows Kits/10/Include/10.0.26100.0",
-        "includeVersionDirectoryNames": ["10.0.26100.0"],
+        "includeVersionDirectoryNames": [
+          "10.0.26100.0"
+        ],
         "libRelativePath": "vs/Windows Kits/10/Lib/10.0.26100.0",
-        "libVersionDirectoryNames": ["10.0.26100.0"]
+        "libVersionDirectoryNames": [
+          "10.0.26100.0"
+        ]
       },
       "crt": {
         "redistVersion": "14.50.35710",
         "architecture": "x64",
         "family": "Microsoft.VC145.CRT",
         "relativePath": "vs/VC/Redist/MSVC/14.50.35710/x64/Microsoft.VC145.CRT",
-        "redistDirectoryNames": ["14.50.35710", "v145"],
+        "redistDirectoryNames": [
+          "14.50.35710",
+          "v145"
+        ],
         "files": [
           {
             "path": "concrt140.dll",
@@ -591,8 +617,8 @@
         },
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/strict_build.py",
-          "sha256": "a0aacf308092f5a2bd6b91718de24addcb93bd91b67545687fe4cfb4ba3e8ef8",
-          "sizeBytes": 60978
+          "sha256": "4def247dad880010fec48d0785cc52c8890f5c2f7b9de99ee93c014cd4cf0ac9",
+          "sizeBytes": 61574
         },
         {
           "path": "apps/camoufox-host/build/canvas-engine-v1/build_host.py",
@@ -620,6 +646,8 @@
         "verify-ff152-midl-compatibility-seam-postimage",
         "apply-verisilo-canvas-patch",
         "verify-canvas-seam-postimages",
+        "apply-verisilo-juggler-close-bound-patch",
+        "verify-juggler-close-bound-seam-postimage",
         "configure-windows-x86_64-and-bootstrap-toolchains",
         "resolve-bound-windows-toolchain",
         "freeze-pre-build-toolchain-tree",
@@ -644,7 +672,11 @@
     "runtimeContainer": {
       "readOnlyRoot": true,
       "inputMount": "/inputs read-only",
-      "distinctEmptyReadWriteMounts": ["/build-home", "/work", "/out"],
+      "distinctEmptyReadWriteMounts": [
+        "/build-home",
+        "/work",
+        "/out"
+      ],
       "dpkgClosureMustRemainStable": true,
       "hostRuntime": {
         "policy": "closed",
@@ -660,7 +692,9 @@
             "version": "2.39-0ubuntu8.8"
           }
         ],
-        "requiredExecutablePaths": ["/lib/ld-linux.so.2"],
+        "requiredExecutablePaths": [
+          "/lib/ld-linux.so.2"
+        ],
         "foreignArchitectures": []
       },
       "winePrefix": {
@@ -671,7 +705,14 @@
       },
       "tmpfs": {
         "path": "/tmp",
-        "options": ["rw", "nosuid", "nodev", "exec", "mode=1777", "size=4g"],
+        "options": [
+          "rw",
+          "nosuid",
+          "nodev",
+          "exec",
+          "mode=1777",
+          "size=4g"
+        ],
         "purpose": "execute checksum-verified Mozilla bootstrap temporary tools"
       }
     },
@@ -720,7 +761,10 @@
       "complete extraction-tree manifest",
       "camoufox.exe hash, BuildID, SourceStamp, application.ini and platform.ini hashes"
     ],
-    "unsupportedBuildRoutes": ["direct native-Windows", "WSL"]
+    "unsupportedBuildRoutes": [
+      "direct native-Windows",
+      "WSL"
+    ]
   },
   "compatibility": {
     "artifactTopLevelSchema": "verisilo-camoufox-resolved-identity/v3",
