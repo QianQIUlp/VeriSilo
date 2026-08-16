@@ -132,36 +132,20 @@ EXPECTED_CRT_FILES = {
     ),
 }
 EXPECTED_BUILDER_IMAGE_BINDING = {
-    "baseIndexDigest": BASE_INDEX_DIGEST,
-    "baseLinuxAmd64ManifestDigest": BASE_AMD64_MANIFEST_DIGEST,
-    "buildxLogSha256": (
-        "9c6e348eb9ad2164b00daf96bdc5ea7baedb48e44ced46247485357d6a5dcd48"
-    ),
-    "buildxLogSizeBytes": 78272,
-    "buildxMetadataSha256": (
-        "351cae9f7eb1c4b1ea60f828aba5380818264369a8d2bf4478d3fceb5a6a6b93"
-    ),
-    "dockerfileSha256": (
-        "ae3e28d39c2c996d0c70f6fbd4b182f4e1585eb79fd7fc662e50b158300e5e6d"
-    ),
-    "hostToolingSha256": (
-        "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
-    ),
-    "imageId": (
-        "sha256:5183cb1c8475b4bf263d78294ce06d553ab08d0f2684aab317f8df89bc0ad964"
-    ),
-    "imageInspectSha256": (
-        "11500c030374e33572db41488c6809015cd40812e598aee0eea8545d83631d35"
-    ),
-    "recipeSourceCommit": "8b8294fafd5d5d68088c05bc31def6044d6e0e69",
-    "recipeSourceLockSha256": (
-        "6ac8e8ce00e9912dc439b20a5608ed854ef0f41fadcc2e50aa13fcf1c401e3b0"
-    ),
-    "recipeSourceTree": "99d16659c7e247875076c0e47df3f8f7be3a4564",
-    "savedArchiveSha256": (
-        "e16596f3257ef38f3fcec5f2e8370995cccd184d59b2335e17048fe3f1aa3bfc"
-    ),
-    "savedArchiveSizeBytes": 483575808,
+    "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+    "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+    "buildxLogSha256": "960f6343f03d1941486eb286b16f75aac9e967f594838c83d6eba4ae7c3af041",
+    "buildxLogSizeBytes": 78397,
+    "buildxMetadataSha256": "b5c0aa3df155fe7fa164e06f316272b10b1e7c6710dabf7692f8cb0b7f2ab6a3",
+    "dockerfileSha256": "ae3e28d39c2c996d0c70f6fbd4b182f4e1585eb79fd7fc662e50b158300e5e6d",
+    "hostToolingSha256": "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b",
+    "imageId": "sha256:dfd59e5a518c9ea2a87b5c3592a040371e8a366ee61f1bd85097773e497ac4fc",
+    "imageInspectSha256": "393efbfd448794b1abac8041618e94b8e676c3a368467257838668bce45fe191",
+    "recipeSourceCommit": "be9eec880959650916c8f149aff4f54d872f23f6",
+    "recipeSourceLockSha256": "b36b4b4ae9cde8460d37432b82707ceb60b7065e1143f6ab314c032812c11b4b",
+    "recipeSourceTree": "ec01cbe47658351f5808ccbd0f882fb7bedcef25",
+    "savedArchiveSha256": "f8061d1cb5a4b8e5612d6fc6a5dbbba31c6b33ff1593afb5fd1088a4745ab851",
+    "savedArchiveSizeBytes": 483576320
 }
 
 UPSTREAM_REPO: Path | None = None
@@ -358,7 +342,7 @@ def test_source_lock_contract() -> None:
     assert build["resourceGate"]["recommendedFreeBytes"] == 100 * 1024**3
     assert build["resourceGate"]["configuredNominalSwapBytes"] == 24 * 1024**3
     assert build["resourceGate"]["minimumSwapBytes"] == 24 * 1024**3 - 4096
-    assert build["builderImageBinding"] is None
+    assert build["builderImageBinding"] == EXPECTED_BUILDER_IMAGE_BINDING
     assert set(build["builderImageBindingRequiredFields"]) == {
         "imageId",
         "savedArchiveSha256",
