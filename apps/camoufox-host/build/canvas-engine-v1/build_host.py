@@ -37,7 +37,9 @@ LOCK_REL = Path(
 )
 RECIPE_REL = Path("apps/camoufox-host/build/canvas-engine-v1")
 DOCKERFILE_REL = RECIPE_REL / "Dockerfile"
-EXPECTED_ENGINE_REVISION = "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1"
+EXPECTED_ENGINE_REVISION = (
+    "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1-close-bound-v1"
+)
 EXPECTED_BASE_INDEX_DIGEST = (
     "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea"
 )
