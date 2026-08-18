@@ -913,3 +913,31 @@ lock/tree 与 rebound A/B/seed-B fixtures 已由 production validator 静态重�
 archive 的 focused one-shot claim，也不改变旧 full FP1 的 Failed 历史。下一真实执行严格
 限定为一次 Canvas focused A1→A2→seed-B1，并在同一序列中硬验 clean close；只有 focused
 通过并再次冻结，才允许执行一次新的 full FP1。FP2 仍关闭。
+
+### 2026-08-18 close-bound Canvas focused runtime acceptance
+
+唯一一次 close-bound focused 运行已完成并通过：
+
+| 项目 | 冻结结果 |
+| --- | --- |
+| producing checkpoint | commit `91c7f4252126d5286509c79e2ce98c82e44aa1ef`; tree `ec14bcc6e4c2f8a2a669807c29a25e95533e460e` |
+| run | `canvas-focused-20260818T095204967986Z` |
+| report | SHA-256 `06a9b68876dbeef5a2c34a0fe43f03efb949bfddea1a3dc2eb71d160069e170d`; 18,862 bytes; sidecar matched |
+| one-shot claim | SHA-256 `799856606b2903697cc97775e0673482e0e4f2d912a0774a4ebac648ab27072e`; 517 bytes |
+| harness | SHA-256 `fa63703abb858c3f9843728b97b18b653044545e20bfcde536f00e97ea51cee8` |
+| A Artifact | raw SHA-256 `e273ca6376c9f4984a3bd7d78885771d3d5c712881da49691f67c2a44a8684bb`; boot `0 -> 1 -> 2` |
+| seed-B Artifact | raw SHA-256 `b79d370843302e753450ca5e57d44c1c901f03a8ba73c6a4a585c1efd6c6327e`; relative config diff only `canvas:seed`; boot `0 -> 1` |
+| A Canvas | raw RGBA `sha256:acd1515152354d8bb340e2cf4d9516f48762504eb370ce5d0b3339801f9cfe10`; decoded pixels `sha256:ba28621cd5cfb8ef73dc52ffbb1882fbbaa8bdc1c52f37929894f66e191e1f71`; PNG bytes `sha256:2f9d2d223c4eed37e334569db0447daa3cb2ac7e30a4f96a046dac6464d14c8d`; dataURL `sha256:72962259071308c39c0ed11bb90976d0fce49e765de49d39ee9fa179134d9d3e`; A1=A2 |
+| seed-B Canvas | raw/decoded pixels equal A；PNG bytes `sha256:72f0ae10f0a7ee3ac60529311bd6806eb535e15cd5970a5570994dabd988e2b3`；dataURL `sha256:ef41ec1f2b3fbc31b75b917debe99c9aa0c51a8c4fdc35ce81a1ba1d99114d4e`；两项均与 A 分离 |
+| close | A1/A2/seed-B1 `ctx.close=success`，约 0.726/0.372/1.021 s；exit 0；Job active 0；无 forced cleanup/remaining process |
+
+三次 Host/session/supervisor/browser identity 均独立；PNG signature、decode、尺寸
+240x120 与 MIME 均有效；Profile 与 supervisor lock byte 均可重取；终态无目标
+进程或 18191 listener。由此接受的仅是本 binary binding 的 Canvas focused 子
+Gate。`verified` 仍为 false，missing-seed 仍仅有 source regression，full FP1
+尚未执行，FP1 尚未 Accepted，FP2 仍关闭。
+
+下一动作固定为：把本 report/claim/checkpoint 与 full A/B 47-key harness 精确绑定，
+完成无浏览器反例和 clean checkpoint 后，只运行一次新的 full FP1
+`A1 -> A2 -> full-B1`。focused 不得重跑，旧 `8221486f...` candidate 证据不得
+冒充当前 close-bound binding。

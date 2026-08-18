@@ -322,3 +322,35 @@ Artifact 已切换到该候选；production tree verification 与无浏览器 bi
 binding 闭合，不证明 bounded-close、Canvas runtime 或 FP1 已通过。下一项任务仅为从新的
 clean checkpoint 执行一次 Canvas focused A1→A2→seed-B1；通过并再次冻结后，才允许一次
 新的 full FP1。FP1 仍为 Failed / 未 Accepted，FP2 继续关闭。
+
+### 2026-08-18 close-bound Canvas focused runtime checkpoint
+
+close-bound candidate 已在 clean checkpoint
+`91c7f4252126d5286509c79e2ce98c82e44aa1ef` / tree
+`ec14bcc6e4c2f8a2a669807c29a25e95533e460e` 上完成唯一一次 Windows
+Canvas focused `A1 -> A2 -> seed-B1`：
+
+- run：`canvas-focused-20260818T095204967986Z`；
+- report：SHA-256
+  `06a9b68876dbeef5a2c34a0fe43f03efb949bfddea1a3dc2eb71d160069e170d`，
+  18,862 bytes，sidecar 匹配；
+- one-shot claim：SHA-256
+  `799856606b2903697cc97775e0673482e0e4f2d912a0774a4ebac648ab27072e`，
+  517 bytes；
+- harness：SHA-256
+  `fa63703abb858c3f9843728b97b18b653044545e20bfcde536f00e97ea51cee8`；
+- A1/A2 raw RGBA、decoded PNG pixels、PNG bytes 与 dataURL 全部相同；
+  seed-B1 保持 raw/decoded pixels 相同，同时 PNG bytes 与 dataURL 均与 A
+  分离；三次 PNG signature/decode/240x120/image/png 均有效；
+- A Profile boot 为 `0 -> 1 -> 2`，seed-B Profile 为 `0 -> 1`；三次
+  Host/session/supervisor/browser identity 独立；
+- A1/A2/seed-B1 的 `ctx.close()` 均成功，分别约 0.726 s、0.372 s、
+  1.021 s；三次均 exit 0、exit file observed、Job active 0、无 remaining
+  process、forced cleanup `not_needed`，两类 Profile lock byte 均可重取；
+- 终态无 Camoufox/supervisor 残留，18191 无 listener，tracked worktree clean。
+
+因此 close-bound candidate 的 **Canvas focused 子 Gate Accepted**，并直接证明
+旧 full FP1 的 `ctx.close()` 失败在此 focused 路径未重现。报告仍正确保持
+`verified:false`、`fullFp1Executed:false`、`fp1Accepted:false`、
+`fp2Entered:false`。下一步是先冻结本次 focused evidence 与新的 full harness
+绑定，再只执行一次 full FP1 A1/A2/full-B1；不得重跑 focused、不得进入 FP2。
