@@ -4,6 +4,7 @@ dist/
 .astro/
 coverage/
 artifacts/
+.codex/
 *.tsbuildinfo
 .env
 .env.*

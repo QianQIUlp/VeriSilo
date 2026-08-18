@@ -174,24 +174,24 @@ def test_self_built_asset_lock_is_compiled_pinned_and_nonofficial() -> None:
     assert lock["verified"] is False
     assert lock["evidenceClass"] == "compiled-not-runtime-verified"
     assert lock["sha256"] == (
-        "8221486f42f547603339da7442e4c412671afc66d6742d01f99918f12f85be1d"
+        "148d3a067cb94e830723745682e904c3a416cd2cf75282299ab7ce11c8050a94"
     )
-    assert lock["sizeBytes"] == 493054882
+    assert lock["sizeBytes"] == 493100709
     assert "digestAgreement" not in lock
     assert "githubAsset" not in lock
     assert lock["sourceBinding"]["commit"] == (
-        "4f1f01f00844e1888139b4236424550c94a6e10f"
+        "e571f6c0b2cea90955b929a4ff04ad54007778fa"
     )
     assert lock["treeManifest"] == {
         **lock["treeManifest"],
         "rawSha256": (
-            "68ae52e3d11bba5b2868b68ea90af962840c6890a4418fc24199ba9a96138bf3"
+            "3a7b9ba83d93e1d40fc30cb4831750d9a125c76db0551459197c74f6b14c86f9"
         ),
         "canonicalSha256": (
-            "ebc35ddbdc59c32b9856b56a9dcfc6e375d5a090abc6b498238e6cd874c09dfa"
+            "42fcfb3f7f028f0a7b71c794236c9f867bae4077d2e2a3087916673968fb98d1"
         ),
         "fileCount": 503,
-        "totalBytes": 981198096,
+        "totalBytes": 981205753,
     }
 
 

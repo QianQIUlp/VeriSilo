@@ -888,3 +888,28 @@ Backlog（与本修复无关的存量异常）：`test_windows_host.py` protocol
 `"stage":"response write"` 必须出现，但当前 Host 只在 `launch` 命令激活 stage 记录器，
 纯 hello 会话不可能满足；该断言在 clean `0455dec` 同样失败，属过期测试断言，需单独
 修正，不得混入本修复链路。
+
+### 2026-08-18 close-bound candidate build/finalization checkpoint
+
+前述“重建 Windows 候选 → archive/tree 校验与新 self-built binding”两步现已完成：
+
+- build run：`canvas-close-engine-20260816t144711z-e571f6c`；
+- engine revision：`verisilo-camoufox-152.0.4-beta.28-canvas-export-v1-close-bound-v1`；
+- source commit/tree：`e571f6c0b2cea90955b929a4ff04ad54007778fa` /
+  `7d6e41dd892c68aadccb3d177f5e33a6bd974486`；
+- archive：SHA-256
+  `148d3a067cb94e830723745682e904c3a416cd2cf75282299ab7ce11c8050a94`，
+  493,100,709 bytes；
+- executable：`camoufox.exe` SHA-256
+  `172f51387bc61e331446883e5499c67611aea5fd81091f68df26b166c9687bf1`；
+- extraction tree：503 files / 981,205,753 bytes；manifest raw/canonical SHA-256
+  `3a7b9ba83d93e1d40fc30cb4831750d9a125c76db0551459197c74f6b14c86f9` /
+  `42fcfb3f7f028f0a7b71c794236c9f867bae4077d2e2a3087916673968fb98d1`；
+- self-built lock raw SHA-256：
+  `ce05302d317ec562b096eba52e806ed20302d99d472229640c5eea840d7f98ac`。
+
+lock/tree 与 rebound A/B/seed-B fixtures 已由 production validator 静态重验；该结果仍是
+`compiled-not-runtime-verified` / `verified:false`。本 checkpoint 未启动浏览器，未消费新
+archive 的 focused one-shot claim，也不改变旧 full FP1 的 Failed 历史。下一真实执行严格
+限定为一次 Canvas focused A1→A2→seed-B1，并在同一序列中硬验 clean close；只有 focused
+通过并再次冻结，才允许执行一次新的 full FP1。FP2 仍关闭。

@@ -21,7 +21,7 @@ OFFICIAL_ASSET_SCHEMA = "verisilo-camoufox-browser-asset/v2"
 SELF_BUILT_ASSET_SCHEMA = "verisilo-camoufox-browser-asset/v3"
 SELF_BUILT_ASSET_KIND = "self-built"
 SELF_BUILT_ENGINE_REVISION = (
-    "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1"
+    "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1-close-bound-v1"
 )
 SELF_BUILT_TREE_MANIFEST_PATH = (
     "tests/fixtures/camoufox/"
@@ -287,7 +287,7 @@ def _validate_self_built_lock(lock: dict) -> None:
     if (
         build["target"] != "x86_64-pc-windows-msvc"
         or type(build["runId"]) is not str
-        or not re.fullmatch(r"canvas-engine-[a-z0-9-]{8,63}", build["runId"])
+        or not re.fullmatch(r"canvas-close-engine-[a-z0-9-]{8,63}", build["runId"])
         or type(build["mozBuildDate"]) is not str
         or not re.fullmatch(r"[0-9]{14}", build["mozBuildDate"])
     ):

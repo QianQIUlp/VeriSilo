@@ -93,7 +93,7 @@ SELF_BUILT_ASSET_LOCK = LOCK_DIR / (
 # tracked self-built lock.  An arbitrary structurally valid CLI lock must never
 # become its own trust anchor.
 EXPECTED_SELF_BUILT_ASSET_LOCK_SHA256 = (
-    "0ce34b8a44c90e6c313aad66030a800359bbca78b97ca565cbdefa4e4eb95cfe"
+    "ce05302d317ec562b096eba52e806ed20302d99d472229640c5eea840d7f98ac"
 )
 
 COOKIE_NAME = "verisilo_probe_cookie"

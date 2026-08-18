@@ -1,13 +1,13 @@
 {
   "schema": "verisilo-camoufox-browser-tree-manifest/v1",
-  "treeRootLabel": "camoufox-152.0.4-beta.28-verisilo-canvas-v1-win-x86_64",
+  "treeRootLabel": "camoufox-152.0.4-beta.28-verisilo-canvas-v1-close-bound-v1-win-x86_64",
   "fileCount": 503,
-  "totalBytes": 981198096,
+  "totalBytes": 981205753,
   "entries": [
     {
       "path": "AccessibleMarshal.dll",
       "size": 20480,
-      "sha256": "a99e172642dfe36350408e63204357dd06d49b1288c76c6c0dc8fb04417d1931"
+      "sha256": "15ee0dabb45725298a7e87b45da834ca5d32dc9a15076bfe192fd932be7e8dd3"
     },
     {
       "path": "CoreMessagingXP.dll",
@@ -17,7 +17,7 @@
     {
       "path": "InstallationDirLayout.dll",
       "size": 9728,
-      "sha256": "055f7136fa88ad67f49a2c47e5ba5a36b7e403c10a5c188617409167c829bbae"
+      "sha256": "d270df6cfd1726cea65ff2661a401c241da4f6f9195a0bbb801794e1bb96484f"
     },
     {
       "path": "Microsoft.InputStateManager.dll",
@@ -92,7 +92,7 @@
     {
       "path": "camoufox.exe",
       "size": 818176,
-      "sha256": "bb247f1c21a8e8aa4c590bec01b499ced307cd9fdf6974e24309fa7e52963a16"
+      "sha256": "172f51387bc61e331446883e5499c67611aea5fd81091f68df26b166c9687bf1"
     },
     {
       "path": "chrome.css",
@@ -117,7 +117,7 @@
     {
       "path": "desktop-launcher/desktop-launcher.exe",
       "size": 430592,
-      "sha256": "b2537a673320a616efe547682b1a6251e2c57b38c21d93ff7edc93b2cf3015f8"
+      "sha256": "21c69cff5b1587f14af2fda7921876095805f050d1f763e277c7be38742a344a"
     },
     {
       "path": "distribution/policies.json",
@@ -2342,17 +2342,17 @@
     {
       "path": "freebl3.dll",
       "size": 1017856,
-      "sha256": "d4b945095d4dc3963a7501f4fdd2aee7501e6744b3edff3f5f14e102dcf70f83"
+      "sha256": "8ed59e85aa00445a5ea86db7675f33347c4502a32787d9d2c0f2f1987df299cb"
     },
     {
       "path": "gkcodecs.dll",
       "size": 11359744,
-      "sha256": "d140af026043ba0411950032b53646e274acbaa4493653e74bb84d964335b7a5"
+      "sha256": "f557350afbe200a41d01d43b792c8f8b47685ac58d9ffe15df6ae4a1d9a2f32a"
     },
     {
       "path": "gmp-clearkey/0.1/clearkey.dll",
       "size": 108032,
-      "sha256": "079d0d3973b9c42308a6408af0dfb842dfd942ede69588894a06a47f50a0a7b1"
+      "sha256": "59a1e11da1190ec2ae6863d6363316ed874540a10e6637d50186300c782a66c6"
     },
     {
       "path": "gmp-clearkey/0.1/manifest.json",
@@ -2362,22 +2362,22 @@
     {
       "path": "installation_dir_layout/versioned/InstallationDirLayout.dll",
       "size": 9728,
-      "sha256": "51be0d80e91ac4dde816d049933daebab593b893c531b8e78a0e7baa8ad4bd00"
+      "sha256": "5a2d765fa9b1c40645b0d8cab045ca9b360ea790afd4cdfeb05c77bcfacce661"
     },
     {
       "path": "lgpllibs.dll",
       "size": 164352,
-      "sha256": "7bba2024f9a42a646d863ff88a3d17b31024976e171b1c9ffaf10d8697ec9108"
+      "sha256": "c297dd8cc1d2e688cf7a89806e215def67bc9c20987d34e7a5a883d3bfa4a4a2"
     },
     {
       "path": "libEGL.dll",
       "size": 50688,
-      "sha256": "bc4b357d3574566f0e17d839bcebaefc4250eea33e89f0bdec1b1016f95fb4e8"
+      "sha256": "f8a0a1de7ec8f0f16bbdce656a94c9f920b594b6503237ad286110441d917e8f"
     },
     {
       "path": "libGLESv2.dll",
-      "size": 5071872,
-      "sha256": "ebc9d64506d26c075928b80ef1c5453fbbeb74ef4330b523621b51a6f187486c"
+      "size": 5072384,
+      "sha256": "0c08d039d0aaae43748a08631785287ba72b9290eeb378999e979bec4ff2ee64"
     },
     {
       "path": "marshal.dll",
@@ -2387,22 +2387,22 @@
     {
       "path": "mozavcodec.dll",
       "size": 4497408,
-      "sha256": "a36cc273a3bcfd94ac8d22c32407fedf655dad6fe5f65c5571b9269b4c26108e"
+      "sha256": "39dbae198b263e3bdc9dab979a6213bd13f2f8fe1bc9bf9ea7cffcf3f73c4f4c"
     },
     {
       "path": "mozavutil.dll",
       "size": 608256,
-      "sha256": "87bb4ae88dafb6db5ab09ca75fd6422294c77bed122cf0cd801e1b54d18fa905"
+      "sha256": "d70953d444b8f066f2edac1e637ea3c324f131ff63e5a592b59e52eaab0c5391"
     },
     {
       "path": "mozglue.dll",
       "size": 655360,
-      "sha256": "1c1fcb1ac4496ffc5c9ad044c2014092daaa4a6f4e175bd50c4ca74694a009d6"
+      "sha256": "c60a38f8bc6acf19a67dfdf402fd8e3d63288b988781f97e16fb6fff929e8528"
     },
     {
       "path": "mozinference.dll",
       "size": 2347520,
-      "sha256": "9651d10a9e54638c30496d47fd048cc19c60ce41ecc04ef69612ed476dc0711c"
+      "sha256": "db078a1fe666414ee164323d16bd55419e2790e9ea5ad9cce42056d5e2898115"
     },
     {
       "path": "msvcp140.dll",
@@ -2432,22 +2432,22 @@
     {
       "path": "nmhproxy.exe",
       "size": 640512,
-      "sha256": "3dc2413fc7686f891a561cff2e2c37bdb9ac2e30fab8f595b622355924624fcd"
+      "sha256": "6e0b67e7fe9bd027afa92b4c16843792bd767726c84649f00d8afaf0e5f73bbd"
     },
     {
       "path": "notificationserver.dll",
       "size": 53760,
-      "sha256": "b554643860fb304421f674e0de97ed4ee59a9737f1fb2b106fa3f12cc0f86b85"
+      "sha256": "e78f43dd8342bbb91c9b7e824f950ef4230e73fd855b0cd3d1a71a98f5438d76"
     },
     {
       "path": "nss3.dll",
       "size": 2939392,
-      "sha256": "299a85338b0968d20d4de439ec4d94e6697935cef9b0d97684bebff62e9bf921"
+      "sha256": "24a49a26afff54f2121f5beea00cd3877cc9105a53dd7eb564dbaaf4e32783dc"
     },
     {
       "path": "omni.ja",
-      "size": 43223785,
-      "sha256": "ccc8d83e4767f9b11ebb8cbdbe0cbdec14b6c82f776ed0034561af52932e012f"
+      "size": 43225298,
+      "sha256": "5adbb970122cff7a03f324765e450e32449f652d3505019bdb1c08daabd28c57"
     },
     {
       "path": "onnxruntime.dll",
@@ -2462,7 +2462,7 @@
     {
       "path": "plugin-container.exe",
       "size": 140288,
-      "sha256": "527b6b14d879e4c3a91d3ecc11db26019f9610a246482b590f39e3b01a9eb4c0"
+      "sha256": "6654a3bb504b8530a9c80636493a513f1ed94e8985cfdee00e917c4296ea9bda"
     },
     {
       "path": "precomplete",
@@ -2477,7 +2477,7 @@
     {
       "path": "private_browsing.exe",
       "size": 36352,
-      "sha256": "d6b3fac6dc08b6845196636ff9e303d025aedcc8e7128df396162841841ca686"
+      "sha256": "9bbd7c0b41a7f9542e150a6677d8550e2f11842e50c003e60ab45b3dfbeefd73"
     },
     {
       "path": "properties.json",
@@ -2492,7 +2492,7 @@
     {
       "path": "softokn3.dll",
       "size": 317440,
-      "sha256": "4969837316ec7c508572ac138dbd21561c0eb9bb277eaa647297ab234a5fba21"
+      "sha256": "aaaae380c9fec868d823af54d009a4b2c36ff96dbe9cd3844882ab42a2c38f78"
     },
     {
       "path": "vccorlib140.dll",
@@ -2516,8 +2516,8 @@
     },
     {
       "path": "xul.dll",
-      "size": 177388544,
-      "sha256": "88ddf9125279f79dd57a7e2c1b36adb11d42664fd4b38d166eee8128f5c2106c"
+      "size": 177394176,
+      "sha256": "d9219c6cdfa6118fa4f124f7535e54a80b9a08710d02beb11a6168e487c6f9fc"
     }
   ]
 }

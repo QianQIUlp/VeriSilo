@@ -1,7 +1,7 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**可变项目状态页**
-- 更新日期：2026-08-15
+- 更新日期：2026-08-18
 
 本文只记录当前执行阶段、证据 checkpoint 和下一项任务。长期产品意图见[身份平台北极星](identity-platform-north-star.md)，路线原因见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。每次 Gate 变化后更新本文，不用本文反向改写长期决策。
 
@@ -301,3 +301,24 @@ clean、恢复 R2/R2H 或进入 FP2。
 - 新任务使用的明确起始 commit。
 
 状态更新不得删除历史 accepted checkpoint，也不得把计划、控制面或执行 Agent 自报结果写成已验证产品能力。
+
+### 2026-08-18 close-bound Windows candidate finalization checkpoint
+
+lespaul 的 one-shot Windows cross-build 已以 `container-passed` / exit 0 结束，并绑定
+source commit `e571f6c0b2cea90955b929a4ff04ad54007778fa`、tree
+`7d6e41dd892c68aadccb3d177f5e33a6bd974486` 和 source-lock SHA-256
+`42b14bfe7331e6c023a3a6fa49da614852b6fd0a28c3225cc84bfc515d4036d5`。
+新 archive SHA-256 为
+`148d3a067cb94e830723745682e904c3a416cd2cf75282299ab7ce11c8050a94`，大小
+493,100,709 bytes；Windows 安全提取后的完整树为 503 files / 981,205,753 bytes，
+tree manifest raw SHA-256 为
+`3a7b9ba83d93e1d40fc30cb4831750d9a125c76db0551459197c74f6b14c86f9`，
+`camoufox.exe` SHA-256 为
+`172f51387bc61e331446883e5499c67611aea5fd81091f68df26b166c9687bf1`。
+
+现有 v3 self-built lock、deterministic Canvas exact binding 与三份 47-key rebound
+Artifact 已切换到该候选；production tree verification 与无浏览器 binding/policy tests
+通过。所有 lock/result 继续保持 `verified:false`，当前只证明 compiled candidate 与静态
+binding 闭合，不证明 bounded-close、Canvas runtime 或 FP1 已通过。下一项任务仅为从新的
+clean checkpoint 执行一次 Canvas focused A1→A2→seed-B1；通过并再次冻结后，才允许一次
+新的 full FP1。FP1 仍为 Failed / 未 Accepted，FP2 继续关闭。

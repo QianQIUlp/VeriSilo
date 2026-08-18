@@ -104,8 +104,8 @@
   },
   "browserRelease": "v152.0.4-beta.28",
   "browserBinding": {
-    "archiveSha256": "8221486f42f547603339da7442e4c412671afc66d6742d01f99918f12f85be1d",
-    "archiveSizeBytes": 493054882,
+    "archiveSha256": "148d3a067cb94e830723745682e904c3a416cd2cf75282299ab7ce11c8050a94",
+    "archiveSizeBytes": 493100709,
     "buildId": "20260811045234",
     "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
     "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018"
@@ -1662,5 +1662,5 @@
     "proxySecrets": "none supplied",
     "environment": "not recorded"
   },
-  "canonicalDigest": "sha256:b6857ac6247e6be4374b7862880f6e9bb2dbb5d71eed4bbaa940bacb5a5a8830"
+  "canonicalDigest": "sha256:7c3b77efed7b2ea421da93d96de27b2733c1426143b657e9ba20b089943f190d"
 }

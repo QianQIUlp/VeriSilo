@@ -7,17 +7,17 @@
   "release": "v152.0.4-beta.28",
   "platform": "windows-x86_64",
   "pythonPackage": "camoufox==0.5.4",
-  "engineRevision": "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1",
-  "sha256": "8221486f42f547603339da7442e4c412671afc66d6742d01f99918f12f85be1d",
-  "sizeBytes": 493054882,
+  "engineRevision": "verisilo-camoufox-152.0.4-beta.28-canvas-export-v1-close-bound-v1",
+  "sha256": "148d3a067cb94e830723745682e904c3a416cd2cf75282299ab7ce11c8050a94",
+  "sizeBytes": 493100709,
   "executableRelativePath": "camoufox.exe",
   "sourceBinding": {
-    "commit": "4f1f01f00844e1888139b4236424550c94a6e10f",
-    "tree": "35da4d372bf8f468062c6eb5ea64187be1c6d595",
+    "commit": "e571f6c0b2cea90955b929a4ff04ad54007778fa",
+    "tree": "7d6e41dd892c68aadccb3d177f5e33a6bd974486",
     "sourceLock": {
       "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-canvas-v1-source.json",
-      "sha256": "1b6271855474ac6d264eaa7f5830b4125457e488747f9c53f9b9bbae321e8b82",
-      "sizeBytes": 28585
+      "sha256": "42b14bfe7331e6c023a3a6fa49da614852b6fd0a28c3225cc84bfc515d4036d5",
+      "sizeBytes": 29518
     },
     "upstream": {
       "repository": "https://github.com/daijro/camoufox",
@@ -42,38 +42,44 @@
         "applyAfterUpstream": true,
         "sha256": "4fa6d3bbf203e2385e29a72ec2669ee17a571281be7ee2a73598e38918069b02",
         "sizeBytes": 2121
+      },
+      {
+        "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0002-verisilo-juggler-bounded-close.patch",
+        "sha256": "efb006d5b2b05756fc310b52eb48e0bdab5e8b23e780fa08534a7fc099c22ce7",
+        "sizeBytes": 3059,
+        "applyAfterUpstream": true
       }
     ]
   },
   "build": {
-    "runId": "canvas-engine-20260815t041500z-4f1f01f",
+    "runId": "canvas-close-engine-20260816t144711z-e571f6c",
     "target": "x86_64-pc-windows-msvc",
     "mozBuildDate": "20260811045234",
-    "startedAtUtc": "2026-08-15T04:16:14.869938Z",
-    "completedAtUtc": "2026-08-15T07:14:05.997144Z",
+    "startedAtUtc": "2026-08-16T14:47:52.251382Z",
+    "completedAtUtc": "2026-08-16T18:00:44.421437Z",
     "buildResult": {
       "name": "build-result.json",
       "recordType": "verisilo-camoufox-build-run/v1",
-      "sha256": "55b4a5f7f62742ab9eebb59cd953ab9ce2dc0c7a38e519c179c75c8c37989a61",
-      "sizeBytes": 22337,
+      "sha256": "b19730aa28e49695e0bbfce452fe2c0efcfa0970cbde220798eb6606021aa196",
+      "sizeBytes": 22660,
       "status": "compiled-not-runtime-verified"
     },
     "hostProvenance": {
       "name": "host-provenance.json",
       "recordType": "verisilo-camoufox-build-host-provenance/v1",
-      "sha256": "ddb3962f2b663b5bbaca2c33e6ef85cebf9b72113c4344f0885cccbb4134878f",
-      "sizeBytes": 8259,
+      "sha256": "6ab72ddcf66006f2b966a0ad5ac709ae63dd2c02bb51eb3d157df4ddfd94f2e7",
+      "sizeBytes": 8295,
       "status": "container-passed"
     },
     "builderImage": {
-      "imageId": "sha256:5183cb1c8475b4bf263d78294ce06d553ab08d0f2684aab317f8df89bc0ad964",
-      "savedArchiveSha256": "e16596f3257ef38f3fcec5f2e8370995cccd184d59b2335e17048fe3f1aa3bfc",
-      "savedArchiveSizeBytes": 483575808,
+      "imageId": "sha256:dfd59e5a518c9ea2a87b5c3592a040371e8a366ee61f1bd85097773e497ac4fc",
+      "savedArchiveSha256": "f8061d1cb5a4b8e5612d6fc6a5dbbba31c6b33ff1593afb5fd1088a4745ab851",
+      "savedArchiveSizeBytes": 483576320,
       "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
       "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
-      "recipeSourceCommit": "8b8294fafd5d5d68088c05bc31def6044d6e0e69",
-      "recipeSourceTree": "99d16659c7e247875076c0e47df3f8f7be3a4564",
-      "recipeSourceLockSha256": "6ac8e8ce00e9912dc439b20a5608ed854ef0f41fadcc2e50aa13fcf1c401e3b0",
+      "recipeSourceCommit": "be9eec880959650916c8f149aff4f54d872f23f6",
+      "recipeSourceTree": "ec01cbe47658351f5808ccbd0f882fb7bedcef25",
+      "recipeSourceLockSha256": "b36b4b4ae9cde8460d37432b82707ceb60b7065e1143f6ab314c032812c11b4b",
       "dockerfileSha256": "ae3e28d39c2c996d0c70f6fbd4b182f4e1585eb79fd7fc662e50b158300e5e6d",
       "hostToolingSha256": "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
     },
@@ -97,17 +103,17 @@
   },
   "archive": {
     "name": "camoufox-152.0.4-beta.28-win.x86_64.zip",
-    "sha256": "8221486f42f547603339da7442e4c412671afc66d6742d01f99918f12f85be1d",
-    "sizeBytes": 493054882,
+    "sha256": "148d3a067cb94e830723745682e904c3a416cd2cf75282299ab7ce11c8050a94",
+    "sizeBytes": 493100709,
     "memberCount": 514,
     "fileMemberCount": 503,
-    "totalUncompressedFileBytes": 981198096,
+    "totalUncompressedFileBytes": 981205753,
     "buildId": "20260811045234",
     "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
     "requiredMemberSha256": {
       "application.ini": "845ed353879066ca8777f35f178753071c4385f1f75b09246655e1385ff5b7d0",
       "camoufox.cfg": "2d4e2d1ebca1a7103b03477d7d11dc056ae0f53ab12ef63e55d8bf2ff4b5722a",
-      "camoufox.exe": "bb247f1c21a8e8aa4c590bec01b499ced307cd9fdf6974e24309fa7e52963a16",
+      "camoufox.exe": "172f51387bc61e331446883e5499c67611aea5fd81091f68df26b166c9687bf1",
       "platform.ini": "8013f4616ee061708899403ea066c77bcf05358b29c8cbd98fb78a9f02bbbb21",
       "properties.json": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018"
     },
@@ -133,10 +139,10 @@
     "schema": "verisilo-camoufox-browser-tree-manifest/v1",
     "encoding": "utf-8",
     "newline": "lf",
-    "rawSha256": "68ae52e3d11bba5b2868b68ea90af962840c6890a4418fc24199ba9a96138bf3",
-    "canonicalSha256": "ebc35ddbdc59c32b9856b56a9dcfc6e375d5a090abc6b498238e6cd874c09dfa",
+    "rawSha256": "3a7b9ba83d93e1d40fc30cb4831750d9a125c76db0551459197c74f6b14c86f9",
+    "canonicalSha256": "42fcfb3f7f028f0a7b71c794236c9f867bae4077d2e2a3087916673968fb98d1",
     "canonicalization": "JSON object with entries ordinal-sorted by POSIX path; SHA-256 over compact UTF-8 JSON with sorted object keys and no whitespace",
     "fileCount": 503,
-    "totalBytes": 981198096
+    "totalBytes": 981205753
   }
 }
