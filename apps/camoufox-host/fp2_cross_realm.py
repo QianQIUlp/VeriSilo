@@ -1889,6 +1889,7 @@ def run_runtime_preflight(
     interpreter: Path,
     port: int,
     previous: dict[str, Any],
+    git: dict[str, Any],
 ) -> dict[str, Any]:
     """Run the exact child bootstrap path and stop immediately before browser spawn."""
     preflight_id = f"fp2-runtime-preflight-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
@@ -1960,6 +1961,12 @@ def run_runtime_preflight(
         "schema": RUNTIME_PREFLIGHT_SCHEMA,
         "taskVersion": TASK_VERSION,
         "executionGeneration": EXECUTION_GENERATION,
+        "git": {
+            "branch": git["branch"],
+            "head": git["head"],
+            "tree": git["tree"],
+            "trackedWorktreeClean": git["trackedWorktreeClean"],
+        },
         "status": status,
         "verified": False,
         "previousBlockedAttempt": previous,
@@ -2968,7 +2975,7 @@ def orchestrate(args: argparse.Namespace) -> int:
         previous = previous_blocked_attempt()
         require(not GLOBAL_CLAIM_PATH.exists(), "one_shot_claim_already_exists", GLOBAL_CLAIM_PATH.name)
         interpreter = resolve_runtime_interpreter()
-        runtime_preflight = run_runtime_preflight(interpreter=interpreter, port=args.run_port, previous=previous)
+        runtime_preflight = run_runtime_preflight(interpreter=interpreter, port=args.run_port, previous=previous, git=git)
         require(runtime_preflight.get("status") == "passed", "runtime_preflight_required")
         require(runtime_preflight.get("claimCreationAllowed") is True, "runtime_preflight_required")
         require_no_target_processes("after runtime preflight closure")
