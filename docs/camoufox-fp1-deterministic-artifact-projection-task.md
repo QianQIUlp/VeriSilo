@@ -941,3 +941,87 @@ Gate。`verified` 仍为 false，missing-seed 仍仅有 source regression，full
 完成无浏览器反例和 clean checkpoint 后，只运行一次新的 full FP1
 `A1 -> A2 -> full-B1`。focused 不得重跑，旧 `8221486f...` candidate 证据不得
 冒充当前 close-bound binding。
+
+### 2026-08-20 FP1 Offline Evidence Closure
+
+本阶段禁止真实浏览器、禁止删除 claim、禁止修改原始 evidence、禁止进入 FP2；实际执行
+遵守上述四项限制。只读基线完整输出保存在 gitignored closure bundle 中，核对结果为：
+
+| 基线项 | 精确值 |
+| --- | --- |
+| branch | `codex/camoufox-m3-engine-adapter` |
+| HEAD | `b7a615ac39606deb741b3b3ea13d3584a987a39c` |
+| tree | `9461adcc6924539dc4c2bb80963fab71a2efef49` |
+| tracked / cached diff | 均为空 |
+| baseline receipt | SHA-256 `689fa4c2714cbf4d6a98a7d5bb9d0d0b46a8576d449f56621cbfdbeef4d6b804` |
+
+当前字节闭包在 comparator 修改前完成并 fail closed：任务合同、状态页、ignored full
+harness/test、true full report/sidecar/claim、A1/A2/B1 的 12 个 referenced files、
+A/B/seed-B Artifact、probe、`0002` patch、source lock、asset lock、tree manifest、
+archive、`camoufox.exe`、完整 extracted browser tree 与 focused report/sidecar/claim
+全部匹配。byte-closure receipt SHA-256 为
+`2e5f46872f1108b037e55bfe8320e4b950d9c1fc3df2561e01a154d73af3986f`；production
+verifier 重哈希 503 files / 981,205,753 bytes，canonical tree SHA-256
+`42fcfb3f7f028f0a7b71c794236c9f867bae4077d2e2a3087916673968fb98d1`。
+
+#### Comparator 合同恢复
+
+只修改 gitignored `run_fp1_full_windows.py` 与 `test_fp1_full_windows.py`。最终 raw
+SHA-256 分别为
+`c7c6b90b01a02e46a83b934e50f6569261ab7ac25c037f26b805e8eef074c9d6` 和
+`c09ede5a2077099e7623aa56b504bf1eaa3ff2d4b279b03ceba7c204bc8e7a57`。
+恢复后的判定严格为：
+
+1. A1/A2 的 `rawHash`、`rawRgbaHash`、`exportHash`、`dataUrlHash`、
+   `pngBytesHash`、`decodedPngPixelsHash` 六项全部相同；
+2. seed-only focused B 的 raw/raw-RGBA/decoded pixels 与 A 相同，PNG bytes、
+   dataURL、export 与 A 分离；
+3. full B 不再无条件要求 raw 等于 A；仅当 Artifact 的 cross-surface 绘图输入
+   `fonts` / `fonts:spacing_seed` 改变、对应 observed injected-font/width evidence
+   也改变且 common families 无漂移时，允许 raw/raw-RGBA/decoded pixels 一起改变；
+4. 每次 observation 继续硬验 PNG signature、decode、240x120、`image/png` 与既有
+   hash alias/internal consistency；
+5. 任何 unexplained common-family drift，或 report/sidecar/claim/referenced-file
+   hash mismatch，均失败关闭。
+
+`py_compile` 通过；full harness 无浏览器测试 21/21、focused harness 10/10、candidate
+finalizer 6/6。新增回归明确证明：A1/A2 raw 不同失败；seed-only B raw 不同失败；
+full B 的 font-driven raw 不同不会被 raw equality 误判；无法解释的 common-family
+漂移失败；invalid PNG 失败；report、sidecar、claim 和 referenced hash mismatch 均失败。
+
+#### Immutable original evidence 的 corrected adjudication
+
+唯一裁决对象为原始 run `fp1-full-20260818T103842543519Z`：
+
+| immutable 对象 | SHA-256 / 结果 |
+| --- | --- |
+| report | `45a40123a1877e1c97d6989f5ba763c32b62a3b1c0e6f74968da13e957abd588` |
+| report sidecar raw bytes | `6d98e8df5382b2b2344636f9bcccacb03d765ce61dd2eb6a649d41dfae5e1f43` |
+| one-shot claim | `f609ff5d72353bc820e69b509d5764a509a3f438a1967eddeea5d41bc3ff8e12` |
+| original status / failure | `failed` / `ab_mapping_failed: canvas.rawHash` |
+| corrected offline adjudication | `passed`；receipt SHA-256 `2494a0da712bf6598c774dc7b33657784d78226b05a92536e4984c211f51106d` |
+
+裁决重新读取并重哈希全部原始 referenced evidence，没有改写 report、failure code、claim、
+Artifact 或 probe。A1/A2 的 14 个 hard family 全同且六个 Canvas hash 全同。full B 的
+13-key static diff 精确映射；Canvas raw/raw-RGBA/decoded pixels 的差异由已变化的
+`fonts` 与 `fonts:spacing_seed` 及对应 injected-font/width evidence 共同解释；common
+families 稳定，PNG/export separation 与内部一致性有效。A boot `0 -> 1 -> 2`、B boot
+`0 -> 1`；A Cookie 持久，B Cookie/Profile 隔离；三次 media configured counts 匹配。
+三份 protocol 各有 hello/launch/close/shutdown 四个成功 response 且 secret scan 干净；
+三次均 clean close、exit 0、Job active 0、forced cleanup `not_needed`。lifecycle、storage、
+media、integrity 因而全部闭合。
+
+这份 `verisilo-camoufox-fp1-offline-adjudication/v1` 是独立离线裁决 receipt，不是新的
+runner report，不更改或冒充原始 runner verdict。
+
+#### Main-brain Gate
+
+- **Original runner verdict:** `failed`；
+- **Reason:** false negative caused by non-contractual A/B `canvas.rawHash` equality assertion；
+- **Main-brain FP1 Gate:** Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；
+- **verified:** `false`；
+- **FP2:** 未进入；只允许作为下一项单独冻结的任务。
+
+本 Gate 只关闭 FP1 deterministic Artifact projection execution risk；不追改 M3-WI，不开放
+UI/代理/生产打包，不把 offline evidence 写成 verified 产品能力。原始 report/claim 在
+closure 后重新哈希仍与上述值一致。

@@ -1,7 +1,7 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**可变项目状态页**
-- 更新日期：2026-08-18
+- 更新日期：2026-08-20
 
 本文只记录当前执行阶段、证据 checkpoint 和下一项任务。长期产品意图见[身份平台北极星](identity-platform-north-star.md)，路线原因见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。每次 Gate 变化后更新本文，不用本文反向改写长期决策。
 
@@ -17,7 +17,7 @@
 | M3-WI 调查结束快照              | `186484feb935076766beab09595a9270f86f78ef` / tree `e33d6d68586a79796ffb9bcc668392e369dc97c6`                     | `e96ef3f` 为祖先；调查结束时 tracked tree clean；没有 production fix                    |
 | R2 tracked 候选 evidence        | `ecafca9` / `evidence-manifest-m3-wi-r2-windows.json`                                                            | 执行 Agent 候选；主脑未接受，不是 M3-WI Accepted evidence                               |
 | R2H 研究基础                    | `186484f`                                                                                                        | 只有 runner/freezer/schema 与 Host test 变更；无 tracked result/manifest                |
-| 当前 FP1 任务                   | [冻结合同与续执行结果](camoufox-fp1-deterministic-artifact-projection-task.md) / candidate source `4f1f01f00844e1888139b4236424550c94a6e10f` / full execution checkpoint `7a5465e8f971a81ef067be4735c764ce3cb0ea29` / close-bound source closure `9ee93e4` | Canvas focused 已通过；唯一 full FP1 在 A1 `ctx.close()` timeout 后 fail-closed 停止，FP1 Failed / 未 Accepted，同候选不重跑；close 根因已收口为上游 Juggler `Browser.close` 无界 pre-quit await，修复以补丁 `0002` 冻结，待重建候选后走 focused + 新 full FP1 |
+| 当前 FP1 任务                   | [冻结合同、执行历史与离线证据闭包](camoufox-fp1-deterministic-artifact-projection-task.md) / closure baseline `b7a615ac39606deb741b3b3ea13d3584a987a39c` / tree `9461adcc6924539dc4c2bb80963fab71a2efef49` | 原始 full runner verdict 保持 Failed；主脑基于 immutable A1/A2/B1 evidence 与 corrected contract adjudication 接受 FP1，`verified:false`；FP2 未进入，只允许成为下一项单独冻结任务 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -156,7 +156,7 @@ regression”的 integration extraction 均冻结在
 | 原生 Windows M2-W                               | **Accepted；三项核心 Gate 关闭**                                         |
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
-| FP1 Deterministic Artifact Projection           | **Canvas focused observed passed；full FP1 在 A1 clean-close Failed；未 Accepted** |
+| FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -249,16 +249,16 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 
 ## 下一阶段
 
-`ctx.close()` 根因已收口：上游 camoufox Juggler `Browser.close` 的无界 pre-quit await
-在 Windows 上间歇性 stall，导致 close 响应不发、进程不退、只能 forced Job cleanup。
-修复以下游补丁 `0002-verisilo-juggler-bounded-close.patch` 冻结（3 s 共享 deadline、
-超时阶段记日志、必然 `quit(eForceQuit)`），source engine revision 为
-`canvas-export-v1-close-bound-v1`，源闭合 checkpoint `9ee93e4`。当前唯一待办链路：
-受控 builder（lespaul）重建 Windows 候选 → 新 archive/tree 校验与 self-built binding
-（同步提升 `SELF_BUILT_ENGINE_REVISION` 与 Policy 变体）→ focused A1/A2/seed-B1 与
-close 回归 → 从新候选执行唯一一次新的 full FP1。在此之前 FP1 保持 Failed / 未
-Accepted；`8221486f…` 候选的 one-shot claim 不复用；不得把 forced Job cleanup 当
-clean、恢复 R2/R2H 或进入 FP2。
+FP1 已在 2026-08-20 完成 offline evidence closure。原始 runner report、failure code、
+one-shot claim、Artifact、probe 和所有 A1/A2/B1 referenced evidence 均保持原字节；
+corrected comparator 恢复冻结合同并由无浏览器回归覆盖。主脑 FP1 Gate 为
+**Accepted based on immutable original A1/A2/B1 evidence plus corrected contract
+adjudication**，但 `verified:false`，且不追改原始 runner 的 Failed verdict。
+
+下一阶段只允许把 FP2 定义为一项新的、单独冻结的任务：先写明合同、基线、禁止范围和
+独立 Gate，再决定是否执行。当前没有进入 FP2，不得把本次 offline adjudication 写成新的
+runner report、浏览器重跑或产品 verified 能力；M3-WI、UI、代理联动、生产签名/打包状态
+均不因 FP1 Gate 改变。
 
 后续顺序固定为 FP2 跨 realm 一致性 → FP3 网络/地区/WebRTC 协调 → FP4 实站
 兼容性 → 使用届时最终 Managed Engine 冻结新的 clean M3-WI 合同。旧 M3-WI
@@ -354,3 +354,63 @@ Canvas focused `A1 -> A2 -> seed-B1`：
 `verified:false`、`fullFp1Executed:false`、`fp1Accepted:false`、
 `fp2Entered:false`。下一步是先冻结本次 focused evidence 与新的 full harness
 绑定，再只执行一次 full FP1 A1/A2/full-B1；不得重跑 focused、不得进入 FP2。
+
+### 2026-08-20 FP1 offline evidence closure
+
+本次工作从 native Windows 工作树的精确只读基线开始：branch
+`codex/camoufox-m3-engine-adapter`，HEAD
+`b7a615ac39606deb741b3b3ea13d3584a987a39c`，tree
+`9461adcc6924539dc4c2bb80963fab71a2efef49`，tracked 与 cached diff 均为空。没有
+reset、restore、stash 或 clean，也没有启动浏览器。随后逐字节关闭当前合同、状态页、
+ignored harness/test、三份 Artifact、probe、`0002`、source/asset lock、tree manifest、
+archive、`camoufox.exe`、503-file extracted tree、focused/full report/sidecar/claim 与 full
+A1/A2/B1 的 observed/session/protocol/stderr。闭包 receipt SHA-256 为
+`2e5f46872f1108b037e55bfe8320e4b950d9c1fc3df2561e01a154d73af3986f`；503
+文件共 981,205,753 bytes，canonical tree SHA-256
+`42fcfb3f7f028f0a7b71c794236c9f867bae4077d2e2a3087916673968fb98d1`，全部匹配。
+
+裁决对象严格限定为 immutable run `fp1-full-20260818T103842543519Z`：
+
+- report SHA-256
+  `45a40123a1877e1c97d6989f5ba763c32b62a3b1c0e6f74968da13e957abd588`；
+- report sidecar raw SHA-256
+  `6d98e8df5382b2b2344636f9bcccacb03d765ce61dd2eb6a649d41dfae5e1f43`；
+- one-shot claim SHA-256
+  `f609ff5d72353bc820e69b509d5764a509a3f438a1967eddeea5d41bc3ff8e12`；
+- offline adjudication receipt SHA-256
+  `2494a0da712bf6598c774dc7b33657784d78226b05a92536e4984c211f51106d`。
+
+ignored full comparator/harness 只做合同内最小修正，最终 raw SHA-256 为
+`c7c6b90b01a02e46a83b934e50f6569261ab7ac25c037f26b805e8eef074c9d6`；无浏览器
+test raw SHA-256 为
+`c09ede5a2077099e7623aa56b504bf1eaa3ff2d4b279b03ceba7c204bc8e7a57`。
+规则现为：A1/A2 六个 Canvas hash 全等；focused seed-only B 的 raw/decoded pixels
+等于 A 且 PNG/dataURL/export 分离；full B 不要求 raw 无条件等于 A，只有 Artifact 的
+`fonts` / `fonts:spacing_seed` 绘图输入及对应 observed font/width evidence 同时变化、
+common families 无漂移时才允许 raw 改变；每次 PNG shape 与既有内部一致性继续硬验。
+report、sidecar、claim 或任一 referenced-file hash mismatch 均 fail closed。
+
+无浏览器验证结果为 full harness 21/21、focused harness 10/10、candidate finalizer 6/6；
+其中显式覆盖 A1/A2 raw 漂移失败、focused seed-B raw 漂移失败、font-driven full-B raw
+变化通过、无法解释的 common-family 漂移失败、invalid PNG 失败，以及
+report/sidecar/claim/referenced hash mismatch 失败。
+
+corrected adjudication 重新解析 immutable observed/session/protocol/stderr 后确认：A1/A2
+全部 14 个 hard family（含六个 Canvas hash）相同；full B 的 13-key 静态 diff 精确映射，
+Canvas raw/rawRgba/decoded pixels 同步变化，且只由已变化的 `fonts` 与
+`fonts:spacing_seed` 及对应 injected-font/width evidence 解释，common families 稳定。
+A boot `0 -> 1 -> 2`、B boot `0 -> 1`，A Cookie 持久、B Cookie/Profile 隔离；三次
+media configured counts 均匹配；每个 protocol 均有四个成功 response 且 secret scan
+干净；三次均 clean close、exit 0、Job active 0、forced cleanup `not_needed`。因此
+lifecycle、storage、media 与 integrity 全部闭合。
+
+最终 Gate 冻结如下：
+
+- **Original runner verdict:** `failed`；
+- **Reason:** false negative caused by non-contractual A/B `canvas.rawHash` equality assertion；
+- **Main-brain FP1 Gate:** Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；
+- **verified:** `false`；
+- **FP2:** 未进入；只允许作为下一项单独冻结的任务。
+
+原始 report、failure code 与 claim 未修改，也没有生成伪装成原始 runner verdict 的新报告。
+本 Gate 不改变 M3-WI、production package/signing、UI 或 shipped 状态。
