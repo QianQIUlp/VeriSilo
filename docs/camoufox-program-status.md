@@ -418,3 +418,18 @@ lifecycle、storage、media 与 integrity 全部闭合。
 ### 2026-08-20 FP2 execution checkpoint
 
 FP2 task contract frozen / execution in progress
+
+### 2026-08-20 FP2 generation 1 Gate and Runtime Preflight Closure
+
+FP2 generation 1 is **Blocked before first browser observation**. The preserved
+generation-1 claim is `e77204a09d9dfdbdf7d6c3b00a96114f477fd5b93d01c7fa6a7fd3dd71b28402`
+for run `fp2-20260820T121344Z-470b08fdb9`; the child used the wrong bare Python runtime,
+which lacked `camoufox`, and no Host/browser/realm observation was produced. This is an
+execution-environment precondition block, not a Camoufox realm-consistency failure.
+
+The next authorized work is the no-browser **FP2 Runtime Preflight Closure**. It preserves
+the generation-1 claim, fixes the claim-before-runtime-preflight contract boundary, fixes
+the FP2 report finalization call to `ensure_sanitized(report, label)`, and freezes the
+generation-2 child runtime as the repository FP1 venv (`CPython 3.12.13`, Camoufox 0.5.4,
+Playwright 1.60.0, BrowserForge 1.2.4). No generation-2 claim or browser matrix is authorized
+by this status update; FP3 remains closed and all FP2 results remain `verified:false`.

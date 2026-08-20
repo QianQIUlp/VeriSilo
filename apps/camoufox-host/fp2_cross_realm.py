@@ -17,6 +17,9 @@ import asyncio
 import copy
 import csv
 import hashlib
+import importlib
+import importlib.metadata
+import inspect
 import json
 import os
 import re
@@ -52,12 +55,31 @@ BROWSER_ROOT = REPO_ROOT / "artifacts" / "camoufox-fp1" / "windows-candidate-202
 ARCHIVE_PATH = REPO_ROOT / "artifacts" / "camoufox-fp1" / "windows-candidate-20260818T061456Z-e571f6c" / "out" / "canvas-close-engine-20260816t144711z-e571f6c" / "camoufox-152.0.4-beta.28-win.x86_64.zip"
 EXECUTABLE_PATH = BROWSER_ROOT / "camoufox.exe"
 FP2_EVIDENCE_ROOT = REPO_ROOT / "artifacts" / "camoufox-fp2"
-GLOBAL_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v1-one-shot-claim.json"
+LEGACY_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v1-one-shot-claim.json"
+GLOBAL_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v2-one-shot-claim.json"
 GLOBAL_LOCK_NAME = "fp2-v1-browser-global.lock"
+RUNTIME_INTERPRETER_RELATIVE = Path("apps/camoufox-host/.venv/Scripts/python.exe")
+EXPECTED_RUNTIME_PYTHON_VERSION = "3.12.13"
+EXPECTED_RUNTIME_IMPLEMENTATION = "CPython"
+EXPECTED_RUNTIME_DEPENDENCY_VERSIONS = {
+    "camoufox": "0.5.4",
+    "playwright": "1.60.0",
+    "browserforge": "1.2.4",
+}
+RUNTIME_PREFLIGHT_WATCHDOG_SECONDS = 30
+RUNTIME_PREFLIGHT_SCHEMA = "verisilo-camoufox-fp2-runtime-preflight/v1"
+RUNTIME_PREFLIGHT_CHILD_SCHEMA = "verisilo-camoufox-fp2-runtime-preflight-child/v1"
+EXECUTION_GENERATION = 2
+PREVIOUS_BLOCKED_CLAIM_SHA256 = "e77204a09d9dfdbdf7d6c3b00a96114f477fd5b93d01c7fa6a7fd3dd71b28402"
+PREVIOUS_BLOCKED_RUN_ID = "fp2-20260820T121344Z-470b08fdb9"
+PREVIOUS_BLOCKED_CLASSIFICATION = "pre-browser-runtime-dependency-block"
+PREVIOUS_BLOCKED_REASON = (
+    "original FP2 contract consumed the one-shot claim before exact child runtime dependency closure"
+)
 
-TASK_VERSION = "fp2-v1"
-REPORT_SCHEMA = "verisilo-camoufox-fp2-cross-realm-run/v1"
-CLAIM_SCHEMA = "verisilo-camoufox-fp2-one-shot-claim/v1"
+TASK_VERSION = "fp2-v2"
+REPORT_SCHEMA = "verisilo-camoufox-fp2-cross-realm-run/v2"
+CLAIM_SCHEMA = "verisilo-camoufox-fp2-one-shot-claim/v2"
 ADJUDICATION_SCHEMA = "verisilo-camoufox-fp2-offline-adjudication/v1"
 CANONICAL_REALMS = (
     "top-window",
@@ -196,6 +218,117 @@ def copy_json(path: Path, destination: Path) -> None:
 
 def relative_repo_path(path: Path) -> str:
     return path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+
+
+def child_environment() -> dict[str, str]:
+    """Construct the exact environment shared by preflight and browser children."""
+    environment = os.environ.copy()
+    environment["PYTHONUNBUFFERED"] = "1"
+    environment["PYTHONPATH"] = str(HOST_DIR)
+    return environment
+
+
+def resolve_runtime_interpreter() -> Path:
+    """Resolve the repository-owned FP1 runtime used for every generation-2 child."""
+    require(os.name == "nt", "runtime_native_windows_required", "FP2 runtime preflight requires native Windows")
+    path = (REPO_ROOT / RUNTIME_INTERPRETER_RELATIVE).resolve()
+    require(path.is_file(), "runtime_interpreter_missing", RUNTIME_INTERPRETER_RELATIVE.as_posix())
+    require(path.suffix.lower() == ".exe", "runtime_interpreter_invalid", RUNTIME_INTERPRETER_RELATIVE.as_posix())
+    try:
+        path.relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        fail("runtime_interpreter_outside_repo", RUNTIME_INTERPRETER_RELATIVE.as_posix())
+    return path
+
+
+def runtime_invocation_descriptor(interpreter: Path) -> dict[str, Any]:
+    """Describe the non-secret child launch contract without recording absolute argv."""
+    return {
+        "interpreterRelativePath": relative_repo_path(interpreter),
+        "scriptRelativePath": relative_repo_path(Path(__file__).resolve()),
+        "cwdRelativePath": ".",
+        "pythonPathRelative": [relative_repo_path(HOST_DIR)],
+        "environmentOverrides": {"PYTHONUNBUFFERED": "1", "PYTHONPATH": relative_repo_path(HOST_DIR)},
+        "entrypoints": {
+            "preflight": "--runtime-preflight-child",
+            "session": "--child-session",
+        },
+        "sessionStopBoundary": "before AsyncNewBrowser(...)",
+    }
+
+
+def runtime_dependency_closure_sha256(closure: dict[str, Any]) -> str:
+    return sha256_bytes(canonical_json_bytes(closure))
+
+
+def resolve_browser_launch_dependencies() -> dict[str, Any]:
+    """Resolve exactly the imports used immediately before the browser spawn call."""
+    from camoufox import AsyncNewBrowser, DefaultAddons
+    from camoufox.utils import launch_options
+    from playwright.async_api import async_playwright
+    from run_spike import firefox_user_prefs_for_config, normalize_camou_config_env
+
+    return {
+        "AsyncNewBrowser": AsyncNewBrowser,
+        "DefaultAddons": DefaultAddons,
+        "launch_options": launch_options,
+        "async_playwright": async_playwright,
+        "firefox_user_prefs_for_config": firefox_user_prefs_for_config,
+        "normalize_camou_config_env": normalize_camou_config_env,
+    }
+
+
+def runtime_dependency_snapshot() -> dict[str, Any]:
+    """Import and resolve all project/runtime dependencies without launching a browser."""
+    external = {}
+    for module_name, distribution_name in (
+        ("camoufox", "camoufox"),
+        ("playwright", "playwright"),
+        ("browserforge", "browserforge"),
+    ):
+        try:
+            importlib.import_module(module_name)
+            version = importlib.metadata.version(distribution_name)
+        except (ImportError, importlib.metadata.PackageNotFoundError) as exc:
+            fail("runtime_dependency_missing", module_name)
+        except Exception as exc:  # noqa: BLE001 - dependency bootstrap is fail-closed
+            fail("runtime_dependency_resolution_failed", module_name)
+        expected = EXPECTED_RUNTIME_DEPENDENCY_VERSIONS[module_name]
+        require(version == expected, "runtime_dependency_version_mismatch", module_name)
+        external[module_name] = {"available": True, "version": version}
+
+    project_modules = {}
+    for module_name in ("host_v1", "browser_asset", "host_platform", "run_spike"):
+        try:
+            importlib.import_module(module_name)
+        except ImportError as exc:
+            fail("runtime_host_import_missing", module_name)
+        except Exception as exc:  # noqa: BLE001 - project bootstrap is fail-closed
+            fail("runtime_host_import_failed", module_name)
+        project_modules[module_name] = {"available": True}
+
+    dependencies = resolve_browser_launch_dependencies()
+    require(callable(dependencies["AsyncNewBrowser"]), "runtime_browser_spawn_boundary_unavailable", "AsyncNewBrowser")
+    require(hasattr(dependencies["DefaultAddons"], "UBO"), "runtime_browser_spawn_boundary_unavailable", "DefaultAddons.UBO")
+    for name in (
+        "launch_options",
+        "async_playwright",
+        "firefox_user_prefs_for_config",
+        "normalize_camou_config_env",
+    ):
+        require(callable(dependencies[name]), "runtime_browser_spawn_boundary_unavailable", name)
+    for name in ("AsyncNewBrowser", "launch_options", "async_playwright"):
+        require(inspect.signature(dependencies[name]), "runtime_browser_spawn_boundary_unavailable", name)
+
+    return {
+        "external": external,
+        "project": project_modules,
+        "browserSpawnBoundary": {
+            "ready": True,
+            "browserLaunchCalled": False,
+            "nextCall": "AsyncNewBrowser(playwright, from_options=opts, persistent_context=True)",
+        },
+    }
 
 
 def safe_nonce_hash(nonce: str) -> str:
@@ -1174,6 +1307,15 @@ def require_no_target_processes(stage: str) -> None:
     require(processes == [], "target_processes_present", stage)
 
 
+def require_no_preflight_locks(stage: str) -> None:
+    require(not (FP2_EVIDENCE_ROOT / GLOBAL_LOCK_NAME).exists(), "runtime_preflight_lock_residual", stage)
+    require(
+        not any(item.suffix.lower() in {".lock", ".lck"} for item in FP2_EVIDENCE_ROOT.glob("fp2-runtime-preflight-*/**/*") if item.is_file()),
+        "runtime_preflight_lock_residual",
+        stage,
+    )
+
+
 def profile_lock_available(profile_root: Path, profile_id: str) -> dict[str, bool]:
     from host_platform import ProfileLock, probe_supervisor_lock
 
@@ -1278,9 +1420,12 @@ class FP2ManagedHost(host_module.CamoufoxHost):
     async def _launch_browser(self, session: dict[str, Any], artifact: dict[str, Any]) -> None:
         from functools import partial
 
-        from camoufox import AsyncNewBrowser, DefaultAddons
-        from camoufox.utils import launch_options
-        from run_spike import firefox_user_prefs_for_config, normalize_camou_config_env
+        dependencies = resolve_browser_launch_dependencies()
+        AsyncNewBrowser = dependencies["AsyncNewBrowser"]
+        DefaultAddons = dependencies["DefaultAddons"]
+        launch_options = dependencies["launch_options"]
+        firefox_user_prefs_for_config = dependencies["firefox_user_prefs_for_config"]
+        normalize_camou_config_env = dependencies["normalize_camou_config_env"]
 
         policy = artifact["policy"]
         window = tuple(policy["window"])
@@ -1707,6 +1852,160 @@ def assert_port_free(port: int) -> None:
         probe.close()
 
 
+def previous_blocked_attempt() -> dict[str, Any]:
+    require(LEGACY_CLAIM_PATH.is_file(), "previous_blocked_claim_missing", LEGACY_CLAIM_PATH.as_posix())
+    require(sha256_file(LEGACY_CLAIM_PATH) == PREVIOUS_BLOCKED_CLAIM_SHA256, "previous_blocked_claim_hash_mismatch", LEGACY_CLAIM_PATH.name)
+    claim = strict_json(LEGACY_CLAIM_PATH, LEGACY_CLAIM_PATH.as_posix())
+    require(isinstance(claim, dict) and claim.get("runId") == PREVIOUS_BLOCKED_RUN_ID, "previous_blocked_claim_mismatch", "runId")
+    run_evidence_path = claim.get("runEvidencePath")
+    require(isinstance(run_evidence_path, str) and ".." not in Path(run_evidence_path).parts and not Path(run_evidence_path).is_absolute(), "previous_blocked_claim_mismatch", "runEvidencePath")
+    previous_report_path = REPO_ROOT / Path(run_evidence_path) / "run-report.json"
+    require(previous_report_path.is_file(), "previous_blocked_report_missing", previous_report_path.name)
+    previous_report = strict_json(previous_report_path, previous_report_path.as_posix())
+    require(previous_report.get("status") == "blocked" and previous_report.get("verified") is False, "previous_blocked_report_mismatch")
+    matrix = previous_report.get("matrix")
+    require(isinstance(matrix, list) and len(matrix) == 1 and matrix[0].get("label") == "A1", "previous_blocked_observation_mismatch")
+    require((matrix[0].get("files") or {}).get("rawRealms") is None, "previous_blocked_observation_mismatch")
+    return {
+        "claimPath": relative_repo_path(LEGACY_CLAIM_PATH),
+        "claimSha256": PREVIOUS_BLOCKED_CLAIM_SHA256,
+        "run": PREVIOUS_BLOCKED_RUN_ID,
+        "browserObservations": 0,
+        "classification": PREVIOUS_BLOCKED_CLASSIFICATION,
+        "reasonForReauthorization": PREVIOUS_BLOCKED_REASON,
+    }
+
+
+def sanitized_runtime_log(raw: bytes) -> str:
+    text = raw.decode("utf-8", errors="replace")
+    text = ABSOLUTE_PATH.sub("<redacted-path>", text)
+    if SECRET_WORD.search(text):
+        return "<redacted-runtime-log>\n"
+    return text
+
+
+def run_runtime_preflight(
+    *,
+    interpreter: Path,
+    port: int,
+    previous: dict[str, Any],
+) -> dict[str, Any]:
+    """Run the exact child bootstrap path and stop immediately before browser spawn."""
+    preflight_id = f"fp2-runtime-preflight-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
+    preflight_dir = FP2_EVIDENCE_ROOT / preflight_id
+    preflight_dir.mkdir(parents=True, exist_ok=False)
+    child_result_path = preflight_dir / "runtime-preflight-child.json"
+    stdout_path = preflight_dir / "child-stdout.log"
+    stderr_path = preflight_dir / "child-stderr.log"
+    failure: Optional[dict[str, str]] = None
+    exit_code: Optional[int] = None
+    child_result: dict[str, Any] = {}
+    try:
+        require_no_target_processes("before runtime preflight")
+        require_no_preflight_locks("before runtime preflight")
+        assert_port_free(port)
+        command = runtime_preflight_child_command(interpreter=interpreter, preflight_result=child_result_path, selected_port=port)
+        with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+            process = subprocess.Popen(
+                command,
+                cwd=REPO_ROOT,
+                stdin=subprocess.DEVNULL,
+                stdout=stdout,
+                stderr=stderr,
+                env=child_environment(),
+            )
+            try:
+                exit_code = process.wait(timeout=RUNTIME_PREFLIGHT_WATCHDOG_SECONDS)
+            except subprocess.TimeoutExpired:
+                terminate_child_process(process)
+                failure = {"code": "runtime_preflight_timeout", "detail": "child"}
+                exit_code = process.returncode if process.returncode is not None else -1
+        if child_result_path.is_file():
+            child_result = strict_json(child_result_path, child_result_path.as_posix())
+        if failure is None and exit_code != 0:
+            child_failure = child_result.get("failure") if isinstance(child_result, dict) else None
+            failure = child_failure if isinstance(child_failure, dict) else {"code": "runtime_preflight_child_failed", "detail": "child"}
+        if failure is None:
+            runtime_binding = validate_runtime_preflight_result(child_result, interpreter)
+        else:
+            runtime_binding = None
+    except FP2Failure as exc:
+        failure = {"code": exc.code, "detail": exc.detail}
+        runtime_binding = None
+    except Exception as exc:  # noqa: BLE001 - preflight is fail-closed
+        failure = {"code": "runtime_preflight_failed", "detail": type(exc).__name__}
+        runtime_binding = None
+    finally:
+        stdout_path.write_text(sanitized_runtime_log(stdout_path.read_bytes()) if stdout_path.is_file() else "", encoding="utf-8")
+        stderr_path.write_text(sanitized_runtime_log(stderr_path.read_bytes()) if stderr_path.is_file() else "", encoding="utf-8")
+        try:
+            require_no_target_processes("after runtime preflight")
+            require_no_preflight_locks("after runtime preflight")
+            assert_port_free(port)
+            clean = True
+        except FP2Failure as exc:
+            clean = False
+            failure = failure or {"code": exc.code, "detail": exc.detail}
+
+    synthetic_finalization: Optional[dict[str, Any]] = None
+    if failure is None and runtime_binding is not None and clean:
+        try:
+            synthetic_finalization = synthetic_report_finalization_test()
+        except FP2Failure as exc:
+            failure = {"code": exc.code, "detail": exc.detail}
+        except Exception as exc:  # noqa: BLE001 - finalization is fail-closed
+            failure = {"code": "synthetic_finalization_failed", "detail": type(exc).__name__}
+    status = "passed" if failure is None and runtime_binding is not None and synthetic_finalization is not None else "blocked"
+    receipt: dict[str, Any] = {
+        "schema": RUNTIME_PREFLIGHT_SCHEMA,
+        "taskVersion": TASK_VERSION,
+        "executionGeneration": EXECUTION_GENERATION,
+        "status": status,
+        "verified": False,
+        "previousBlockedAttempt": previous,
+        "selectedPort": port,
+        "runtimeBinding": runtime_binding,
+        "syntheticFinalization": synthetic_finalization,
+        "childExitCode": exit_code,
+        "childResult": child_result if isinstance(child_result, dict) else {},
+        "clean": clean,
+        "claimCreated": False,
+        "claimCreationAllowed": status == "passed" and clean,
+        "browserLaunchCalled": False,
+        "browserProcessCreated": False,
+        "profileCreated": False,
+        "lockFilesCreated": False,
+        "runnerSha256": sha256_file(Path(__file__).resolve()),
+        "receiptPath": relative_repo_path(preflight_dir / "runtime-preflight-receipt.json"),
+        "byteClosurePath": relative_repo_path(preflight_dir / "byte-closure-receipt.json"),
+        "files": {
+            "childResult": phase_file_entry(child_result_path, preflight_dir, "sanitized-runtime-child") if child_result_path.is_file() else None,
+            "childStdout": phase_file_entry(stdout_path, preflight_dir, "sanitized-runtime-log"),
+            "childStderr": phase_file_entry(stderr_path, preflight_dir, "sanitized-runtime-log"),
+        },
+        "failure": safe_failure(failure),
+    }
+    ensure_sanitized(receipt, "runtime-preflight")
+    receipt_path = preflight_dir / "runtime-preflight-receipt.json"
+    write_json(receipt_path, receipt)
+    receipt_sha256 = write_sha256_sidecar(receipt_path, "runtime-preflight-receipt.sha256")
+    closure_path, closure_sha256 = write_byte_closure(preflight_dir)
+    return {
+        "schema": RUNTIME_PREFLIGHT_SCHEMA,
+        "status": status,
+        "verified": False,
+        "claimCreationAllowed": status == "passed" and clean,
+        "receiptPath": relative_repo_path(receipt_path),
+        "receiptSha256": receipt_sha256,
+        "byteClosurePath": relative_repo_path(closure_path),
+        "byteClosureSha256": closure_sha256,
+        "runtimeBinding": runtime_binding,
+        "syntheticFinalization": synthetic_finalization,
+        "previousBlockedAttempt": previous,
+        "preflightDirectory": relative_repo_path(preflight_dir),
+    }
+
+
 def create_claim(
     *,
     run_id: str,
@@ -1720,11 +2019,15 @@ def create_claim(
     relation_sha256: str,
     static_diff_sha256: str,
     no_browser_test_sha256: str,
+    runtime_preflight: dict[str, Any],
+    previous_blocked_attempt: dict[str, Any],
 ) -> tuple[dict[str, Any], str]:
+    require_runtime_preflight_for_claim(runtime_preflight)
     runner_sha256 = sha256_file(Path(__file__).resolve())
     claim = {
         "schema": CLAIM_SCHEMA,
         "taskVersion": TASK_VERSION,
+        "executionGeneration": EXECUTION_GENERATION,
         "scope": [TASK_VERSION, EXPECTED_ARCHIVE_SHA256, "fp2-probe-bundle", "relation-matrix"],
         "runId": run_id,
         "createdAtUtc": utc_now(),
@@ -1745,6 +2048,15 @@ def create_claim(
         "comparatorSha256": runner_sha256,
         "runnerSha256": runner_sha256,
         "noBrowserTestFileSha256": no_browser_test_sha256,
+        "previousBlockedAttempt": previous_blocked_attempt,
+        "runtime": runtime_preflight["runtimeBinding"],
+        "runtimePreflight": {
+            "receiptPath": runtime_preflight["receiptPath"],
+            "receiptSha256": runtime_preflight["receiptSha256"],
+            "dependencyClosureSha256": runtime_preflight["runtimeBinding"]["dependencyClosureSha256"],
+            "childInvocationSha256": runtime_preflight["runtimeBinding"]["childInvocationSha256"],
+            "syntheticFinalization": runtime_preflight.get("syntheticFinalization"),
+        },
         "loopback": {
             "selectedPort": port,
             "primaryOrigin": f"http://{PRIMARY_HOST}:{port}",
@@ -1770,8 +2082,23 @@ def create_claim(
     return claim, claim_hash
 
 
+def require_runtime_preflight_for_claim(runtime_preflight: dict[str, Any]) -> None:
+    require(runtime_preflight.get("status") == "passed", "runtime_preflight_required")
+    require(runtime_preflight.get("claimCreationAllowed") is True, "runtime_preflight_required")
+    binding = runtime_preflight.get("runtimeBinding")
+    require(isinstance(binding, dict), "runtime_preflight_required")
+    validate_runtime_binding(binding)
+    receipt_path = runtime_preflight.get("receiptPath")
+    receipt_sha256 = runtime_preflight.get("receiptSha256")
+    require(isinstance(receipt_path, str) and ".." not in Path(receipt_path).parts and not Path(receipt_path).is_absolute(), "runtime_preflight_receipt_invalid", "path")
+    path = REPO_ROOT / Path(receipt_path)
+    require(path.is_file(), "runtime_preflight_receipt_missing", receipt_path)
+    require(receipt_sha256 == sha256_file(path), "runtime_preflight_receipt_mismatch", receipt_path)
+
+
 def child_command(
     *,
+    interpreter: Path,
     label: str,
     run_dir: Path,
     artifact_root: Path,
@@ -1789,7 +2116,7 @@ def child_command(
     raw_result: Path,
 ) -> list[str]:
     return [
-        sys.executable,
+        str(interpreter),
         str(Path(__file__).resolve()),
         "--child-session",
         "--label",
@@ -1828,6 +2155,20 @@ def child_command(
         str(child_result),
         "--raw-result",
         str(raw_result),
+    ]
+
+
+def runtime_preflight_child_command(*, interpreter: Path, preflight_result: Path, selected_port: int) -> list[str]:
+    return [
+        str(interpreter),
+        str(Path(__file__).resolve()),
+        "--runtime-preflight-child",
+        "--expected-interpreter",
+        str(interpreter),
+        "--preflight-result",
+        str(preflight_result),
+        "--run-port",
+        str(selected_port),
     ]
 
 
@@ -1876,6 +2217,7 @@ def comparison_item(
 
 def run_one_phase(
     *,
+    interpreter: Path,
     label: str,
     run_dir: Path,
     server: FP2HTTPServer,
@@ -1903,6 +2245,7 @@ def run_one_phase(
     nonce = secrets.token_urlsafe(24)
     server.begin_session(label, nonce)
     command = child_command(
+        interpreter=interpreter,
         label=label,
         run_dir=run_dir,
         artifact_root=artifact_root,
@@ -1919,8 +2262,7 @@ def run_one_phase(
         child_result=child_result_path,
         raw_result=raw_result_path,
     )
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
+    env = child_environment()
     with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         process = subprocess.Popen(
             command,
@@ -2078,6 +2420,8 @@ def build_report(
     artifact_infos: dict[str, dict[str, Any]],
     claim_hash: str,
     claim: dict[str, Any],
+    runtime_preflight: dict[str, Any],
+    previous_blocked_attempt: dict[str, Any],
     probe_manifest: dict[str, Any],
     probe_manifest_sha256: str,
     applicability_sha256: str,
@@ -2100,6 +2444,7 @@ def build_report(
     report = {
         "schema": REPORT_SCHEMA,
         "taskVersion": TASK_VERSION,
+        "executionGeneration": EXECUTION_GENERATION,
         "runId": run_id,
         "generatedAtUtc": utc_now(),
         "status": conclusion,
@@ -2121,6 +2466,13 @@ def build_report(
         },
         "candidate": candidate,
         "artifacts": artifact_infos,
+        "previousBlockedAttempt": previous_blocked_attempt,
+        "runtimePreflight": {
+            "receiptPath": runtime_preflight["receiptPath"],
+            "receiptSha256": runtime_preflight["receiptSha256"],
+            "dependencyClosureSha256": runtime_preflight["runtimeBinding"]["dependencyClosureSha256"],
+            "childInvocationSha256": runtime_preflight["runtimeBinding"]["childInvocationSha256"],
+        },
         "probeBundle": {
             "manifestPath": relative_repo_path(PROBE_MANIFEST_PATH),
             "manifestSha256": probe_manifest_sha256,
@@ -2200,6 +2552,69 @@ def write_byte_closure(run_dir: Path) -> tuple[Path, str]:
     return path, digest
 
 
+def finalize_report_artifacts(
+    *,
+    run_dir: Path,
+    report: dict[str, Any],
+    conclusion: str,
+    checks: dict[str, Any],
+) -> dict[str, Any]:
+    """Write and close a report without relying on browser execution side effects."""
+    ensure_sanitized(report, "run-report")
+    report_path = run_dir / "run-report.json"
+    write_json(report_path, report)
+    report_sha256 = write_report_sidecar(report_path)
+    validate_hash_sidecar(report_path, run_dir / "run-report.sha256")
+    adjudication_path = write_offline_adjudication(run_dir, report_sha256, conclusion, checks)
+    adjudication_sha256 = write_sha256_sidecar(adjudication_path, "final-offline-adjudication.sha256")
+    closure_path, closure_sha256 = write_byte_closure(run_dir)
+    return {
+        "reportPath": report_path,
+        "reportSha256": report_sha256,
+        "adjudicationPath": adjudication_path,
+        "adjudicationSha256": adjudication_sha256,
+        "closurePath": closure_path,
+        "closureSha256": closure_sha256,
+    }
+
+
+def synthetic_report_finalization_test() -> dict[str, Any]:
+    """Exercise success/failed/blocked finalization with no claim or browser."""
+    require_no_target_processes("before synthetic finalization")
+    assert_port_free(DEFAULT_RUN_PORT)
+    results: dict[str, Any] = {}
+    with tempfile.TemporaryDirectory(prefix="fp2-finalization-") as folder:
+        root = Path(folder)
+        for conclusion in ("execution-passed-awaiting-main-brain-gate", "failed", "blocked"):
+            run_dir = root / conclusion.replace("/", "-")
+            run_dir.mkdir()
+            report = {
+                "schema": REPORT_SCHEMA,
+                "taskVersion": TASK_VERSION,
+                "status": conclusion,
+                "verified": False,
+                "claims": {"fp2Accepted": False, "fp3Open": False, "managedIdentityVerified": False},
+                "failure": None if conclusion == "execution-passed-awaiting-main-brain-gate" else {"code": "synthetic", "detail": conclusion},
+            }
+            artifacts = finalize_report_artifacts(
+                run_dir=run_dir,
+                report=report,
+                conclusion=conclusion,
+                checks={"synthetic": True, "verified": False},
+            )
+            require((artifacts["reportPath"]).is_file(), "synthetic_finalization_failed", conclusion)
+            require((artifacts["adjudicationPath"]).is_file(), "synthetic_finalization_failed", conclusion)
+            require((artifacts["closurePath"]).is_file(), "synthetic_finalization_failed", conclusion)
+            results[conclusion] = {
+                "reportSha256": artifacts["reportSha256"],
+                "adjudicationSha256": artifacts["adjudicationSha256"],
+                "closureSha256": artifacts["closureSha256"],
+            }
+    require_no_target_processes("after synthetic finalization")
+    assert_port_free(DEFAULT_RUN_PORT)
+    return {"status": "passed", "verified": False, "cases": results, "claimCreated": False, "browserLaunchCalled": False}
+
+
 BLOCKED_FAILURE_CODES = {
     "baseline_worktree_dirty",
     "baseline_branch_mismatch",
@@ -2243,6 +2658,41 @@ BLOCKED_FAILURE_CODES = {
     "timeout_budget_unfrozen",
     "process_scan_failed",
     "target_processes_present",
+    "runtime_native_windows_required",
+    "runtime_interpreter_missing",
+    "runtime_interpreter_invalid",
+    "runtime_interpreter_outside_repo",
+    "runtime_interpreter_mismatch",
+    "runtime_interpreter_hash_mismatch",
+    "runtime_python_version_mismatch",
+    "runtime_implementation_mismatch",
+    "runtime_module_path_mismatch",
+    "runtime_dependency_missing",
+    "runtime_dependency_resolution_failed",
+    "runtime_dependency_version_mismatch",
+    "runtime_host_import_missing",
+    "runtime_host_import_failed",
+    "runtime_browser_spawn_boundary_unavailable",
+    "runtime_preflight_receipt_invalid",
+    "runtime_preflight_receipt_missing",
+    "runtime_preflight_receipt_mismatch",
+    "runtime_preflight_child_failed",
+    "runtime_preflight_timeout",
+    "runtime_preflight_failed",
+    "runtime_preflight_arguments_missing",
+    "runtime_dependency_closure_mismatch",
+    "runtime_child_invocation_invalid",
+    "runtime_child_invocation_mismatch",
+    "runtime_environment_changed",
+    "previous_blocked_claim_missing",
+    "previous_blocked_claim_hash_mismatch",
+    "previous_blocked_claim_mismatch",
+    "previous_blocked_report_missing",
+    "previous_blocked_report_mismatch",
+    "previous_blocked_observation_mismatch",
+    "synthetic_finalization_failed",
+    "runtime_preflight_process_residual",
+    "runtime_preflight_port_residual",
 }
 
 
@@ -2260,6 +2710,96 @@ def safe_failure(failure: Optional[dict[str, str]]) -> Optional[dict[str, str]]:
     detail = str(failure.get("detail", ""))
     detail = ABSOLUTE_PATH.sub("<redacted-path>", detail)
     return {"code": str(failure.get("code", "runner_failure")), "detail": detail[:256]}
+
+
+def runtime_preflight_child(args: argparse.Namespace) -> int:
+    result: dict[str, Any] = {
+        "schema": RUNTIME_PREFLIGHT_CHILD_SCHEMA,
+        "status": "blocked",
+        "verified": False,
+    }
+    try:
+        expected_interpreter = Path(args.expected_interpreter).resolve()
+        actual_interpreter = Path(sys.executable).resolve()
+        require(actual_interpreter == expected_interpreter, "runtime_interpreter_mismatch", RUNTIME_INTERPRETER_RELATIVE.as_posix())
+        actual_version = ".".join(str(part) for part in sys.version_info[:3])
+        require(actual_version == EXPECTED_RUNTIME_PYTHON_VERSION, "runtime_python_version_mismatch", actual_version)
+        require(sys.implementation.name == "cpython", "runtime_implementation_mismatch", sys.implementation.name)
+        host_dir = HOST_DIR.resolve()
+        require(
+            any(Path(item).resolve() == host_dir for item in sys.path if item),
+            "runtime_module_path_mismatch",
+            RUNTIME_INTERPRETER_RELATIVE.as_posix(),
+        )
+        dependencies = runtime_dependency_snapshot()
+        invocation = runtime_invocation_descriptor(actual_interpreter)
+        closure = {
+            "interpreterSha256": sha256_file(actual_interpreter),
+            "pythonVersion": actual_version,
+            "implementation": EXPECTED_RUNTIME_IMPLEMENTATION,
+            "dependencies": dependencies,
+            "childInvocation": invocation,
+        }
+        runtime_binding = {
+            "interpreterRelativePath": invocation["interpreterRelativePath"],
+            "interpreterSha256": closure["interpreterSha256"],
+            "pythonVersion": actual_version,
+            "implementation": EXPECTED_RUNTIME_IMPLEMENTATION,
+            "dependencyClosureSha256": runtime_dependency_closure_sha256(closure),
+            "childInvocationSha256": sha256_bytes(canonical_json_bytes(invocation)),
+        }
+        result.update(
+            {
+                "status": "passed",
+                "runtimeBinding": runtime_binding,
+                "dependencyClosure": closure,
+                "browserSpawnBoundary": dependencies["browserSpawnBoundary"],
+                "claimCreationAllowed": True,
+            }
+        )
+    except FP2Failure as exc:
+        result["failure"] = {"code": exc.code, "detail": safe_failure({"code": exc.code, "detail": exc.detail})["detail"]}
+    except Exception as exc:  # noqa: BLE001 - runtime bootstrap is fail-closed
+        result["failure"] = {"code": "runtime_preflight_child_failed", "detail": type(exc).__name__}
+    result_path = Path(args.preflight_result).resolve()
+    write_json(result_path, result)
+    emit_child_event({"event": "runtime-preflight", "status": result["status"], "verified": False})
+    return 0 if result["status"] == "passed" else 1
+
+
+def validate_runtime_preflight_result(result: dict[str, Any], interpreter: Path) -> dict[str, Any]:
+    require(result.get("schema") == RUNTIME_PREFLIGHT_CHILD_SCHEMA, "runtime_preflight_receipt_invalid", "schema")
+    if result.get("status") != "passed":
+        failure = result.get("failure")
+        if isinstance(failure, dict) and isinstance(failure.get("code"), str):
+            fail(failure["code"], str(failure.get("detail", failure["code"])))
+        fail("runtime_preflight_child_failed", str(failure or {}))
+    require(result.get("verified") is False, "runtime_preflight_receipt_invalid", "verified")
+    binding = result.get("runtimeBinding")
+    closure = result.get("dependencyClosure")
+    boundary = result.get("browserSpawnBoundary")
+    require(isinstance(binding, dict) and isinstance(closure, dict), "runtime_preflight_receipt_invalid", "binding")
+    require(isinstance(boundary, dict) and boundary.get("ready") is True and boundary.get("browserLaunchCalled") is False, "runtime_browser_spawn_boundary_unavailable")
+    expected_path = relative_repo_path(interpreter)
+    require(binding.get("interpreterRelativePath") == expected_path, "runtime_interpreter_mismatch", expected_path)
+    require(binding.get("interpreterSha256") == sha256_file(interpreter), "runtime_interpreter_hash_mismatch", expected_path)
+    require(binding.get("pythonVersion") == EXPECTED_RUNTIME_PYTHON_VERSION, "runtime_python_version_mismatch", str(binding.get("pythonVersion")))
+    require(binding.get("implementation") == EXPECTED_RUNTIME_IMPLEMENTATION, "runtime_implementation_mismatch", str(binding.get("implementation")))
+    require(binding.get("dependencyClosureSha256") == runtime_dependency_closure_sha256(closure), "runtime_dependency_closure_mismatch")
+    invocation = closure.get("childInvocation")
+    require(isinstance(invocation, dict), "runtime_child_invocation_invalid")
+    require(binding.get("childInvocationSha256") == sha256_bytes(canonical_json_bytes(invocation)), "runtime_child_invocation_mismatch")
+    require(invocation == runtime_invocation_descriptor(interpreter), "runtime_child_invocation_mismatch")
+    return binding
+
+
+def validate_runtime_binding(binding: dict[str, Any]) -> None:
+    interpreter = resolve_runtime_interpreter()
+    require(binding.get("interpreterRelativePath") == relative_repo_path(interpreter), "runtime_environment_changed", "interpreter path")
+    require(binding.get("interpreterSha256") == sha256_file(interpreter), "runtime_environment_changed", "interpreter hash")
+    require(binding.get("pythonVersion") == EXPECTED_RUNTIME_PYTHON_VERSION, "runtime_environment_changed", "python version")
+    require(binding.get("implementation") == EXPECTED_RUNTIME_IMPLEMENTATION, "runtime_environment_changed", "implementation")
+    require(binding.get("childInvocationSha256") == sha256_bytes(canonical_json_bytes(runtime_invocation_descriptor(interpreter))), "runtime_environment_changed", "child invocation")
 
 
 def write_sha256_sidecar(path: Path, sidecar_name: Optional[str] = None) -> str:
@@ -2316,8 +2856,10 @@ def write_failure_phase_record(
 
 def tracked_evidence_references(
     probe_manifest: dict[str, Any],
+    runtime_preflight: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     references = [
+        tracked_reference(LEGACY_CLAIM_PATH, "previous-blocked-claim"),
         tracked_reference(ARTIFACT_A_PATH, "artifact-input"),
         tracked_reference(ARTIFACT_A_PATH.with_name(ARTIFACT_A_PATH.name + ".sha256"), "artifact-sidecar"),
         tracked_reference(ARTIFACT_B_PATH, "artifact-input"),
@@ -2332,6 +2874,14 @@ def tracked_evidence_references(
     ]
     for item in probe_manifest["files"]:
         references.append(tracked_reference(BUNDLE_DIR / item["path"], "probe-bundle-file"))
+    if runtime_preflight is not None:
+        for raw_path, evidence_class in (
+            (runtime_preflight["receiptPath"], "runtime-preflight-receipt"),
+            (runtime_preflight["receiptPath"].replace(".json", ".sha256"), "runtime-preflight-sidecar"),
+            (runtime_preflight["byteClosurePath"], "runtime-preflight-byte-closure"),
+            (runtime_preflight["byteClosurePath"].replace(".json", ".sha256"), "runtime-preflight-byte-closure-sidecar"),
+        ):
+            references.append(tracked_reference(REPO_ROOT / Path(raw_path), evidence_class))
     return references
 
 
@@ -2342,6 +2892,8 @@ def update_report_references(report: dict[str, Any], references: list[dict[str, 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--child-session", action="store_true")
+    parser.add_argument("--runtime-preflight-child", action="store_true")
+    parser.add_argument("--execute-browser-matrix", action="store_true", help="Run generation-2 A1 -> A2 -> B1 after preflight; default is no-browser preflight only.")
     parser.add_argument("--run-port", type=int, default=DEFAULT_RUN_PORT)
     parser.add_argument("--label")
     parser.add_argument("--artifact-root")
@@ -2361,6 +2913,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-boot-after", type=int)
     parser.add_argument("--child-result")
     parser.add_argument("--raw-result")
+    parser.add_argument("--expected-interpreter")
+    parser.add_argument("--preflight-result")
     return parser
 
 
@@ -2389,10 +2943,14 @@ def require_child_args(args: argparse.Namespace) -> None:
         require(getattr(args, name) is not None, "child_arguments_missing", name)
 
 
-def orchestrate(args: argparse.Namespace) -> int:
-    """Perform the preclaim checks, then exactly one A1 -> A2 -> B1 run."""
+def require_runtime_preflight_args(args: argparse.Namespace) -> None:
+    for name in ("expected_interpreter", "preflight_result"):
+        require(getattr(args, name) is not None, "runtime_preflight_arguments_missing", name)
 
-    preclaim_failure: Optional[dict[str, str]] = None
+
+def orchestrate(args: argparse.Namespace) -> int:
+    """Run generation-2 preflight; browser execution requires an explicit flag."""
+
     try:
         git = git_preflight()
         ledger = load_applicability()
@@ -2407,11 +2965,21 @@ def orchestrate(args: argparse.Namespace) -> int:
         require_no_target_processes("before FP2 claim")
         assert_port_free(args.run_port)
         no_browser = run_no_browser_tests()
+        previous = previous_blocked_attempt()
         require(not GLOBAL_CLAIM_PATH.exists(), "one_shot_claim_already_exists", GLOBAL_CLAIM_PATH.name)
+        interpreter = resolve_runtime_interpreter()
+        runtime_preflight = run_runtime_preflight(interpreter=interpreter, port=args.run_port, previous=previous)
+        require(runtime_preflight.get("status") == "passed", "runtime_preflight_required")
+        require(runtime_preflight.get("claimCreationAllowed") is True, "runtime_preflight_required")
+        require_no_target_processes("after runtime preflight closure")
+        assert_port_free(args.run_port)
     except FP2Failure as exc:
-        preclaim_failure = {"code": exc.code, "detail": exc.detail}
-        print(conclusion_for_failure(preclaim_failure, preclaim=True))
+        print(conclusion_for_failure({"code": exc.code, "detail": exc.detail}, preclaim=True))
         return 1
+
+    if not args.execute_browser_matrix:
+        print("runtime-preflight-closure-passed-awaiting-generation-2-authorization")
+        return 0
 
     run_id = f"fp2-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
     run_dir = FP2_EVIDENCE_ROOT / run_id
@@ -2420,7 +2988,7 @@ def orchestrate(args: argparse.Namespace) -> int:
     claim: Optional[dict[str, Any]] = None
     claim_hash: Optional[str] = None
     claim_created = False
-    server_closed = False
+    server_closed = True
     phase_records: list[dict[str, Any]] = []
     comparisons: dict[str, dict[str, Any]] = {}
     failure: Optional[dict[str, str]] = None
@@ -2433,8 +3001,6 @@ def orchestrate(args: argparse.Namespace) -> int:
         copy_json(APPLICABILITY_PATH, run_dir / "applicability-ledger.json")
         copy_json(RELATION_PATH, run_dir / "relation-matrix.json")
         write_json(run_dir / "no-browser-tests.json", no_browser)
-        runtime_root = Path(tempfile.mkdtemp(prefix="verisilo-fp2-"))
-        server = FP2HTTPServer(BUNDLE_DIR, args.run_port, {item["path"] for item in probe_manifest["files"]})
         claim, claim_hash = create_claim(
             run_id=run_id,
             run_dir=run_dir,
@@ -2447,56 +3013,68 @@ def orchestrate(args: argparse.Namespace) -> int:
             relation_sha256=sha256_file(RELATION_PATH),
             static_diff_sha256=sha256_file(run_dir / "static-ab-diff.json"),
             no_browser_test_sha256=no_browser["testFileSha256"],
+            runtime_preflight=runtime_preflight,
+            previous_blocked_attempt=previous,
         )
         claim_created = True
         write_sha256_sidecar(run_dir / "one-shot-claim.json", "one-shot-claim.sha256")
-        profile_root = runtime_root / "profiles"
-        cache_root = runtime_root / "cache"
-        phase_specs = (
-            ("A1", artifact_a, artifact_a_info, "identity-win-canvas-v1-a", "fp2-a", (0, 1)),
-            ("A2", artifact_a, artifact_a_info, "identity-win-canvas-v1-a", "fp2-a", (1, 2)),
-            ("B1", artifact_b, artifact_b_info, "identity-win-canvas-v1-b", "fp2-b", (0, 1)),
-        )
-        for label, artifact, artifact_info, artifact_id, profile_id, expected_boot in phase_specs:
-            try:
-                phase = run_one_phase(
-                    label=label,
-                    run_dir=run_dir,
-                    server=server,
-                    artifact=artifact,
-                    artifact_sha256=artifact_info["sha256"],
-                    artifact_id=artifact_id,
-                    profile_id=profile_id,
-                    profile_root=profile_root,
-                    artifact_root=ARTIFACT_DIR,
-                    cache_root=cache_root,
-                    runtime_state_root=runtime_root / "state",
-                    ledger=ledger,
-                    probe_manifest=probe_manifest,
-                    bundle_manifest_sha256=probe_manifest_sha256,
-                    port=args.run_port,
-                    expected_boot=expected_boot,
-                )
-            except FP2Failure as exc:
-                phase_failure = {"code": exc.code, "detail": exc.detail}
-                phase_records.append(
-                    write_failure_phase_record(
-                        run_dir=run_dir,
+        try:
+            validate_runtime_binding(runtime_preflight["runtimeBinding"])
+        except FP2Failure as exc:
+            failure = {"code": exc.code, "detail": exc.detail}
+        if failure is None:
+            runtime_root = Path(tempfile.mkdtemp(prefix="verisilo-fp2-"))
+            server = FP2HTTPServer(BUNDLE_DIR, args.run_port, {item["path"] for item in probe_manifest["files"]})
+            server_closed = False
+        if failure is None:
+            profile_root = runtime_root / "profiles"
+            cache_root = runtime_root / "cache"
+            phase_specs = (
+                ("A1", artifact_a, artifact_a_info, "identity-win-canvas-v1-a", "fp2-a", (0, 1)),
+                ("A2", artifact_a, artifact_a_info, "identity-win-canvas-v1-a", "fp2-a", (1, 2)),
+                ("B1", artifact_b, artifact_b_info, "identity-win-canvas-v1-b", "fp2-b", (0, 1)),
+            )
+            for label, artifact, artifact_info, artifact_id, profile_id, expected_boot in phase_specs:
+                try:
+                    phase = run_one_phase(
+                        interpreter=interpreter,
                         label=label,
-                        artifact_id=artifact_id,
+                        run_dir=run_dir,
+                        server=server,
+                        artifact=artifact,
                         artifact_sha256=artifact_info["sha256"],
+                        artifact_id=artifact_id,
                         profile_id=profile_id,
+                        profile_root=profile_root,
+                        artifact_root=ARTIFACT_DIR,
+                        cache_root=cache_root,
+                        runtime_state_root=runtime_root / "state",
+                        ledger=ledger,
+                        probe_manifest=probe_manifest,
+                        bundle_manifest_sha256=probe_manifest_sha256,
                         port=args.run_port,
-                        failure=phase_failure,
+                        expected_boot=expected_boot,
                     )
-                )
-                failure = phase_failure
-                break
-            phase_records.append(phase["record"])
-            if phase["record"]["status"] != "passed" or phase["comparison"] is None:
-                failure = phase["record"].get("failure") or {"code": "phase_failed", "detail": label}
-                break
-            comparisons[label] = phase["comparison"]
+                except FP2Failure as exc:
+                    phase_failure = {"code": exc.code, "detail": exc.detail}
+                    phase_records.append(
+                        write_failure_phase_record(
+                            run_dir=run_dir,
+                            label=label,
+                            artifact_id=artifact_id,
+                            artifact_sha256=artifact_info["sha256"],
+                            profile_id=profile_id,
+                            port=args.run_port,
+                            failure=phase_failure,
+                        )
+                    )
+                    failure = phase_failure
+                    break
+                phase_records.append(phase["record"])
+                if phase["record"]["status"] != "passed" or phase["comparison"] is None:
+                    failure = phase["record"].get("failure") or {"code": "phase_failed", "detail": label}
+                    break
+                comparisons[label] = phase["comparison"]
         if failure is None and set(comparisons) == set(SESSION_LABELS):
             validate_storage_sequence(comparisons)
             validate_service_worker_sequence(comparisons)
@@ -2554,6 +3132,8 @@ def orchestrate(args: argparse.Namespace) -> int:
             artifact_infos={"A": artifact_a_info, "B": artifact_b_info},
             claim_hash=claim_hash,
             claim=claim,
+            runtime_preflight=runtime_preflight,
+            previous_blocked_attempt=previous,
             probe_manifest=probe_manifest,
             probe_manifest_sha256=probe_manifest_sha256,
             applicability_sha256=sha256_file(APPLICABILITY_PATH),
@@ -2568,29 +3148,22 @@ def orchestrate(args: argparse.Namespace) -> int:
             server_closed=server_closed,
             global_lock_released=global_lock_released,
         )
-        update_report_references(report, tracked_evidence_references(probe_manifest))
-        ensure_sanitized(report)
-        report_path = run_dir / "run-report.json"
-        write_json(report_path, report)
-        report_sha256 = write_report_sidecar(report_path)
-        validate_hash_sidecar(report_path, run_dir / "run-report.sha256")
-        adjudication_path = write_offline_adjudication(
-            run_dir,
-            report_sha256,
-            conclusion,
-            {
+        update_report_references(report, tracked_evidence_references(probe_manifest, runtime_preflight))
+        finalize_report_artifacts(
+            run_dir=run_dir,
+            report=report,
+            conclusion=conclusion,
+            checks={
                 "claimHash": claim_hash,
-                "reportSidecarMatches": sha256_file(report_path) == report_sha256,
                 "staticDiffKeysExact": static_diff["keys"] == list(EXPECTED_STATIC_DIFF),
                 "requiredRealmCount": len(CANONICAL_REALMS),
                 "phaseCount": len(phase_records),
                 "allRequiredPhasesCompleted": set(item["label"] for item in phase_records) == set(SESSION_LABELS),
+                "runtimePreflightPassed": runtime_preflight.get("status") == "passed",
                 "serverClosed": server_closed,
                 "verified": False,
             },
         )
-        write_sha256_sidecar(adjudication_path, "final-offline-adjudication.sha256")
-        write_byte_closure(run_dir)
 
     print(conclusion)
     return 0 if conclusion == "execution-passed-awaiting-main-brain-gate" else 1
@@ -2598,6 +3171,9 @@ def orchestrate(args: argparse.Namespace) -> int:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.runtime_preflight_child:
+        require_runtime_preflight_args(args)
+        return runtime_preflight_child(args)
     if args.child_session:
         require_child_args(args)
         return asyncio.run(run_child_session(args))

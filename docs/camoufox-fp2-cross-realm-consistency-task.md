@@ -1,7 +1,7 @@
 # VeriSilo Managed Fingerprint FP2 — Cross-Realm Consistency
 
-- 状态：**FP2 task contract frozen / execution in progress**
-- task version：`fp2-v1`
+- 状态：**FP2 generation 1 blocked / Runtime Preflight Closure in progress**
+- task version：generation 1 `fp2-v1`；generation 2 execution package `fp2-v2`
 - execution boundary：本文件、独立 `tests/fingerprint-probe/fp2/` bundle、纯比较/runner 与 gitignored FP2 evidence
 - `verified`：始终为 `false`
 
@@ -104,3 +104,80 @@ one-shot claim 在第一次 A1 前以 `O_EXCL` 原子创建，绑定当前 HEAD/
 原始 evidence 只写入 `artifacts/camoufox-fp2/`，报告与 sidecar、applicability/relation/static diff、三次 realm observations、request-header captures、ServiceWorker registration、lifecycle/protocol/stderr、referenced hashes、final offline adjudication 与 byte closure 均绑定 SHA。sanitized evidence 不写 Cookie/LocalStorage 值、Artifact seeds、Vault/token/proxy secret、用户绝对路径或完整 argv/environment；只保留 continuity/isolation 布尔结论与 hash binding。
 
 执行 Agent 的成功字符串只能是 `execution-passed-awaiting-main-brain-gate`；失败或阻塞只能是 `failed` 或 `blocked`。本文件不得由执行 Agent写成 FP2 Accepted、Managed Identity verified 或 FP3 Open。
+
+## Runtime Preflight Closure：generation 1 blocked 后的唯一授权路径
+
+### Generation 1 frozen outcome
+
+generation 1 的旧 claim 永久保留且不得覆盖：
+
+```text
+claim: artifacts/camoufox-fp2/fp2-v1-one-shot-claim.json
+claim SHA-256: e77204a09d9dfdbdf7d6c3b00a96114f477fd5b93d01c7fa6a7fd3dd71b28402
+run: fp2-20260820T121344Z-470b08fdb9
+browser observations: 0
+classification: pre-browser-runtime-dependency-block
+```
+
+该 claim 的 blocked 状态来自裸 `python` child 缺少 `camoufox`；Host 和 browser 均未
+launch。它不是浏览器语义 evidence，也不是可删除或复用的 claim。generation 2 是修复
+claim-before-runtime-preflight 合同缺口后的新 execution package，不是换 run-id/port 的 retry。
+
+### Claim 前硬 Gate
+
+任何 generation 2 claim 创建以前，runner 必须按以下顺序完成：
+
+```text
+candidate / Artifact / probe byte closure
+→ no-browser static tests
+→ exact interpreter closure
+→ exact child-path runtime preflight
+→ synthetic success/failed/blocked report finalization
+→ process / port / preflight-lock clean
+→ only then O_EXCL create fp2-v2 claim
+→ explicit browser execution A1 → A2 → B1
+```
+
+固定 child runtime 为：
+
+```text
+relative interpreter: apps/camoufox-host/.venv/Scripts/python.exe
+implementation: CPython
+version: 3.12.13
+camoufox: 0.5.4
+playwright: 1.60.0
+browserforge: 1.2.4
+```
+
+Preflight 使用与真实 session child 相同的 interpreter、repository cwd、`PYTHONPATH`、
+`PYTHONUNBUFFERED` environment construction 和 runner script。它只导入 Host/FP2/runtime
+依赖，解析 `AsyncNewBrowser` 及其实际 launch helpers，并在
+`AsyncNewBrowser(playwright, from_options=opts, persistent_context=True)` 前停止；不打开
+candidate、不创建 Profile、不创建 lock、不监听 loopback port、不消费 claim。
+
+Preflight receipt 必须绑定 interpreter SHA、dependency closure SHA、child invocation SHA、
+runner SHA、selected port、previous blocked claim，并明确 `browserLaunchCalled:false`、
+`browserProcessCreated:false`、`profileCreated:false`、`lockFilesCreated:false`。
+
+### Generation 2 claim boundary
+
+generation 2 claim 使用独立路径：
+
+```text
+artifacts/camoufox-fp2/fp2-v2-one-shot-claim.json
+```
+
+它必须显式引用 generation 1 blocked claim，并绑定新的 implementation commit/tree、runner
+SHA、no-browser test SHA、runtime preflight receipt SHA、runtime dependency closure SHA 和
+child invocation SHA；candidate archive、executable、asset lock、browser tree、Artifact A/B、
+probe bundle、applicability ledger 与 relation matrix 继续使用完全相同的冻结字节。
+
+默认 runner invocation 只执行 Runtime Preflight Closure。只有显式提供
+`--execute-browser-matrix`，且所有 claim 前 Gate 已通过时，才允许创建 generation 2 claim
+并进入一次 `A1 → A2 → B1`。任何 child runtime dependency、interpreter、spawn-boundary、
+finalization、process、port 或 lock failure 都必须在 claim 前返回 `blocked`；claim creation
+后 runtime binding 改变则 fail closed，不能偷偷切换 interpreter。
+
+`ensure_sanitized(report, label)` 是 finalization 的固定调用形式。success、failed、blocked
+三种 synthetic report 都必须能写 report sidecar、offline adjudication sidecar 和 byte
+closure；该 closure 不产生浏览器 observation，也不改变 FP1/FP3/M3-WI/Standard 状态。

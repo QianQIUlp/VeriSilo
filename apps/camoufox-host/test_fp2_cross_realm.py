@@ -8,6 +8,7 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import fp2_cross_realm as fp2
 
@@ -386,6 +387,169 @@ class FP2NoBrowserTests(unittest.TestCase):
 
     def test_secret_path_sentinel(self) -> None:
         self.assertCode("secret_path_sentinel_leak", fp2.ensure_sanitized, "C:\\Users\\example\\token.txt", "sanitized")
+
+    def runtime_preflight_result(self, *, boundary: dict | None = None) -> dict:
+        interpreter = fp2.resolve_runtime_interpreter()
+        browser_boundary = boundary or {
+            "ready": True,
+            "browserLaunchCalled": False,
+            "nextCall": "AsyncNewBrowser(playwright, from_options=opts, persistent_context=True)",
+        }
+        dependencies = {
+            "external": {
+                name: {"available": True, "version": version}
+                for name, version in fp2.EXPECTED_RUNTIME_DEPENDENCY_VERSIONS.items()
+            },
+            "project": {name: {"available": True} for name in ("host_v1", "browser_asset", "host_platform", "run_spike")},
+            "browserSpawnBoundary": browser_boundary,
+        }
+        invocation = fp2.runtime_invocation_descriptor(interpreter)
+        closure = {
+            "interpreterSha256": fp2.sha256_file(interpreter),
+            "pythonVersion": fp2.EXPECTED_RUNTIME_PYTHON_VERSION,
+            "implementation": fp2.EXPECTED_RUNTIME_IMPLEMENTATION,
+            "dependencies": dependencies,
+            "childInvocation": invocation,
+        }
+        binding = {
+            "interpreterRelativePath": invocation["interpreterRelativePath"],
+            "interpreterSha256": closure["interpreterSha256"],
+            "pythonVersion": closure["pythonVersion"],
+            "implementation": closure["implementation"],
+            "dependencyClosureSha256": fp2.runtime_dependency_closure_sha256(closure),
+            "childInvocationSha256": hashlib.sha256(fp2.canonical_json_bytes(invocation)).hexdigest(),
+        }
+        return {
+            "schema": fp2.RUNTIME_PREFLIGHT_CHILD_SCHEMA,
+            "status": "passed",
+            "verified": False,
+            "runtimeBinding": binding,
+            "dependencyClosure": closure,
+            "browserSpawnBoundary": browser_boundary,
+            "claimCreationAllowed": True,
+        }
+
+    def test_runtime_missing_dependency_blocks_preflight(self) -> None:
+        interpreter = fp2.resolve_runtime_interpreter()
+        for module_name in ("camoufox", "playwright", "browserforge"):
+            with self.subTest(module=module_name):
+                result = {
+                    "schema": fp2.RUNTIME_PREFLIGHT_CHILD_SCHEMA,
+                    "status": "blocked",
+                    "verified": False,
+                    "failure": {"code": "runtime_dependency_missing", "detail": module_name},
+                }
+                self.assertCode("runtime_dependency_missing", fp2.validate_runtime_preflight_result, result, interpreter)
+
+    def test_child_interpreter_mismatch_blocks_preflight(self) -> None:
+        result = self.runtime_preflight_result()
+        result["runtimeBinding"]["interpreterRelativePath"] = "other/python.exe"
+        self.assertCode("runtime_interpreter_mismatch", fp2.validate_runtime_preflight_result, result, fp2.resolve_runtime_interpreter())
+
+    def test_browser_spawn_boundary_failure_blocks_preflight(self) -> None:
+        result = self.runtime_preflight_result(boundary={"ready": False, "browserLaunchCalled": False})
+        self.assertCode("runtime_browser_spawn_boundary_unavailable", fp2.validate_runtime_preflight_result, result, fp2.resolve_runtime_interpreter())
+
+    def test_blocked_preflight_cannot_create_claim(self) -> None:
+        with tempfile.TemporaryDirectory(dir=fp2.FP2_EVIDENCE_ROOT) as folder:
+            root = Path(folder)
+            claim_path = root / "claim.json"
+            blocked = {"status": "blocked", "claimCreationAllowed": False}
+            with patch.object(fp2, "GLOBAL_CLAIM_PATH", claim_path):
+                self.assertCode(
+                    "runtime_preflight_required",
+                    fp2.create_claim,
+                    run_id="test-blocked",
+                    run_dir=root,
+                    port=fp2.DEFAULT_RUN_PORT,
+                    git={"branch": "test", "head": "0" * 40, "tree": "0" * 40, "upstream": {}, "trackedWorktreeClean": True},
+                    candidate={},
+                    artifacts={},
+                    probe_manifest_sha256="0" * 64,
+                    applicability_sha256="0" * 64,
+                    relation_sha256="0" * 64,
+                    static_diff_sha256="0" * 64,
+                    no_browser_test_sha256="0" * 64,
+                    runtime_preflight=blocked,
+                    previous_blocked_attempt={},
+                )
+            self.assertFalse(claim_path.exists())
+
+    def test_successful_preflight_is_bound_before_claim_creation(self) -> None:
+        result = self.runtime_preflight_result()
+        with tempfile.TemporaryDirectory(dir=fp2.FP2_EVIDENCE_ROOT) as folder:
+            root = Path(folder)
+            receipt = root / "runtime-preflight-receipt.json"
+            receipt.write_text("{}\n", encoding="utf-8")
+            result["receiptPath"] = fp2.relative_repo_path(receipt)
+            result["receiptSha256"] = fp2.sha256_file(receipt)
+            claim_path = root / "claim.json"
+            previous = {
+                "claimPath": "artifacts/camoufox-fp2/fp2-v1-one-shot-claim.json",
+                "claimSha256": fp2.PREVIOUS_BLOCKED_CLAIM_SHA256,
+                "run": fp2.PREVIOUS_BLOCKED_RUN_ID,
+                "browserObservations": 0,
+                "classification": fp2.PREVIOUS_BLOCKED_CLASSIFICATION,
+                "reasonForReauthorization": fp2.PREVIOUS_BLOCKED_REASON,
+            }
+            with patch.object(fp2, "GLOBAL_CLAIM_PATH", claim_path):
+                claim, _ = fp2.create_claim(
+                    run_id="test-success",
+                    run_dir=root,
+                    port=fp2.DEFAULT_RUN_PORT,
+                    git={"branch": "test", "head": "0" * 40, "tree": "0" * 40, "upstream": {}, "trackedWorktreeClean": True},
+                    candidate={},
+                    artifacts={},
+                    probe_manifest_sha256="0" * 64,
+                    applicability_sha256="0" * 64,
+                    relation_sha256="0" * 64,
+                    static_diff_sha256="0" * 64,
+                    no_browser_test_sha256="0" * 64,
+                    runtime_preflight=result,
+                    previous_blocked_attempt=previous,
+                )
+            self.assertTrue(claim_path.exists())
+            self.assertEqual(claim["executionGeneration"], 2)
+            self.assertEqual(claim["previousBlockedAttempt"]["browserObservations"], 0)
+            self.assertEqual(claim["runtime"]["interpreterSha256"], result["runtimeBinding"]["interpreterSha256"])
+
+    def test_runtime_environment_cannot_switch_after_preflight(self) -> None:
+        result = self.runtime_preflight_result()
+        result["runtimeBinding"]["interpreterSha256"] = "0" * 64
+        self.assertCode("runtime_environment_changed", fp2.validate_runtime_binding, result["runtimeBinding"])
+
+    def test_child_environment_and_invocation_are_shared(self) -> None:
+        interpreter = fp2.resolve_runtime_interpreter()
+        environment = fp2.child_environment()
+        descriptor = fp2.runtime_invocation_descriptor(interpreter)
+        self.assertEqual(environment["PYTHONUNBUFFERED"], "1")
+        self.assertEqual(Path(environment["PYTHONPATH"]).resolve(), fp2.HOST_DIR.resolve())
+        self.assertEqual(descriptor["interpreterRelativePath"], fp2.relative_repo_path(interpreter))
+        self.assertEqual(descriptor["entrypoints"]["preflight"], "--runtime-preflight-child")
+        self.assertEqual(descriptor["entrypoints"]["session"], "--child-session")
+
+    def test_synthetic_finalization_covers_all_statuses(self) -> None:
+        result = fp2.synthetic_report_finalization_test()
+        self.assertEqual(result["status"], "passed")
+        self.assertFalse(result["claimCreated"])
+        self.assertFalse(result["browserLaunchCalled"])
+        self.assertEqual(
+            set(result["cases"]),
+            {"execution-passed-awaiting-main-brain-gate", "failed", "blocked"},
+        )
+
+    def test_blocked_report_sidecar_adjudication_and_byte_closure(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="fp2-finalization-test-") as folder:
+            root = Path(folder)
+            artifacts = fp2.finalize_report_artifacts(
+                run_dir=root,
+                report={"schema": fp2.REPORT_SCHEMA, "status": "blocked", "verified": False, "failure": {"code": "synthetic", "detail": "blocked"}},
+                conclusion="blocked",
+                checks={"verified": False},
+            )
+            fp2.validate_hash_sidecar(artifacts["reportPath"], root / "run-report.sha256")
+            fp2.validate_hash_sidecar(artifacts["adjudicationPath"], root / "final-offline-adjudication.sha256")
+            fp2.validate_hash_sidecar(artifacts["closurePath"], root / "byte-closure-receipt.sha256")
 
 
 if __name__ == "__main__":
