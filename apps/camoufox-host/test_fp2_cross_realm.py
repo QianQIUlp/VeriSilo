@@ -388,6 +388,9 @@ class FP2NoBrowserTests(unittest.TestCase):
     def test_secret_path_sentinel(self) -> None:
         self.assertCode("secret_path_sentinel_leak", fp2.ensure_sanitized, "C:\\Users\\example\\token.txt", "sanitized")
 
+    def test_reauthorization_reason_is_not_a_secret_sentinel(self) -> None:
+        fp2.ensure_sanitized({"reasonForReauthorization": fp2.PREVIOUS_BLOCKED_REASON}, "preflight")
+
     def runtime_preflight_result(self, *, boundary: dict | None = None) -> dict:
         interpreter = fp2.resolve_runtime_interpreter()
         browser_boundary = boundary or {

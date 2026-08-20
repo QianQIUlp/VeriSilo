@@ -131,7 +131,7 @@ HOST_CLOSE_PROCESS_TREE_SECONDS = 8
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 ABSOLUTE_PATH = re.compile(r"(?:^[A-Za-z]:[\\/]|^/|\\\\)")
 SECRET_WORD = re.compile(
-    r"(?:password|passwd|token|secret|authorization|bearer|api[_-]?key|private[_-]?key)",
+    r"(?:\bpassword\b|\bpasswd\b|\btoken\b|\bsecret\b|\bauthorization\b|\bbearer\b|\bapi[_-]?key\b|\bprivate[_-]?key\b)",
     re.IGNORECASE,
 )
 
