@@ -433,3 +433,12 @@ the FP2 report finalization call to `ensure_sanitized(report, label)`, and freez
 generation-2 child runtime as the repository FP1 venv (`CPython 3.12.13`, Camoufox 0.5.4,
 Playwright 1.60.0, BrowserForge 1.2.4). No generation-2 claim or browser matrix is authorized
 by this status update; FP3 remains closed and all FP2 results remain `verified:false`.
+
+Runtime Preflight Closure implementation is now complete in the allowed FP2 runner/test and
+contract scope. The exact child preflight and success/failed/blocked synthetic finalization
+passed without browser launch; 18192 was free before and after, target processes were absent,
+and no preflight lock was created. The resulting receipt remains gitignored and binds the
+generation-1 blocked claim, runtime interpreter/dependency closure and child invocation. This
+does not authorize generation-2 claim creation; that authorization remains a separate
+main-brain decision. FP2 remains **Blocked**, FP1 remains **Accepted / verified:false**, and
+FP3 remains **Closed**.

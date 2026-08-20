@@ -1,6 +1,6 @@
 # VeriSilo Managed Fingerprint FP2 — Cross-Realm Consistency
 
-- 状态：**FP2 generation 1 blocked / Runtime Preflight Closure in progress**
+- 状态：**FP2 generation 1 blocked / Runtime Preflight Closure passed / generation 2 not authorized**
 - task version：generation 1 `fp2-v1`；generation 2 execution package `fp2-v2`
 - execution boundary：本文件、独立 `tests/fingerprint-probe/fp2/` bundle、纯比较/runner 与 gitignored FP2 evidence
 - `verified`：始终为 `false`
@@ -181,3 +181,11 @@ finalization、process、port 或 lock failure 都必须在 claim 前返回 `blo
 `ensure_sanitized(report, label)` 是 finalization 的固定调用形式。success、failed、blocked
 三种 synthetic report 都必须能写 report sidecar、offline adjudication sidecar 和 byte
 closure；该 closure 不产生浏览器 observation，也不改变 FP1/FP3/M3-WI/Standard 状态。
+
+### Runtime Preflight Closure result
+
+Runtime Preflight Closure 已在 clean implementation checkpoint 上通过。精确 child runtime、
+dependency closure、browser-spawn seam、synthetic finalization、process、port 和 lock
+条件均已形成 gitignored receipt；generation 1 blocked claim 保持原字节，generation 2
+claim 尚未创建，A1/A2/B1 尚未授权或启动。FP2 主脑 Gate 仍为 `Blocked`，所有 FP2 结果
+保持 `verified:false`。
