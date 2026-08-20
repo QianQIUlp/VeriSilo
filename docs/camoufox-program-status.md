@@ -414,3 +414,7 @@ lifecycle、storage、media 与 integrity 全部闭合。
 
 原始 report、failure code 与 claim 未修改，也没有生成伪装成原始 runner verdict 的新报告。
 本 Gate 不改变 M3-WI、production package/signing、UI 或 shipped 状态。
+
+### 2026-08-20 FP2 execution checkpoint
+
+FP2 task contract frozen / execution in progress

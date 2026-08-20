@@ -1,0 +1,56 @@
+{
+  "schema": "verisilo-camoufox-fp2-probe-bundle/v1",
+  "bundleId": "verisilo-fp2-cross-realm-v1",
+  "files": [
+    {
+      "path": "controlled.html",
+      "sha256": "68d39e7ad8537ca3277dc584b2dd05ab96e14d9e1b94345575d0505ecc53b817",
+      "size": 192
+    },
+    {
+      "path": "controlled.js",
+      "sha256": "155da051583ccdc39a92e5b54b09e45a5ded5ac78494aa88993a789fdeab6db9",
+      "size": 604
+    },
+    {
+      "path": "dedicated-worker.js",
+      "sha256": "fbdb3cbde02f3435ef4b13f8c9a45b1d2b7a3b6148eca48cf3105cbb1fae4278",
+      "size": 572
+    },
+    {
+      "path": "frame.html",
+      "sha256": "172bf4f171350b37e6adc70221eeb34543eeb01686ce9b798abcabc4d9755c5e",
+      "size": 278
+    },
+    {
+      "path": "frame.js",
+      "sha256": "314851c95b6410fd6488696a08a258c0a60469c3fa9f62969d9eb7683f2971af",
+      "size": 1186
+    },
+    {
+      "path": "realm-common.js",
+      "sha256": "4038233188a985da06110235dbac5f7bba180f806002fe6ebc9d5a2cd0e77d7c",
+      "size": 24298
+    },
+    {
+      "path": "service-worker.js",
+      "sha256": "73affb3f2dc778f10ebe8bbe42b090037c214ef1a967dee7e1638a36758d5910",
+      "size": 948
+    },
+    {
+      "path": "shared-worker.js",
+      "sha256": "6b4696dac8a4eee3a521fa9d892a8a8e9df6c917de1a4ec297d1d642bd78c79a",
+      "size": 730
+    },
+    {
+      "path": "top.html",
+      "sha256": "179c05514038d528a481b4fe14d21749f99b7f99b46e39f59876a3162824f42e",
+      "size": 311
+    },
+    {
+      "path": "top.js",
+      "sha256": "999217c756067ad9ec7a94f4c7f7f3241446816c70002f1244d4f2cec539edb9",
+      "size": 13028
+    }
+  ]
+}
