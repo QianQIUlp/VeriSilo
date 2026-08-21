@@ -6,9 +6,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import inspect
+import json
+import socket
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 import fp2_cross_realm as fp2
@@ -326,7 +331,15 @@ class FP2NoBrowserTests(unittest.TestCase):
         owner.active_nonce = "fresh-nonce"
         owner.captures = []
         headers = {"User-Agent": "ua", "Accept-Language": "en-US,en", "Accept-Encoding": "gzip", "DNT": "1", "Sec-GPC": "1", "X-FP2-Realm": "cross-origin-iframe", "X-FP2-Nonce": "old-nonce"}
-        self.assertCode("cross_origin_nonce_mismatch", owner.record_header_request, "cross-origin-iframe", "old-nonce", headers)
+        self.assertCode(
+            "cross_origin_nonce_mismatch",
+            owner.record_header_request,
+            method="GET",
+            path="/fp2/header-observation",
+            headers=headers,
+            realm="cross-origin-iframe",
+            nonce="old-nonce",
+        )
 
     def test_shared_worker_old_session_evidence_is_rejected(self) -> None:
         owner = object.__new__(fp2.FP2HTTPServer)
@@ -335,7 +348,96 @@ class FP2NoBrowserTests(unittest.TestCase):
         owner.active_nonce = "fresh-nonce"
         owner.captures = [{"realm": "shared-worker"}]
         headers = {"User-Agent": "ua", "Accept-Language": "en-US,en", "Accept-Encoding": "gzip", "DNT": "1", "Sec-GPC": "1", "X-FP2-Realm": "shared-worker", "X-FP2-Nonce": "fresh-nonce"}
-        self.assertCode("duplicate_header_observation", owner.record_header_request, "shared-worker", "fresh-nonce", headers)
+        self.assertCode(
+            "duplicate_header_observation",
+            owner.record_header_request,
+            method="GET",
+            path="/fp2/header-observation",
+            headers=headers,
+            realm="shared-worker",
+            nonce="fresh-nonce",
+        )
+
+    def test_real_loopback_handler_captures_http_evidence(self) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind((fp2.PRIMARY_HOST, 0))
+            port = probe.getsockname()[1]
+        server = fp2.FP2HTTPServer(fp2.BUNDLE_DIR, port, set())
+        nonce = "loopback-handler-test-nonce"
+        headers = {
+            "User-Agent": "fp2-loopback-test-agent",
+            "Accept-Language": "en-US,en",
+            "Accept-Encoding": "gzip",
+            "DNT": "1",
+            "Sec-GPC": "1",
+            "X-FP2-Realm": "top-window",
+            "X-FP2-Nonce": nonce,
+        }
+        try:
+            server.begin_session("A1", nonce)
+            query = urlencode({"realm": "top-window", "nonce": nonce})
+            request = Request(f"{server.primary_origin}/fp2/header-observation?{query}", headers=headers, method="GET")
+            with urlopen(request, timeout=3) as response:
+                self.assertEqual(response.status, 200)
+                payload = json.load(response)
+            self.assertTrue(payload["ok"])
+            captures = server.take_captures()
+            self.assertEqual(len(captures), 1)
+            capture = captures[0]
+            self.assertEqual(capture["method"], "GET")
+            self.assertEqual(capture["path"], "fp2/header-observation")
+            self.assertEqual(capture["realm"], "top-window")
+            self.assertEqual(capture["identityHeaders"]["user-agent"], headers["User-Agent"])
+            self.assertEqual(capture["identityHeaders"]["accept-language"], headers["Accept-Language"])
+            self.assertEqual(capture["identityHeaders"]["accept-encoding"], headers["Accept-Encoding"])
+            self.assertTrue(capture["customRealmHeaderMatches"])
+            self.assertTrue(capture["customNonceHeaderMatches"])
+            self.assertFalse(capture["cookiePresent"])
+            fp2.ensure_sanitized(capture, "real-loopback-capture")
+        finally:
+            server.close()
+
+    def test_real_loopback_handler_malformed_realm_fails_closed(self) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind((fp2.PRIMARY_HOST, 0))
+            port = probe.getsockname()[1]
+        server = fp2.FP2HTTPServer(fp2.BUNDLE_DIR, port, set())
+        nonce = "loopback-malformed-test-nonce"
+        try:
+            server.begin_session("A1", nonce)
+            query = urlencode({"realm": "not-a-realm", "nonce": nonce})
+            request = Request(f"{server.primary_origin}/fp2/header-observation?{query}", method="GET")
+            with self.assertRaises(HTTPError) as context:
+                urlopen(request, timeout=3)
+            self.assertEqual(context.exception.code, 409)
+            self.assertEqual(json.load(context.exception), {"ok": False, "error": "header_realm_invalid"})
+            self.assertEqual(server.take_captures(), [])
+        finally:
+            server.close()
+
+    def test_loopback_server_shutdown_releases_port(self) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind((fp2.PRIMARY_HOST, 0))
+            port = probe.getsockname()[1]
+        server = fp2.FP2HTTPServer(fp2.BUNDLE_DIR, port, set())
+        server.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as rebound:
+            rebound.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            rebound.bind((fp2.PRIMARY_HOST, port))
+
+    def test_missing_header_capture_fails_closed(self) -> None:
+        session = self.make_session(self.artifact_a, self.artifact_a_info, "A1", "A")
+        raw = {"realmOrder": list(fp2.CANONICAL_REALMS), "realms": session["rawRealms"]}
+        self.assertCode("header_capture_matrix_incomplete", fp2.validate_session_result, "A1", raw, self.artifact_a, self.ledger, [])
+
+    def test_generation3_preserves_generation1_and_generation2_attempts(self) -> None:
+        attempts = fp2.previous_execution_attempts()
+        self.assertEqual(set(attempts), {"generation1", "generation2"})
+        self.assertEqual(attempts["generation1"]["claimSha256"], fp2.PREVIOUS_BLOCKED_CLAIM_SHA256)
+        self.assertEqual(attempts["generation2"]["claimSha256"], fp2.GENERATION2_CLAIM_SHA256)
+        self.assertTrue(attempts["generation2"]["browserLaunched"])
+        self.assertEqual(attempts["generation2"]["validRealmObservations"], 0)
+        self.assertEqual(attempts["generation2"]["headerCaptureCount"], 0)
 
     def test_service_worker_script_scope_mismatch(self) -> None:
         raw = self.make_session(self.artifact_a, self.artifact_a_info, "A1", "A")["rawRealms"]
@@ -537,8 +639,9 @@ class FP2NoBrowserTests(unittest.TestCase):
                     previous_blocked_attempt=previous,
                 )
             self.assertTrue(claim_path.exists())
-            self.assertEqual(claim["executionGeneration"], 2)
+            self.assertEqual(claim["executionGeneration"], 3)
             self.assertEqual(claim["previousBlockedAttempt"]["browserObservations"], 0)
+            self.assertEqual(claim["previousAttempts"]["generation1"]["browserObservations"], 0)
             self.assertEqual(claim["runtime"]["interpreterSha256"], result["runtimeBinding"]["interpreterSha256"])
 
     def test_runtime_environment_cannot_switch_after_preflight(self) -> None:

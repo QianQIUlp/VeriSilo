@@ -56,7 +56,8 @@ ARCHIVE_PATH = REPO_ROOT / "artifacts" / "camoufox-fp1" / "windows-candidate-202
 EXECUTABLE_PATH = BROWSER_ROOT / "camoufox.exe"
 FP2_EVIDENCE_ROOT = REPO_ROOT / "artifacts" / "camoufox-fp2"
 LEGACY_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v1-one-shot-claim.json"
-GLOBAL_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v2-one-shot-claim.json"
+GENERATION2_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v2-one-shot-claim.json"
+GLOBAL_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v3-one-shot-claim.json"
 GLOBAL_LOCK_NAME = "fp2-v1-browser-global.lock"
 RUNTIME_INTERPRETER_RELATIVE = Path("apps/camoufox-host/.venv/Scripts/python.exe")
 EXPECTED_RUNTIME_PYTHON_VERSION = "3.12.13"
@@ -69,17 +70,22 @@ EXPECTED_RUNTIME_DEPENDENCY_VERSIONS = {
 RUNTIME_PREFLIGHT_WATCHDOG_SECONDS = 30
 RUNTIME_PREFLIGHT_SCHEMA = "verisilo-camoufox-fp2-runtime-preflight/v1"
 RUNTIME_PREFLIGHT_CHILD_SCHEMA = "verisilo-camoufox-fp2-runtime-preflight-child/v1"
-EXECUTION_GENERATION = 2
+EXECUTION_GENERATION = 3
 PREVIOUS_BLOCKED_CLAIM_SHA256 = "e77204a09d9dfdbdf7d6c3b00a96114f477fd5b93d01c7fa6a7fd3dd71b28402"
 PREVIOUS_BLOCKED_RUN_ID = "fp2-20260820T121344Z-470b08fdb9"
 PREVIOUS_BLOCKED_CLASSIFICATION = "pre-browser-runtime-dependency-block"
 PREVIOUS_BLOCKED_REASON = (
     "original FP2 contract consumed the one-shot claim before exact child runtime dependency closure"
 )
+GENERATION2_CLAIM_SHA256 = "bcf9170cb26e46a35664ebad3cd8b39a2ec93928e597b21b84037e8cc6f22b67"
+GENERATION2_RUN_ID = "fp2-20260821T053550Z-9f98de991d"
+GENERATION2_REPORT_SHA256 = "d0dd41195134686527567586734929d7a13ed54ab647247d6e8f1d253095352b"
+GENERATION2_CLASSIFICATION = "harness-http-capture-failure"
+GENERATION2_REASON = "generation-2 formal execution failed before any valid realm observation because the HTTP evidence handler crashed"
 
-TASK_VERSION = "fp2-v2"
-REPORT_SCHEMA = "verisilo-camoufox-fp2-cross-realm-run/v2"
-CLAIM_SCHEMA = "verisilo-camoufox-fp2-one-shot-claim/v2"
+TASK_VERSION = "fp2-v3"
+REPORT_SCHEMA = "verisilo-camoufox-fp2-cross-realm-run/v3"
+CLAIM_SCHEMA = "verisilo-camoufox-fp2-one-shot-claim/v3"
 ADJUDICATION_SCHEMA = "verisilo-camoufox-fp2-offline-adjudication/v1"
 CANONICAL_REALMS = (
     "top-window",
@@ -240,7 +246,7 @@ def child_environment() -> dict[str, str]:
 
 
 def resolve_runtime_interpreter() -> Path:
-    """Resolve the repository-owned FP1 runtime used for every generation-2 child."""
+    """Resolve the repository-owned FP1 runtime used for every FP2 child."""
     require(os.name == "nt", "runtime_native_windows_required", "FP2 runtime preflight requires native Windows")
     path = (REPO_ROOT / RUNTIME_INTERPRETER_RELATIVE).resolve()
     require(path.is_file(), "runtime_interpreter_missing", RUNTIME_INTERPRETER_RELATIVE.as_posix())
@@ -1155,7 +1161,13 @@ class _FP2RequestHandler(BaseHTTPRequestHandler):
         realm = query.get("realm", [""])[0]
         nonce = query.get("nonce", [""])[0]
         try:
-            capture = owner.record_header_request(realm, nonce, self.headers)
+            capture = owner.record_header_request(
+                method=self.command,
+                path=urlparse(self.path).path,
+                headers=self.headers,
+                realm=realm,
+                nonce=nonce,
+            )
         except FP2Failure as exc:
             body = json.dumps({"ok": False, "error": exc.code}).encode("utf-8")
             self.send_response(409)
@@ -1247,11 +1259,12 @@ class FP2HTTPServer:
             self.active_nonce = nonce
             self.captures = []
 
-    def record_header_request(self, realm: str, nonce: str, headers: Any) -> dict[str, Any]:
+    def record_header_request(self, *, method: str, path: str, headers: Any, realm: str, nonce: str) -> dict[str, Any]:
         with self._lock:
             require(self.active_label is not None and self.active_nonce is not None, "header_request_without_session")
             require(nonce == self.active_nonce, "cross_origin_nonce_mismatch", realm)
             require(realm in CANONICAL_REALMS, "header_realm_invalid", realm)
+            require(path == "/fp2/header-observation", "header_path_mismatch", path)
             require(not any(item.get("realm") == realm for item in self.captures), "duplicate_header_observation", realm)
             identity_names = ("User-Agent", "Accept-Language", "Accept-Encoding", "DNT", "Sec-GPC")
             context_names = ("Origin", "Referer", "Sec-Fetch-Site", "Sec-Fetch-Mode", "Sec-Fetch-Dest", "Accept")
@@ -1260,7 +1273,8 @@ class FP2HTTPServer:
             capture = {
                 "realm": realm,
                 "nonceSha256": safe_nonce_hash(nonce),
-                "method": self.command,
+                "method": method,
+                "path": path.removeprefix("/"),
                 "identityHeaders": identity,
                 "contextHeaders": context,
                 "cookiePresent": _header_value(headers, "Cookie") is not None,
@@ -1939,6 +1953,51 @@ def previous_blocked_attempt() -> dict[str, Any]:
     }
 
 
+def previous_generation2_attempt() -> dict[str, Any]:
+    require(GENERATION2_CLAIM_PATH.is_file(), "previous_generation2_claim_missing", GENERATION2_CLAIM_PATH.as_posix())
+    require(sha256_file(GENERATION2_CLAIM_PATH) == GENERATION2_CLAIM_SHA256, "previous_generation2_claim_hash_mismatch", GENERATION2_CLAIM_PATH.name)
+    claim = strict_json(GENERATION2_CLAIM_PATH, GENERATION2_CLAIM_PATH.as_posix())
+    require(isinstance(claim, dict) and claim.get("runId") == GENERATION2_RUN_ID and claim.get("executionGeneration") == 2, "previous_generation2_claim_mismatch", "identity")
+    run_evidence_path = claim.get("runEvidencePath")
+    require(isinstance(run_evidence_path, str) and ".." not in Path(run_evidence_path).parts and not Path(run_evidence_path).is_absolute(), "previous_generation2_claim_mismatch", "runEvidencePath")
+    previous_report_path = REPO_ROOT / Path(run_evidence_path) / "run-report.json"
+    require(previous_report_path.is_file(), "previous_generation2_report_missing", previous_report_path.name)
+    require(sha256_file(previous_report_path) == GENERATION2_REPORT_SHA256, "previous_generation2_report_hash_mismatch", previous_report_path.name)
+    validate_hash_sidecar(previous_report_path, previous_report_path.with_name("run-report.sha256"))
+    previous_report = strict_json(previous_report_path, previous_report_path.as_posix())
+    require(previous_report.get("status") == "failed" and previous_report.get("verified") is False, "previous_generation2_report_mismatch")
+    matrix = previous_report.get("matrix")
+    require(isinstance(matrix, list) and len(matrix) == 1 and matrix[0].get("label") == "A1", "previous_generation2_observation_mismatch")
+    require(matrix[0].get("hostPid") is not None and matrix[0].get("headerCaptureCount") == 0, "previous_generation2_observation_mismatch")
+    require((matrix[0].get("files") or {}).get("rawRealms") is None, "previous_generation2_observation_mismatch")
+    require((previous_report.get("failure") or {}).get("code") == "realm_probe_failed", "previous_generation2_report_mismatch")
+    return {
+        "claimPath": relative_repo_path(GENERATION2_CLAIM_PATH),
+        "claimSha256": GENERATION2_CLAIM_SHA256,
+        "run": GENERATION2_RUN_ID,
+        "browserLaunched": True,
+        "browserObservations": 0,
+        "validRealmObservations": 0,
+        "headerCaptureCount": 0,
+        "classification": GENERATION2_CLASSIFICATION,
+        "reasonForReauthorization": GENERATION2_REASON,
+    }
+
+
+def previous_execution_attempts() -> dict[str, dict[str, Any]]:
+    return {
+        "generation1": previous_blocked_attempt(),
+        "generation2": previous_generation2_attempt(),
+    }
+
+
+def previous_attempt_parts(previous: dict[str, Any]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    if "generation1" in previous and "generation2" in previous:
+        require(isinstance(previous["generation1"], dict) and isinstance(previous["generation2"], dict), "previous_attempts_invalid")
+        return previous["generation1"], previous
+    return previous, {"generation1": previous}
+
+
 def sanitized_runtime_log(raw: bytes) -> str:
     text = raw.decode("utf-8", errors="replace")
     text = ABSOLUTE_PATH.sub("<redacted-path>", text)
@@ -1955,6 +2014,7 @@ def run_runtime_preflight(
     git: dict[str, Any],
 ) -> dict[str, Any]:
     """Run the exact child bootstrap path and stop immediately before browser spawn."""
+    previous_blocked, previous_attempts = previous_attempt_parts(previous)
     preflight_id = f"fp2-runtime-preflight-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
     preflight_dir = FP2_EVIDENCE_ROOT / preflight_id
     preflight_dir.mkdir(parents=True, exist_ok=False)
@@ -2032,7 +2092,8 @@ def run_runtime_preflight(
         },
         "status": status,
         "verified": False,
-        "previousBlockedAttempt": previous,
+        "previousBlockedAttempt": previous_blocked,
+        "previousAttempts": previous_attempts,
         "selectedPort": port,
         "runtimeBinding": runtime_binding,
         "syntheticFinalization": synthetic_finalization,
@@ -2071,7 +2132,8 @@ def run_runtime_preflight(
         "byteClosureSha256": closure_sha256,
         "runtimeBinding": runtime_binding,
         "syntheticFinalization": synthetic_finalization,
-        "previousBlockedAttempt": previous,
+        "previousBlockedAttempt": previous_blocked,
+        "previousAttempts": previous_attempts,
         "preflightDirectory": relative_repo_path(preflight_dir),
     }
 
@@ -2093,6 +2155,7 @@ def create_claim(
     previous_blocked_attempt: dict[str, Any],
 ) -> tuple[dict[str, Any], str]:
     require_runtime_preflight_for_claim(runtime_preflight)
+    previous_blocked, previous_attempts = previous_attempt_parts(previous_blocked_attempt)
     runner_sha256 = sha256_file(Path(__file__).resolve())
     claim = {
         "schema": CLAIM_SCHEMA,
@@ -2118,7 +2181,8 @@ def create_claim(
         "comparatorSha256": runner_sha256,
         "runnerSha256": runner_sha256,
         "noBrowserTestFileSha256": no_browser_test_sha256,
-        "previousBlockedAttempt": previous_blocked_attempt,
+        "previousBlockedAttempt": previous_blocked,
+        "previousAttempts": previous_attempts,
         "runtime": runtime_preflight["runtimeBinding"],
         "runtimePreflight": {
             "receiptPath": runtime_preflight["receiptPath"],
@@ -2506,6 +2570,7 @@ def build_report(
     server_closed: bool,
     global_lock_released: bool,
 ) -> dict[str, Any]:
+    previous_blocked, previous_attempts = previous_attempt_parts(previous_blocked_attempt)
     phase_public = []
     for record in phase_records:
         item = copy.deepcopy(record)
@@ -2536,7 +2601,8 @@ def build_report(
         },
         "candidate": candidate,
         "artifacts": artifact_infos,
-        "previousBlockedAttempt": previous_blocked_attempt,
+        "previousBlockedAttempt": previous_blocked,
+        "previousAttempts": previous_attempts,
         "runtimePreflight": {
             "receiptPath": runtime_preflight["receiptPath"],
             "receiptSha256": runtime_preflight["receiptSha256"],
@@ -2763,6 +2829,14 @@ BLOCKED_FAILURE_CODES = {
     "previous_blocked_report_missing",
     "previous_blocked_report_mismatch",
     "previous_blocked_observation_mismatch",
+    "previous_generation2_claim_missing",
+    "previous_generation2_claim_hash_mismatch",
+    "previous_generation2_claim_mismatch",
+    "previous_generation2_report_missing",
+    "previous_generation2_report_hash_mismatch",
+    "previous_generation2_report_mismatch",
+    "previous_generation2_observation_mismatch",
+    "previous_attempts_invalid",
     "synthetic_finalization_failed",
     "runtime_preflight_process_residual",
     "runtime_preflight_port_residual",
@@ -2966,7 +3040,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--child-session", action="store_true")
     parser.add_argument("--runtime-preflight-child", action="store_true")
-    parser.add_argument("--execute-browser-matrix", action="store_true", help="Run generation-2 A1 -> A2 -> B1 after preflight; default is no-browser preflight only.")
+    parser.add_argument("--execute-browser-matrix", action="store_true", help="Run generation-3 A1 -> A2 -> B1 after preflight; default is no-browser preflight only.")
     parser.add_argument("--run-port", type=int, default=DEFAULT_RUN_PORT)
     parser.add_argument("--label")
     parser.add_argument("--artifact-root")
@@ -3022,7 +3096,7 @@ def require_runtime_preflight_args(args: argparse.Namespace) -> None:
 
 
 def orchestrate(args: argparse.Namespace) -> int:
-    """Run generation-2 preflight; browser execution requires an explicit flag."""
+    """Run generation-3 preflight; browser execution requires an explicit flag."""
 
     try:
         git = git_preflight()
@@ -3038,7 +3112,7 @@ def orchestrate(args: argparse.Namespace) -> int:
         require_no_target_processes("before FP2 claim")
         assert_port_free(args.run_port)
         no_browser = run_no_browser_tests()
-        previous = previous_blocked_attempt()
+        previous = previous_execution_attempts()
         require(not GLOBAL_CLAIM_PATH.exists(), "one_shot_claim_already_exists", GLOBAL_CLAIM_PATH.name)
         interpreter = resolve_runtime_interpreter()
         runtime_preflight = run_runtime_preflight(interpreter=interpreter, port=args.run_port, previous=previous, git=git)
@@ -3051,7 +3125,7 @@ def orchestrate(args: argparse.Namespace) -> int:
         return 1
 
     if not args.execute_browser_matrix:
-        print("runtime-preflight-closure-passed-awaiting-generation-2-authorization")
+        print("runtime-preflight-closure-passed-awaiting-generation-3-authorization")
         return 0
 
     run_id = f"fp2-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"

@@ -1,7 +1,7 @@
 # VeriSilo Managed Fingerprint FP2 — Cross-Realm Consistency
 
-- 状态：**FP2 generation 1 blocked / generation 2 pre-claim Gate correction in progress / claim not created**
-- task version：generation 1 `fp2-v1`；generation 2 execution package `fp2-v2`
+- 状态：**FP2 generation 1 blocked / generation 2 failed on HTTP harness / generation 3 harness closure in progress / claim not created**
+- task version：generation 1 `fp2-v1`；generation 2 execution package `fp2-v2`；generation 3 execution package `fp2-v3`
 - execution boundary：本文件、独立 `tests/fingerprint-probe/fp2/` bundle、纯比较/runner 与 gitignored FP2 evidence
 - `verified`：始终为 `false`
 
@@ -105,7 +105,7 @@ one-shot claim 在第一次 A1 前以 `O_EXCL` 原子创建，绑定当前 HEAD/
 
 执行 Agent 的成功字符串只能是 `execution-passed-awaiting-main-brain-gate`；失败或阻塞只能是 `failed` 或 `blocked`。本文件不得由执行 Agent写成 FP2 Accepted、Managed Identity verified 或 FP3 Open。
 
-## Runtime Preflight Closure：generation 1 blocked 后的 generation 2 pre-claim 路径
+## Historical Runtime Preflight Closure：generation 1 blocked 后的 generation 2 pre-claim 路径
 
 ### Generation 1 frozen outcome
 
@@ -123,7 +123,7 @@ classification: pre-browser-runtime-dependency-block
 launch。它不是浏览器语义 evidence，也不是可删除或复用的 claim。generation 2 是修复
 claim-before-runtime-preflight 合同缺口后的新 execution package，不是换 run-id/port 的 retry。
 
-### Claim 前硬 Gate
+### Claim 前硬 Gate（generation 2 historical package）
 
 任何 generation 2 claim 创建以前，runner 必须按以下顺序完成：
 
@@ -169,7 +169,7 @@ Access Denied 或其他不可用结果，runner 使用独立的 PowerShell `Get-
 `camoufox.exe` 与 `verisilo-camoufox-supervisor.exe`。backend 不可用不能解释为空；只有
 所有允许 backend 都无法证明目标进程状态时，才返回 `blocked: process_cleanliness_unverifiable`。
 
-### Generation 2 claim boundary
+### Generation 2 claim boundary（historical）
 
 generation 2 claim 使用独立路径：
 
@@ -192,9 +192,53 @@ finalization、process、port 或 lock failure 都必须在 claim 前返回 `blo
 三种 synthetic report 都必须能写 report sidecar、offline adjudication sidecar 和 byte
 closure；该 closure 不产生浏览器 observation，也不改变 FP1/FP3/M3-WI/Standard 状态。
 
-### Runtime Preflight Closure result
+### Runtime Preflight Closure result（generation 2 historical checkpoint）
 
-上一版 Runtime Preflight Closure 已在 clean implementation checkpoint 上通过，但 process
-enumeration fallback 修正后必须重新形成绑定新 runner SHA 的 closure。generation 1 blocked
-claim 保持原字节，generation 2 claim 尚未创建，A1/A2/B1 尚未启动。FP2 主脑 Gate 仍为
-`Blocked`，所有 FP2 结果保持 `verified:false`。
+上一版 Runtime Preflight Closure 已在 clean implementation checkpoint 上通过；该段记录的是
+generation 2 pre-claim checkpoint，不是当前 Gate。随后 generation 2 正式 claim 被消费并在
+浏览器启动后因 HTTP evidence handler 失败而停止，详见下方冻结记录。
+
+## Generation-2 frozen formal failure
+
+generation 2 是真实 formal execution，claim 和 evidence 永久保留，不得覆盖或重跑：
+
+```text
+run: fp2-20260821T053550Z-9f98de991d
+claim: artifacts/camoufox-fp2/fp2-v2-one-shot-claim.json
+claim SHA-256: bcf9170cb26e46a35664ebad3cd8b39a2ec93928e597b21b84037e8cc6f22b67
+implementation: 359aa14be6c2d3bf5ef912ce1655f089fb7d7b85
+browser launched: true
+valid realm observations: 0
+header capture count: 0
+classification: harness-http-capture-failure
+```
+
+失败发生在实际 loopback HTTP request handler 调用 evidence capture API 时：handler 的
+`self.command` 被错误地从 `FP2HTTPServer` 读取，触发 `AttributeError`，随后 A1 realm
+probe 以 `ProtocolError` 结束。该 evidence 证明的是 generation-2 measurement harness
+无法完成采集，不是 Managed Engine 的跨-realm capability verdict；FP2 capability 仍未裁决，
+所有结果继续为 `verified:false`。
+
+## Generation-3 Harness Closure
+
+generation 3 只修复上述已定位的 harness seam，并新增真实无浏览器 loopback 回归：
+
+```text
+request handler owns: method / path / request headers
+FP2HTTPServer owns: evidence capture storage
+```
+
+回归必须经过真实 `FP2HTTPServer`、标准库 loopback HTTP request 和实际 request-handler
+class，验证 method/path/realm/header capture、malformed metadata fail-closed、sanitization
+以及 shutdown 后端口释放。不得通过直接调用 capture method 替代该 seam。
+
+generation-3 claim 必须显式引用 generation 1 的 blocked claim 和 generation 2 的 failed
+harness claim；两份旧 claim、report 和 referenced evidence 保持逐字节不变。generation-3
+只允许改变新的 implementation commit/tree、runner/test hash、fresh runtime-preflight
+closure 和新 claim；candidate、Artifact A/B、probe bundle、applicability ledger、relation
+matrix 与 static 13-key mapping 必须保持冻结。新 claim 创建前不得启动浏览器；若 Gen3 再次
+出现未授权的 harness failure，不自行创建 generation 4。
+
+当前 generation-3 状态：harness closure 实现与无浏览器回归已完成，新的 immutable
+implementation checkpoint 与 fresh runtime closure 是下一道 Gate；generation-3 claim
+尚未创建，A1/A2/B1 尚未启动。FP1 仍为 `Accepted / verified:false`，FP3 仍为 `Closed`。

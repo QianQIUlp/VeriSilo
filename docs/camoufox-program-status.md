@@ -1,7 +1,7 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**可变项目状态页**
-- 更新日期：2026-08-20
+- 更新日期：2026-08-21
 
 本文只记录当前执行阶段、证据 checkpoint 和下一项任务。长期产品意图见[身份平台北极星](identity-platform-north-star.md)，路线原因见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。每次 Gate 变化后更新本文，不用本文反向改写长期决策。
 
@@ -17,7 +17,8 @@
 | M3-WI 调查结束快照              | `186484feb935076766beab09595a9270f86f78ef` / tree `e33d6d68586a79796ffb9bcc668392e369dc97c6`                     | `e96ef3f` 为祖先；调查结束时 tracked tree clean；没有 production fix                    |
 | R2 tracked 候选 evidence        | `ecafca9` / `evidence-manifest-m3-wi-r2-windows.json`                                                            | 执行 Agent 候选；主脑未接受，不是 M3-WI Accepted evidence                               |
 | R2H 研究基础                    | `186484f`                                                                                                        | 只有 runner/freezer/schema 与 Host test 变更；无 tracked result/manifest                |
-| 当前 FP1 任务                   | [冻结合同、执行历史与离线证据闭包](camoufox-fp1-deterministic-artifact-projection-task.md) / closure baseline `b7a615ac39606deb741b3b3ea13d3584a987a39c` / tree `9461adcc6924539dc4c2bb80963fab71a2efef49` | 原始 full runner verdict 保持 Failed；主脑基于 immutable A1/A2/B1 evidence 与 corrected contract adjudication 接受 FP1，`verified:false`；FP2 未进入，只允许成为下一项单独冻结任务 |
+| 当前 FP1 任务                   | [冻结合同、执行历史与离线证据闭包](camoufox-fp1-deterministic-artifact-projection-task.md) / closure baseline `b7a615ac39606deb741b3b3ea13d3584a987a39c` / tree `9461adcc6924539dc4c2bb80963fab71a2efef49` | 原始 full runner verdict 保持 Failed；主脑基于 immutable A1/A2/B1 evidence 与 corrected contract adjudication 接受 FP1，`verified:false` |
+| 当前 FP2 任务                   | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 3 harness closure | generation 1 Blocked；generation 2 formal execution Failed on HTTP evidence harness，browser launched 但 valid realm observations 为 0；generation 3 claim 尚未创建；FP2 capability 未裁决 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -456,3 +457,42 @@ the result is `blocked: process_cleanliness_unverifiable`.
 The generation-1 claim and evidence remain byte-preserved. Generation-2 claim
 creation and browser execution have not started; all FP2 results remain
 `verified:false`, and FP3 remains **Closed**.
+
+### 2026-08-21 FP2 generation-2 formal execution failure
+
+Generation 2 consumed its one-shot claim and did launch the browser, but it failed
+before producing a valid realm observation. The frozen evidence is:
+
+```text
+run: fp2-20260821T053550Z-9f98de991d
+claim SHA-256: bcf9170cb26e46a35664ebad3cd8b39a2ec93928e597b21b84037e8cc6f22b67
+implementation: 359aa14be6c2d3bf5ef912ce1655f089fb7d7b85
+classification: harness-http-capture-failure
+browser launched: true
+valid realm observations: 0
+header capture count: 0
+```
+
+The concrete defect was in the request-handler/evidence-server ownership seam:
+the handler's `self.command` was read from `FP2HTTPServer`, causing
+`AttributeError`; A1 then ended with `ProtocolError`. This is a failed formal
+execution and harness evidence, not a Managed Engine realm-capability verdict.
+Generation 1's claim and evidence remain immutable; generation 2 is not rerun.
+
+### 2026-08-21 FP2 generation-3 Harness Closure
+
+Generation 3 is authorized only as a new frozen execution package for the
+identified pre-observation harness defect. The runner now passes HTTP method and
+path from the real request handler into `FP2HTTPServer` capture storage, and
+no-browser regression tests exercise a real standard-library loopback request
+through the actual handler. The new package must reference both prior attempts:
+generation 1 `e77204a09d9dfdbdf7d6c3b00a96114f477fd5b93d01c7fa6a7fd3dd71b28402`
+and generation 2 `bcf9170cb26e46a35664ebad3cd8b39a2ec93928e597b21b84037e8cc6f22b67`.
+
+At this checkpoint the four allowed tracked files contain the authorized
+harness correction; the new immutable implementation checkpoint and generation-3
+runtime closure are the next gates. Generation-3 claim creation has not occurred,
+and no generation-3 browser observation exists. Candidate, Artifact, FP2 probe,
+ledger, relation matrix, FP1 evidence, engine, timeout and FP3 remain unchanged.
+FP2 capability is unresolved, all FP2 results remain `verified:false`, and FP3
+remains **Closed**.
