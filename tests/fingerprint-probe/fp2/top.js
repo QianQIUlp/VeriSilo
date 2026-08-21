@@ -222,7 +222,12 @@
     return { topController: false, controlledPage: true };
   }
 
-  async function serviceWorkerEvidence() {
+  async function serviceWorkerEvidence(activationDeadlineMs) {
+    assertProtocol(
+      Number.isFinite(activationDeadlineMs) && activationDeadlineMs > 0,
+      "service_worker_activation_deadline_invalid",
+    );
+    const activationDeadline = FP2Realm.deadlineFromNow(activationDeadlineMs);
     const registrationBefore =
       await navigator.serviceWorker.getRegistration("/fp2/");
     const existedBefore = !!registrationBefore;
@@ -232,11 +237,17 @@
         scope: "/fp2/",
         updateViaCache: "none",
       }));
-    const ready = await navigator.serviceWorker.ready;
+    const ready = await FP2Realm.withTimeout(
+      navigator.serviceWorker.ready,
+      FP2Realm.remainingDeadlineMs(activationDeadline),
+      "service_worker_ready",
+    );
     const active = ready.active || registration.active;
     assertProtocol(!!active, "service_worker_active_missing");
-    const activeState = active.state;
-    assertProtocol(activeState === "activated", "service_worker_not_activated");
+    const activeState = await FP2Realm.waitForServiceWorkerActivation(
+      active,
+      activationDeadline,
+    );
     const scriptResponse = await fetch("/fp2/service-worker.js", {
       method: "GET",
       cache: "no-store",
@@ -347,7 +358,7 @@
       trace,
       "service-worker",
       "serviceWorkerEvidence",
-      () => serviceWorkerEvidence(),
+      () => serviceWorkerEvidence(input.serviceWorkerActivationDeadlineMs),
     );
     return FP2Realm.observeStage(
       trace,

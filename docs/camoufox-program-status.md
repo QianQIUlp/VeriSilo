@@ -556,3 +556,24 @@ browser process, profile or realm observation. A fresh runtime preflight receipt
 to the new runner checkpoint remains required before the formal A1 → A2 → B1 window.
 FP2 remains **Failed / Not Accepted**, its capability verdict remains unresolved, and
 FP3 remains **Closed**.
+
+### 2026-08-21 FP2 Gen4 ServiceWorker lifecycle semantic closure
+
+The Gen4 immutable `service_worker_not_activated` observation is reclassified as a
+confirmed probe lifecycle semantic defect: the probe treated `navigator.serviceWorker.ready`
+as an `active.state === "activated"` barrier. The ServiceWorker registration model permits
+the active worker to be `activating` after `ready` resolves, so the probe now waits for the
+existing worker's event-driven `statechange` within the unchanged 15-second realm-stage
+budget. Redundant, unexpected-state and activation-deadline paths are typed and preserve
+structured failure metadata. Controller/controlled-page checks remain a separate later step.
+
+The Host child mapping also no longer reads the undeclared `ProtocolError.detail` attribute;
+it preserves the exception message and then overlays the structured probe failure when one
+exists. No Artifact, candidate, applicability ledger, relation matrix, browser patch,
+timeout value, FP1 evidence or historical Gen1/Gen2/Gen3 evidence was changed.
+
+The updated probe manifest is bound to SHA-256
+`0d8ef3bb59ead08a2aac7f3753841b697922a08240e79968ec602ef14e1c4916`. No Gen5 claim was
+created and no browser was started by this closure. Gen4 remains **Failed / Not Accepted**;
+Managed Engine ServiceWorker capability remains unresolved pending a separately authorized
+future formal execution decision, and FP3 remains **Closed**.

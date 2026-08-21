@@ -173,6 +173,126 @@
     }
   }
 
+  function monotonicNow() {
+    if (global.performance && typeof global.performance.now === "function") {
+      return global.performance.now();
+    }
+    return Date.now();
+  }
+
+  function deadlineFromNow(milliseconds) {
+    const duration = Number(milliseconds);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      const error = new Error("service_worker_activation_deadline_invalid");
+      error.name = "ServiceWorkerLifecycleError";
+      throw error;
+    }
+    return monotonicNow() + duration;
+  }
+
+  function remainingDeadlineMs(deadline) {
+    const remaining = Number(deadline) - monotonicNow();
+    return Number.isFinite(remaining) ? Math.max(0, remaining) : 0;
+  }
+
+  function serviceWorkerLifecycleError(code, state) {
+    const suffix = state == null ? "" : `:${String(state)}`;
+    const error = new Error(`${code}${suffix}`);
+    error.name =
+      code === "service_worker_activation_timeout"
+        ? "ServiceWorkerActivationTimeout"
+        : "ServiceWorkerLifecycleError";
+    return error;
+  }
+
+  function waitForServiceWorkerActivation(worker, deadline) {
+    if (!worker || typeof worker.state !== "string") {
+      throw serviceWorkerLifecycleError("service_worker_active_missing");
+    }
+    const initialState = worker.state;
+    if (initialState === "activated") return Promise.resolve(initialState);
+    if (initialState === "redundant") {
+      throw serviceWorkerLifecycleError("service_worker_redundant", initialState);
+    }
+    if (initialState !== "activating") {
+      throw serviceWorkerLifecycleError(
+        "service_worker_unexpected_state",
+        initialState,
+      );
+    }
+    if (
+      typeof worker.addEventListener !== "function" ||
+      typeof worker.removeEventListener !== "function"
+    ) {
+      throw serviceWorkerLifecycleError(
+        "service_worker_statechange_unavailable",
+      );
+    }
+
+    const remaining = remainingDeadlineMs(deadline);
+    if (remaining <= 0) {
+      throw serviceWorkerLifecycleError("service_worker_activation_timeout");
+    }
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let timer;
+      const cleanup = () => {
+        worker.removeEventListener("statechange", onStateChange);
+        if (timer) clearTimeout(timer);
+      };
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback(value);
+      };
+      const inspectState = () => {
+        const state = worker.state;
+        if (state === "activated") {
+          finish(resolve, state);
+          return;
+        }
+        if (state === "redundant") {
+          finish(
+            reject,
+            serviceWorkerLifecycleError("service_worker_redundant", state),
+          );
+          return;
+        }
+        if (state !== "activating") {
+          finish(
+            reject,
+            serviceWorkerLifecycleError(
+              "service_worker_unexpected_state",
+              state,
+            ),
+          );
+        }
+      };
+      function onStateChange() {
+        inspectState();
+      }
+
+      timer = setTimeout(() => {
+        finish(
+          reject,
+          serviceWorkerLifecycleError(
+            "service_worker_activation_timeout",
+            worker.state,
+          ),
+        );
+      }, remaining);
+      try {
+        worker.addEventListener("statechange", onStateChange);
+        // The second read closes the statechange-listener installation race.
+        inspectState();
+      } catch (error) {
+        finish(reject, error);
+      }
+    });
+  }
+
   function normalizeBinaryView(value) {
     if (ArrayBuffer.isView(value)) return Array.from(value);
     if (Array.isArray(value)) return value.map(normalizeBinaryView);
@@ -979,5 +1099,8 @@
     collectWorkerRealm,
     observeHeaders,
     withTimeout,
+    deadlineFromNow,
+    remainingDeadlineMs,
+    waitForServiceWorkerActivation,
   };
 })(globalThis);

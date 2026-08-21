@@ -260,6 +260,13 @@ def probe_failure_detail(failure: dict[str, Any]) -> str:
     )
 
 
+def protocol_error_failure(exc: Any) -> dict[str, str]:
+    """Map Host ProtocolError without assuming an undeclared ``detail`` attribute."""
+    code = getattr(exc, "code", None)
+    require(isinstance(code, str) and bool(code), "protocol_error_invalid", "code")
+    return {"code": code, "detail": sanitize_probe_failure_text(str(exc))}
+
+
 def safe_stage_trace(stages: Any) -> list[dict[str, Any]]:
     if not isinstance(stages, list):
         return []
@@ -1695,6 +1702,7 @@ class FP2ManagedHost(host_module.CamoufoxHost):
             "fontInputSha256": hash_value(fonts),
             "bundleManifestSha256": self.fp2_bundle_manifest_sha256,
             "bundleFiles": load_probe_manifest()[0]["files"],
+            "serviceWorkerActivationDeadlineMs": REALM_STAGE_DEADLINE_SECONDS * 1000,
         }
         stage = self._stage_start("realm_matrix")
         await asyncio.wait_for(
@@ -1910,7 +1918,7 @@ async def run_child_session(args: argparse.Namespace) -> int:
     except FP2Failure as exc:
         failure = {"code": exc.code, "detail": exc.detail}
     except host_module.ProtocolError as exc:
-        failure = {"code": exc.code, "detail": exc.detail}
+        failure = protocol_error_failure(exc)
         if host is not None and host.fp2_failure is not None:
             failure.update(host.fp2_failure)
             failure["detail"] = probe_failure_detail(host.fp2_failure)

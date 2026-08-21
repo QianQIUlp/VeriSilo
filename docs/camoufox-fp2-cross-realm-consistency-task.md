@@ -75,6 +75,53 @@ Canvas window-family 使用同一绘图场景并分别记录 raw、raw RGBA、de
 
 ServiceWorker 必须在 A1 首次注册并 activated，记录 script path/SHA/scope/controller 或受控页面与 MessageChannel evidence；A2 新 Host/同一 `fp2-a` 必须复用 registration 且 evidence 稳定；B1 fresh `fp2-b` 不得继承 A 的 registration、Cookie 或 LocalStorage。
 
+### ServiceWorker activation lifecycle semantic closure
+
+`navigator.serviceWorker.ready` 只建立 registration 存在 non-null active worker 的
+barrier；registration 的 `active` worker 可以先处于 `activating`，再通过
+`statechange` 到达 `activated`。因此 probe 不得把 `ready` 的 resolve 直接当作
+`active.state === "activated"` 的证明。
+
+FP2 ServiceWorker evidence 现在保持同一个 registration、script、scope、controller/
+controlled-page 和 MessageChannel 合同，并在既有 `REALM_STAGE_DEADLINE_SECONDS = 15`
+的 activation/stage budget 内按以下状态机运行：
+
+```text
+ready returned
+→ active missing: service_worker_active_missing
+→ active.state == activated: continue
+→ active.state == activating: install statechange listener, re-read state, await activated
+→ activating → redundant: service_worker_redundant
+→ deadline exhausted: service_worker_activation_timeout
+→ other state: service_worker_unexpected_state:<state>
+```
+
+等待只监听已经开始的 `statechange` 转换，并在 listener 安装后再次读取 state 以
+关闭 event race；不重新 register、不 sleep、不 retry、不 reload，也不扩大既有
+timeout。`activated` 仍不等于当前页面受控，controller 或受控页面检查保持为后续
+独立步骤。
+
+本闭包的语义审计为：
+
+```json
+{
+  "probeSemanticChange": true,
+  "measurementContractCorrection": "ready is not an activated barrier",
+  "observabilityChange": true,
+  "unchanged": [
+    "realm surfaces",
+    "collector order outside ServiceWorker activation barrier",
+    "Canvas scene",
+    "HTTP request shape",
+    "Artifact mapping",
+    "applicability",
+    "relation matrix",
+    "frozen timeout value",
+    "controller/controlled-page contract"
+  ]
+}
+```
+
 ## 冻结账本与 timeout
 
 运行前固定并哈希：

@@ -29,8 +29,8 @@
     },
     {
       "path": "realm-common.js",
-      "sha256": "6e1a540cc145d61292151ccf0da35389f6ea2185e1c0a831fd9c80db5ad63629",
-      "size": 30250
+      "sha256": "3273b2866c117848ba73e111f8e0ae144eed150fcabb2b32cbb11a47e964e94c",
+      "size": 33886
     },
     {
       "path": "service-worker.js",
@@ -49,8 +49,8 @@
     },
     {
       "path": "top.js",
-      "sha256": "5c1519002f17d42427a1e30221183edcc64a4242cf9c5cd8987acada24eb00be",
-      "size": 15534
+      "sha256": "67eb9a43e52e58159a00a6b30d582a1ae65c4d1522dee361209d983f973189dc",
+      "size": 15944
     }
   ]
 }

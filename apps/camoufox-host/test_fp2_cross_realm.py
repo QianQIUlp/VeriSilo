@@ -516,6 +516,16 @@ class FP2NoBrowserTests(unittest.TestCase):
         self.assertEqual(summary["failure"]["operation"], "identityCanvas")
         self.assertEqual(summary["stageTrace"][-1]["status"], "error")
 
+    def test_protocol_error_mapping_does_not_require_detail_attribute(self) -> None:
+        error = fp2.host_module.ProtocolError(
+            "realm_probe_failed",
+            "top-window:service-worker:serviceWorkerEvidence:Error: service_worker_redundant",
+        )
+        mapped = fp2.protocol_error_failure(error)
+        self.assertEqual(mapped["code"], "realm_probe_failed")
+        self.assertIn("service_worker_redundant", mapped["detail"])
+        self.assertNotIn("AttributeError", mapped["detail"])
+
     def test_js_failure_observability_and_top_probe_propagation(self) -> None:
         script = r'''
 const fs = require("fs");
@@ -588,6 +598,196 @@ vm.runInContext(fs.readFileSync(path.join(root, "tests/fingerprint-probe/fp2/rea
         self.assertEqual(top_failure["errorMessage"], "abc")
         self.assertFalse(top_failure["probeCompleted"])
 
+    def test_service_worker_activation_state_machine_is_event_driven(self) -> None:
+        script = r'''
+const fs = require("fs");
+const path = require("path");
+const vm = require("vm");
+const { performance } = require("perf_hooks");
+const root = process.cwd();
+const context = {
+  Promise,
+  Error,
+  TextEncoder,
+  setTimeout,
+  clearTimeout,
+  performance,
+  console,
+};
+context.globalThis = context;
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(root, "tests/fingerprint-probe/fp2/realm-common.js"), "utf8"), context);
+
+class FakeWorker {
+  constructor(state, onAdd = null) {
+    this.state = state;
+    this.listeners = new Set();
+    this.onAdd = onAdd;
+  }
+
+  addEventListener(type, listener) {
+    if (type !== "statechange") throw new Error("unexpected_event");
+    this.listeners.add(listener);
+    if (this.onAdd) {
+      const callback = this.onAdd;
+      this.onAdd = null;
+      callback(this);
+    }
+  }
+
+  removeEventListener(type, listener) {
+    if (type === "statechange") this.listeners.delete(listener);
+  }
+
+  setState(state) {
+    this.state = state;
+    for (const listener of [...this.listeners]) listener();
+  }
+}
+
+async function capture(factory) {
+  try {
+    return { ok: true, value: await factory() };
+  } catch (error) {
+    return {
+      ok: false,
+      name: error.name,
+      message: error.message,
+      failure: error.__fp2Failure || null,
+    };
+  }
+}
+
+(async () => {
+  const immediate = await context.FP2Realm.waitForServiceWorkerActivation(
+    new FakeWorker("activated"),
+    context.FP2Realm.deadlineFromNow(100),
+  );
+
+  const transitioningWorker = new FakeWorker("activating");
+  setTimeout(() => transitioningWorker.setState("activated"), 5);
+  const transitioning = await context.FP2Realm.waitForServiceWorkerActivation(
+    transitioningWorker,
+    context.FP2Realm.deadlineFromNow(100),
+  );
+
+  const listenerRace = await context.FP2Realm.waitForServiceWorkerActivation(
+    new FakeWorker("activating", (worker) => {
+      // Transition exactly during listener installation; the helper's second
+      // state read must observe this even if the event itself was missed.
+      worker.state = "activated";
+    }),
+    context.FP2Realm.deadlineFromNow(100),
+  );
+
+  const controller = null;
+  const activatedWithoutController = await context.FP2Realm.waitForServiceWorkerActivation(
+    new FakeWorker("activated"),
+    context.FP2Realm.deadlineFromNow(100),
+  );
+
+  const redundantWorker = new FakeWorker("activating");
+  const redundantPromise = context.FP2Realm.waitForServiceWorkerActivation(
+    redundantWorker,
+    context.FP2Realm.deadlineFromNow(100),
+  );
+  setTimeout(() => redundantWorker.setState("redundant"), 5);
+  const redundantTransition = await capture(() => redundantPromise);
+
+  const timeout = await capture(() =>
+    context.FP2Realm.waitForServiceWorkerActivation(
+      new FakeWorker("activating"),
+      context.FP2Realm.deadlineFromNow(15),
+    ),
+  );
+
+  const unexpected = await capture(() =>
+    context.FP2Realm.waitForServiceWorkerActivation(
+      new FakeWorker("installed"),
+      context.FP2Realm.deadlineFromNow(100),
+    ),
+  );
+
+  const tracker = context.FP2Realm.createStageTracker("top-window");
+  const propagated = await capture(() =>
+    context.FP2Realm.observeStage(
+      tracker,
+      "service-worker",
+      "serviceWorkerEvidence",
+      () =>
+        context.FP2Realm.waitForServiceWorkerActivation(
+          new FakeWorker("activating"),
+          context.FP2Realm.deadlineFromNow(15),
+        ),
+    ),
+  );
+
+  process.stdout.write(JSON.stringify({
+    immediate,
+    transitioning,
+    listenerRace,
+    controller,
+    activatedWithoutController,
+    redundantTransition,
+    timeout,
+    unexpected,
+    propagated,
+  }));
+})().catch((error) => {
+  process.stderr.write(String(error));
+  process.exitCode = 1;
+});
+'''
+        result = subprocess.run(
+            ["node", "-e", script],
+            cwd=fp2.REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["immediate"], "activated")
+        self.assertEqual(payload["transitioning"], "activated")
+        self.assertEqual(payload["listenerRace"], "activated")
+        self.assertIsNone(payload["controller"])
+        self.assertEqual(payload["activatedWithoutController"], "activated")
+        redundant = payload["redundantTransition"]
+        self.assertFalse(redundant["ok"])
+        self.assertEqual(redundant["name"], "ServiceWorkerLifecycleError")
+        self.assertIn("service_worker_redundant:redundant", redundant["message"])
+        timeout = payload["timeout"]
+        self.assertFalse(timeout["ok"])
+        self.assertEqual(timeout["name"], "ServiceWorkerActivationTimeout")
+        self.assertEqual(timeout["message"], "service_worker_activation_timeout:activating")
+        unexpected = payload["unexpected"]
+        self.assertFalse(unexpected["ok"])
+        self.assertIn("service_worker_unexpected_state:installed", unexpected["message"])
+        propagated = payload["propagated"]
+        self.assertFalse(propagated["ok"])
+        self.assertEqual(propagated["failure"]["stage"], "service-worker")
+        self.assertEqual(propagated["failure"]["operation"], "serviceWorkerEvidence")
+        self.assertEqual(propagated["failure"]["errorName"], "ServiceWorkerActivationTimeout")
+        self.assertEqual(
+            propagated["failure"]["errorMessage"],
+            "service_worker_activation_timeout:activating",
+        )
+
+    def test_service_worker_activation_deadline_is_wired_without_timeout_change(self) -> None:
+        top_source = (fp2.BUNDLE_DIR / "top.js").read_text(encoding="utf-8")
+        runner_source = (fp2.HOST_DIR / "fp2_cross_realm.py").read_text(encoding="utf-8")
+        self.assertEqual(fp2.REALM_STAGE_DEADLINE_SECONDS, 15)
+        self.assertIn(
+            "serviceWorkerEvidence(input.serviceWorkerActivationDeadlineMs)",
+            top_source,
+        )
+        self.assertIn(
+            '"serviceWorkerActivationDeadlineMs": REALM_STAGE_DEADLINE_SECONDS * 1000',
+            runner_source,
+        )
+        self.assertNotIn("service_worker_not_activated", top_source)
+        self.assertNotIn('activeState === "activated"', top_source)
+
     def test_structured_failure_is_closed_by_report_adjudication_and_byte_receipt(self) -> None:
         failure = {"code": "realm_probe_failed", "detail": "synthetic", **self.probe_failure(stage="headerRequest", operation="observeHeaders", message="abc")}
         with tempfile.TemporaryDirectory(prefix="fp2-observability-finalization-") as folder:
@@ -628,7 +828,7 @@ vm.runInContext(fs.readFileSync(path.join(root, "tests/fingerprint-probe/fp2/rea
         self.assertEqual(fp2.GENERATION3_CLAIM_PATH.name, "fp2-v3-one-shot-claim.json")
         self.assertNotEqual(fp2.GLOBAL_CLAIM_PATH, fp2.GENERATION3_CLAIM_PATH)
         self.assertEqual(fp2.CLAIM_SCHEMA, "verisilo-camoufox-fp2-one-shot-claim/v4")
-        self.assertEqual(self.manifest_sha256, "b4be8f80d56621b817b351ccb12d51d8b04eeafe6d9bc26d6e03c144799e621c")
+        self.assertEqual(self.manifest_sha256, "bfd01862d525fff42be19ac6fcc73a561462324a4a79b370dde9e9deb438c451")
         self.assertEqual(fp2.sha256_file(fp2.APPLICABILITY_PATH), "f6d51d4e3234fec9677e65c996933131519c96fa4c739890bc67a249cca2ef63")
         self.assertEqual(fp2.sha256_file(fp2.RELATION_PATH), "4741c0c443c4ac3032e634a3e4b7892820843c19b5b6574dbe2973dfb79e9342")
 
