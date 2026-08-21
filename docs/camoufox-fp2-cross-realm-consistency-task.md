@@ -1,7 +1,7 @@
 # VeriSilo Managed Fingerprint FP2 — Cross-Realm Consistency
 
-- 状态：**FP2 generation 1 blocked / generation 2 failed on HTTP harness / generation 3 harness closure in progress / claim not created**
-- task version：generation 1 `fp2-v1`；generation 2 execution package `fp2-v2`；generation 3 execution package `fp2-v3`
+- 状态：**FP2 generation 1 blocked / generation 2 failed on HTTP harness / generation 3 failed on insufficient historical failure evidence / generation 4 execution package frozen / claim not created**
+- task version：generation 1 `fp2-v1`；generation 2 execution package `fp2-v2`；generation 3 execution package `fp2-v3`；generation 4 execution package `fp2-v4`
 - execution boundary：本文件、独立 `tests/fingerprint-probe/fp2/` bundle、纯比较/runner 与 gitignored FP2 evidence
 - `verified`：始终为 `false`
 
@@ -291,6 +291,31 @@ Generation-1/2/3 evidence remains bound to its own historical probe hashes; none
 rewritten. The new manifest is only a future execution-package binding.
 
 No browser was started by this closure and no generation-4 claim was created.
-Generation 4 remains closed pending a separate main-brain decision; FP2 remains
-`Failed / Not Accepted`, its capability verdict remains unresolved, and FP3 remains
-closed.
+At that historical closure checkpoint, Generation 4 remained closed pending a separate
+main-brain decision; FP2 remained `Failed / Not Accepted`, its capability verdict
+remained unresolved, and FP3 remained closed.
+
+## Generation-4 execution package freeze
+
+The main brain has authorized generation 4 after accepting the generation-3 failure
+observability closure. This no-browser closure aligns the executable runner with that
+authorization without changing FP2 measurement semantics:
+
+```text
+executionGeneration: 4
+taskVersion: fp2-v4
+claimPath: artifacts/camoufox-fp2/fp2-v4-one-shot-claim.json
+claimSchema: verisilo-camoufox-fp2-one-shot-claim/v4
+```
+
+The generation-1, generation-2 and generation-3 claims remain separate immutable
+history. Generation-4 claim creation verifies each historical claim's exact SHA-256,
+identity and preserved failed/blocked classification before any new claim can be
+created. The generation-3 claim and report are also checked as the formal failed run
+with zero valid realm observations and zero header captures.
+
+The probe bundle, applicability ledger, relation matrix, candidate, Artifact A/B,
+13-key mapping, timeouts and browser engine are unchanged. This package freeze creates
+no claim, browser process, profile or realm observation; a fresh runtime preflight
+receipt bound to the new runner checkpoint is required before the generation-4 claim
+Gate can proceed.

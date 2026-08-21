@@ -607,14 +607,78 @@ vm.runInContext(fs.readFileSync(path.join(root, "tests/fingerprint-probe/fp2/rea
             fp2.validate_hash_sidecar(artifacts["adjudicationPath"], root / "final-offline-adjudication.sha256")
             fp2.validate_hash_sidecar(artifacts["closurePath"], root / "byte-closure-receipt.sha256")
 
-    def test_generation3_preserves_generation1_and_generation2_attempts(self) -> None:
+    def test_generation4_preserves_all_historical_attempts(self) -> None:
         attempts = fp2.previous_execution_attempts()
-        self.assertEqual(set(attempts), {"generation1", "generation2"})
+        self.assertEqual(set(attempts), {"generation1", "generation2", "generation3"})
         self.assertEqual(attempts["generation1"]["claimSha256"], fp2.PREVIOUS_BLOCKED_CLAIM_SHA256)
         self.assertEqual(attempts["generation2"]["claimSha256"], fp2.GENERATION2_CLAIM_SHA256)
+        self.assertEqual(attempts["generation3"]["claimSha256"], fp2.GENERATION3_CLAIM_SHA256)
         self.assertTrue(attempts["generation2"]["browserLaunched"])
         self.assertEqual(attempts["generation2"]["validRealmObservations"], 0)
         self.assertEqual(attempts["generation2"]["headerCaptureCount"], 0)
+        self.assertTrue(attempts["generation3"]["browserLaunched"])
+        self.assertEqual(attempts["generation3"]["validRealmObservations"], 0)
+        self.assertEqual(attempts["generation3"]["headerCaptureCount"], 0)
+        self.assertEqual(attempts["generation3"]["classification"], "gen3_failure_evidence_insufficient")
+
+    def test_generation4_package_metadata_and_bindings(self) -> None:
+        self.assertEqual(fp2.EXECUTION_GENERATION, 4)
+        self.assertEqual(fp2.TASK_VERSION, "fp2-v4")
+        self.assertEqual(fp2.GLOBAL_CLAIM_PATH.name, "fp2-v4-one-shot-claim.json")
+        self.assertEqual(fp2.GENERATION3_CLAIM_PATH.name, "fp2-v3-one-shot-claim.json")
+        self.assertNotEqual(fp2.GLOBAL_CLAIM_PATH, fp2.GENERATION3_CLAIM_PATH)
+        self.assertEqual(fp2.CLAIM_SCHEMA, "verisilo-camoufox-fp2-one-shot-claim/v4")
+        self.assertEqual(self.manifest_sha256, "b4be8f80d56621b817b351ccb12d51d8b04eeafe6d9bc26d6e03c144799e621c")
+        self.assertEqual(fp2.sha256_file(fp2.APPLICABILITY_PATH), "f6d51d4e3234fec9677e65c996933131519c96fa4c739890bc67a249cca2ef63")
+        self.assertEqual(fp2.sha256_file(fp2.RELATION_PATH), "4741c0c443c4ac3032e634a3e4b7892820843c19b5b6574dbe2973dfb79e9342")
+
+    def test_generation_history_hash_mismatch_fails_closed(self) -> None:
+        cases = (
+            ("LEGACY_CLAIM_PATH", "previous_blocked_attempt", "previous_blocked_claim_hash_mismatch"),
+            ("GENERATION2_CLAIM_PATH", "previous_generation2_attempt", "previous_generation2_claim_hash_mismatch"),
+            ("GENERATION3_CLAIM_PATH", "previous_generation3_attempt", "previous_generation3_claim_hash_mismatch"),
+        )
+        for path_name, function_name, expected_code in cases:
+            with self.subTest(path=path_name):
+                with tempfile.TemporaryDirectory(prefix="fp2-history-mismatch-") as folder:
+                    tampered = Path(folder) / "claim.json"
+                    tampered.write_bytes(Path(getattr(fp2, path_name)).read_bytes() + b"\n")
+                    with patch.object(fp2, path_name, tampered):
+                        self.assertCode(expected_code, getattr(fp2, function_name))
+
+    def test_generation4_claim_path_rejects_second_claim(self) -> None:
+        result = self.runtime_preflight_result()
+        previous = fp2.previous_execution_attempts()
+        with tempfile.TemporaryDirectory(dir=fp2.FP2_EVIDENCE_ROOT) as folder:
+            root = Path(folder)
+            receipt = root / "runtime-preflight-receipt.json"
+            receipt.write_text("{}\n", encoding="utf-8")
+            result["receiptPath"] = fp2.relative_repo_path(receipt)
+            result["receiptSha256"] = fp2.sha256_file(receipt)
+            run_dir = root / "run"
+            run_dir.mkdir()
+            claim_path = root / fp2.GLOBAL_CLAIM_PATH.name
+            claim_path.write_text("existing-gen4-claim\n", encoding="utf-8")
+            original = claim_path.read_bytes()
+            with patch.object(fp2, "GLOBAL_CLAIM_PATH", claim_path):
+                self.assertCode(
+                    "one_shot_claim_already_exists",
+                    fp2.create_claim,
+                    run_id="test-generation4-duplicate",
+                    run_dir=run_dir,
+                    port=fp2.DEFAULT_RUN_PORT,
+                    git={"branch": "test", "head": "0" * 40, "tree": "0" * 40, "upstream": {}, "trackedWorktreeClean": True},
+                    candidate={},
+                    artifacts={},
+                    probe_manifest_sha256="0" * 64,
+                    applicability_sha256="0" * 64,
+                    relation_sha256="0" * 64,
+                    static_diff_sha256="0" * 64,
+                    no_browser_test_sha256="0" * 64,
+                    runtime_preflight=result,
+                    previous_blocked_attempt=previous,
+                )
+            self.assertEqual(claim_path.read_bytes(), original)
 
     def test_service_worker_script_scope_mismatch(self) -> None:
         raw = self.make_session(self.artifact_a, self.artifact_a_info, "A1", "A")["rawRealms"]
@@ -694,6 +758,8 @@ vm.runInContext(fs.readFileSync(path.join(root, "tests/fingerprint-probe/fp2/rea
     def test_runtime_preflight_source_precedes_claim_creation(self) -> None:
         source = inspect.getsource(fp2.orchestrate)
         self.assertLess(source.index("run_runtime_preflight("), source.index("create_claim("))
+        self.assertEqual(source.count("run_runtime_preflight("), 1)
+        self.assertIn("generation-4", source)
 
     def runtime_preflight_result(self, *, boundary: dict | None = None) -> dict:
         interpreter = fp2.resolve_runtime_interpreter()
@@ -784,6 +850,10 @@ vm.runInContext(fs.readFileSync(path.join(root, "tests/fingerprint-probe/fp2/rea
 
     def test_successful_preflight_is_bound_before_claim_creation(self) -> None:
         result = self.runtime_preflight_result()
+        historical_claims = {
+            path: fp2.sha256_file(path)
+            for path in (fp2.LEGACY_CLAIM_PATH, fp2.GENERATION2_CLAIM_PATH, fp2.GENERATION3_CLAIM_PATH)
+        }
         with tempfile.TemporaryDirectory(dir=fp2.FP2_EVIDENCE_ROOT) as folder:
             root = Path(folder)
             receipt = root / "runtime-preflight-receipt.json"
@@ -791,14 +861,7 @@ vm.runInContext(fs.readFileSync(path.join(root, "tests/fingerprint-probe/fp2/rea
             result["receiptPath"] = fp2.relative_repo_path(receipt)
             result["receiptSha256"] = fp2.sha256_file(receipt)
             claim_path = root / "claim.json"
-            previous = {
-                "claimPath": "artifacts/camoufox-fp2/fp2-v1-one-shot-claim.json",
-                "claimSha256": fp2.PREVIOUS_BLOCKED_CLAIM_SHA256,
-                "run": fp2.PREVIOUS_BLOCKED_RUN_ID,
-                "browserObservations": 0,
-                "classification": fp2.PREVIOUS_BLOCKED_CLASSIFICATION,
-                "reasonForReauthorization": fp2.PREVIOUS_BLOCKED_REASON,
-            }
+            previous = fp2.previous_execution_attempts()
             with patch.object(fp2, "GLOBAL_CLAIM_PATH", claim_path):
                 claim, _ = fp2.create_claim(
                     run_id="test-success",
@@ -816,10 +879,16 @@ vm.runInContext(fs.readFileSync(path.join(root, "tests/fingerprint-probe/fp2/rea
                     previous_blocked_attempt=previous,
                 )
             self.assertTrue(claim_path.exists())
-            self.assertEqual(claim["executionGeneration"], 3)
+            self.assertEqual(claim["executionGeneration"], 4)
+            self.assertEqual(claim["taskVersion"], "fp2-v4")
+            self.assertEqual(claim["schema"], "verisilo-camoufox-fp2-one-shot-claim/v4")
             self.assertEqual(claim["previousBlockedAttempt"]["browserObservations"], 0)
             self.assertEqual(claim["previousAttempts"]["generation1"]["browserObservations"], 0)
+            self.assertEqual(claim["previousAttempts"]["generation2"]["claimSha256"], fp2.GENERATION2_CLAIM_SHA256)
+            self.assertEqual(claim["previousAttempts"]["generation3"]["claimSha256"], fp2.GENERATION3_CLAIM_SHA256)
             self.assertEqual(claim["runtime"]["interpreterSha256"], result["runtimeBinding"]["interpreterSha256"])
+            for path, digest in historical_claims.items():
+                self.assertEqual(fp2.sha256_file(path), digest)
 
     def test_runtime_environment_cannot_switch_after_preflight(self) -> None:
         result = self.runtime_preflight_result()

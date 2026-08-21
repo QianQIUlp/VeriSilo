@@ -57,7 +57,8 @@ EXECUTABLE_PATH = BROWSER_ROOT / "camoufox.exe"
 FP2_EVIDENCE_ROOT = REPO_ROOT / "artifacts" / "camoufox-fp2"
 LEGACY_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v1-one-shot-claim.json"
 GENERATION2_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v2-one-shot-claim.json"
-GLOBAL_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v3-one-shot-claim.json"
+GENERATION3_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v3-one-shot-claim.json"
+GLOBAL_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v4-one-shot-claim.json"
 GLOBAL_LOCK_NAME = "fp2-v1-browser-global.lock"
 RUNTIME_INTERPRETER_RELATIVE = Path("apps/camoufox-host/.venv/Scripts/python.exe")
 EXPECTED_RUNTIME_PYTHON_VERSION = "3.12.13"
@@ -70,7 +71,7 @@ EXPECTED_RUNTIME_DEPENDENCY_VERSIONS = {
 RUNTIME_PREFLIGHT_WATCHDOG_SECONDS = 30
 RUNTIME_PREFLIGHT_SCHEMA = "verisilo-camoufox-fp2-runtime-preflight/v1"
 RUNTIME_PREFLIGHT_CHILD_SCHEMA = "verisilo-camoufox-fp2-runtime-preflight-child/v1"
-EXECUTION_GENERATION = 3
+EXECUTION_GENERATION = 4
 PREVIOUS_BLOCKED_CLAIM_SHA256 = "e77204a09d9dfdbdf7d6c3b00a96114f477fd5b93d01c7fa6a7fd3dd71b28402"
 PREVIOUS_BLOCKED_RUN_ID = "fp2-20260820T121344Z-470b08fdb9"
 PREVIOUS_BLOCKED_CLASSIFICATION = "pre-browser-runtime-dependency-block"
@@ -82,10 +83,18 @@ GENERATION2_RUN_ID = "fp2-20260821T053550Z-9f98de991d"
 GENERATION2_REPORT_SHA256 = "d0dd41195134686527567586734929d7a13ed54ab647247d6e8f1d253095352b"
 GENERATION2_CLASSIFICATION = "harness-http-capture-failure"
 GENERATION2_REASON = "generation-2 formal execution failed before any valid realm observation because the HTTP evidence handler crashed"
+GENERATION3_CLAIM_SHA256 = "0cf358045f86257af3126eb27b8f21f8df254984ee8c1fe91f6f79bbe44e09c7"
+GENERATION3_RUN_ID = "fp2-20260821T055448Z-8f6b69c851"
+GENERATION3_REPORT_SHA256 = "4e8fcfde029764c87c44069a3024c877d9d35fd61f38a6d98252ae6d5339b95c"
+GENERATION3_CLASSIFICATION = "gen3_failure_evidence_insufficient"
+GENERATION3_REASON = (
+    "generation-3 formal execution failed inside top-level realm collection before any valid realm observation; "
+    "the old probe discarded stage, operation and error message"
+)
 
-TASK_VERSION = "fp2-v3"
-REPORT_SCHEMA = "verisilo-camoufox-fp2-cross-realm-run/v3"
-CLAIM_SCHEMA = "verisilo-camoufox-fp2-one-shot-claim/v3"
+TASK_VERSION = "fp2-v4"
+REPORT_SCHEMA = "verisilo-camoufox-fp2-cross-realm-run/v4"
+CLAIM_SCHEMA = "verisilo-camoufox-fp2-one-shot-claim/v4"
 ADJUDICATION_SCHEMA = "verisilo-camoufox-fp2-offline-adjudication/v1"
 CANONICAL_REALMS = (
     "top-window",
@@ -2101,10 +2110,55 @@ def previous_generation2_attempt() -> dict[str, Any]:
     }
 
 
+def previous_generation3_attempt() -> dict[str, Any]:
+    require(GENERATION3_CLAIM_PATH.is_file(), "previous_generation3_claim_missing", GENERATION3_CLAIM_PATH.as_posix())
+    require(sha256_file(GENERATION3_CLAIM_PATH) == GENERATION3_CLAIM_SHA256, "previous_generation3_claim_hash_mismatch", GENERATION3_CLAIM_PATH.name)
+    claim = strict_json(GENERATION3_CLAIM_PATH, GENERATION3_CLAIM_PATH.as_posix())
+    require(
+        isinstance(claim, dict)
+        and claim.get("runId") == GENERATION3_RUN_ID
+        and claim.get("taskVersion") == "fp2-v3"
+        and claim.get("executionGeneration") == 3,
+        "previous_generation3_claim_mismatch",
+        "identity",
+    )
+    run_evidence_path = claim.get("runEvidencePath")
+    require(
+        isinstance(run_evidence_path, str)
+        and ".." not in Path(run_evidence_path).parts
+        and not Path(run_evidence_path).is_absolute(),
+        "previous_generation3_claim_mismatch",
+        "runEvidencePath",
+    )
+    previous_report_path = REPO_ROOT / Path(run_evidence_path) / "run-report.json"
+    require(previous_report_path.is_file(), "previous_generation3_report_missing", previous_report_path.name)
+    require(sha256_file(previous_report_path) == GENERATION3_REPORT_SHA256, "previous_generation3_report_hash_mismatch", previous_report_path.name)
+    validate_hash_sidecar(previous_report_path, previous_report_path.with_name("run-report.sha256"))
+    previous_report = strict_json(previous_report_path, previous_report_path.as_posix())
+    require(previous_report.get("status") == "failed" and previous_report.get("verified") is False, "previous_generation3_report_mismatch")
+    matrix = previous_report.get("matrix")
+    require(isinstance(matrix, list) and len(matrix) == 1 and matrix[0].get("label") == "A1", "previous_generation3_observation_mismatch")
+    require((matrix[0].get("files") or {}).get("rawRealms") is None, "previous_generation3_observation_mismatch")
+    require(matrix[0].get("headerCaptureCount") == 0, "previous_generation3_observation_mismatch")
+    require((previous_report.get("failure") or {}).get("code") == "realm_probe_failed", "previous_generation3_report_mismatch")
+    return {
+        "claimPath": relative_repo_path(GENERATION3_CLAIM_PATH),
+        "claimSha256": GENERATION3_CLAIM_SHA256,
+        "run": GENERATION3_RUN_ID,
+        "browserLaunched": True,
+        "validRealmObservations": 0,
+        "headerCaptureCount": 0,
+        "classification": GENERATION3_CLASSIFICATION,
+        "rootCauseAdjudication": "blocked / gen3_failure_evidence_insufficient",
+        "reasonForReauthorization": GENERATION3_REASON,
+    }
+
+
 def previous_execution_attempts() -> dict[str, dict[str, Any]]:
     return {
         "generation1": previous_blocked_attempt(),
         "generation2": previous_generation2_attempt(),
+        "generation3": previous_generation3_attempt(),
     }
 
 
@@ -3157,6 +3211,8 @@ def tracked_evidence_references(
 ) -> list[dict[str, Any]]:
     references = [
         tracked_reference(LEGACY_CLAIM_PATH, "previous-blocked-claim"),
+        tracked_reference(GENERATION2_CLAIM_PATH, "previous-failed-claim"),
+        tracked_reference(GENERATION3_CLAIM_PATH, "previous-failed-claim"),
         tracked_reference(ARTIFACT_A_PATH, "artifact-input"),
         tracked_reference(ARTIFACT_A_PATH.with_name(ARTIFACT_A_PATH.name + ".sha256"), "artifact-sidecar"),
         tracked_reference(ARTIFACT_B_PATH, "artifact-input"),
@@ -3190,7 +3246,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--child-session", action="store_true")
     parser.add_argument("--runtime-preflight-child", action="store_true")
-    parser.add_argument("--execute-browser-matrix", action="store_true", help="Run generation-3 A1 -> A2 -> B1 after preflight; default is no-browser preflight only.")
+    parser.add_argument("--execute-browser-matrix", action="store_true", help="Run generation-4 A1 -> A2 -> B1 after preflight; default is no-browser preflight only.")
     parser.add_argument("--run-port", type=int, default=DEFAULT_RUN_PORT)
     parser.add_argument("--label")
     parser.add_argument("--artifact-root")
@@ -3246,7 +3302,7 @@ def require_runtime_preflight_args(args: argparse.Namespace) -> None:
 
 
 def orchestrate(args: argparse.Namespace) -> int:
-    """Run generation-3 preflight; browser execution requires an explicit flag."""
+    """Run generation-4 preflight; browser execution requires an explicit flag."""
 
     try:
         git = git_preflight()
@@ -3275,7 +3331,7 @@ def orchestrate(args: argparse.Namespace) -> int:
         return 1
 
     if not args.execute_browser_matrix:
-        print("runtime-preflight-closure-passed-awaiting-generation-3-authorization")
+        print("runtime-preflight-closure-passed-awaiting-generation-4-execution")
         return 0
 
     run_id = f"fp2-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"

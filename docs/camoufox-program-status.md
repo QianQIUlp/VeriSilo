@@ -528,6 +528,31 @@ manifest SHA was
 `95e27ceb55e687841dd13398b869bc8709d2edef845ca4584cfadd5b3c5370cc`.
 
 No browser was started and no generation-4 claim was created during this closure.
-No generation-4 execution is authorized by this update. FP2 remains **Failed / Not
-Accepted**, Managed Engine cross-realm capability remains unresolved, and FP3 remains
-**Closed**.
+At that historical closure checkpoint, no generation-4 execution was authorized by
+that update. FP2 remained **Failed / Not Accepted**, Managed Engine cross-realm
+capability remained unresolved, and FP3 remained **Closed**.
+
+### 2026-08-21 FP2 generation-4 execution package freeze
+
+The main brain subsequently authorized generation 4. This no-browser implementation
+closure only aligns the executable package with that authorization:
+
+```text
+executionGeneration: 4
+taskVersion: fp2-v4
+claimPath: artifacts/camoufox-fp2/fp2-v4-one-shot-claim.json
+claimSchema: verisilo-camoufox-fp2-one-shot-claim/v4
+```
+
+The runner now verifies the exact SHA-256 and identity of the immutable generation-1,
+generation-2 and generation-3 claims before creating a generation-4 claim. Generation
+3 is additionally checked against its preserved failed report: `realm_probe_failed`,
+zero valid realm observations and zero header captures. The generation-1/2/3 claim and
+report bytes are not rewritten.
+
+No probe, Artifact, candidate, applicability ledger, relation matrix, timeout, browser
+patch or comparator semantics changed. This checkpoint creates no generation-4 claim,
+browser process, profile or realm observation. A fresh runtime preflight receipt bound
+to the new runner checkpoint remains required before the formal A1 → A2 → B1 window.
+FP2 remains **Failed / Not Accepted**, its capability verdict remains unresolved, and
+FP3 remains **Closed**.
