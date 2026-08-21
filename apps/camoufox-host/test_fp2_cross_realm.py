@@ -828,7 +828,7 @@ async function capture(factory) {
         self.assertEqual(fp2.GENERATION3_CLAIM_PATH.name, "fp2-v3-one-shot-claim.json")
         self.assertNotEqual(fp2.GLOBAL_CLAIM_PATH, fp2.GENERATION3_CLAIM_PATH)
         self.assertEqual(fp2.CLAIM_SCHEMA, "verisilo-camoufox-fp2-one-shot-claim/v4")
-        self.assertEqual(self.manifest_sha256, "bfd01862d525fff42be19ac6fcc73a561462324a4a79b370dde9e9deb438c451")
+        self.assertEqual(self.manifest_sha256, "d69e61c4da482c8cebaed912a6c24b57b73ac0c465a9fafd6a0be8dc974cfb37")
         self.assertEqual(fp2.sha256_file(fp2.APPLICABILITY_PATH), "f6d51d4e3234fec9677e65c996933131519c96fa4c739890bc67a249cca2ef63")
         self.assertEqual(fp2.sha256_file(fp2.RELATION_PATH), "4741c0c443c4ac3032e634a3e4b7892820843c19b5b6574dbe2973dfb79e9342")
 

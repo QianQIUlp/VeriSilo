@@ -212,7 +212,10 @@
     const initialState = worker.state;
     if (initialState === "activated") return Promise.resolve(initialState);
     if (initialState === "redundant") {
-      throw serviceWorkerLifecycleError("service_worker_redundant", initialState);
+      throw serviceWorkerLifecycleError(
+        "service_worker_redundant",
+        initialState,
+      );
     }
     if (initialState !== "activating") {
       throw serviceWorkerLifecycleError(

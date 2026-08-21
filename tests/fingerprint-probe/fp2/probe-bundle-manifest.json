@@ -29,8 +29,8 @@
     },
     {
       "path": "realm-common.js",
-      "sha256": "3273b2866c117848ba73e111f8e0ae144eed150fcabb2b32cbb11a47e964e94c",
-      "size": 33886
+      "sha256": "f7ef72152aa0e1c0b6d31a67042c152ad99fe6169dd0d9e439e70bb1d4376c22",
+      "size": 33911
     },
     {
       "path": "service-worker.js",

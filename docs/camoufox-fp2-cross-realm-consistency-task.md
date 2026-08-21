@@ -366,3 +366,41 @@ The probe bundle, applicability ledger, relation matrix, candidate, Artifact A/B
 no claim, browser process, profile or realm observation; a fresh runtime preflight
 receipt bound to the new runner checkpoint is required before the generation-4 claim
 Gate can proceed.
+
+## Generation-4 ServiceWorker lifecycle semantic closure
+
+The immutable generation-4 failure is preserved as a failed formal execution. Its first
+structured probe failure was `service_worker_not_activated` in the top-window
+`serviceWorkerEvidence` stage. Offline review established that the old probe treated
+`navigator.serviceWorker.ready` as an `active.state === "activated"` barrier. That is
+too strong: `ready` can resolve once a non-null active worker is assigned while the
+worker is still `activating`.
+
+The probe now waits for the existing worker's `statechange` within the unchanged
+15-second realm-stage deadline. The wait is event-driven, installs the listener before
+a second state read to close the listener-installation race, accepts `activated`, and
+fails explicitly for `redundant`, unexpected states, or deadline exhaustion. It does
+not re-register, sleep, retry, reload, or change the controller/controlled-page check;
+an activated worker and a controlled current page remain separate predicates.
+
+The Host mapping also preserves a structured probe failure without reading an
+undeclared `ProtocolError.detail` attribute. This closure changes the ServiceWorker
+lifecycle measurement semantics to match the required state machine and preserves the
+failure metadata path; it does not change the other realm surfaces, HTTP request shape,
+Artifact mapping, applicability ledger, relation matrix or timeout value. The semantic
+audit is:
+
+```json
+{
+  "probeSemanticChange": true,
+  "observabilityChange": true,
+  "measurementContractCorrection": "ready is not an activated barrier"
+}
+```
+
+The current probe bundle manifest SHA-256 is
+`d69e61c4da482c8cebaed912a6c24b57b73ac0c465a9fafd6a0be8dc974cfb37`. Historical
+generation-1/2/3 claims and evidence remain bound to their original probe hashes and
+are not rewritten. This no-browser closure created no generation-5 claim, browser
+process, profile or realm observation; generation 4 remains failed/not accepted and
+the Managed Engine capability remains unresolved pending main-brain adjudication.
