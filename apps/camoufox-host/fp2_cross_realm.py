@@ -122,6 +122,17 @@ BASELINE_TREE = "368ab4282e13ca7a640f772c80fc703007ceb692"
 PRIMARY_HOST = "127.0.0.1"
 SECONDARY_HOST = "localhost"
 DEFAULT_RUN_PORT = 18192
+TARGET_PROCESS_IMAGES = ("camoufox.exe", "verisilo-camoufox-supervisor.exe")
+POWERSHELL_PROCESS_ENUMERATION_SCRIPT = (
+    "$ErrorActionPreference = 'Stop'; "
+    "$names = @('camoufox', 'verisilo-camoufox-supervisor'); "
+    "$payload = [ordered]@{ processes = @( "
+    "Get-Process -ErrorAction Stop | "
+    "Where-Object { $names -contains $_.ProcessName } | "
+    "ForEach-Object { [ordered]@{ imageName = ($_.ProcessName + '.exe'); pid = [int]$_.Id } } "
+    ") }; "
+    "$payload | ConvertTo-Json -Compress"
+)
 BROWSER_OPERATION_DEADLINE_SECONDS = 3
 REALM_STAGE_DEADLINE_SECONDS = 15
 SESSION_WATCHDOG_SECONDS = 60
@@ -1276,11 +1287,9 @@ class FP2HTTPServer:
             self.secondary_thread.join(timeout=5)
 
 
-def target_processes() -> list[dict[str, Any]]:
-    if os.name != "nt":
-        return []
+def _enumerate_tasklist_processes() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for image_name in ("camoufox.exe", "verisilo-camoufox-supervisor.exe"):
+    for image_name in TARGET_PROCESS_IMAGES:
         result = subprocess.run(
             ["tasklist.exe", "/FI", f"IMAGENAME eq {image_name}", "/FO", "CSV", "/NH"],
             stdout=subprocess.PIPE,
@@ -1289,17 +1298,71 @@ def target_processes() -> list[dict[str, Any]]:
             check=False,
         )
         if result.returncode != 0:
-            fail("process_scan_failed", image_name)
+            fail("process_scan_backend_unavailable", "tasklist.exe")
         for row in csv.reader(result.stdout.splitlines()):
             if not row or row[0].startswith("INFO:") or row[0].lower() != image_name:
                 continue
             try:
                 pid = int(row[1])
             except (IndexError, ValueError) as exc:
-                fail("process_scan_failed", image_name)
+                fail("process_scan_backend_invalid", "tasklist.exe")
                 raise AssertionError from exc
             rows.append({"imageName": row[0], "pid": pid})
     return rows
+
+
+def _enumerate_powershell_processes() -> list[dict[str, Any]]:
+    failures: list[str] = []
+    for executable in ("powershell.exe", "pwsh.exe"):
+        try:
+            result = subprocess.run(
+                [executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", POWERSHELL_PROCESS_ENUMERATION_SCRIPT],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            failures.append(executable)
+            continue
+        if result.returncode != 0:
+            failures.append(executable)
+            continue
+        raw = result.stdout.strip()
+        if not raw:
+            return []
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            failures.append(executable)
+            continue
+        if not isinstance(payload, dict) or not isinstance(payload.get("processes"), list):
+            failures.append(executable)
+            continue
+        rows: list[dict[str, Any]] = []
+        for item in payload["processes"]:
+            if not isinstance(item, dict) or not isinstance(item.get("imageName"), str) or not isinstance(item.get("pid"), int):
+                failures.append(executable)
+                break
+            rows.append({"imageName": item["imageName"], "pid": item["pid"]})
+        else:
+            return rows
+    fail("process_scan_backend_unavailable", ",".join(failures) or "powershell")
+
+
+def target_processes() -> list[dict[str, Any]]:
+    if os.name != "nt":
+        return []
+    failures: list[str] = []
+    try:
+        return _enumerate_tasklist_processes()
+    except FP2Failure as exc:
+        failures.append(exc.code)
+    try:
+        return _enumerate_powershell_processes()
+    except FP2Failure as exc:
+        failures.append(exc.code)
+    fail("process_cleanliness_unverifiable", ",".join(failures))
 
 
 def require_no_target_processes(stage: str) -> None:
@@ -2664,6 +2727,9 @@ BLOCKED_FAILURE_CODES = {
     "parent_metadata_unavailable",
     "timeout_budget_unfrozen",
     "process_scan_failed",
+    "process_cleanliness_unverifiable",
+    "process_scan_backend_unavailable",
+    "process_scan_backend_invalid",
     "target_processes_present",
     "runtime_native_windows_required",
     "runtime_interpreter_missing",

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import tempfile
 import unittest
 from pathlib import Path
@@ -390,6 +391,30 @@ class FP2NoBrowserTests(unittest.TestCase):
 
     def test_reauthorization_reason_is_not_a_secret_sentinel(self) -> None:
         fp2.ensure_sanitized({"reasonForReauthorization": fp2.PREVIOUS_BLOCKED_REASON}, "preflight")
+
+    def test_tasklist_access_denied_uses_independent_fallback(self) -> None:
+        with patch.object(fp2, "_enumerate_tasklist_processes", side_effect=fp2.FP2Failure("process_scan_backend_unavailable", "tasklist.exe")), patch.object(
+            fp2, "_enumerate_powershell_processes", return_value=[]
+        ):
+            self.assertEqual(fp2.target_processes(), [])
+
+    def test_process_fallback_target_is_not_treated_as_empty(self) -> None:
+        target = [{"imageName": "camoufox.exe", "pid": 4242}]
+        with patch.object(fp2, "_enumerate_tasklist_processes", side_effect=fp2.FP2Failure("process_scan_backend_unavailable", "tasklist.exe")), patch.object(
+            fp2, "_enumerate_powershell_processes", return_value=target
+        ):
+            self.assertEqual(fp2.target_processes(), target)
+            self.assertCode("target_processes_present", fp2.require_no_target_processes, "fallback target")
+
+    def test_all_process_enumeration_backends_unavailable_is_blocked(self) -> None:
+        with patch.object(fp2, "_enumerate_tasklist_processes", side_effect=fp2.FP2Failure("process_scan_backend_unavailable", "tasklist.exe")), patch.object(
+            fp2, "_enumerate_powershell_processes", side_effect=fp2.FP2Failure("process_scan_backend_unavailable", "powershell")
+        ):
+            self.assertCode("process_cleanliness_unverifiable", fp2.target_processes)
+
+    def test_runtime_preflight_source_precedes_claim_creation(self) -> None:
+        source = inspect.getsource(fp2.orchestrate)
+        self.assertLess(source.index("run_runtime_preflight("), source.index("create_claim("))
 
     def runtime_preflight_result(self, *, boundary: dict | None = None) -> dict:
         interpreter = fp2.resolve_runtime_interpreter()

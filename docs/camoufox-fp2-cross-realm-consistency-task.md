@@ -1,6 +1,6 @@
 # VeriSilo Managed Fingerprint FP2 — Cross-Realm Consistency
 
-- 状态：**FP2 generation 1 blocked / Runtime Preflight Closure passed / generation 2 not authorized**
+- 状态：**FP2 generation 1 blocked / generation 2 pre-claim Gate correction in progress / claim not created**
 - task version：generation 1 `fp2-v1`；generation 2 execution package `fp2-v2`
 - execution boundary：本文件、独立 `tests/fingerprint-probe/fp2/` bundle、纯比较/runner 与 gitignored FP2 evidence
 - `verified`：始终为 `false`
@@ -105,7 +105,7 @@ one-shot claim 在第一次 A1 前以 `O_EXCL` 原子创建，绑定当前 HEAD/
 
 执行 Agent 的成功字符串只能是 `execution-passed-awaiting-main-brain-gate`；失败或阻塞只能是 `failed` 或 `blocked`。本文件不得由执行 Agent写成 FP2 Accepted、Managed Identity verified 或 FP3 Open。
 
-## Runtime Preflight Closure：generation 1 blocked 后的唯一授权路径
+## Runtime Preflight Closure：generation 1 blocked 后的 generation 2 pre-claim 路径
 
 ### Generation 1 frozen outcome
 
@@ -159,6 +159,16 @@ Preflight receipt 必须绑定 interpreter SHA、dependency closure SHA、child 
 runner SHA、selected port、previous blocked claim，并明确 `browserLaunchCalled:false`、
 `browserProcessCreated:false`、`profileCreated:false`、`lockFilesCreated:false`。
 
+Runtime preflight 是 deterministic 的 claim 前环境完整性检查，可以在 claim 创建前重复执行，
+包括一次独立 closure 和正式 runner 内部的一次 pre-claim closure。它不创建 browser process、
+不产生 realm observation、不消费 one-shot，因此不属于 browser evidence selection，也不构成
+generation 3 或 retry。preflight 失败必须在 claim 创建前返回 `blocked`。
+
+目标进程 clean check 优先使用现有 Windows `tasklist.exe` backend；如果该 backend 返回
+Access Denied 或其他不可用结果，runner 使用独立的 PowerShell `Get-Process` backend 查询
+`camoufox.exe` 与 `verisilo-camoufox-supervisor.exe`。backend 不可用不能解释为空；只有
+所有允许 backend 都无法证明目标进程状态时，才返回 `blocked: process_cleanliness_unverifiable`。
+
 ### Generation 2 claim boundary
 
 generation 2 claim 使用独立路径：
@@ -184,8 +194,7 @@ closure；该 closure 不产生浏览器 observation，也不改变 FP1/FP3/M3-W
 
 ### Runtime Preflight Closure result
 
-Runtime Preflight Closure 已在 clean implementation checkpoint 上通过。精确 child runtime、
-dependency closure、browser-spawn seam、synthetic finalization、process、port 和 lock
-条件均已形成 gitignored receipt；generation 1 blocked claim 保持原字节，generation 2
-claim 尚未创建，A1/A2/B1 尚未授权或启动。FP2 主脑 Gate 仍为 `Blocked`，所有 FP2 结果
-保持 `verified:false`。
+上一版 Runtime Preflight Closure 已在 clean implementation checkpoint 上通过，但 process
+enumeration fallback 修正后必须重新形成绑定新 runner SHA 的 closure。generation 1 blocked
+claim 保持原字节，generation 2 claim 尚未创建，A1/A2/B1 尚未启动。FP2 主脑 Gate 仍为
+`Blocked`，所有 FP2 结果保持 `verified:false`。

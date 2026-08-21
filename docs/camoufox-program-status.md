@@ -442,3 +442,17 @@ generation-1 blocked claim, runtime interpreter/dependency closure and child inv
 does not authorize generation-2 claim creation; that authorization remains a separate
 main-brain decision. FP2 remains **Blocked**, FP1 remains **Accepted / verified:false**, and
 FP3 remains **Closed**.
+
+### 2026-08-21 FP2 generation-2 pre-claim Gate correction
+
+The generation-2 pre-claim Gate correction is limited to the FP2 runner and its
+no-browser regressions. Deterministic runtime preflight may be repeated before
+claim creation; it must still stop before browser launch and cannot consume the
+one-shot. Target-process cleanliness now uses the existing `tasklist.exe`
+backend with an independent PowerShell `Get-Process` fallback. Access denied is
+not treated as an empty process list; if all allowed backends are unavailable,
+the result is `blocked: process_cleanliness_unverifiable`.
+
+The generation-1 claim and evidence remain byte-preserved. Generation-2 claim
+creation and browser execution have not started; all FP2 results remain
+`verified:false`, and FP3 remains **Closed**.
