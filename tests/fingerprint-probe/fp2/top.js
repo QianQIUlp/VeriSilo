@@ -8,6 +8,7 @@
   const headerEndpoint = `${window.location.origin}/fp2/header-observation`;
   let inputResolver;
   let inputReceived = false;
+  let activeTrace;
   const inputPromise = new Promise((resolve) => {
     inputResolver = resolve;
   });
@@ -65,6 +66,11 @@
       ) {
         throw new Error(`${role}_message_protocol_mismatch`);
       }
+      if (data.failure) throw FP2Realm.failureError(data.failure);
+      if (data.error) throw FP2Realm.failureError(data.error);
+      if (!Object.prototype.hasOwnProperty.call(data, "result")) {
+        throw new Error(`${role}_result_missing`);
+      }
       return data.result;
     }, `${role}_message`);
     document.body.append(frame);
@@ -119,6 +125,12 @@
           reject(new Error("dedicated_worker_message_protocol_mismatch"));
           return;
         }
+        if (data.failure || data.error) {
+          clearTimeout(timer);
+          worker.terminate();
+          reject(FP2Realm.failureError(data.failure || data.error));
+          return;
+        }
         clearTimeout(timer);
         worker.terminate();
         resolve(data.result);
@@ -156,6 +168,12 @@
           clearTimeout(timer);
           port.close();
           reject(new Error("shared_worker_message_protocol_mismatch"));
+          return;
+        }
+        if (data.failure || data.error) {
+          clearTimeout(timer);
+          port.close();
+          reject(FP2Realm.failureError(data.failure || data.error));
           return;
         }
         clearTimeout(timer);
@@ -244,6 +262,10 @@
           reject(new Error("service_worker_message_protocol_mismatch"));
           return;
         }
+        if (data.failure || data.error) {
+          reject(FP2Realm.failureError(data.failure || data.error));
+          return;
+        }
         resolve(data.result);
       };
       channel.port1.start();
@@ -269,83 +291,138 @@
   }
 
   async function collect() {
-    const input = await inputPromise;
-    assertProtocol(input && Array.isArray(input.fonts), "probe_input_invalid");
-    assertProtocol(nonce.length >= 16, "session_nonce_missing");
-    window.__fp2State = { status: "running" };
-    const topWindow = await FP2Realm.collectWindowRealm({
-      realm: "top-window",
-      endpoint: headerEndpoint,
-      nonce,
-      fonts: input.fonts,
+    const trace = FP2Realm.createStageTracker("top-window");
+    activeTrace = trace;
+    const input = await FP2Realm.observeStage(
+      trace,
+      "input",
+      "inputReceived",
+      () => inputPromise,
+    );
+    FP2Realm.observeStage(trace, "input", "validateInput", () => {
+      assertProtocol(
+        input && Array.isArray(input.fonts),
+        "probe_input_invalid",
+      );
+      assertProtocol(nonce.length >= 16, "session_nonce_missing");
     });
-    const sameOrigin = await collectFrame(
+    window.__fp2State = { status: "running" };
+    const topWindow = await FP2Realm.observeStage(
+      trace,
+      "top-window",
+      "collectWindowRealm",
+      () =>
+        FP2Realm.collectWindowRealm({
+          realm: "top-window",
+          endpoint: headerEndpoint,
+          nonce,
+          fonts: input.fonts,
+        }),
+    );
+    const sameOrigin = await FP2Realm.observeStage(
+      trace,
       "same-origin-iframe",
-      primaryOrigin,
-      input,
+      "collectFrame",
+      () => collectFrame("same-origin-iframe", primaryOrigin, input),
     );
-    const crossOrigin = await collectFrame(
+    const crossOrigin = await FP2Realm.observeStage(
+      trace,
       "cross-origin-iframe",
-      secondaryOrigin,
-      input,
+      "collectFrame",
+      () => collectFrame("cross-origin-iframe", secondaryOrigin, input),
     );
-    const dedicated = await collectDedicatedWorker();
-    const shared = await collectSharedWorker();
-    const serviceWorker = await serviceWorkerEvidence();
-    return {
-      verified: false,
-      nonceSha256: `sha256:${await FP2Realm.sha256Text(nonce)}`,
-      fontInputSha256: input.fontInputSha256,
-      realmOrder: [
-        "top-window",
-        "same-origin-iframe",
-        "cross-origin-iframe",
-        "dedicated-worker",
-        "shared-worker",
-        "service-worker",
-      ],
-      realms: {
-        "top-window": topWindow,
-        "same-origin-iframe": sameOrigin,
-        "cross-origin-iframe": crossOrigin,
-        "dedicated-worker": dedicated,
-        "shared-worker": shared,
-        "service-worker": serviceWorker.workerResult,
+    const dedicated = await FP2Realm.observeStage(
+      trace,
+      "dedicated-worker",
+      "collectDedicatedWorker",
+      () => collectDedicatedWorker(),
+    );
+    const shared = await FP2Realm.observeStage(
+      trace,
+      "shared-worker",
+      "collectSharedWorker",
+      () => collectSharedWorker(),
+    );
+    const serviceWorker = await FP2Realm.observeStage(
+      trace,
+      "service-worker",
+      "serviceWorkerEvidence",
+      () => serviceWorkerEvidence(),
+    );
+    return FP2Realm.observeStage(
+      trace,
+      "finalize",
+      "assembleResult",
+      async () => {
+        const nonceSha256 = `sha256:${await FP2Realm.sha256Text(nonce)}`;
+        const fontInputSha256 = input.fontInputSha256;
+        const realmOrder = [
+          "top-window",
+          "same-origin-iframe",
+          "cross-origin-iframe",
+          "dedicated-worker",
+          "shared-worker",
+          "service-worker",
+        ];
+        const realms = {
+          "top-window": topWindow,
+          "same-origin-iframe": sameOrigin,
+          "cross-origin-iframe": crossOrigin,
+          "dedicated-worker": dedicated,
+          "shared-worker": shared,
+          "service-worker": serviceWorker.workerResult,
+        };
+        const bundleManifestSha256 = input.bundleManifestSha256;
+        const bundleFiles = input.bundleFiles;
+        const storage = await FP2Realm.observeStage(
+          trace,
+          "storage",
+          "collectStorageEvidence",
+          () => collectStorageEvidence(),
+        );
+        const scriptPaths = {
+          top: [
+            "tests/fingerprint-probe/fp2/top.html",
+            "tests/fingerprint-probe/fp2/top.js",
+            "tests/fingerprint-probe/fp2/realm-common.js",
+          ],
+          sameOriginIframe: [
+            "tests/fingerprint-probe/fp2/frame.html",
+            "tests/fingerprint-probe/fp2/frame.js",
+            "tests/fingerprint-probe/fp2/realm-common.js",
+          ],
+          crossOriginIframe: [
+            "tests/fingerprint-probe/fp2/frame.html",
+            "tests/fingerprint-probe/fp2/frame.js",
+            "tests/fingerprint-probe/fp2/realm-common.js",
+          ],
+          dedicatedWorker: [
+            "tests/fingerprint-probe/fp2/dedicated-worker.js",
+            "tests/fingerprint-probe/fp2/realm-common.js",
+          ],
+          sharedWorker: [
+            "tests/fingerprint-probe/fp2/shared-worker.js",
+            "tests/fingerprint-probe/fp2/realm-common.js",
+          ],
+          serviceWorker: [
+            "tests/fingerprint-probe/fp2/service-worker.js",
+            "tests/fingerprint-probe/fp2/realm-common.js",
+          ],
+        };
+        return {
+          verified: false,
+          nonceSha256,
+          fontInputSha256,
+          realmOrder,
+          realms,
+          serviceWorker,
+          bundleManifestSha256,
+          bundleFiles,
+          storage,
+          scriptPaths,
+        };
       },
-      serviceWorker,
-      bundleManifestSha256: input.bundleManifestSha256,
-      bundleFiles: input.bundleFiles,
-      storage: await collectStorageEvidence(),
-      scriptPaths: {
-        top: [
-          "tests/fingerprint-probe/fp2/top.html",
-          "tests/fingerprint-probe/fp2/top.js",
-          "tests/fingerprint-probe/fp2/realm-common.js",
-        ],
-        sameOriginIframe: [
-          "tests/fingerprint-probe/fp2/frame.html",
-          "tests/fingerprint-probe/fp2/frame.js",
-          "tests/fingerprint-probe/fp2/realm-common.js",
-        ],
-        crossOriginIframe: [
-          "tests/fingerprint-probe/fp2/frame.html",
-          "tests/fingerprint-probe/fp2/frame.js",
-          "tests/fingerprint-probe/fp2/realm-common.js",
-        ],
-        dedicatedWorker: [
-          "tests/fingerprint-probe/fp2/dedicated-worker.js",
-          "tests/fingerprint-probe/fp2/realm-common.js",
-        ],
-        sharedWorker: [
-          "tests/fingerprint-probe/fp2/shared-worker.js",
-          "tests/fingerprint-probe/fp2/realm-common.js",
-        ],
-        serviceWorker: [
-          "tests/fingerprint-probe/fp2/service-worker.js",
-          "tests/fingerprint-probe/fp2/realm-common.js",
-        ],
-      },
-    };
+    );
   }
 
   async function collectStorageEvidence() {
@@ -403,7 +480,14 @@
     })
     .catch((error) => {
       window.__fp2State = { status: "failed" };
-      window.__fp2Error = { name: error && error.name ? error.name : "Error" };
+      window.__fp2Error = FP2Realm.failureFromError(error, {
+        realm: "top-window",
+        stage: "orchestration",
+        operation: "collect",
+        lastSuccessfulStage: activeTrace
+          ? activeTrace.lastSuccessfulStage
+          : null,
+      });
       document.getElementById("status").textContent = "FP2 probe failed";
     });
 })();

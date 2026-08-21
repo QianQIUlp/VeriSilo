@@ -479,7 +479,7 @@ the handler's `self.command` was read from `FP2HTTPServer`, causing
 execution and harness evidence, not a Managed Engine realm-capability verdict.
 Generation 1's claim and evidence remain immutable; generation 2 is not rerun.
 
-### 2026-08-21 FP2 generation-3 Harness Closure
+### 2026-08-21 FP2 generation-3 Harness Closure (historical pre-run checkpoint)
 
 Generation 3 is authorized only as a new frozen execution package for the
 identified pre-observation harness defect. The runner now passes HTTP method and
@@ -496,3 +496,38 @@ and no generation-3 browser observation exists. Candidate, Artifact, FP2 probe,
 ledger, relation matrix, FP1 evidence, engine, timeout and FP3 remain unchanged.
 FP2 capability is unresolved, all FP2 results remain `verified:false`, and FP3
 remains **Closed**.
+
+### 2026-08-21 FP2 generation-3 failure observability closure
+
+Generation 3 is a consumed, failed formal execution, not a blocked pre-claim check:
+
+```text
+run: fp2-20260821T055448Z-8f6b69c851
+claim SHA-256: 0cf358045f86257af3126eb27b8f21f8df254984ee8c1fe91f6f79bbe44e09c7
+browser launched: true
+valid realm observations: 0
+header captures: 0
+execution: Failed
+root-cause adjudication: Blocked / gen3_failure_evidence_insufficient
+```
+
+The immutable run proves bootstrap, Host hello, context/page creation, navigation and
+FP2 top-script start, but the old probe compressed the first collector error to
+`error.name == "Error"`. The failure therefore cannot be assigned to a precise
+operation or to probe/browser capability from that run. Generation-1/2/3 claims and
+evidence remain unchanged.
+
+The authorized no-browser observability closure adds versioned, bounded failure
+metadata (`realm`, `stage`, `operation`, `errorName`, `errorMessage`,
+`lastSuccessfulStage`, `probeCompleted`) and propagates it through Worker/frame
+messages, Host `ProtocolError`, child evidence, parent report, offline adjudication
+and byte closure. It preserves existing collector order and measurement semantics;
+the only probe change is failure observability. The new probe manifest SHA-256 is
+`b4be8f80d56621b817b351ccb12d51d8b04eeafe6d9bc26d6e03c144799e621c`; the historical
+manifest SHA was
+`95e27ceb55e687841dd13398b869bc8709d2edef845ca4584cfadd5b3c5370cc`.
+
+No browser was started and no generation-4 claim was created during this closure.
+No generation-4 execution is authorized by this update. FP2 remains **Failed / Not
+Accepted**, Managed Engine cross-realm capability remains unresolved, and FP3 remains
+**Closed**.

@@ -219,7 +219,7 @@ probe 以 `ProtocolError` 结束。该 evidence 证明的是 generation-2 measur
 无法完成采集，不是 Managed Engine 的跨-realm capability verdict；FP2 capability 仍未裁决，
 所有结果继续为 `verified:false`。
 
-## Generation-3 Harness Closure
+## Historical Generation-3 Harness Closure (pre-run checkpoint)
 
 generation 3 只修复上述已定位的 harness seam，并新增真实无浏览器 loopback 回归：
 
@@ -239,6 +239,58 @@ closure 和新 claim；candidate、Artifact A/B、probe bundle、applicability l
 matrix 与 static 13-key mapping 必须保持冻结。新 claim 创建前不得启动浏览器；若 Gen3 再次
 出现未授权的 harness failure，不自行创建 generation 4。
 
-当前 generation-3 状态：harness closure 实现与无浏览器回归已完成，新的 immutable
+该段记录的是 generation-3 正式运行前的历史 checkpoint：harness closure 实现与无浏览器回归已完成，新的 immutable
 implementation checkpoint 与 fresh runtime closure 是下一道 Gate；generation-3 claim
 尚未创建，A1/A2/B1 尚未启动。FP1 仍为 `Accepted / verified:false`，FP3 仍为 `Closed`。
+
+## Generation-3 Failure Observability Closure
+
+The immutable generation-3 formal run is preserved as a failed execution:
+
+```text
+run: fp2-20260821T055448Z-8f6b69c851
+claim SHA-256: 0cf358045f86257af3126eb27b8f21f8df254984ee8c1fe91f6f79bbe44e09c7
+implementation: daf42584ad1bae670aa9c25fcb67650bafd20590
+browser launched: true
+valid realm observations: 0
+header captures: 0
+execution classification: failed
+root-cause adjudication: blocked / gen3_failure_evidence_insufficient
+```
+
+The preserved evidence establishes Python bootstrap, Host hello, browser context,
+page creation, navigation and FP2 top-script start. It does not identify the first
+operation inside the old `collectWindowRealm()` because the probe saved only
+`error.name`; the old claim, report, sidecar, adjudication and byte closure remain
+byte-preserved and are not reinterpreted.
+
+This closure changes only measurement observability. The new probe failure object is
+versioned and carries `realm`, `stage`, `operation`, `errorName`, bounded sanitized
+`errorMessage`, `lastSuccessfulStage` and `probeCompleted:false`. Window and Worker
+collectors preserve their existing operation order; frame/Worker messages and the
+Python child/parent/report/offline-adjudication path retain the same object. No
+Canvas scene, HTTP request shape, Artifact mapping, applicability, relation,
+timeout, Worker behavior or ServiceWorker behavior is changed.
+
+The machine-readable semantic audit for this closure is:
+
+```json
+{
+  "probeSemanticChange": false,
+  "observabilityChange": true,
+  "changed": ["stage markers", "error name/message preservation", "sanitized failure metadata"],
+  "unchanged": ["realm surfaces", "operation order", "Canvas scene", "HTTP request shape", "Artifact mapping", "applicability", "comparison rules", "timeouts"]
+}
+```
+
+The old probe bundle manifest SHA-256 was
+`95e27ceb55e687841dd13398b869bc8709d2edef845ca4584cfadd5b3c5370cc`.
+The observability-closure manifest SHA-256 is
+`b4be8f80d56621b817b351ccb12d51d8b04eeafe6d9bc26d6e03c144799e621c`.
+Generation-1/2/3 evidence remains bound to its own historical probe hashes; none is
+rewritten. The new manifest is only a future execution-package binding.
+
+No browser was started by this closure and no generation-4 claim was created.
+Generation 4 remains closed pending a separate main-brain decision; FP2 remains
+`Failed / Not Accepted`, its capability verdict remains unresolved, and FP3 remains
+closed.

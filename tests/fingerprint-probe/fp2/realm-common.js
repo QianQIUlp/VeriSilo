@@ -20,9 +20,126 @@
     "VeriSilo Missing Font 02",
     "VeriSilo Missing Font 03",
   ];
+  const FAILURE_SCHEMA = "verisilo-fp2-probe-failure/v1";
+  const FAILURE_MESSAGE_LIMIT = 256;
+  const FAILURE_NAME_LIMIT = 64;
+  const FAILURE_SECRET_PATTERN =
+    /\b(?:password|passwd|token|secret|authorization|bearer|api[_-]?key|private[_-]?key)\b\s*[:=]\s*[^\s,;)}]+/gi;
+  const FAILURE_URL_PATTERN = /\b(?:https?|file):\/\/[^\s,;)}]+/gi;
+  const FAILURE_PATH_PATTERN =
+    /(?:[A-Za-z]:[\\/][^\s,;)}]+|\\\\[^\s,;)}]+|\/(?:Users|home|tmp|var|private|mnt)\/[^\s,;)}]+)/g;
 
   function apiShape(apiPresent, reason) {
     return reason ? { apiPresent, reason } : { apiPresent };
+  }
+
+  function boundedFailureText(value, limit) {
+    return String(value == null ? "" : value)
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, limit);
+  }
+
+  function sanitizeFailureMessage(value) {
+    let message = boundedFailureText(value, FAILURE_MESSAGE_LIMIT * 2);
+    if (!message) return "";
+    message = message.replace(FAILURE_SECRET_PATTERN, "<redacted>");
+    message = message.replace(FAILURE_URL_PATTERN, "<redacted>");
+    message = message.replace(FAILURE_PATH_PATTERN, "<redacted>");
+    return boundedFailureText(message, FAILURE_MESSAGE_LIMIT);
+  }
+
+  function failureFromError(error, context = {}) {
+    const existing =
+      error && typeof error === "object" ? error.__fp2Failure : null;
+    const source =
+      existing && typeof existing === "object"
+        ? existing
+        : error && typeof error === "object"
+          ? error
+          : {};
+    const fallbackMessage =
+      error && typeof error === "object" && "message" in error
+        ? error.message
+        : error;
+    const lastSuccessfulStage = Object.prototype.hasOwnProperty.call(
+      source,
+      "lastSuccessfulStage",
+    )
+      ? source.lastSuccessfulStage
+      : context.lastSuccessfulStage;
+    return {
+      schema: FAILURE_SCHEMA,
+      realm: boundedFailureText(source.realm || context.realm || "unknown", 96),
+      stage: boundedFailureText(source.stage || context.stage || "unknown", 96),
+      operation: boundedFailureText(
+        source.operation || context.operation || "unknown",
+        128,
+      ),
+      errorName: boundedFailureText(
+        source.errorName || (error && error.name) || "Error",
+        FAILURE_NAME_LIMIT,
+      ),
+      errorMessage: sanitizeFailureMessage(
+        source.errorMessage !== undefined
+          ? source.errorMessage
+          : fallbackMessage,
+      ),
+      lastSuccessfulStage:
+        lastSuccessfulStage == null
+          ? null
+          : boundedFailureText(lastSuccessfulStage, 96),
+      probeCompleted: false,
+    };
+  }
+
+  function failureError(failure) {
+    const normalized = failureFromError(failure);
+    const error = new Error(normalized.errorMessage || normalized.errorName);
+    error.name = normalized.errorName || "Error";
+    Object.defineProperty(error, "__fp2Failure", {
+      configurable: false,
+      enumerable: false,
+      value: normalized,
+      writable: false,
+    });
+    return error;
+  }
+
+  function createStageTracker(realm) {
+    return { realm, lastSuccessfulStage: null };
+  }
+
+  function observeStage(tracker, stage, operation, callback) {
+    const wrapFailure = (error) => {
+      if (error && error.__fp2Failure) return error;
+      return failureError(
+        failureFromError(error, {
+          realm: tracker.realm,
+          stage,
+          operation,
+          lastSuccessfulStage: tracker.lastSuccessfulStage,
+        }),
+      );
+    };
+    try {
+      const value = callback();
+      if (value && typeof value.then === "function") {
+        return value.then(
+          (result) => {
+            tracker.lastSuccessfulStage = stage;
+            return result;
+          },
+          (error) => {
+            throw wrapFailure(error);
+          },
+        );
+      }
+      tracker.lastSuccessfulStage = stage;
+      return value;
+    } catch (error) {
+      throw wrapFailure(error);
+    }
   }
 
   async function sha256Bytes(bytes) {
@@ -638,17 +755,68 @@
   }
 
   async function collectWindowRealm({ realm, endpoint, nonce, fonts }) {
-    const navigatorValue = navigatorSnapshot(global.navigator);
-    const locale = localeSnapshot();
-    const canvas = await collectWindowCanvas(fonts);
-    const audio = await audioSnapshot();
-    const webgl = webglSnapshot("webgl");
-    const webgl2 = webglSnapshot("webgl2");
-    const fontsResult = fontSnapshot(fonts);
-    const voices = await voiceSnapshot();
-    const mediaDevices = await mediaSnapshot();
-    const requestHeaders = await observeHeaders(endpoint, realm, nonce);
-    return {
+    const tracker = createStageTracker(realm);
+    const navigatorValue = observeStage(
+      tracker,
+      "navigator",
+      "navigatorSnapshot",
+      () => navigatorSnapshot(global.navigator),
+    );
+    const locale = observeStage(
+      tracker,
+      "localeTimezone",
+      "localeSnapshot",
+      () => localeSnapshot(),
+    );
+    const canvas = await observeStage(tracker, "canvas", "identityCanvas", () =>
+      collectWindowCanvas(fonts),
+    );
+    const audio = await observeStage(tracker, "audio", "audioSnapshot", () =>
+      audioSnapshot(),
+    );
+    const webgl = observeStage(tracker, "webgl", "webglSnapshot", () =>
+      webglSnapshot("webgl"),
+    );
+    const webgl2 = observeStage(tracker, "webgl2", "webgl2Snapshot", () =>
+      webglSnapshot("webgl2"),
+    );
+    const fontsResult = observeStage(tracker, "fonts", "fontSnapshot", () =>
+      fontSnapshot(fonts),
+    );
+    const voices = await observeStage(tracker, "voices", "voiceSnapshot", () =>
+      voiceSnapshot(),
+    );
+    const mediaDevices = await observeStage(
+      tracker,
+      "media",
+      "mediaSnapshot",
+      () => mediaSnapshot(),
+    );
+    const requestHeaders = await observeStage(
+      tracker,
+      "headerRequest",
+      "observeHeaders",
+      () => observeHeaders(endpoint, realm, nonce),
+    );
+    const screenValue = observeStage(tracker, "screen", "screenSnapshot", () =>
+      screenSnapshot(),
+    );
+    const devicePixelRatio = observeStage(
+      tracker,
+      "screen",
+      "devicePixelRatio",
+      () => window.devicePixelRatio,
+    );
+    const geometry = observeStage(tracker, "geometry", "geometrySnapshot", () =>
+      geometrySnapshot(),
+    );
+    const historyLength = observeStage(
+      tracker,
+      "history",
+      "history.length",
+      () => history.length,
+    );
+    return observeStage(tracker, "finalize", "windowRealmResult", () => ({
       realm,
       kind: "window",
       verified: false,
@@ -662,10 +830,10 @@
         globalPrivacyControl: navigatorValue.globalPrivacyControl,
       },
       locale,
-      screen: screenSnapshot(),
-      devicePixelRatio: window.devicePixelRatio,
-      geometry: geometrySnapshot(),
-      historyLength: history.length,
+      screen: screenValue,
+      devicePixelRatio,
+      geometry,
+      historyLength,
       canvas,
       audio,
       webgl,
@@ -703,17 +871,48 @@
         maxTouchPoints: navigatorValue.maxTouchPoints,
         httpHeaders: apiShape(true),
       },
-    };
+    }));
   }
 
   async function collectWorkerRealm({ realm, endpoint, nonce }) {
-    const navigatorValue = navigatorSnapshot(global.navigator);
-    const workerCanvas = await collectWorkerCanvas();
-    const webgl = workerWebglSnapshot("webgl");
-    const webgl2 = workerWebglSnapshot("webgl2");
-    const requestHeaders = await observeHeaders(endpoint, realm, nonce);
-    const fontApiPresent = typeof global.queryLocalFonts === "function";
-    return {
+    const tracker = createStageTracker(realm);
+    const navigatorValue = observeStage(
+      tracker,
+      "navigator",
+      "navigatorSnapshot",
+      () => navigatorSnapshot(global.navigator),
+    );
+    const workerCanvas = await observeStage(
+      tracker,
+      "canvas",
+      "workerCanvas",
+      () => collectWorkerCanvas(),
+    );
+    const webgl = observeStage(tracker, "webgl", "workerWebglSnapshot", () =>
+      workerWebglSnapshot("webgl"),
+    );
+    const webgl2 = observeStage(tracker, "webgl2", "workerWebglSnapshot", () =>
+      workerWebglSnapshot("webgl2"),
+    );
+    const requestHeaders = await observeStage(
+      tracker,
+      "headerRequest",
+      "observeHeaders",
+      () => observeHeaders(endpoint, realm, nonce),
+    );
+    const fontApiPresent = observeStage(
+      tracker,
+      "fonts",
+      "workerFontApi",
+      () => typeof global.queryLocalFonts === "function",
+    );
+    const locale = observeStage(
+      tracker,
+      "localeTimezone",
+      "localeSnapshot",
+      () => localeSnapshot(),
+    );
+    return observeStage(tracker, "finalize", "workerRealmResult", () => ({
       realm,
       kind: "worker",
       verified: false,
@@ -726,7 +925,7 @@
         doNotTrack: navigatorValue.doNotTrack,
         globalPrivacyControl: navigatorValue.globalPrivacyControl,
       },
-      locale: localeSnapshot(),
+      locale,
       workerCanvas,
       webgl,
       webgl2,
@@ -761,7 +960,7 @@
           capabilities: workerCanvas.capabilities || null,
         },
       },
-    };
+    }));
   }
 
   global.FP2Realm = {
@@ -769,8 +968,13 @@
     CANVAS_HEIGHT,
     FONT_UNIVERSE,
     BOGUS_FONTS,
+    FAILURE_SCHEMA,
     sha256Bytes,
     sha256Text,
+    failureFromError,
+    failureError,
+    createStageTracker,
+    observeStage,
     collectWindowRealm,
     collectWorkerRealm,
     observeHeaders,

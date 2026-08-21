@@ -147,9 +147,23 @@ HOST_CLOSE_CONTEXT_SECONDS = 10
 HOST_CLOSE_PROCESS_TREE_SECONDS = 8
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 ABSOLUTE_PATH = re.compile(r"(?:^[A-Za-z]:[\\/]|^/|\\\\)")
+PROBE_FAILURE_PATH = re.compile(r"(?:[A-Za-z]:[\\/][^\s,;)}]+|\\\\[^\s,;)}]+|/(?:Users|home|tmp|var|private|mnt)/[^\s,;)}]+)")
+PROBE_FAILURE_URL = re.compile(r"\b(?:https?|file)://[^\s,;)}]+", re.IGNORECASE)
 SECRET_WORD = re.compile(
     r"(?:\bpassword\b|\bpasswd\b|\btoken\b|\bsecret\b|\bauthorization\b|\bbearer\b|\bapi[_-]?key\b|\bprivate[_-]?key\b)",
     re.IGNORECASE,
+)
+PROBE_FAILURE_SCHEMA = "verisilo-fp2-probe-failure/v1"
+PROBE_FAILURE_TEXT_LIMIT = 256
+PROBE_FAILURE_FIELDS = (
+    "schema",
+    "realm",
+    "stage",
+    "operation",
+    "errorName",
+    "errorMessage",
+    "lastSuccessfulStage",
+    "probeCompleted",
 )
 
 if str(HOST_DIR) not in sys.path:
@@ -174,6 +188,85 @@ def fail(code: str, detail: str = "") -> None:
 def require(condition: bool, code: str, detail: str = "") -> None:
     if not condition:
         fail(code, detail)
+
+
+def sanitize_probe_failure_text(value: Any) -> str:
+    """Keep probe error text bounded and free of paths, URLs, and secret markers."""
+    text = re.sub(r"\s+", " ", str(value if value is not None else "")).strip()
+    if not text:
+        return ""
+    if SECRET_WORD.search(text):
+        return "<redacted>"
+    text = PROBE_FAILURE_URL.sub("<redacted>", text)
+    text = PROBE_FAILURE_PATH.sub("<redacted>", text)
+    return text[:PROBE_FAILURE_TEXT_LIMIT]
+
+
+def normalize_probe_failure(
+    raw: Any,
+    *,
+    default_realm: str = "unknown",
+    default_stage: str = "unknown",
+    default_operation: str = "unknown",
+    default_last_successful_stage: Optional[str] = None,
+) -> dict[str, Any]:
+    """Normalize the versioned browser failure object without losing its location."""
+    require(isinstance(raw, dict), "realm_probe_failure_invalid", "not an object")
+    schema = raw.get("schema", PROBE_FAILURE_SCHEMA)
+    require(schema == PROBE_FAILURE_SCHEMA, "realm_probe_failure_invalid", "schema")
+    for field in ("realm", "stage", "operation", "errorName", "errorMessage", "lastSuccessfulStage", "probeCompleted"):
+        require(field in raw, "realm_probe_failure_invalid", field)
+
+    def text_field(name: str, fallback: str, limit: int = PROBE_FAILURE_TEXT_LIMIT) -> str:
+        value = raw.get(name, fallback)
+        text = sanitize_probe_failure_text(value)
+        require(bool(text), "realm_probe_failure_invalid", name)
+        return text[:limit]
+
+    last_successful = raw.get("lastSuccessfulStage", default_last_successful_stage)
+    if last_successful is not None:
+        last_successful = sanitize_probe_failure_text(last_successful)[:96]
+        require(bool(last_successful), "realm_probe_failure_invalid", "lastSuccessfulStage")
+    require(raw.get("probeCompleted", False) is False, "realm_probe_failure_invalid", "probeCompleted")
+    return {
+        "schema": PROBE_FAILURE_SCHEMA,
+        "realm": text_field("realm", default_realm, 96),
+        "stage": text_field("stage", default_stage, 96),
+        "operation": text_field("operation", default_operation, 128),
+        "errorName": text_field("errorName", "Error", 64),
+        "errorMessage": sanitize_probe_failure_text(raw.get("errorMessage", "")),
+        "lastSuccessfulStage": last_successful,
+        "probeCompleted": False,
+    }
+
+
+def probe_failure_detail(failure: dict[str, Any]) -> str:
+    """Create a bounded ProtocolError detail while retaining the structured object."""
+    return sanitize_probe_failure_text(
+        ":".join(
+            str(failure.get(key, ""))
+            for key in ("realm", "stage", "operation", "errorName")
+        )
+        + f": {failure.get('errorMessage', '')}"
+    )
+
+
+def safe_stage_trace(stages: Any) -> list[dict[str, Any]]:
+    if not isinstance(stages, list):
+        return []
+    result = []
+    for stage in stages:
+        if not isinstance(stage, dict):
+            continue
+        item: dict[str, Any] = {}
+        for key in ("stage", "status"):
+            if isinstance(stage.get(key), str):
+                item[key] = sanitize_probe_failure_text(stage[key])[:96]
+        if isinstance(stage.get("elapsedSeconds"), (int, float)):
+            item["elapsedSeconds"] = stage["elapsedSeconds"]
+        if item:
+            result.append(item)
+    return result
 
 
 def utc_now() -> str:
@@ -1442,6 +1535,7 @@ class FP2ManagedHost(host_module.CamoufoxHost):
         self.fp2_expected_boot = expected_boot
         self.fp2_result: Optional[dict[str, Any]] = None
         self.fp2_stages: list[dict[str, Any]] = []
+        self.fp2_failure: Optional[dict[str, Any]] = None
         super().__init__(
             artifact_root=artifact_root,
             profile_root=profile_root,
@@ -1605,7 +1699,26 @@ class FP2ManagedHost(host_module.CamoufoxHost):
         probe_error = await page.evaluate("window.__fp2Error")
         if probe_error is not None:
             self._stage_finish("realm_matrix", stage, "error")
-            raise host_module.ProtocolError("realm_probe_failed", str(probe_error.get("name", "Error")))
+            try:
+                self.fp2_failure = normalize_probe_failure(
+                    probe_error,
+                    default_realm="top-window",
+                    default_stage="realm_matrix",
+                    default_operation="probe",
+                )
+            except FP2Failure as exc:
+                self.fp2_failure = {
+                    "schema": PROBE_FAILURE_SCHEMA,
+                    "realm": "top-window",
+                    "stage": "realm_matrix",
+                    "operation": "probeFailureMetadata",
+                    "errorName": "InvalidProbeFailure",
+                    "errorMessage": sanitize_probe_failure_text(exc.detail),
+                    "lastSuccessfulStage": None,
+                    "probeCompleted": False,
+                }
+                raise host_module.ProtocolError("realm_probe_failure_invalid", probe_failure_detail(self.fp2_failure)) from exc
+            raise host_module.ProtocolError("realm_probe_failed", probe_failure_detail(self.fp2_failure))
         result = await asyncio.wait_for(page.evaluate("window.__fp2GetResult()"), timeout=REALM_STAGE_DEADLINE_SECONDS)
         require(isinstance(result, dict), "realm_result_missing", session["sessionId"])
         self._stage_finish("realm_matrix", stage, "success")
@@ -1696,7 +1809,7 @@ def child_result_summary(
     launch: Optional[dict[str, Any]],
     close: Optional[dict[str, Any]],
     lock_receipt: Optional[dict[str, bool]],
-    failure: Optional[dict[str, str]],
+    failure: Optional[dict[str, Any]],
     raw_result_path: Path,
 ) -> dict[str, Any]:
     session = host.session if host is not None else None
@@ -1716,6 +1829,7 @@ def child_result_summary(
         "bundleManifestSha256": None if host is None else host.fp2_bundle_manifest_sha256,
         "nonceSha256": None if host is None else safe_nonce_hash(host.fp2_nonce),
         "rawResultPath": raw_result_path.name,
+        "stageTrace": [] if host is None else safe_stage_trace(host.fp2_stages),
         "lifecycle": None
         if close is None
         else {
@@ -1730,7 +1844,7 @@ def child_result_summary(
             "closeSeconds": close.get("closeSeconds"),
         },
         "profileLease": lock_receipt,
-        "failure": failure,
+        "failure": safe_failure(failure),
     }
 
 
@@ -1743,7 +1857,7 @@ async def run_child_session(args: argparse.Namespace) -> int:
     launch: Optional[dict[str, Any]] = None
     close: Optional[dict[str, Any]] = None
     lock_receipt: Optional[dict[str, bool]] = None
-    failure: Optional[dict[str, str]] = None
+    failure: Optional[dict[str, Any]] = None
     try:
         os.environ["VERISILO_CAMOUFOX_CACHE_DIR"] = str(Path(args.cache_root).resolve())
         host = FP2ManagedHost(
@@ -1787,7 +1901,10 @@ async def run_child_session(args: argparse.Namespace) -> int:
     except FP2Failure as exc:
         failure = {"code": exc.code, "detail": exc.detail}
     except host_module.ProtocolError as exc:
-        failure = {"code": exc.code, "detail": type(exc).__name__}
+        failure = {"code": exc.code, "detail": exc.detail}
+        if host is not None and host.fp2_failure is not None:
+            failure.update(host.fp2_failure)
+            failure["detail"] = probe_failure_detail(host.fp2_failure)
     except asyncio.TimeoutError:
         failure = {"code": "session_watchdog_timeout", "detail": label}
     except (Exception, SystemExit) as exc:  # noqa: BLE001 - child report is fail-closed
@@ -2021,7 +2138,7 @@ def run_runtime_preflight(
     child_result_path = preflight_dir / "runtime-preflight-child.json"
     stdout_path = preflight_dir / "child-stdout.log"
     stderr_path = preflight_dir / "child-stderr.log"
-    failure: Optional[dict[str, str]] = None
+    failure: Optional[dict[str, Any]] = None
     exit_code: Optional[int] = None
     child_result: dict[str, Any] = {}
     try:
@@ -2423,12 +2540,15 @@ def run_one_phase(
         child["status"] = "failed"
         child["failure"] = child_timeout
     raw_result = strict_json(raw_result_path, f"{label}.raw-realms") if raw_result_path.is_file() else None
-    phase_failure: Optional[dict[str, str]] = None
+    phase_failure: Optional[dict[str, Any]] = None
     validated: Optional[dict[str, Any]] = None
     comparison: Optional[dict[str, Any]] = None
     if exit_code != 0 or child.get("status") != "passed" or not isinstance(raw_result, dict):
         failure_value = child.get("failure") if isinstance(child.get("failure"), dict) else {"code": "child_session_failed", "detail": label}
-        phase_failure = {"code": str(failure_value.get("code", "child_session_failed")), "detail": str(failure_value.get("detail", label))}
+        phase_failure = safe_failure(failure_value) or {
+            "code": "child_session_failed",
+            "detail": label,
+        }
     else:
         try:
             validated = validate_session_result(
@@ -2566,7 +2686,7 @@ def build_report(
     phase_records: list[dict[str, Any]],
     comparisons: Optional[dict[str, Any]],
     conclusion: str,
-    failure: Optional[dict[str, str]],
+    failure: Optional[dict[str, Any]],
     server_closed: bool,
     global_lock_released: bool,
 ) -> dict[str, Any]:
@@ -2660,7 +2780,13 @@ def build_report(
     return report
 
 
-def write_offline_adjudication(run_dir: Path, report_sha256: str, conclusion: str, checks: dict[str, Any]) -> Path:
+def write_offline_adjudication(
+    run_dir: Path,
+    report_sha256: str,
+    conclusion: str,
+    checks: dict[str, Any],
+    failure: Optional[dict[str, Any]] = None,
+) -> Path:
     path = run_dir / "final-offline-adjudication.json"
     write_json(
         path,
@@ -2670,6 +2796,7 @@ def write_offline_adjudication(run_dir: Path, report_sha256: str, conclusion: st
             "status": conclusion,
             "verified": False,
             "checks": checks,
+            "failure": safe_failure(failure),
         },
     )
     return path
@@ -2701,7 +2828,13 @@ def finalize_report_artifacts(
     write_json(report_path, report)
     report_sha256 = write_report_sidecar(report_path)
     validate_hash_sidecar(report_path, run_dir / "run-report.sha256")
-    adjudication_path = write_offline_adjudication(run_dir, report_sha256, conclusion, checks)
+    adjudication_path = write_offline_adjudication(
+        run_dir,
+        report_sha256,
+        conclusion,
+        checks,
+        failure=report.get("failure") if isinstance(report.get("failure"), dict) else None,
+    )
     adjudication_sha256 = write_sha256_sidecar(adjudication_path, "final-offline-adjudication.sha256")
     closure_path, closure_sha256 = write_byte_closure(run_dir)
     return {
@@ -2843,7 +2976,7 @@ BLOCKED_FAILURE_CODES = {
 }
 
 
-def conclusion_for_failure(failure: Optional[dict[str, str]], *, preclaim: bool = False) -> str:
+def conclusion_for_failure(failure: Optional[dict[str, Any]], *, preclaim: bool = False) -> str:
     if failure is None:
         return "execution-passed-awaiting-main-brain-gate"
     if preclaim or failure.get("code") in BLOCKED_FAILURE_CODES:
@@ -2851,12 +2984,29 @@ def conclusion_for_failure(failure: Optional[dict[str, str]], *, preclaim: bool 
     return "failed"
 
 
-def safe_failure(failure: Optional[dict[str, str]]) -> Optional[dict[str, str]]:
+def safe_failure(failure: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
     if failure is None:
         return None
-    detail = str(failure.get("detail", ""))
-    detail = ABSOLUTE_PATH.sub("<redacted-path>", detail)
-    return {"code": str(failure.get("code", "runner_failure")), "detail": detail[:256]}
+    result: dict[str, Any] = {
+        "code": sanitize_probe_failure_text(failure.get("code", "runner_failure"))[:96],
+        "detail": sanitize_probe_failure_text(failure.get("detail", "")),
+    }
+    if all(field in failure for field in PROBE_FAILURE_FIELDS):
+        result.update(
+            {
+                "schema": PROBE_FAILURE_SCHEMA,
+                "realm": sanitize_probe_failure_text(failure.get("realm"))[:96],
+                "stage": sanitize_probe_failure_text(failure.get("stage"))[:96],
+                "operation": sanitize_probe_failure_text(failure.get("operation"))[:128],
+                "errorName": sanitize_probe_failure_text(failure.get("errorName"))[:64],
+                "errorMessage": sanitize_probe_failure_text(failure.get("errorMessage")),
+                "lastSuccessfulStage": None
+                if failure.get("lastSuccessfulStage") is None
+                else sanitize_probe_failure_text(failure.get("lastSuccessfulStage"))[:96],
+                "probeCompleted": False,
+            }
+        )
+    return result
 
 
 def runtime_preflight_child(args: argparse.Namespace) -> int:
@@ -2964,7 +3114,7 @@ def write_failure_phase_record(
     artifact_sha256: str,
     profile_id: str,
     port: int,
-    failure: dict[str, str],
+    failure: dict[str, Any],
 ) -> dict[str, Any]:
     phase_dir = run_dir / label
     phase_dir.mkdir(parents=True, exist_ok=True)
@@ -3138,7 +3288,7 @@ def orchestrate(args: argparse.Namespace) -> int:
     server_closed = True
     phase_records: list[dict[str, Any]] = []
     comparisons: dict[str, dict[str, Any]] = {}
-    failure: Optional[dict[str, str]] = None
+    failure: Optional[dict[str, Any]] = None
     conclusion = "failed"
     global_lock_released = True
     try:

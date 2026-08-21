@@ -14,7 +14,12 @@ self.onmessage = async (event) => {
     self.postMessage({
       kind: "fp2-worker-result",
       nonce: data.nonce,
-      error: error && error.name ? error.name : "Error",
+      failure: FP2Realm.failureFromError(error, {
+        realm: "dedicated-worker",
+        stage: "worker",
+        operation: "collectWorkerRealm",
+        lastSuccessfulStage: null,
+      }),
     });
   }
 };

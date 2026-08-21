@@ -34,7 +34,12 @@
           kind: "fp2-frame-result",
           realm: role,
           nonce,
-          error: error && error.name ? error.name : "Error",
+          failure: FP2Realm.failureFromError(error, {
+            realm: role,
+            stage: "frame",
+            operation: "collectWindowRealm",
+            lastSuccessfulStage: null,
+          }),
         },
         data.parentOrigin,
       );

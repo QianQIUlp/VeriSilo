@@ -31,7 +31,12 @@ self.addEventListener("message", (event) => {
       port.postMessage({
         kind: "fp2-service-worker-result",
         nonce: data.nonce,
-        error: error && error.name ? error.name : "Error",
+        failure: FP2Realm.failureFromError(error, {
+          realm: "service-worker",
+          stage: "worker",
+          operation: "collectWorkerRealm",
+          lastSuccessfulStage: null,
+        }),
       });
     });
 });

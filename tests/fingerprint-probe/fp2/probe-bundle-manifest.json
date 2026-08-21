@@ -14,8 +14,8 @@
     },
     {
       "path": "dedicated-worker.js",
-      "sha256": "fbdb3cbde02f3435ef4b13f8c9a45b1d2b7a3b6148eca48cf3105cbb1fae4278",
-      "size": 572
+      "sha256": "4d2c26316e13db7336d25ac6ce403eb573bd7e8d4391717d852ddb01e40d81e1",
+      "size": 711
     },
     {
       "path": "frame.html",
@@ -24,23 +24,23 @@
     },
     {
       "path": "frame.js",
-      "sha256": "314851c95b6410fd6488696a08a258c0a60469c3fa9f62969d9eb7683f2971af",
-      "size": 1186
+      "sha256": "3fdf7a05f29dcb0799156061622bb33289ef2cb7880ec9a09dcd60d3ed080dd9",
+      "size": 1330
     },
     {
       "path": "realm-common.js",
-      "sha256": "4038233188a985da06110235dbac5f7bba180f806002fe6ebc9d5a2cd0e77d7c",
-      "size": 24298
+      "sha256": "6e1a540cc145d61292151ccf0da35389f6ea2185e1c0a831fd9c80db5ad63629",
+      "size": 30250
     },
     {
       "path": "service-worker.js",
-      "sha256": "73affb3f2dc778f10ebe8bbe42b090037c214ef1a967dee7e1638a36758d5910",
-      "size": 948
+      "sha256": "7bc0d505439f61d5676292c6732abc675d577c3bff31aaf22eb767ad46bd9598",
+      "size": 1095
     },
     {
       "path": "shared-worker.js",
-      "sha256": "6b4696dac8a4eee3a521fa9d892a8a8e9df6c917de1a4ec297d1d642bd78c79a",
-      "size": 730
+      "sha256": "a5803cf129b04df0070cd2618dfa128d0b6d5533fe9412eb659230cb12cc5871",
+      "size": 876
     },
     {
       "path": "top.html",
@@ -49,8 +49,8 @@
     },
     {
       "path": "top.js",
-      "sha256": "999217c756067ad9ec7a94f4c7f7f3241446816c70002f1244d4f2cec539edb9",
-      "size": 13028
+      "sha256": "5c1519002f17d42427a1e30221183edcc64a4242cf9c5cd8987acada24eb00be",
+      "size": 15534
     }
   ]
 }

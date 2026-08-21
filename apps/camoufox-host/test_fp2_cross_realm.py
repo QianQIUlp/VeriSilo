@@ -8,6 +8,7 @@ import hashlib
 import inspect
 import json
 import socket
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,6 +37,18 @@ class FP2NoBrowserTests(unittest.TestCase):
         with self.assertRaises(fp2.FP2Failure) as context:
             callable_obj(*args, **kwargs)
         self.assertEqual(context.exception.code, code)
+
+    def probe_failure(self, *, stage: str, operation: str, message: str = "synthetic failure") -> dict:
+        return {
+            "schema": fp2.PROBE_FAILURE_SCHEMA,
+            "realm": "top-window",
+            "stage": stage,
+            "operation": operation,
+            "errorName": "Error",
+            "errorMessage": message,
+            "lastSuccessfulStage": "navigator",
+            "probeCompleted": False,
+        }
 
     def make_realm(self, artifact: dict, realm: str, *, artifact_label: str) -> dict:
         config = artifact["resolvedConfig"]
@@ -429,6 +442,170 @@ class FP2NoBrowserTests(unittest.TestCase):
         session = self.make_session(self.artifact_a, self.artifact_a_info, "A1", "A")
         raw = {"realmOrder": list(fp2.CANONICAL_REALMS), "realms": session["rawRealms"]}
         self.assertCode("header_capture_matrix_incomplete", fp2.validate_session_result, "A1", raw, self.artifact_a, self.ledger, [])
+
+    def test_probe_failure_fields_preserve_each_collector_stage(self) -> None:
+        cases = {
+            "canvas": "identityCanvas",
+            "audio": "audioSnapshot",
+            "webgl": "webglSnapshot",
+            "headerRequest": "observeHeaders",
+        }
+        for stage, operation in cases.items():
+            with self.subTest(stage=stage):
+                failure = fp2.normalize_probe_failure(
+                    self.probe_failure(stage=stage, operation=operation),
+                )
+                safe = fp2.safe_failure({"code": "realm_probe_failed", "detail": "synthetic", **failure})
+                self.assertEqual(safe["stage"], stage)
+                self.assertEqual(safe["operation"], operation)
+                self.assertEqual(safe["errorMessage"], "synthetic failure")
+                self.assertFalse(safe["probeCompleted"])
+
+    def test_probe_failure_metadata_is_fail_closed_when_incomplete(self) -> None:
+        failure = self.probe_failure(stage="canvas", operation="identityCanvas")
+        del failure["operation"]
+        self.assertCode("realm_probe_failure_invalid", fp2.normalize_probe_failure, failure)
+
+    def test_probe_failure_message_is_bounded_and_sanitized(self) -> None:
+        secret = self.probe_failure(
+            stage="canvas",
+            operation="identityCanvas",
+            message=r"C:\Users\qiu\token.txt token=abc https://example.invalid/private",
+        )
+        normalized = fp2.normalize_probe_failure(secret)
+        self.assertEqual(normalized["errorMessage"], "<redacted>")
+        self.assertNotIn("C:\\Users", normalized["errorMessage"])
+        path_only = self.probe_failure(
+            stage="audio",
+            operation="audioSnapshot",
+            message=r"C:\Users\qiu\file.txt https://example.invalid/path",
+        )
+        path_normalized = fp2.normalize_probe_failure(path_only)
+        self.assertNotIn("C:\\Users", path_normalized["errorMessage"])
+        self.assertNotIn("https://", path_normalized["errorMessage"])
+        long_message = self.probe_failure(
+            stage="audio",
+            operation="audioSnapshot",
+            message="x" * (fp2.PROBE_FAILURE_TEXT_LIMIT + 50),
+        )
+        bounded = fp2.normalize_probe_failure(long_message)
+        self.assertEqual(len(bounded["errorMessage"]), fp2.PROBE_FAILURE_TEXT_LIMIT)
+        fp2.ensure_sanitized(bounded, "probe-failure")
+
+    def test_child_evidence_retains_structured_probe_failure_and_stage_trace(self) -> None:
+        host = object.__new__(fp2.FP2ManagedHost)
+        host.session = None
+        host.fp2_bundle_manifest_sha256 = "a" * 64
+        host.fp2_nonce = "synthetic-nonce"
+        host.fp2_stages = [
+            {"stage": "navigator", "status": "success", "elapsedSeconds": 0.001},
+            {"stage": "canvas", "status": "error", "elapsedSeconds": 0.002},
+        ]
+        failure = {"code": "realm_probe_failed", "detail": "synthetic", **self.probe_failure(stage="canvas", operation="identityCanvas")}
+        summary = fp2.child_result_summary(
+            "A1",
+            host,
+            None,
+            None,
+            None,
+            failure,
+            Path("raw-realms.json"),
+        )
+        self.assertEqual(summary["failure"]["realm"], "top-window")
+        self.assertEqual(summary["failure"]["stage"], "canvas")
+        self.assertEqual(summary["failure"]["operation"], "identityCanvas")
+        self.assertEqual(summary["stageTrace"][-1]["status"], "error")
+
+    def test_js_failure_observability_and_top_probe_propagation(self) -> None:
+        script = r'''
+const fs = require("fs");
+const path = require("path");
+const vm = require("vm");
+const root = process.cwd();
+const context = {
+  URLSearchParams,
+  Promise,
+  Error,
+  TextEncoder,
+  setTimeout,
+  clearTimeout,
+  console,
+  document: { getElementById: () => ({ textContent: "" }) },
+  window: {
+    location: { search: "?nonce=synthetic-nonce-123456", origin: "http://127.0.0.1", port: "18192" },
+    addEventListener() {},
+    removeEventListener() {},
+  },
+};
+context.globalThis = context;
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(root, "tests/fingerprint-probe/fp2/realm-common.js"), "utf8"), context);
+(async () => {
+  const stageResults = {};
+  for (const [stage, operation] of [["canvas", "identityCanvas"], ["audio", "audioSnapshot"], ["webgl", "webglSnapshot"], ["headerRequest", "observeHeaders"]]) {
+    const tracker = context.FP2Realm.createStageTracker("top-window");
+    try {
+      await context.FP2Realm.observeStage(tracker, stage, operation, () => { throw new Error(`${stage}_synthetic`); });
+    } catch (error) {
+      stageResults[stage] = error.__fp2Failure;
+    }
+  }
+  const successValue = { unchanged: true };
+  const successTracker = context.FP2Realm.createStageTracker("top-window");
+  const success = await context.FP2Realm.observeStage(successTracker, "finalize", "identity", () => successValue);
+  context.FP2Realm.collectWindowRealm = async () => { throw new Error("abc"); };
+  vm.runInContext(fs.readFileSync(path.join(root, "tests/fingerprint-probe/fp2/top.js"), "utf8"), context);
+  context.window.__fp2ProvideInput({ fonts: [], fontInputSha256: "sha256:font", bundleManifestSha256: "sha256:bundle", bundleFiles: [] });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  process.stdout.write(JSON.stringify({ stageResults, successSameObject: success === successValue, topFailure: context.window.__fp2Error }));
+})().catch((error) => { process.stderr.write(String(error)); process.exitCode = 1; });
+'''
+        result = subprocess.run(
+            ["node", "-e", script],
+            cwd=fp2.REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["successSameObject"])
+        for stage, operation in {
+            "canvas": "identityCanvas",
+            "audio": "audioSnapshot",
+            "webgl": "webglSnapshot",
+            "headerRequest": "observeHeaders",
+        }.items():
+            failure = payload["stageResults"][stage]
+            self.assertEqual(failure["stage"], stage)
+            self.assertEqual(failure["operation"], operation)
+            self.assertEqual(failure["errorMessage"], f"{stage}_synthetic")
+            self.assertFalse(failure["probeCompleted"])
+        top_failure = payload["topFailure"]
+        self.assertEqual(top_failure["realm"], "top-window")
+        self.assertEqual(top_failure["stage"], "top-window")
+        self.assertEqual(top_failure["operation"], "collectWindowRealm")
+        self.assertEqual(top_failure["errorMessage"], "abc")
+        self.assertFalse(top_failure["probeCompleted"])
+
+    def test_structured_failure_is_closed_by_report_adjudication_and_byte_receipt(self) -> None:
+        failure = {"code": "realm_probe_failed", "detail": "synthetic", **self.probe_failure(stage="headerRequest", operation="observeHeaders", message="abc")}
+        with tempfile.TemporaryDirectory(prefix="fp2-observability-finalization-") as folder:
+            root = Path(folder)
+            artifacts = fp2.finalize_report_artifacts(
+                run_dir=root,
+                report={"schema": fp2.REPORT_SCHEMA, "status": "failed", "verified": False, "failure": failure},
+                conclusion="failed",
+                checks={"verified": False, "syntheticFailure": True},
+            )
+            report = json.loads(artifacts["reportPath"].read_text(encoding="utf-8"))
+            adjudication = json.loads(artifacts["adjudicationPath"].read_text(encoding="utf-8"))
+            self.assertEqual(report["failure"]["stage"], "headerRequest")
+            self.assertEqual(report["failure"]["operation"], "observeHeaders")
+            self.assertEqual(adjudication["failure"]["errorMessage"], "abc")
+            fp2.validate_hash_sidecar(artifacts["reportPath"], root / "run-report.sha256")
+            fp2.validate_hash_sidecar(artifacts["adjudicationPath"], root / "final-offline-adjudication.sha256")
+            fp2.validate_hash_sidecar(artifacts["closurePath"], root / "byte-closure-receipt.sha256")
 
     def test_generation3_preserves_generation1_and_generation2_attempts(self) -> None:
         attempts = fp2.previous_execution_attempts()
