@@ -777,3 +777,31 @@ E1–E8 mapped to V1–V4 with a frozen discrimination decision table; hard
 behavioral-invariant constraints; DIAGNOSTIC-ONLY patch series excluded from the
 final R1 Engine Binding). Voices final patch remains unauthorized until the
 discrimination report converges. Browser stays CLOSED.
+
+### 2026-08-22 Implementation Contract returned Conditional; GPC policy-state blocker resolved
+
+Main brain returned **Conditional** on the implementation contract with exactly
+one blocker: the frozen truth table made explicit-`false` equivalent to
+missing-key ("don't manage, hope native is false"), violating the
+configured ≠ native-fallback boundary. Ruling adopted (model B): GPC's only
+managed identity declaration is the opt-out. Frozen model:
+
+```text
+gpcPolicy ∈ { native, managed-opt-out }
+managed-opt-out ⇔ engine key present and exactly true
+  → enabled=true + functionality_enabled=true
+  → Window=true / Worker=true / Sec-GPC:1
+native ⇔ key absent, no pref writes, observation diagnostic-only
+explicit false ⇒ illegal v4 shape, rejected validator-side
+```
+
+fakeCompletion additionally frozen as policy-derived semantics — never an
+independent random Artifact fingerprint dimension; artifacts differing in
+completion semantics are different identity contracts. The correction is
+recorded as a dated amendment to the design-freeze doc, implemented in the
+implementation contract §1.1/§1.2/§3, and pinned by a new executable reference
+model `apps/camoufox-host/test_gpc_policy_contract.py`. Per gate terms the
+Implementation Contract upgrades to **Accepted** once this correction lands in a
+clean commit; then patch authoring + seam digests + diagnostic build are allowed.
+Browser discrimination run still requires a separate authorization; Browser
+remains CLOSED; FP3 remains Closed.

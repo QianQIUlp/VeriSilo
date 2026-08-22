@@ -254,3 +254,19 @@ FP2？"——而不是 Gen 计数的延续。
 - 运行证据：fp2-20260822T065118Z-18fdbee7a8/A1/raw-realms.json（voices 逐 realm 数组）、
   Artifact A（tests/fixtures/camoufox/identity-win-canvas-v1-a.json，47-key，
   voices[53] 合法、无 blockIfNotDefined/fakeCompletion）。
+
+## 2026-08-22 Conditional-gate amendment：GPC policy-state 模型
+
+实施合同评审返回 Conditional：本文 §A.3 的验证不变量与 §1.2 风格的 bool 表述在
+managed-opt-out 声明下成立；但 "显式 false 与缺省等价" 不再是合法语义——GPC 的
+受管身份声明只有 opt-out。权威修正见 implementation contract §1.2：
+
+```text
+gpcPolicy ∈ { native, managed-opt-out }
+managed-opt-out ⇔ 引擎键存在且为 true ⇒ 三投影 true/present
+native          ⇔ 键缺失 ⇒ 无 pref 写入，观测仅诊断
+显式 false      ⇒ v4 非法形状，validator 双侧拒绝
+```
+
+历史 v3 BOOL 必填与 Gen5 判定不变。fakeCompletion 同步冻结为
+policy-derived 语义，不得成为独立随机 fingerprint dimension。

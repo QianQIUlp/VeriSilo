@@ -25,12 +25,14 @@ Voices → diagnostic instrumentation（调查专用，默认排除于 R1 Engine
 
 ```text
 Canonical identity state:
-  MaskConfig["navigator.globalPrivacyControl"]   （单键、单次解析）
+  artifact.policy.navigator.gpcPolicy ∈ { native, managed-opt-out }
+  （引擎侧唯一投影键 MaskConfig["navigator.globalPrivacyControl"]:
+    managed-opt-out ⇒ true；native ⇒ 键不存在）
 
 Native Firefox prefs:
   privacy.globalprivacycontrol.enabled
   privacy.globalprivacycontrol.functionality_enabled
-  —— 仅为 canonical state 的 derived projection，不是第二状态源
+  —— 仅为 canonical policy 的 derived projection，不是第二状态源
 
 Window / Worker / HTTP:
   全部消费同一 native pref machinery；不存在任何直读 MaskConfig 的伪装 getter
@@ -49,22 +51,42 @@ Window / Worker / HTTP:
 Worker override（fingerprint-injection.patch 引入的 `MaskConfig::GetBool` 直读）被回退，
 不再存在可独立漂移的第二状态。
 
-### 1.2 Projection 语义（真值表，冻结）
+### 1.2 GPC policy-state 模型（Conditional Gate 修正，冻结）
 
-| 配置 | 写入动作 | Window | Worker | Sec-GPC |
+数据模型**不是自由 bool**。GPC 的真实身份语义只有一个受管方向——opt-out 声明
+（`true` = 用户明确表达禁止出售/分享；`Sec-GPC` 只有 opt-out 信号；`false` =
+"没有表达"，不是可管理的网站可见状态）。因此：
+
+```text
+GPC policy states:  managed-opt-out | native
+```
+
+| Policy 状态（artifact.policy.navigator.gpcPolicy） | resolvedConfig 引擎键 | Pref 写入 | Window / Worker | Sec-GPC |
 | --- | --- | --- | --- | --- |
-| `true`（显式） | `enabled=true` 且 `functionality_enabled=true` | `true` | `true` | `1` |
-| 显式 `false` | 不写（native 默认） | `false` | `false` | 缺失 |
-| 键缺失 | 不写（native 默认） | `false` | `false` | 缺失 |
+| `managed-opt-out` | `navigator.globalPrivacyControl = true`（必在，值恰为 true） | `enabled=true` 且 `functionality_enabled=true` | `true` | `1` |
+| `native` | 键**不存在**（必缺） | 无写入（prefs 保持 native 默认） | `false`（native） | 缺失 |
 
 规则：
 
-1. 仅当配置值为布尔 `true` 时写入两个 pref（幂等）；显式 false 与缺省等价，
-   不产生 managed claim；
+1. **显式 `false` 在 v4 中是非法形状**：validator 在生成与加载两侧均拒绝。
+   "configured=false ⇒ 不管理 ⇒ 期望 native 恰好为 false" 的通道被移除，
+   configured ≠ native-fallback 边界由此恢复——`false == missing` 的歧义以
+   "false 不可表示" 的方式消解；
 2. `pbmode_*` 两 pref 不在受管范围，永不写入；
-3. 写入点必须满足：父进程唯一（`XRE_IsParentProcess()` 守卫）、一次性
-   （once-guard）、早于首个 window 创建与任一 network channel 建立
-   （pref 经既有同步机制到达内容进程）。
+3. 防御性运行时行为：若 MaskConfig 中出现布尔 false（正常流程不可达），投影点视同
+   native、不写任何 pref；
+4. 历史 v3 Artifact 不变：REQUIRED_CONFIG_KEYS 继续强制 BOOL（immutable），
+   Gen5 A 的 `gpc=true` 即一次失败的 managed-opt-out 应用，判定不变；
+5. v4 validator 双向规则：`gpcPolicy="managed-opt-out"` ⇔ 引擎键存在且为 true；
+   `gpcPolicy="native"` ⇔ 键缺失。policy 字段位于 artifact.policy 命名空间，
+   **不进入 resolvedConfig/CAMOU_CONFIG**（引擎只见 boolean 键本身，兼容
+   properties.json contract）；
+6. R1 验证不变量相应细化：managed-opt-out 下
+   `Window == Worker == Sec-GPC present == true`；native 下无 managed 断言，
+   观测仅作诊断记录，不参与失败判定。
+
+可执行参考模型：`apps/camoufox-host/test_gpc_policy_contract.py`
+（T3 的纯 Python 镜像，随本修正落地；后续 C++ seam 与 patch 作者化必须与之一致）。
 
 ### 1.3 Patch 系列（文件名与顺序）
 
@@ -108,8 +130,9 @@ apply-0004 → verify-worker-native-restored →（diag recipe: apply-9000）`�
   系列应用后的补丁文本中 `navigator.globalPrivacyControl` 的 `MaskConfig::Get*`
   引用计数为 0。
 - **T2 单写者断言**：整个系列中写 `privacy.globalprivacycontrol.*` 的位置恰为 1 处。
-- **T3 投影真值表模型测试**：纯 Python 镜像 §1.2 判定式，覆盖
-  true/false-explicit/absent × pbmode 组合，锁定三投影一致结论。
+- **T3 投影策略模型测试**：`test_gpc_policy_contract.py` 纯 Python 镜像 §1.2
+  policy-state 判定式——managed-opt-out/native 两态投影、非法形状（显式 false、
+  policy 与引擎键不一致）拒绝、pbmode 组合不变性。
 - **T4 driver 顺序测试**：recipe step 列表含 §1.4 五个新校验步且序正确。
 
 ---
@@ -185,6 +208,15 @@ Engine enforcement control（执行语义，非身份属性）:
 
 Validator 冻结规则（A-R1/B-R1 生成合同实现）：`voices` 非空 而 suppression 关闭
 的 Artifact 形状为**违例**，生成期直接拒绝。
+
+fakeCompletion 追加冻结（Conditional Gate）：
+
+1. **不得成为独立随机 Artifact fingerprint dimension**：生成器禁止按 artifact
+   随机化 `fakeCompletion` / `charsPerSecond`；
+2. 二者由 `voicesMode` / engine policy 确定性派生（或由显式 policy variant 声明）；
+3. 同一 voices identity 在不同 Artifact 中必须派生出相同的 completion 语义；
+   `fakeCompletion` 不同的两个 Artifact 视为**不同的 identity contract**，
+   不允许以同一身份名义比较。
 
 ## 4. FP1-R1 Carry-Forward Qualification（答案已冻结，不留 TBD）
 
