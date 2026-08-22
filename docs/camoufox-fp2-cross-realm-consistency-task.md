@@ -520,3 +520,21 @@ not eligible for another FP2 browser attempt. Any engine change creates a new
 source revision/archive/executable/tree manifest/engine binding and opens a fresh
 candidate-scoped lineage (`FP2-R1`). FP2 remains **Failed / Not Accepted** with
 all results `verified:false`, and FP3 remains **Closed**.
+
+### Round-1 acceptance and R1 design freeze
+
+The main brain Accepted the remediation round-1 checkpoint (`94e107bf…`) as a
+foundation closure, with binding terminology corrections (contract recognition ≠
+runtime implementation proof; consumer divergence ≠ presupposed two writers;
+observability closure ≠ ctx.close root-cause fix). The authorized successor task
+`FP2-R1 Engine Remediation Design Freeze` (offline/static) is recorded in
+[camoufox-fp2-r1-engine-remediation-design.md](camoufox-fp2-r1-engine-remediation-design.md):
+GPC seam fully adjudicated (window native pref path unpatched, worker MaskConfig,
+Sec-GPC native — single divergence); voices injection chain proven working by
+Gen5 raw evidence with the real defect restated as enumeration coherence plus
+inactive native blocking (artifacts omit `voices:blockIfNotDefined`), root cause
+narrowed to V1–V4 init/sync timing candidates pending discriminators; DNT Policy
+`v4-dnt-native` versioned contract frozen with an artifact schema v4 variant;
+R1 fresh lineage (`artifacts/camoufox-fp2-r1/`, Generation naming retired) and
+mandatory FP1 carry-forward qualification frozen. No implementation patch is
+approved until the voices root cause converges; browser execution remains CLOSED.

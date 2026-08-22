@@ -686,3 +686,61 @@ browser attempt. The authorized next phase is **FP2 Capability Remediation**
 
 No browser was started by this checkpoint. All results remain `verified:false`;
 FP3 remains **Closed**.
+
+### 2026-08-22 FP2 Capability Remediation Round 1 Accepted; FP2-R1 Engine Remediation Design Freeze
+
+Main brain accepted checkpoint `94e107bf64cf237dcb46d8ab517efc524acc73a7`
+(tree `1755b9cfe366409aff0f603b426a854b9604b893`) as a formal clean checkpoint —
+a **remediation foundation closure**, not an FP2 Gate pass. Authoritative state:
+GPC delivery/wiring pre-engine Closed (engine application = confirmed gap, exact
+source seam then pending); voices pre-engine wiring Closed (engine application =
+confirmed gap); DNT FF>=135 policy decision Accepted for future lineage;
+comparator and lifecycle-observability closures Accepted; Gen5 ctx.close root
+cause remains **historically unresolved** (observability gap closed, not the
+failure itself); historical candidate retired from further FP2 execution; Gen6
+permanently closed; FP2-R1 not yet executable; FP3 Closed.
+
+Terminology corrections now binding: `properties.json` declarations are engine
+configuration-contract recognition, not runtime implementation guarantees; the
+GPC realm split must be read as possible realm-specific consumer divergence, not
+presupposed "two writers"; lifecycle instrumentation closure must not be called a
+ctx.close fix.
+
+The authorized task `FP2-R1 Engine Remediation Design Freeze` (offline/static)
+is complete and recorded in
+[camoufox-fp2-r1-engine-remediation-design.md](camoufox-fp2-r1-engine-remediation-design.md).
+Key adjudication results against upstream source
+(`daijro/camoufox@0583c3ec…`, tree hash verified against lock) and FF152 release
+sources:
+
+```text
+GPC seam — fully adjudicated:
+  Window Navigator::GlobalPrivacyControl(): unpatched native pref path
+  WorkerNavigator: patched to MaskConfig::GetBool first
+  Sec-GPC header: native pref path, no consumer sets those prefs
+  => single divergence (worker-only consumer), "two writers" refuted
+
+Voices — seam precise, root cause narrowed to init/sync timing domain:
+  injection chain verified END-TO-END WORKING by Gen5 raw evidence:
+    A1 iframes observed all 53 configured voices (+5 native) with correct
+       slug URIs and isDefault:true on the configured default
+  native blocking inactive because VeriSilo v3 artifacts omit
+  voices:blockIfNotDefined/fakeCompletion (wiring decision, now frozen:
+  R1 artifacts must carry them; engine implies block when managed list present)
+  REAL engine defect restated precisely: enumeration coherence across realms
+  (top-window 5 vs iframes 58 in one session) + isDefault semantics;
+  root-cause candidates V1-V4 frozen with named discriminators;
+  no implementation patch approved until they converge
+
+DNT Policy v4-dnt-native contract frozen (schema v4 variant selected strictly
+by policyVersion+ffVersion; historical A/B immutable; A-R1/B-R1 new generation).
+
+R1 fresh lineage frozen (artifacts/camoufox-fp2-r1/, Generation naming retired);
+FP1 carry-forward qualification made mandatory for any rebuilt engine.
+```
+
+This correction supersedes part of the earlier offline-round wording ("voices
+injection never engaged"): injection worked; enumeration coherence is the defect.
+FP2 remains Failed / Not Accepted under unchanged comparator semantics. No
+browser was started; Browser stays CLOSED; next Gate is main-brain review of the
+design freeze before any patch implementation contract.
