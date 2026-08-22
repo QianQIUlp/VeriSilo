@@ -622,3 +622,67 @@ generation-5 claim exists. After claim creation: no code/probe/timeout change, n
 retry, no generation 6; evidence freezes and returns to the main brain regardless of
 outcome. FP2 remains **Failed / Not Accepted**, all results stay `verified:false`,
 and FP3 remains **Closed**.
+
+### 2026-08-22 FP2 capability adjudication gate and remediation phase
+
+The main brain accepted the Gen5 offline semantic adjudication and formally froze:
+FP2 **Failed / Not Accepted** — now with confirmed **real Managed Identity
+capability gaps**, not harness-only failures:
+
+```text
+Confirmed capability gaps:
+1. GPC projection + cross-realm coherence
+   (Artifact true -> window false / worker true / Sec-GPC absent)
+2. Voices projection
+   (Artifact 53 injected voices -> 5 host SAPI voices,
+    zero intersection; voiceURI scheme and isDefault diverge)
+
+DNT:
+real mismatch under the frozen Artifact A ("1" -> "unspecified", header absent),
+but the policy itself is superseded: Firefox >= 135 removed user-facing DNT.
+
+Confirmed harness defect (comparator category error):
+surface_value("httpHeaders") projected contextHeaders into cross-realm identity
+equality; every one of the 15 Gen5 pairwise flags reduced to referer hashes that
+the frozen contract explicitly excludes.
+
+Lifecycle:
+ctx.close exception at ~1 ms on the failure path; bounded-close regression
+signature excluded; root cause unrecoverable because exception evidence was not
+persisted. Failure-path instrumentation was insufficient.
+```
+
+Product policy decision (main brain): for Firefox >= 135 targets, DNT is **no
+longer a managed required identity signal**; future identity policy expresses it
+as native/unavailable under a version-aware policy variant to be specified in its
+own contract. Historical A/B Artifacts stay byte-unchanged; Gen5 stays Failed.
+GPC remains a required managed capability and must be fixed at the binding layer
+with a single source of truth across Window/Worker/HTTP.
+
+FP1's Accepted interpretation boundary is corrected without reopening the Gate:
+FP1 proved deterministic replay of one Artifact; it did not prove per-key
+configured-to-applied completeness, and must not be quoted as such.
+
+The project exits the generation-retry model. Generation 6 is **closed
+permanently** for this candidate, which is no longer eligible for another FP2
+browser attempt. The authorized next phase is **FP2 Capability Remediation**
+(offline/static first):
+
+1. DNT/GPC/voices static binding audits across `resolvedConfig` ->
+   camoufox `launch_options` -> engine properties (`navigator.doNotTrack`,
+   `navigator.globalPrivacyControl`, `voices` are declared engine properties in
+   the candidate's `properties.json`; delivery to the engine boundary is
+   verified, so the defects live inside this build's consumption/application);
+2. comparator structural fix: `httpHeaders` identity projection now carries only
+   `identityHeaders` + `requestPolicy`; `contextHeaders` stays recorded but
+   excluded from equality;
+3. instrumentation closure: close outcomes now persist a bounded, path-redacted
+   exception message, and failure-path teardown (contextClose/closeOutcome/exit
+   state) is written into child-result lifecycle even when validation failed
+   before `host.close()` returned;
+4. any browser-engine change produces a new source revision/archive/executable/
+   tree manifest/engine binding and opens a fresh candidate-scoped lineage named
+   `FP2-R1` — never a Gen6.
+
+No browser was started by this checkpoint. All results remain `verified:false`;
+FP3 remains **Closed**.

@@ -1001,6 +1001,16 @@ def identity_projection(result: dict[str, Any], realm: str, ledger: dict[str, An
                     )
                     if field in value
                 }
+            elif surface == "httpHeaders":
+                # The frozen task contract records Origin/Referer/Sec-Fetch-*
+                # as request context only: they are legitimately realm-specific
+                # and must not participate in cross-realm identity equality.
+                # Only the frozen identity header mapping and request policy
+                # are identity-comparable.
+                value = {
+                    "identityHeaders": value.get("identityHeaders"),
+                    "requestPolicy": value.get("requestPolicy"),
+                }
             projection[surface] = value
     return projection
 
@@ -1859,6 +1869,33 @@ def validate_bound_file_hash(path: Path, expected_sha256: str, failure_code: str
     require(sha256_file(path) == expected_sha256, failure_code, path.name)
 
 
+def failure_path_teardown(host: Optional["FP2ManagedHost"]) -> Optional[dict[str, Any]]:
+    """Persist close evidence when validation failed before host.close() returned.
+
+    Without this, the only record of a failure-path ctx.close exception was the
+    in-memory session state under a temp directory that is removed after the
+    run, which left the Gen5 close_not_clean observation permanently unexplained.
+    """
+    session = None if host is None else host.session
+    if not isinstance(session, dict):
+        return None
+    context_close = session.get("contextClose")
+    close_outcome = session.get("closeOutcome")
+    if context_close is None and close_outcome is None:
+        return None
+    return {
+        "evidenceClass": "failure-path-teardown",
+        "contextClose": context_close,
+        "closeOutcomeStatus": (close_outcome or {}).get("status"),
+        "forcedJobCleanup": ((close_outcome or {}).get("forcedJobCleanup") or {}).get("status"),
+        "exitStatus": session.get("exitStatus"),
+        "exitFileObserved": session.get("exitFileObserved"),
+        "processTreeExited": (session.get("processTreeExit") or {}).get("exited"),
+        "jobActiveProcessCount": ((session.get("processTreeExit") or {}).get("job") or {}).get("activeProcessCount"),
+        "closeSeconds": session.get("closeSeconds"),
+    }
+
+
 def child_result_summary(
     label: str,
     host: Optional[FP2ManagedHost],
@@ -1867,6 +1904,7 @@ def child_result_summary(
     lock_receipt: Optional[dict[str, bool]],
     failure: Optional[dict[str, Any]],
     raw_result_path: Path,
+    teardown: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     session = host.session if host is not None else None
     return {
@@ -1886,7 +1924,9 @@ def child_result_summary(
         "nonceSha256": None if host is None else safe_nonce_hash(host.fp2_nonce),
         "rawResultPath": raw_result_path.name,
         "stageTrace": [] if host is None else safe_stage_trace(host.fp2_stages),
-        "lifecycle": None
+        "lifecycle": teardown
+        if close is None and teardown is not None
+        else None
         if close is None
         else {
             "state": close.get("state"),
@@ -1971,7 +2011,16 @@ async def run_child_session(args: argparse.Namespace) -> int:
                 await asyncio.wait_for(host.close(host.session["sessionId"]), timeout=SESSION_WATCHDOG_SECONDS)
             except Exception:  # noqa: BLE001 - parent will treat a nonzero child as failed
                 pass
-        summary = child_result_summary(label, host, launch, close, lock_receipt, failure, raw_result_path)
+        summary = child_result_summary(
+            label,
+            host,
+            launch,
+            close,
+            lock_receipt,
+            failure,
+            raw_result_path,
+            teardown=failure_path_teardown(host),
+        )
         write_json(child_result_path, summary)
     return 0 if failure is None else 1
 

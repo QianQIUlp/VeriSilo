@@ -470,3 +470,53 @@ generation 6; the run freezes immutable evidence and returns to the main brain r
 of outcome. This section changes no measurement semantics: realm surfaces, ServiceWorker
 activation state machine, HTTP request shape, Artifact mapping, ledger, relation matrix,
 candidate and timeout values remain exactly as frozen by the semantic closure.
+
+## Generation-5 frozen formal failure and capability adjudication
+
+The generation-5 one-shot was consumed and the formal run failed:
+
+```text
+run: fp2-20260822T065118Z-18fdbee7a8
+claim SHA-256: 3ce470074c09d1f949c19fb63da3064ea7bd4d60f58467d47fbd7e27ea04eb70
+first runner failure: dnt_mapping_mismatch / A1.top-window.navigator
+valid realm observations: first FP2 evidence obtained (raw-realms 111767 B,
+realm-observations 135598 B, 6 header captures); ServiceWorker activation path
+observed working (script/scope/sha/activated + topController true)
+```
+
+The offline semantic adjudication (`fp2-v5-offline-semantic-adjudication.json`,
+SHA-256 `586d37b10a736632147207076c9aa0ae5eb0f9e64c7ebd07d9795f7c9ab74b13`)
+established, and the main brain accepted:
+
+1. **Real capability gaps** in this candidate: GPC projection plus cross-realm
+   coherence (window `false` / worker `true` / header absent against configured
+   `true`), and voices projection (configured 53 -> observed 5 host SAPI voices
+   with zero intersection). Delivery of the exact resolvedConfig through
+   camoufox `launch_options` into the engine boundary is verified, and the
+   candidate's own `properties.json` declares all three keys as supported engine
+   properties — so the defects are inside this build's consumption/application.
+2. **Comparator category error**: the httpHeaders surface carried contextHeaders
+   into cross-realm identity equality although the frozen contract excludes
+   Origin/Referer/Sec-Fetch-* from it. All 15 Gen5 pairwise flags reduced to
+   referer hashes. The comparator now projects only `identityHeaders` +
+   `requestPolicy`; `contextHeaders` stays recorded but excluded — a structural
+   three-segment split, not a referer special case.
+3. **Lifecycle instrumentation gap**: the Gen5 ctx.close exception (~1 ms,
+   bounded-close timeout signature excluded) could not be root-caused because
+   close evidence was not persisted on the failure path.
+
+The remediation phase closes (2) and (3) in code: close outcomes persist a
+bounded path-redacted message next to `exceptionType`, and failure-path teardown
+(contextClose/closeOutcome/exit state/closeSeconds) is written into child-result
+lifecycle even when validation fails before `host.close()` returns.
+
+DNT product policy decision (main brain): Firefox >= 135 removed user-facing
+DNT, so future identity policy stops declaring managed `DNT=1` for such targets
+(native/unavailable under a version-aware policy variant, specified separately).
+Historical A/B Artifacts remain byte-unchanged; Gen5 remains Failed.
+
+Generation 6 is closed permanently for this candidate; the current candidate is
+not eligible for another FP2 browser attempt. Any engine change creates a new
+source revision/archive/executable/tree manifest/engine binding and opens a fresh
+candidate-scoped lineage (`FP2-R1`). FP2 remains **Failed / Not Accepted** with
+all results `verified:false`, and FP3 remains **Closed**.

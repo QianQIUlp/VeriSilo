@@ -190,6 +190,7 @@ class ContextCloseOutcome:
 
     status: str
     exception_type: Optional[str] = None
+    message: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.status not in {"success", "timeout", "exception"}:
@@ -199,7 +200,21 @@ class ContextCloseOutcome:
         result = {"status": self.status}
         if self.exception_type is not None:
             result["exceptionType"] = self.exception_type
+        if self.message is not None:
+            result["message"] = self.message
         return result
+
+
+_CLOSE_MESSAGE_PATH = re.compile(
+    r"(?:[A-Za-z]:[\\/][^\s,;)}]+|\\\\[^\s,;)}]+|/(?:Users|home|tmp|var|private|mnt)/[^\s,;)}]+)"
+)
+
+
+def _bounded_close_message(exc: BaseException) -> str:
+    """Bounded, path-redacted one-line rendering of a close exception."""
+    text = re.sub(r"\s+", " ", str(exc)).strip()
+    text = _CLOSE_MESSAGE_PATH.sub("<redacted-path>", text)
+    return text[:240]
 
 
 def _send(obj: dict) -> None:
@@ -556,6 +571,7 @@ async def close_context_bounded(ctx: Any, timeout: float) -> ContextCloseOutcome
         return ContextCloseOutcome(
             "exception",
             re.sub(r"[^A-Za-z0-9_.-]", "_", type(exc).__name__)[:64],
+            _bounded_close_message(exc),
         )
 
 

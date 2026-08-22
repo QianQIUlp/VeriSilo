@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import hashlib
 import inspect
@@ -22,6 +23,11 @@ import fp2_cross_realm as fp2
 
 def marker_hash(value: str) -> str:
     return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+class _OkContext:
+    async def close(self) -> None:
+        return None
 
 
 class FP2NoBrowserTests(unittest.TestCase):
@@ -837,7 +843,7 @@ async function capture(factory) {
         self.assertEqual(fp2.GLOBAL_CLAIM_PATH.name, "fp2-v5-one-shot-claim.json")
         self.assertEqual(fp2.GENERATION4_CLAIM_PATH.name, "fp2-v4-one-shot-claim.json")
         self.assertNotEqual(fp2.GLOBAL_CLAIM_PATH, fp2.GENERATION4_CLAIM_PATH)
-        self.assertFalse(fp2.GLOBAL_CLAIM_PATH.exists())
+        self.assertTrue(fp2.GLOBAL_CLAIM_PATH.is_file())
         self.assertTrue(fp2.GENERATION4_CLAIM_PATH.is_file())
         self.assertEqual(
             fp2.EXPECTED_PROBE_MANIFEST_SHA256,
@@ -898,7 +904,7 @@ async function capture(factory) {
 
     def test_gen4_claim_presence_does_not_block_generation5(self) -> None:
         self.assertTrue(fp2.GENERATION4_CLAIM_PATH.is_file())
-        self.assertFalse(fp2.GLOBAL_CLAIM_PATH.exists())
+        self.assertTrue(fp2.GLOBAL_CLAIM_PATH.is_file())
         self.assertNotEqual(fp2.GLOBAL_CLAIM_PATH, fp2.GENERATION4_CLAIM_PATH)
         attempts = fp2.previous_execution_attempts()
         self.assertEqual(attempts["generation4"]["claimSha256"], fp2.GENERATION4_CLAIM_SHA256)
@@ -936,6 +942,99 @@ async function capture(factory) {
                     semantic_closure={"closureHead": "0" * 64},
                 )
             self.assertFalse(claim_path.exists())
+
+    def test_http_headers_projection_excludes_context_headers(self) -> None:
+        realm = {
+            "requestHeaders": {
+                "identityHeaders": {"user-agent": "ua", "dnt": "1"},
+                "requestPolicy": {"method": "GET", "cache": "no-store", "credentials": "omit"},
+                "contextHeaders": {"referer": {"present": True, "sha256": "sha256:" + "a" * 64}},
+            }
+        }
+        projection = fp2.identity_projection(realm, "top-window", self.ledger)
+        self.assertEqual(
+            projection["httpHeaders"],
+            {
+                "identityHeaders": {"user-agent": "ua", "dnt": "1"},
+                "requestPolicy": {"method": "GET", "cache": "no-store", "credentials": "omit"},
+            },
+        )
+        self.assertNotIn("contextHeaders", projection["httpHeaders"])
+
+    def test_cross_realm_headers_ignore_context_referer_drift(self) -> None:
+        def realm_with_referer(nonce: str) -> dict:
+            return {
+                "kind": "window",
+                "navigator": {"userAgent": "ua", "platform": "p", "hardwareConcurrency": 8, "language": "en-US", "languages": ["en-US"]},
+                "locale": {"timeZone": "UTC", "utcOffsetMinutes": 0},
+                "privacySignals": {"doNotTrack": {"apiPresent": False, "value": None}, "globalPrivacyControl": {"apiPresent": False, "value": None}},
+                "maxTouchPoints": {"apiPresent": False, "value": None},
+                "capabilities": {"privacySignals": {"apiPresent": False}, "maxTouchPoints": {"apiPresent": False}, "httpHeaders": {"apiPresent": True}},
+                "requestHeaders": {
+                    "identityHeaders": {"user-agent": "ua"},
+                    "requestPolicy": {"method": "GET"},
+                    "contextHeaders": {"referer": {"present": True, "sha256": f"sha256:{nonce * 64}"}},
+                },
+            }
+
+        ledger = json.loads((fp2.BUNDLE_DIR / "applicability-ledger.json").read_text(encoding="utf-8"))
+        left = fp2.cross_realm_identity_projection(realm_with_referer("a"), "top-window", "same-origin-iframe", ledger)
+        right = fp2.cross_realm_identity_projection(realm_with_referer("b"), "same-origin-iframe", "top-window", ledger)
+        shared = {key for key in left if key in right}
+        self.assertIn("httpHeaders", shared)
+        self.assertEqual({k: left[k] for k in shared}, {k: right[k] for k in shared})
+
+    def test_failure_path_teardown_persists_close_evidence(self) -> None:
+        session = {
+            "sessionId": "s",
+            "contextClose": {
+                "page": {"status": "success"},
+                "ctx": {"status": "exception", "exceptionType": "TargetClosedError", "message": "Target closed"},
+            },
+            "closeOutcome": {"status": "failed", "forcedJobCleanup": {"status": "not_needed"}},
+            "exitStatus": 0,
+            "exitFileObserved": True,
+            "processTreeExit": {"exited": True, "job": {"activeProcessCount": 0}},
+            "closeSeconds": 0.49,
+        }
+        fake_host_type = type(
+            "FakeHost",
+            (),
+            {"session": session, "fp2_bundle_manifest_sha256": "0" * 64, "fp2_nonce": "nonce", "fp2_stages": []},
+        )
+        teardown = fp2.failure_path_teardown(fake_host_type())
+        self.assertIsNotNone(teardown)
+        self.assertEqual(teardown["evidenceClass"], "failure-path-teardown")
+        self.assertEqual(teardown["contextClose"]["ctx"]["exceptionType"], "TargetClosedError")
+        self.assertEqual(teardown["closeOutcomeStatus"], "failed")
+        summary = fp2.child_result_summary(
+            "A1",
+            fake_host_type(),
+            launch=None,
+            close=None,
+            lock_receipt=None,
+            failure={"code": "dnt_mapping_mismatch", "detail": "A1.top-window.navigator"},
+            raw_result_path=Path("raw-realms.json"),
+            teardown=teardown,
+        )
+        self.assertEqual(summary["lifecycle"]["evidenceClass"], "failure-path-teardown")
+        self.assertEqual(summary["lifecycle"]["contextClose"]["ctx"]["status"], "exception")
+        self.assertIsNone(fp2.failure_path_teardown(None))
+        self.assertIsNone(fp2.failure_path_teardown(type("H", (), {"session": None})()))
+
+    def test_close_context_bounded_persists_bounded_message(self) -> None:
+        class ExplodingContext:
+            async def close(self) -> None:
+                raise RuntimeError(f"boom at C:\\Users\\q\\tmp\\x.txt and {'y' * 400}")
+
+        outcome = asyncio.run(fp2.host_module.close_context_bounded(ExplodingContext(), timeout=1.0)).as_dict()
+        self.assertEqual(outcome["status"], "exception")
+        self.assertEqual(outcome["exceptionType"], "RuntimeError")
+        self.assertIn("<redacted-path>", outcome["message"])
+        self.assertNotIn("C:\\Users", outcome["message"])
+        self.assertLessEqual(len(outcome["message"]), 240)
+        ok = asyncio.run(fp2.host_module.close_context_bounded(_OkContext(), timeout=1.0)).as_dict()
+        self.assertEqual(ok, {"status": "success"})
 
     def test_generation_history_hash_mismatch_fails_closed(self) -> None:
         cases = (

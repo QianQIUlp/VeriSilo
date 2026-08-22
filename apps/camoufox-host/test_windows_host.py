@@ -1289,7 +1289,11 @@ def test_close_context_regression() -> dict:
     direct = asyncio.run(direct_outcomes())
     assert direct["success"]["status"] == "success"
     assert direct["timeout"]["status"] == "timeout"
-    assert direct["exception"] == {"status": "exception", "exceptionType": "RuntimeError"}
+    assert direct["exception"] == {
+        "status": "exception",
+        "exceptionType": "RuntimeError",
+        "message": "R2-CLOSE-SECRET-SENTINEL",
+    }
 
     async def run_composition() -> list[dict]:
         records: list[dict] = []
@@ -1431,6 +1435,7 @@ def test_close_context_regression() -> dict:
     assert by_name["exception"]["receipt"]["contextClose"]["ctx"] == {
         "status": "exception",
         "exceptionType": "RuntimeError",
+        "message": "R2-CLOSE-SECRET-SENTINEL",
     }
     assert by_name["job-not-exited"]["state"] == "quarantined"
     assert by_name["job-not-exited"]["released"] is False
