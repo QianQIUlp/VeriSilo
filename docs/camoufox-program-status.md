@@ -18,7 +18,7 @@
 | R2 tracked 候选 evidence        | `ecafca9` / `evidence-manifest-m3-wi-r2-windows.json`                                                            | 执行 Agent 候选；主脑未接受，不是 M3-WI Accepted evidence                               |
 | R2H 研究基础                    | `186484f`                                                                                                        | 只有 runner/freezer/schema 与 Host test 变更；无 tracked result/manifest                |
 | 当前 FP1 任务                   | [冻结合同、执行历史与离线证据闭包](camoufox-fp1-deterministic-artifact-projection-task.md) / closure baseline `b7a615ac39606deb741b3b3ea13d3584a987a39c` / tree `9461adcc6924539dc4c2bb80963fab71a2efef49` | 原始 full runner verdict 保持 Failed；主脑基于 immutable A1/A2/B1 evidence 与 corrected contract adjudication 接受 FP1，`verified:false` |
-| 当前 FP2 任务                   | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 3 harness closure | generation 1 Blocked；generation 2 formal execution Failed on HTTP evidence harness，browser launched 但 valid realm observations 为 0；generation 3 claim 尚未创建；FP2 capability 未裁决 |
+| 当前 FP2 任务                   | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 5 execution package frozen | generation 1 Blocked；generation 2 Failed on HTTP harness；generation 3 Failed / failure evidence insufficient；generation 4 formal execution Failed，root cause 确认为 probe ServiceWorker lifecycle semantic defect（semantic closure 已 Accepted）；Gen5 claim 尚未创建；FP2 capability 未裁决 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -577,3 +577,48 @@ The updated probe manifest is bound to SHA-256
 created and no browser was started by this closure. Gen4 remains **Failed / Not Accepted**;
 Managed Engine ServiceWorker capability remains unresolved pending a separately authorized
 future formal execution decision, and FP3 remains **Closed**.
+
+### 2026-08-22 FP2 Gen4 semantic closure acceptance and generation-5 package freeze
+
+The main brain accepted the FP2 Gen4 ServiceWorker Lifecycle Semantic Closure at
+commit `700f0a62fd67f59b2ffc5f6047c749988fb09ac3` / tree
+`8a775660a08dbdb95e2814d77931927e2668aae6`. The acceptance keeps the original
+generation-4 execution verdict permanently **Failed**, preserves the raw
+`service_worker_not_activated` observation, and records only the corrected root-cause
+adjudication: the probe treated `navigator.serviceWorker.ready` as an
+`active.state === "activated"` barrier. Gen4 did not adjudicate Managed Engine
+ServiceWorker capability; that capability and every other FP2 realm capability remain
+**unresolved**.
+
+Only the no-browser generation-5 execution-package construction is authorized:
+
+```text
+executionGeneration: 5
+taskVersion: fp2-v5
+claimPath: artifacts/camoufox-fp2/fp2-v5-one-shot-claim.json
+claimSchema: verisilo-camoufox-fp2-one-shot-claim/v5
+```
+
+Allowed scope was limited to `apps/camoufox-host/fp2_cross_realm.py`,
+`apps/camoufox-host/test_fp2_cross_realm.py`,
+[FP2 task contract](camoufox-fp2-cross-realm-consistency-task.md) and this status page.
+The runner now pins the probe bundle manifest to exactly
+`d69e61c4da482c8cebaed912a6c24b57b73ac0c465a9fafd6a0be8dc974cfb37`, verifies the
+semantic-closure ancestry of `700f0a6`, fail-closed binds generation-1/2/3/4 claims,
+the preserved failed generation-4 report, the semantic audit
+(`8626c37a…bb46923`) and the prior-generation runtime evidence receipts
+(`77e244d7…29580a` receipt / `d1ae9872…fc2a37` byte closure), and refuses an existing
+generation-5 claim or any historical hash drift before creating a new one. The
+generation-4 closure runtime evidence is prior-generation history only; a fresh
+runtime preflight bound to the generation-5 runner checkpoint is required next.
+
+No measurement semantics changed: realm surfaces, ServiceWorker activation state
+machine, HTTP request shape, Artifact mapping, applicability ledger, relation matrix,
+candidate and timeout values are unchanged. Per the main-brain authorization rule,
+browser execution `A1 → A2 → B1` becomes auto-authorized only after the generation-5
+runner is committed with a clean worktree, all frozen hashes match, a fresh runtime
+closure passes, port 18192 is free with zero target processes and locks, and no
+generation-5 claim exists. After claim creation: no code/probe/timeout change, no
+retry, no generation 6; evidence freezes and returns to the main brain regardless of
+outcome. FP2 remains **Failed / Not Accepted**, all results stay `verified:false`,
+and FP3 remains **Closed**.

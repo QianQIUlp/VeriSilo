@@ -1,7 +1,7 @@
 # VeriSilo Managed Fingerprint FP2 — Cross-Realm Consistency
 
-- 状态：**FP2 generation 1 blocked / generation 2 failed on HTTP harness / generation 3 failed on insufficient historical failure evidence / generation 4 execution package frozen / claim not created**
-- task version：generation 1 `fp2-v1`；generation 2 execution package `fp2-v2`；generation 3 execution package `fp2-v3`；generation 4 execution package `fp2-v4`
+- 状态：**FP2 generation 1 blocked / generation 2 failed on HTTP harness / generation 3 failed on insufficient historical failure evidence / generation 4 failed formal execution with confirmed probe lifecycle semantic defect / ServiceWorker semantic closure accepted / generation 5 execution package frozen / claim not created**
+- task version：generation 1 `fp2-v1`；generation 2 execution package `fp2-v2`；generation 3 execution package `fp2-v3`；generation 4 execution package `fp2-v4`；generation 5 execution package `fp2-v5`
 - execution boundary：本文件、独立 `tests/fingerprint-probe/fp2/` bundle、纯比较/runner 与 gitignored FP2 evidence
 - `verified`：始终为 `false`
 
@@ -404,3 +404,69 @@ generation-1/2/3 claims and evidence remain bound to their original probe hashes
 are not rewritten. This no-browser closure created no generation-5 claim, browser
 process, profile or realm observation; generation 4 remains failed/not accepted and
 the Managed Engine capability remains unresolved pending main-brain adjudication.
+
+## Generation-5 execution package freeze
+
+The main brain has accepted the generation-4 ServiceWorker lifecycle semantic closure
+at checkpoint `700f0a62fd67f59b2ffc5f6047c749988fb09ac3` / tree
+`8a775660a08dbdb95e2814d77931927e2668aae6` and authorized only the no-browser
+construction of a new executable package:
+
+```text
+executionGeneration: 5
+taskVersion: fp2-v5
+reportSchema: verisilo-camoufox-fp2-cross-realm-run/v5
+claimPath: artifacts/camoufox-fp2/fp2-v5-one-shot-claim.json
+claimSchema: verisilo-camoufox-fp2-one-shot-claim/v5
+```
+
+Generation-4 execution stays permanently `Failed`; the original `service_worker_not_activated`
+observation and all generation-1/2/3/4 claims, reports and evidence stay byte-preserved.
+What changed is only the main-brain root-cause adjudication recorded in lineage: the probe
+incorrectly treated `navigator.serviceWorker.ready` as proof that `active.state` was already
+`activated`. Generation 4 therefore did not adjudicate Managed Engine ServiceWorker capability.
+
+### Generation-5 fail-closed lineage bindings
+
+Before any generation-5 claim can be created, the runner must verify each item and embed it
+in the claim, report and preflight receipt lineage; any drift fails closed before the claim:
+
+```text
+generation-1 claim e77204a09d9dfdbdf7d6c3b00a96114f477fd5b93d01c7fa6a7fd3dd71b28402
+generation-2 claim bcf9170cb26e46a35664ebad3cd8b39a2ec93928e597b21b84037e8cc6f22b67
+generation-3 claim 0cf358045f86257af3126eb27b8f21f8df254984ee8c1fe91f6f79bbe44e09c7
+generation-4 claim 44e4ee032c027f80a2470ecfd3a502ab5176789fc9ae1de052f9262e7c979059
+generation-4 run    fp2-20260821T072352Z-c9af4cfd7d (status failed, verified:false)
+generation-4 report SHA-256 77ad1771c26449bfbddbe63acd4562c8c1d931bc6819278d811c9aedefefed2d
+generation-4 corrected root cause: confirmed ServiceWorker probe lifecycle semantic defect
+semantic closure commit/tree 700f0a62fd67f59b2ffc5f6047c749988fb09ac3 / 8a775660a08dbdb95e2814d77931927e2668aae6
+semantic audit artifacts/camoufox-fp2/fp2-v4-service-worker-lifecycle-semantic-audit.json
+audit SHA-256 8626c37a6952009e6cc07044d2d68866e4f34ad8fe540cc26b9e6812bbb46923
+probe bundle manifest pinned exactly to d69e61c4da482c8cebaed912a6c24b57b73ac0c465a9fafd6a0be8dc974cfb37
+prior runtime evidence (generation-4 closure): preflight receipt 77e244d7…29580a and byte closure d1ae9872…fc2a37
+```
+
+The semantic-closure runtime evidence is bound as prior-generation history only. Because the
+runner bytes change with this package, that evidence cannot be reused as the generation-5
+runtime closure; a fresh runtime preflight bound to the generation-5 runner checkpoint is
+required after this package freeze commit.
+
+### Generation-5 claim Gate and auto-authorization
+
+The generation-5 runner keeps the frozen order: git/baseline/semantic-closure ancestry,
+candidate and Artifact byte closure, probe manifest exact pin, ledger/relation hashes,
+no-browser tests, generation-1..4 claim verification, semantic-closure bindings,
+process/port/lock cleanliness, then one deterministic runtime preflight — and only then the
+`O_EXCL` creation of `fp2-v5-one-shot-claim.json`. A generation-4 claim on disk does not
+block generation 5; an existing generation-5 claim fails closed with
+`one_shot_claim_already_exists`; any historical claim hash drift rejects the package.
+
+Per the main-brain authorization rule, once the generation-5 runner is committed, the
+worktree is clean, all frozen hashes match, a fresh generation-5 runtime closure has passed,
+port 18192 is free, target processes and locks are absent, and no generation-5 claim exists,
+browser execution `A1 → A2 → B1` is auto-authorized without returning to this Gate. After
+the claim is created there is no code, probe, timeout or package change, no retry and no
+generation 6; the run freezes immutable evidence and returns to the main brain regardless
+of outcome. This section changes no measurement semantics: realm surfaces, ServiceWorker
+activation state machine, HTTP request shape, Artifact mapping, ledger, relation matrix,
+candidate and timeout values remain exactly as frozen by the semantic closure.

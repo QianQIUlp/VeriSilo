@@ -58,7 +58,8 @@ FP2_EVIDENCE_ROOT = REPO_ROOT / "artifacts" / "camoufox-fp2"
 LEGACY_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v1-one-shot-claim.json"
 GENERATION2_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v2-one-shot-claim.json"
 GENERATION3_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v3-one-shot-claim.json"
-GLOBAL_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v4-one-shot-claim.json"
+GENERATION4_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v4-one-shot-claim.json"
+GLOBAL_CLAIM_PATH = FP2_EVIDENCE_ROOT / "fp2-v5-one-shot-claim.json"
 GLOBAL_LOCK_NAME = "fp2-v1-browser-global.lock"
 RUNTIME_INTERPRETER_RELATIVE = Path("apps/camoufox-host/.venv/Scripts/python.exe")
 EXPECTED_RUNTIME_PYTHON_VERSION = "3.12.13"
@@ -71,7 +72,7 @@ EXPECTED_RUNTIME_DEPENDENCY_VERSIONS = {
 RUNTIME_PREFLIGHT_WATCHDOG_SECONDS = 30
 RUNTIME_PREFLIGHT_SCHEMA = "verisilo-camoufox-fp2-runtime-preflight/v1"
 RUNTIME_PREFLIGHT_CHILD_SCHEMA = "verisilo-camoufox-fp2-runtime-preflight-child/v1"
-EXECUTION_GENERATION = 4
+EXECUTION_GENERATION = 5
 PREVIOUS_BLOCKED_CLAIM_SHA256 = "e77204a09d9dfdbdf7d6c3b00a96114f477fd5b93d01c7fa6a7fd3dd71b28402"
 PREVIOUS_BLOCKED_RUN_ID = "fp2-20260820T121344Z-470b08fdb9"
 PREVIOUS_BLOCKED_CLASSIFICATION = "pre-browser-runtime-dependency-block"
@@ -91,10 +92,35 @@ GENERATION3_REASON = (
     "generation-3 formal execution failed inside top-level realm collection before any valid realm observation; "
     "the old probe discarded stage, operation and error message"
 )
+GENERATION4_CLAIM_SHA256 = "44e4ee032c027f80a2470ecfd3a502ab5176789fc9ae1de052f9262e7c979059"
+GENERATION4_RUN_ID = "fp2-20260821T072352Z-c9af4cfd7d"
+GENERATION4_EVIDENCE_ROOT = FP2_EVIDENCE_ROOT / GENERATION4_RUN_ID
+GENERATION4_REPORT_SHA256 = "77ad1771c26449bfbddbe63acd4562c8c1d931bc6819278d811c9aedefefed2d"
+GENERATION4_CLASSIFICATION = "confirmed-service-worker-probe-lifecycle-defect"
+GENERATION4_ORIGINAL_FAILURE_ERROR = "service_worker_not_activated"
+GENERATION4_ROOT_CAUSE_ADJUDICATION = (
+    "the generation-4 probe treated navigator.serviceWorker.ready as proof that active.state was already activated; "
+    "offline adjudication reclassified the failure as a confirmed probe lifecycle semantic defect, "
+    "not a Managed Engine ServiceWorker capability verdict"
+)
+GENERATION4_REASON = (
+    "generation-4 formal execution failed on service_worker_not_activated before any valid realm observation; "
+    "root cause was confirmed as a ServiceWorker probe lifecycle semantic defect and corrected without changing "
+    "realm surfaces, timeout values or historical evidence"
+)
+SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD = "700f0a62fd67f59b2ffc5f6047c749988fb09ac3"
+SERVICE_WORKER_SEMANTIC_CLOSURE_TREE = "8a775660a08dbdb95e2814d77931927e2668aae6"
+SERVICE_WORKER_AUDIT_PATH = FP2_EVIDENCE_ROOT / "fp2-v4-service-worker-lifecycle-semantic-audit.json"
+SERVICE_WORKER_AUDIT_SHA256 = "8626c37a6952009e6cc07044d2d68866e4f34ad8fe540cc26b9e6812bbb46923"
+SEMANTIC_CLOSURE_PROBE_MANIFEST_PREVIOUS_SHA256 = "b4be8f80d56621b817b351ccb12d51d8b04eeafe6d9bc26d6e03c144799e621c"
+EXPECTED_PROBE_MANIFEST_SHA256 = "d69e61c4da482c8cebaed912a6c24b57b73ac0c465a9fafd6a0be8dc974cfb37"
+SEMANTIC_CLOSURE_PREFLIGHT_DIR = FP2_EVIDENCE_ROOT / "fp2-runtime-preflight-20260821T132216Z-ac90f0b23b"
+SEMANTIC_CLOSURE_PREFLIGHT_RECEIPT_SHA256 = "77e244d7a6bfb78b525dc6d865c5123d2c74f253616df87cdad5c344e329580a"
+SEMANTIC_CLOSURE_BYTE_CLOSURE_SHA256 = "d1ae9872db00d290295fac935dd5632d1407dad9c4a964e186b5ebac99fc2a37"
 
-TASK_VERSION = "fp2-v4"
-REPORT_SCHEMA = "verisilo-camoufox-fp2-cross-realm-run/v4"
-CLAIM_SCHEMA = "verisilo-camoufox-fp2-one-shot-claim/v4"
+TASK_VERSION = "fp2-v5"
+REPORT_SCHEMA = "verisilo-camoufox-fp2-cross-realm-run/v5"
+CLAIM_SCHEMA = "verisilo-camoufox-fp2-one-shot-claim/v5"
 ADJUDICATION_SCHEMA = "verisilo-camoufox-fp2-offline-adjudication/v1"
 CANONICAL_REALMS = (
     "top-window",
@@ -631,6 +657,16 @@ def git_preflight() -> dict[str, Any]:
         stderr=subprocess.DEVNULL,
     )
     require(accepted.returncode == 0, "accepted_ancestor_missing", head)
+    closure = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD, head],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    require(closure.returncode == 0, "semantic_closure_ancestry_mismatch", head)
+    closure_tree = git_command("rev-parse", f"{SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD}^{{tree}}")
+    require(closure_tree == SERVICE_WORKER_SEMANTIC_CLOSURE_TREE, "semantic_closure_tree_mismatch", closure_tree)
     upstream = git_command("rev-list", "--left-right", "--count", "@{upstream}...HEAD")
     behind, ahead = (int(part) for part in upstream.split())
     return {
@@ -641,6 +677,9 @@ def git_preflight() -> dict[str, Any]:
         "baselineTree": BASELINE_TREE,
         "baselineHeadMatches": head == BASELINE_HEAD,
         "baselineTreeMatches": tree == BASELINE_TREE,
+        "semanticClosureHead": SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD,
+        "semanticClosureTree": SERVICE_WORKER_SEMANTIC_CLOSURE_TREE,
+        "semanticClosureHeadIsAncestor": True,
         "upstream": {"behind": behind, "ahead": ahead},
         "trackedWorktreeClean": True,
     }
@@ -2162,11 +2201,123 @@ def previous_generation3_attempt() -> dict[str, Any]:
     }
 
 
+def previous_generation4_attempt() -> dict[str, Any]:
+    require(GENERATION4_CLAIM_PATH.is_file(), "previous_generation4_claim_missing", GENERATION4_CLAIM_PATH.as_posix())
+    require(sha256_file(GENERATION4_CLAIM_PATH) == GENERATION4_CLAIM_SHA256, "previous_generation4_claim_hash_mismatch", GENERATION4_CLAIM_PATH.name)
+    claim = strict_json(GENERATION4_CLAIM_PATH, GENERATION4_CLAIM_PATH.as_posix())
+    require(
+        isinstance(claim, dict)
+        and claim.get("runId") == GENERATION4_RUN_ID
+        and claim.get("taskVersion") == "fp2-v4"
+        and claim.get("executionGeneration") == 4,
+        "previous_generation4_claim_mismatch",
+        "identity",
+    )
+    run_evidence_path = claim.get("runEvidencePath")
+    require(
+        isinstance(run_evidence_path, str)
+        and ".." not in Path(run_evidence_path).parts
+        and not Path(run_evidence_path).is_absolute(),
+        "previous_generation4_claim_mismatch",
+        "runEvidencePath",
+    )
+    previous_report_path = REPO_ROOT / Path(run_evidence_path) / "run-report.json"
+    require(previous_report_path.is_file(), "previous_generation4_report_missing", previous_report_path.name)
+    require(sha256_file(previous_report_path) == GENERATION4_REPORT_SHA256, "previous_generation4_report_hash_mismatch", previous_report_path.name)
+    validate_hash_sidecar(previous_report_path, previous_report_path.with_name("run-report.sha256"))
+    previous_report = strict_json(previous_report_path, previous_report_path.name)
+    require(previous_report.get("status") == "failed" and previous_report.get("verified") is False, "previous_generation4_report_mismatch")
+    claims = previous_report.get("claims")
+    require(isinstance(claims, dict) and claims.get("fp2Accepted") is False and claims.get("fp3Open") is False, "previous_generation4_report_mismatch")
+    matrix = previous_report.get("matrix")
+    require(isinstance(matrix, list) and len(matrix) == 1 and matrix[0].get("label") == "A1", "previous_generation4_observation_mismatch")
+    require((matrix[0].get("files") or {}).get("rawRealms") is None, "previous_generation4_observation_mismatch")
+    validation = matrix[0].get("validation")
+    require(isinstance(validation, dict) and validation.get("serviceWorker") is False, "previous_generation4_observation_mismatch")
+    require((previous_report.get("failure") or {}).get("code") == "child_session_failed", "previous_generation4_report_mismatch")
+    probe_bundle = previous_report.get("probeBundle")
+    require(
+        isinstance(probe_bundle, dict) and probe_bundle.get("manifestSha256") == SEMANTIC_CLOSURE_PROBE_MANIFEST_PREVIOUS_SHA256,
+        "previous_generation4_probe_manifest_mismatch",
+    )
+    return {
+        "claimPath": relative_repo_path(GENERATION4_CLAIM_PATH),
+        "claimSha256": GENERATION4_CLAIM_SHA256,
+        "run": GENERATION4_RUN_ID,
+        "browserLaunched": True,
+        "browserObservations": 0,
+        "validRealmObservations": 0,
+        "headerCaptureCount": 5,
+        "originalFailureError": GENERATION4_ORIGINAL_FAILURE_ERROR,
+        "classification": GENERATION4_CLASSIFICATION,
+        "rootCauseAdjudication": GENERATION4_ROOT_CAUSE_ADJUDICATION,
+        "reasonForReauthorization": GENERATION4_REASON,
+    }
+
+
+def service_worker_semantic_closure_bindings() -> dict[str, Any]:
+    require(SERVICE_WORKER_AUDIT_PATH.is_file(), "semantic_closure_audit_missing", SERVICE_WORKER_AUDIT_PATH.name)
+    require(sha256_file(SERVICE_WORKER_AUDIT_PATH) == SERVICE_WORKER_AUDIT_SHA256, "semantic_closure_audit_hash_mismatch", SERVICE_WORKER_AUDIT_PATH.name)
+    audit = strict_json(SERVICE_WORKER_AUDIT_PATH, SERVICE_WORKER_AUDIT_PATH.name)
+    require(
+        isinstance(audit, dict)
+        and audit.get("schema") == "verisilo-camoufox-fp2-semantic-audit/v1"
+        and audit.get("implementationCommit") == SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD
+        and audit.get("implementationTree") == SERVICE_WORKER_SEMANTIC_CLOSURE_TREE
+        and audit.get("probeSemanticChange") is True
+        and audit.get("measurementContractCorrection") == "ready is not an activated barrier",
+        "semantic_closure_audit_content_mismatch",
+        SERVICE_WORKER_AUDIT_PATH.name,
+    )
+    audit_probe_manifest = audit.get("probeManifest")
+    require(
+        isinstance(audit_probe_manifest, dict)
+        and audit_probe_manifest.get("previousSha256") == SEMANTIC_CLOSURE_PROBE_MANIFEST_PREVIOUS_SHA256
+        and audit_probe_manifest.get("currentSha256") == EXPECTED_PROBE_MANIFEST_SHA256,
+        "semantic_closure_audit_content_mismatch",
+        "probeManifest",
+    )
+    receipt_path = SEMANTIC_CLOSURE_PREFLIGHT_DIR / "runtime-preflight-receipt.json"
+    closure_path = SEMANTIC_CLOSURE_PREFLIGHT_DIR / "byte-closure-receipt.json"
+    require(receipt_path.is_file() and closure_path.is_file(), "semantic_closure_runtime_evidence_missing", SEMANTIC_CLOSURE_PREFLIGHT_DIR.name)
+    require(
+        sha256_file(receipt_path) == SEMANTIC_CLOSURE_PREFLIGHT_RECEIPT_SHA256,
+        "semantic_closure_runtime_evidence_hash_mismatch",
+        receipt_path.name,
+    )
+    require(
+        sha256_file(closure_path) == SEMANTIC_CLOSURE_BYTE_CLOSURE_SHA256,
+        "semantic_closure_runtime_evidence_hash_mismatch",
+        closure_path.name,
+    )
+    return {
+        "closureHead": SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD,
+        "closureTree": SERVICE_WORKER_SEMANTIC_CLOSURE_TREE,
+        "classification": GENERATION4_CLASSIFICATION,
+        "rootCauseAdjudication": GENERATION4_ROOT_CAUSE_ADJUDICATION,
+        "auditPath": relative_repo_path(SERVICE_WORKER_AUDIT_PATH),
+        "auditSha256": SERVICE_WORKER_AUDIT_SHA256,
+        "probeManifestPreviousSha256": SEMANTIC_CLOSURE_PROBE_MANIFEST_PREVIOUS_SHA256,
+        "probeManifestCurrentSha256": EXPECTED_PROBE_MANIFEST_SHA256,
+        "priorRuntimeEvidence": {
+            "preflightReceiptPath": relative_repo_path(receipt_path),
+            "preflightReceiptSha256": SEMANTIC_CLOSURE_PREFLIGHT_RECEIPT_SHA256,
+            "byteClosurePath": relative_repo_path(closure_path),
+            "byteClosureSha256": SEMANTIC_CLOSURE_BYTE_CLOSURE_SHA256,
+            "note": (
+                "generation-4 semantic closure runtime evidence; bound as prior-generation history only, "
+                "not reusable for the generation-5 runner bytes"
+            ),
+        },
+    }
+
+
 def previous_execution_attempts() -> dict[str, dict[str, Any]]:
     return {
         "generation1": previous_blocked_attempt(),
         "generation2": previous_generation2_attempt(),
         "generation3": previous_generation3_attempt(),
+        "generation4": previous_generation4_attempt(),
     }
 
 
@@ -2332,8 +2483,20 @@ def create_claim(
     no_browser_test_sha256: str,
     runtime_preflight: dict[str, Any],
     previous_blocked_attempt: dict[str, Any],
+    semantic_closure: dict[str, Any],
 ) -> tuple[dict[str, Any], str]:
     require_runtime_preflight_for_claim(runtime_preflight)
+    require(
+        isinstance(semantic_closure, dict)
+        and semantic_closure.get("closureHead") == SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD
+        and semantic_closure.get("closureTree") == SERVICE_WORKER_SEMANTIC_CLOSURE_TREE
+        and semantic_closure.get("auditSha256") == SERVICE_WORKER_AUDIT_SHA256,
+        "semantic_closure_bindings_invalid",
+    )
+    require(
+        semantic_closure.get("probeManifestCurrentSha256") == EXPECTED_PROBE_MANIFEST_SHA256,
+        "semantic_closure_probe_manifest_mismatch",
+    )
     previous_blocked, previous_attempts = previous_attempt_parts(previous_blocked_attempt)
     runner_sha256 = sha256_file(Path(__file__).resolve())
     claim = {
@@ -2362,6 +2525,7 @@ def create_claim(
         "noBrowserTestFileSha256": no_browser_test_sha256,
         "previousBlockedAttempt": previous_blocked,
         "previousAttempts": previous_attempts,
+        "serviceWorkerSemanticClosure": semantic_closure,
         "runtime": runtime_preflight["runtimeBinding"],
         "runtimePreflight": {
             "receiptPath": runtime_preflight["receiptPath"],
@@ -2785,6 +2949,7 @@ def build_report(
         "artifacts": artifact_infos,
         "previousBlockedAttempt": previous_blocked,
         "previousAttempts": previous_attempts,
+        "serviceWorkerSemanticClosure": claim.get("serviceWorkerSemanticClosure"),
         "runtimePreflight": {
             "receiptPath": runtime_preflight["receiptPath"],
             "receiptSha256": runtime_preflight["receiptSha256"],
@@ -3221,6 +3386,11 @@ def tracked_evidence_references(
         tracked_reference(LEGACY_CLAIM_PATH, "previous-blocked-claim"),
         tracked_reference(GENERATION2_CLAIM_PATH, "previous-failed-claim"),
         tracked_reference(GENERATION3_CLAIM_PATH, "previous-failed-claim"),
+        tracked_reference(GENERATION4_CLAIM_PATH, "previous-failed-claim"),
+        tracked_reference(GENERATION4_EVIDENCE_ROOT / "run-report.json", "previous-failed-run-report"),
+        tracked_reference(SERVICE_WORKER_AUDIT_PATH, "service-worker-semantic-audit"),
+        tracked_reference(SEMANTIC_CLOSURE_PREFLIGHT_DIR / "runtime-preflight-receipt.json", "prior-generation-runtime-evidence"),
+        tracked_reference(SEMANTIC_CLOSURE_PREFLIGHT_DIR / "byte-closure-receipt.json", "prior-generation-runtime-evidence"),
         tracked_reference(ARTIFACT_A_PATH, "artifact-input"),
         tracked_reference(ARTIFACT_A_PATH.with_name(ARTIFACT_A_PATH.name + ".sha256"), "artifact-sidecar"),
         tracked_reference(ARTIFACT_B_PATH, "artifact-input"),
@@ -3254,7 +3424,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--child-session", action="store_true")
     parser.add_argument("--runtime-preflight-child", action="store_true")
-    parser.add_argument("--execute-browser-matrix", action="store_true", help="Run generation-4 A1 -> A2 -> B1 after preflight; default is no-browser preflight only.")
+    parser.add_argument("--execute-browser-matrix", action="store_true", help="Run generation-5 A1 -> A2 -> B1 after preflight; default is no-browser preflight only.")
     parser.add_argument("--run-port", type=int, default=DEFAULT_RUN_PORT)
     parser.add_argument("--label")
     parser.add_argument("--artifact-root")
@@ -3310,13 +3480,14 @@ def require_runtime_preflight_args(args: argparse.Namespace) -> None:
 
 
 def orchestrate(args: argparse.Namespace) -> int:
-    """Run generation-4 preflight; browser execution requires an explicit flag."""
+    """Run generation-5 preflight; browser execution requires an explicit flag."""
 
     try:
         git = git_preflight()
         ledger = load_applicability()
         relation = load_relation_matrix()
         probe_manifest, probe_manifest_sha256 = load_probe_manifest()
+        require(probe_manifest_sha256 == EXPECTED_PROBE_MANIFEST_SHA256, "probe_manifest_sha_mismatch", probe_manifest_sha256)
         artifact_a, artifact_a_info = load_artifact(ARTIFACT_A_PATH)
         artifact_b, artifact_b_info = load_artifact(ARTIFACT_B_PATH)
         static_diff = build_static_diff(artifact_a, artifact_b, relation)
@@ -3327,6 +3498,7 @@ def orchestrate(args: argparse.Namespace) -> int:
         assert_port_free(args.run_port)
         no_browser = run_no_browser_tests()
         previous = previous_execution_attempts()
+        semantic_closure = service_worker_semantic_closure_bindings()
         require(not GLOBAL_CLAIM_PATH.exists(), "one_shot_claim_already_exists", GLOBAL_CLAIM_PATH.name)
         interpreter = resolve_runtime_interpreter()
         runtime_preflight = run_runtime_preflight(interpreter=interpreter, port=args.run_port, previous=previous, git=git)
@@ -3339,7 +3511,7 @@ def orchestrate(args: argparse.Namespace) -> int:
         return 1
 
     if not args.execute_browser_matrix:
-        print("runtime-preflight-closure-passed-awaiting-generation-4-execution")
+        print("runtime-preflight-closure-passed-awaiting-generation-5-execution")
         return 0
 
     run_id = f"fp2-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
@@ -3376,6 +3548,7 @@ def orchestrate(args: argparse.Namespace) -> int:
             no_browser_test_sha256=no_browser["testFileSha256"],
             runtime_preflight=runtime_preflight,
             previous_blocked_attempt=previous,
+            semantic_closure=semantic_closure,
         )
         claim_created = True
         write_sha256_sidecar(run_dir / "one-shot-claim.json", "one-shot-claim.sha256")

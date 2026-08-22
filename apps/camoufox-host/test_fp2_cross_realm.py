@@ -807,9 +807,9 @@ async function capture(factory) {
             fp2.validate_hash_sidecar(artifacts["adjudicationPath"], root / "final-offline-adjudication.sha256")
             fp2.validate_hash_sidecar(artifacts["closurePath"], root / "byte-closure-receipt.sha256")
 
-    def test_generation4_preserves_all_historical_attempts(self) -> None:
+    def test_generation5_preserves_all_historical_attempts(self) -> None:
         attempts = fp2.previous_execution_attempts()
-        self.assertEqual(set(attempts), {"generation1", "generation2", "generation3"})
+        self.assertEqual(set(attempts), {"generation1", "generation2", "generation3", "generation4"})
         self.assertEqual(attempts["generation1"]["claimSha256"], fp2.PREVIOUS_BLOCKED_CLAIM_SHA256)
         self.assertEqual(attempts["generation2"]["claimSha256"], fp2.GENERATION2_CLAIM_SHA256)
         self.assertEqual(attempts["generation3"]["claimSha256"], fp2.GENERATION3_CLAIM_SHA256)
@@ -820,23 +820,129 @@ async function capture(factory) {
         self.assertEqual(attempts["generation3"]["validRealmObservations"], 0)
         self.assertEqual(attempts["generation3"]["headerCaptureCount"], 0)
         self.assertEqual(attempts["generation3"]["classification"], "gen3_failure_evidence_insufficient")
+        self.assertEqual(attempts["generation4"]["run"], fp2.GENERATION4_RUN_ID)
+        self.assertEqual(attempts["generation4"]["claimPath"], "artifacts/camoufox-fp2/fp2-v4-one-shot-claim.json")
+        self.assertEqual(attempts["generation4"]["claimSha256"], fp2.GENERATION4_CLAIM_SHA256)
+        self.assertEqual(attempts["generation4"]["originalFailureError"], "service_worker_not_activated")
+        self.assertTrue(attempts["generation4"]["browserLaunched"])
+        self.assertEqual(attempts["generation4"]["validRealmObservations"], 0)
+        self.assertEqual(attempts["generation4"]["headerCaptureCount"], 5)
+        self.assertEqual(attempts["generation4"]["classification"], fp2.GENERATION4_CLASSIFICATION)
 
-    def test_generation4_package_metadata_and_bindings(self) -> None:
-        self.assertEqual(fp2.EXECUTION_GENERATION, 4)
-        self.assertEqual(fp2.TASK_VERSION, "fp2-v4")
-        self.assertEqual(fp2.GLOBAL_CLAIM_PATH.name, "fp2-v4-one-shot-claim.json")
-        self.assertEqual(fp2.GENERATION3_CLAIM_PATH.name, "fp2-v3-one-shot-claim.json")
-        self.assertNotEqual(fp2.GLOBAL_CLAIM_PATH, fp2.GENERATION3_CLAIM_PATH)
-        self.assertEqual(fp2.CLAIM_SCHEMA, "verisilo-camoufox-fp2-one-shot-claim/v4")
-        self.assertEqual(self.manifest_sha256, "d69e61c4da482c8cebaed912a6c24b57b73ac0c465a9fafd6a0be8dc974cfb37")
-        self.assertEqual(fp2.sha256_file(fp2.APPLICABILITY_PATH), "f6d51d4e3234fec9677e65c996933131519c96fa4c739890bc67a249cca2ef63")
-        self.assertEqual(fp2.sha256_file(fp2.RELATION_PATH), "4741c0c443c4ac3032e634a3e4b7892820843c19b5b6574dbe2973dfb79e9342")
+    def test_generation5_package_metadata_and_bindings(self) -> None:
+        self.assertEqual(fp2.EXECUTION_GENERATION, 5)
+        self.assertEqual(fp2.TASK_VERSION, "fp2-v5")
+        self.assertEqual(fp2.REPORT_SCHEMA, "verisilo-camoufox-fp2-cross-realm-run/v5")
+        self.assertEqual(fp2.CLAIM_SCHEMA, "verisilo-camoufox-fp2-one-shot-claim/v5")
+        self.assertEqual(fp2.GLOBAL_CLAIM_PATH.name, "fp2-v5-one-shot-claim.json")
+        self.assertEqual(fp2.GENERATION4_CLAIM_PATH.name, "fp2-v4-one-shot-claim.json")
+        self.assertNotEqual(fp2.GLOBAL_CLAIM_PATH, fp2.GENERATION4_CLAIM_PATH)
+        self.assertFalse(fp2.GLOBAL_CLAIM_PATH.exists())
+        self.assertTrue(fp2.GENERATION4_CLAIM_PATH.is_file())
+        self.assertEqual(
+            fp2.EXPECTED_PROBE_MANIFEST_SHA256,
+            "d69e61c4da482c8cebaed912a6c24b57b73ac0c465a9fafd6a0be8dc974cfb37",
+        )
+        self.assertEqual(self.manifest_sha256, fp2.EXPECTED_PROBE_MANIFEST_SHA256)
+        self.assertIn("EXPECTED_PROBE_MANIFEST_SHA256", inspect.getsource(fp2.orchestrate))
+        self.assertIn("SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD", inspect.getsource(fp2.git_preflight))
+        self.assertEqual(fp2.SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD, "700f0a62fd67f59b2ffc5f6047c749988fb09ac3")
+        self.assertEqual(fp2.SERVICE_WORKER_SEMANTIC_CLOSURE_TREE, "8a775660a08dbdb95e2814d77931927e2668aae6")
+        self.assertEqual(
+            fp2.sha256_file(fp2.SERVICE_WORKER_AUDIT_PATH),
+            "8626c37a6952009e6cc07044d2d68866e4f34ad8fe540cc26b9e6812bbb46923",
+        )
+        self.assertEqual(
+            fp2.sha256_file(fp2.APPLICABILITY_PATH),
+            "f6d51d4e3234fec9677e65c996933131519c96fa4c739890bc67a249cca2ef63",
+        )
+        self.assertEqual(
+            fp2.sha256_file(fp2.RELATION_PATH),
+            "4741c0c443c4ac3032e634a3e4b7892820843c19b5b6574dbe2973dfb79e9342",
+        )
+
+    def test_service_worker_semantic_closure_bindings_validate(self) -> None:
+        bindings = fp2.service_worker_semantic_closure_bindings()
+        self.assertEqual(bindings["closureHead"], fp2.SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD)
+        self.assertEqual(bindings["closureTree"], fp2.SERVICE_WORKER_SEMANTIC_CLOSURE_TREE)
+        self.assertEqual(bindings["auditSha256"], fp2.SERVICE_WORKER_AUDIT_SHA256)
+        self.assertEqual(bindings["probeManifestCurrentSha256"], fp2.EXPECTED_PROBE_MANIFEST_SHA256)
+        self.assertEqual(bindings["probeManifestPreviousSha256"], fp2.SEMANTIC_CLOSURE_PROBE_MANIFEST_PREVIOUS_SHA256)
+        self.assertEqual(bindings["priorRuntimeEvidence"]["preflightReceiptSha256"], fp2.SEMANTIC_CLOSURE_PREFLIGHT_RECEIPT_SHA256)
+        self.assertEqual(bindings["priorRuntimeEvidence"]["byteClosureSha256"], fp2.SEMANTIC_CLOSURE_BYTE_CLOSURE_SHA256)
+        self.assertIn("not reusable for the generation-5 runner bytes", bindings["priorRuntimeEvidence"]["note"])
+
+    def test_service_worker_semantic_closure_tamper_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="fp2-closure-tamper-") as folder:
+            root = Path(folder)
+            copied = root / "audit.json"
+            copied.write_bytes(fp2.SERVICE_WORKER_AUDIT_PATH.read_bytes() + b"\n")
+            with patch.object(fp2, "SERVICE_WORKER_AUDIT_PATH", copied):
+                self.assertCode("semantic_closure_audit_hash_mismatch", fp2.service_worker_semantic_closure_bindings)
+            missing = root / "missing-audit.json"
+            with patch.object(fp2, "SERVICE_WORKER_AUDIT_PATH", missing):
+                self.assertCode("semantic_closure_audit_missing", fp2.service_worker_semantic_closure_bindings)
+            rewritten = json.loads(fp2.SERVICE_WORKER_AUDIT_PATH.read_text(encoding="utf-8"))
+            rewritten["measurementContractCorrection"] = "tampered"
+            forged = root / "forged-audit.json"
+            forged.write_text(json.dumps(rewritten, indent=2) + "\n", encoding="utf-8")
+            with (
+                patch.object(fp2, "SERVICE_WORKER_AUDIT_PATH", forged),
+                patch.object(fp2, "SERVICE_WORKER_AUDIT_SHA256", fp2.sha256_file(forged)),
+            ):
+                self.assertCode("semantic_closure_audit_content_mismatch", fp2.service_worker_semantic_closure_bindings)
+            empty_dir = root / "empty-preflight-dir"
+            empty_dir.mkdir()
+            with patch.object(fp2, "SEMANTIC_CLOSURE_PREFLIGHT_DIR", empty_dir):
+                self.assertCode("semantic_closure_runtime_evidence_missing", fp2.service_worker_semantic_closure_bindings)
+
+    def test_gen4_claim_presence_does_not_block_generation5(self) -> None:
+        self.assertTrue(fp2.GENERATION4_CLAIM_PATH.is_file())
+        self.assertFalse(fp2.GLOBAL_CLAIM_PATH.exists())
+        self.assertNotEqual(fp2.GLOBAL_CLAIM_PATH, fp2.GENERATION4_CLAIM_PATH)
+        attempts = fp2.previous_execution_attempts()
+        self.assertEqual(attempts["generation4"]["claimSha256"], fp2.GENERATION4_CLAIM_SHA256)
+        source = inspect.getsource(fp2.orchestrate)
+        claim_absence_index = source.index("GLOBAL_CLAIM_PATH.exists()")
+        preflight_index = source.index("run_runtime_preflight(")
+        self.assertLess(claim_absence_index, preflight_index)
+
+    def test_semantic_closure_bindings_are_required_by_create_claim(self) -> None:
+        result = self.runtime_preflight_result()
+        with tempfile.TemporaryDirectory(dir=fp2.FP2_EVIDENCE_ROOT) as folder:
+            root = Path(folder)
+            receipt = root / "runtime-preflight-receipt.json"
+            receipt.write_text("{}\n", encoding="utf-8")
+            result["receiptPath"] = fp2.relative_repo_path(receipt)
+            result["receiptSha256"] = fp2.sha256_file(receipt)
+            claim_path = root / fp2.GLOBAL_CLAIM_PATH.name
+            with patch.object(fp2, "GLOBAL_CLAIM_PATH", claim_path):
+                self.assertCode(
+                    "semantic_closure_bindings_invalid",
+                    fp2.create_claim,
+                    run_id="test-missing-closure-bindings",
+                    run_dir=root / "run",
+                    port=fp2.DEFAULT_RUN_PORT,
+                    git={"branch": "test", "head": "0" * 40, "tree": "0" * 40, "upstream": {}, "trackedWorktreeClean": True},
+                    candidate={},
+                    artifacts={},
+                    probe_manifest_sha256="0" * 64,
+                    applicability_sha256="0" * 64,
+                    relation_sha256="0" * 64,
+                    static_diff_sha256="0" * 64,
+                    no_browser_test_sha256="0" * 64,
+                    runtime_preflight=result,
+                    previous_blocked_attempt=fp2.previous_execution_attempts(),
+                    semantic_closure={"closureHead": "0" * 64},
+                )
+            self.assertFalse(claim_path.exists())
 
     def test_generation_history_hash_mismatch_fails_closed(self) -> None:
         cases = (
             ("LEGACY_CLAIM_PATH", "previous_blocked_attempt", "previous_blocked_claim_hash_mismatch"),
             ("GENERATION2_CLAIM_PATH", "previous_generation2_attempt", "previous_generation2_claim_hash_mismatch"),
             ("GENERATION3_CLAIM_PATH", "previous_generation3_attempt", "previous_generation3_claim_hash_mismatch"),
+            ("GENERATION4_CLAIM_PATH", "previous_generation4_attempt", "previous_generation4_claim_hash_mismatch"),
         )
         for path_name, function_name, expected_code in cases:
             with self.subTest(path=path_name):
@@ -846,7 +952,7 @@ async function capture(factory) {
                     with patch.object(fp2, path_name, tampered):
                         self.assertCode(expected_code, getattr(fp2, function_name))
 
-    def test_generation4_claim_path_rejects_second_claim(self) -> None:
+    def test_generation5_claim_path_rejects_second_claim(self) -> None:
         result = self.runtime_preflight_result()
         previous = fp2.previous_execution_attempts()
         with tempfile.TemporaryDirectory(dir=fp2.FP2_EVIDENCE_ROOT) as folder:
@@ -858,13 +964,14 @@ async function capture(factory) {
             run_dir = root / "run"
             run_dir.mkdir()
             claim_path = root / fp2.GLOBAL_CLAIM_PATH.name
-            claim_path.write_text("existing-gen4-claim\n", encoding="utf-8")
+            self.assertEqual(claim_path.name, "fp2-v5-one-shot-claim.json")
+            claim_path.write_text("existing-gen5-claim\n", encoding="utf-8")
             original = claim_path.read_bytes()
             with patch.object(fp2, "GLOBAL_CLAIM_PATH", claim_path):
                 self.assertCode(
                     "one_shot_claim_already_exists",
                     fp2.create_claim,
-                    run_id="test-generation4-duplicate",
+                    run_id="test-generation5-duplicate",
                     run_dir=run_dir,
                     port=fp2.DEFAULT_RUN_PORT,
                     git={"branch": "test", "head": "0" * 40, "tree": "0" * 40, "upstream": {}, "trackedWorktreeClean": True},
@@ -877,6 +984,7 @@ async function capture(factory) {
                     no_browser_test_sha256="0" * 64,
                     runtime_preflight=result,
                     previous_blocked_attempt=previous,
+                    semantic_closure=fp2.service_worker_semantic_closure_bindings(),
                 )
             self.assertEqual(claim_path.read_bytes(), original)
 
@@ -959,7 +1067,7 @@ async function capture(factory) {
         source = inspect.getsource(fp2.orchestrate)
         self.assertLess(source.index("run_runtime_preflight("), source.index("create_claim("))
         self.assertEqual(source.count("run_runtime_preflight("), 1)
-        self.assertIn("generation-4", source)
+        self.assertIn("generation-5", source)
 
     def runtime_preflight_result(self, *, boundary: dict | None = None) -> dict:
         interpreter = fp2.resolve_runtime_interpreter()
@@ -1045,6 +1153,7 @@ async function capture(factory) {
                     no_browser_test_sha256="0" * 64,
                     runtime_preflight=blocked,
                     previous_blocked_attempt={},
+                    semantic_closure={},
                 )
             self.assertFalse(claim_path.exists())
 
@@ -1052,7 +1161,7 @@ async function capture(factory) {
         result = self.runtime_preflight_result()
         historical_claims = {
             path: fp2.sha256_file(path)
-            for path in (fp2.LEGACY_CLAIM_PATH, fp2.GENERATION2_CLAIM_PATH, fp2.GENERATION3_CLAIM_PATH)
+            for path in (fp2.LEGACY_CLAIM_PATH, fp2.GENERATION2_CLAIM_PATH, fp2.GENERATION3_CLAIM_PATH, fp2.GENERATION4_CLAIM_PATH)
         }
         with tempfile.TemporaryDirectory(dir=fp2.FP2_EVIDENCE_ROOT) as folder:
             root = Path(folder)
@@ -1062,6 +1171,7 @@ async function capture(factory) {
             result["receiptSha256"] = fp2.sha256_file(receipt)
             claim_path = root / "claim.json"
             previous = fp2.previous_execution_attempts()
+            semantic_closure = fp2.service_worker_semantic_closure_bindings()
             with patch.object(fp2, "GLOBAL_CLAIM_PATH", claim_path):
                 claim, _ = fp2.create_claim(
                     run_id="test-success",
@@ -1070,22 +1180,27 @@ async function capture(factory) {
                     git={"branch": "test", "head": "0" * 40, "tree": "0" * 40, "upstream": {}, "trackedWorktreeClean": True},
                     candidate={},
                     artifacts={},
-                    probe_manifest_sha256="0" * 64,
+                    probe_manifest_sha256=fp2.EXPECTED_PROBE_MANIFEST_SHA256,
                     applicability_sha256="0" * 64,
                     relation_sha256="0" * 64,
                     static_diff_sha256="0" * 64,
                     no_browser_test_sha256="0" * 64,
                     runtime_preflight=result,
                     previous_blocked_attempt=previous,
+                    semantic_closure=semantic_closure,
                 )
             self.assertTrue(claim_path.exists())
-            self.assertEqual(claim["executionGeneration"], 4)
-            self.assertEqual(claim["taskVersion"], "fp2-v4")
-            self.assertEqual(claim["schema"], "verisilo-camoufox-fp2-one-shot-claim/v4")
+            self.assertEqual(claim["executionGeneration"], 5)
+            self.assertEqual(claim["taskVersion"], "fp2-v5")
+            self.assertEqual(claim["schema"], "verisilo-camoufox-fp2-one-shot-claim/v5")
             self.assertEqual(claim["previousBlockedAttempt"]["browserObservations"], 0)
             self.assertEqual(claim["previousAttempts"]["generation1"]["browserObservations"], 0)
             self.assertEqual(claim["previousAttempts"]["generation2"]["claimSha256"], fp2.GENERATION2_CLAIM_SHA256)
             self.assertEqual(claim["previousAttempts"]["generation3"]["claimSha256"], fp2.GENERATION3_CLAIM_SHA256)
+            self.assertEqual(claim["previousAttempts"]["generation4"]["run"], fp2.GENERATION4_RUN_ID)
+            self.assertEqual(claim["previousAttempts"]["generation4"]["classification"], fp2.GENERATION4_CLASSIFICATION)
+            self.assertEqual(claim["serviceWorkerSemanticClosure"]["closureHead"], fp2.SERVICE_WORKER_SEMANTIC_CLOSURE_HEAD)
+            self.assertEqual(claim["serviceWorkerSemanticClosure"]["closureTree"], fp2.SERVICE_WORKER_SEMANTIC_CLOSURE_TREE)
             self.assertEqual(claim["runtime"]["interpreterSha256"], result["runtimeBinding"]["interpreterSha256"])
             for path, digest in historical_claims.items():
                 self.assertEqual(fp2.sha256_file(path), digest)
