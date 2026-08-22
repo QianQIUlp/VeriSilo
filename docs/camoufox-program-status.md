@@ -844,3 +844,43 @@ changes.
 Next: strict_build DIAGNOSTIC-rejection step + r1-diag source lock + diagnostic
 build (Linux builder). Browser discrimination run remains unauthorized; Browser
 CLOSED; FP2-R1 not yet executable; FP3 Closed.
+
+### 2026-08-22 Build-mode gate and r1-diag source lock frozen; build pending on Linux builder
+
+Main brain Accepted the authoring checkpoint (`b6aeaac5…`/`26688a32…`) and
+authorized the chain: marker gate → explicit diagnostic build mode → r1-diag
+source lock → lock self-verification → Linux builder diagnostic build →
+provenance closure → STOP → return. Two hard invariants were frozen first:
+
+A. **GPC startup-order invariant**: not merely "call exists once" — the source
+lock binds the nsAppRunner seam pre/post digests and statically proves (in
+`test_r1_diag_source_lock.py`) that the projection sits in the XRE_mainRun head
+region immediately after the ScopedXPCOM entry assertion and before any
+window/command-line scope, with pref-machinery readiness documented as
+precondition.
+
+B. **Two explicit build modes, no env bypass**: `build/r1-diag-v1/diag_gate.py`
+implements `verisilo-r1-diag-build-gate/v1` — formal mode HARD FAILs on any
+DIAGNOSTIC-marked patch or on 9000 presence; diagnostic mode accepts ONLY the
+frozen trio {0003,0004,9000} at pinned SHAs with the v1 marker, emitting
+`diagnosticOnly:true / formalEligible:false /
+purpose=fp2-r1-voices-v1-v4-discrimination`. Unknown files, SHA drift and
+unknown modes are rejected in both directions; the module contains no
+environment access at all.
+
+New artifacts: `lock/camoufox-v152.0.4-beta.28-verisilo-r1-diag-v1-source.json`
+(engineRevision `…-r1-diag-v1`; upstream commit/tree; ordered patches ×3 with
+carry-forward policy 0003/0004 allowed-after-qualification, 9000 never;
+sections ×4; seams ×16; builder binding identical to the frozen canvas builder;
+GPC ordering block; `browserLaunches: 0`) plus `diag_gate.py` and
+`test_r1_diag_source_lock.py` (13/13).
+
+Measurement boundary recorded for the coming discrimination run: logging cannot
+be provably zero-perturbation; evidence must capture event sequence AND final
+per-realm voice counts so instrumentation-induced change is detectable as a
+timing-sensitive signal rather than mistaken for remediation.
+
+Execution boundary reached on this host: Docker is ABSENT here, so diagnostic
+build steps ⑤⑥ must run on the Linux builder host (frozen image
+`dfd59e5a…`, archive `f8061d1c…`). Everything up to that boundary is complete
+and verified offline. `browserLaunches = 0`.
