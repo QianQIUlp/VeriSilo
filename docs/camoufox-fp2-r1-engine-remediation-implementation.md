@@ -113,6 +113,19 @@ R1 正式候选修订: verisilo-camoufox-152.0.4-beta.28-r1-v1
 - 诊断 logging **不得进入 R1 Engine Binding**，除非未来被明确提升为产品级 bounded
   runtime evidence 并重新过 Gate。
 
+作者化状态（2026-08-22）：三个 patch 已按本合同生成并通过 round-trip 验证
+（fresh-tree 应用 rc=0，全部 post 镜像哈希与 seam 记录逐一相等）：
+
+```text
+0003  3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b
+0004  5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185
+9000  1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8
+```
+
+派生记录（sections SHA、seam pre/post digest、验证结果）见
+`apps/camoufox-host/build/r1-diag-v1/authoring-record.json`；静态回归
+`test_engine_remediation_patches.py` 9/9 锁定上述指纹与行为不变量。
+
 ### 1.4 Seam 与验证步骤（沿用 canvas recipe 模式）
 
 | Seam 文件 | Pre-image | Post-image 语义 |

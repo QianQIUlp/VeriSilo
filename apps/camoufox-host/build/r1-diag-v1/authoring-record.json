@@ -1,0 +1,99 @@
+{
+  "schema": "verisilo-r1-diag-authoring-record/v1",
+  "createdUtc": "2026-08-22",
+  "derivation": {
+    "firefoxSource": {
+      "version": "152.0.4",
+      "referenceTag": "FIREFOX_152_0_4_RELEASE",
+      "sourceUrl": "https://archive.mozilla.org/pub/firefox/releases/152.0.4/source/firefox-152.0.4.source.tar.xz",
+      "sha512": "0c5662aba8fb897902af95dbb2fd988b196d9cf9ae8b987ae89e0a6492ac753b8d4b8bb7b3274909c2eb200ab098df356e23cd6084556467f55e69127317f39a"
+    },
+    "upstream": {
+      "repository": "https://github.com/daijro/camoufox",
+      "tag": "v152.0.4-beta.28",
+      "commit": "0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d",
+      "tree": "1435d544d9b61dee7fcf74cf92462952ca43d38e",
+      "treeHashVerifiedBySparseCheckout": true
+    },
+    "upstreamPatchApplication": {
+      "program": "GNU patch 2.7.6",
+      "flags": ["--batch", "--binary", "--forward", "--ignore-whitespace", "--fuzz=2", "--no-backup-if-mismatch", "-p1"],
+      "sectionOrder": {
+        "dom/workers/WorkerNavigator.cpp": [
+          "fingerprint-injection.patch (upstream-patch-18)",
+          "navigator-spoofing.patch (upstream-patch-32)"
+        ],
+        "dom/media/webspeech/synth/nsSynthVoiceRegistry.cpp": [
+          "voice-spoofing.patch (upstream-patch-47)"
+        ],
+        "dom/media/webspeech/synth/SpeechSynthesis.cpp": [
+          "speech-voices-spoofing.patch (upstream-patch-42)"
+        ]
+      },
+      "hunkOutcomesMatchCandidateContainerLog": true,
+      "candidateBuildRunId": "canvas-close-engine-20260816t144711z-e571f6c"
+    }
+  },
+  "upstreamSectionsSha256": {
+    "fpin-worker.patch": "87af0307e7476758ff88588da5031edbe65a7737bdfd3ab5dc23dbe40faf98b5",
+    "navspoof-worker.patch": "7e00efc1069c0f5b67cbe9d6cda6945c00016e5b93b8e341db3d380aff8f759d",
+    "voice-registry.patch": "72f66bba096e60137d25d0076b4a2738868caf07ecf02648b3f7b2904ef7585a",
+    "sv-synth.patch": "4ce167f9e973068c13759323fe06d3b16a9b5257e87032061ba396858d148930"
+  },
+  "patches": {
+    "0003-verisilo-gpc-canonical-pref-projection.patch": {
+      "sha256": "3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b",
+      "sizeBytes": 2774,
+      "diagnosticOnly": false
+    },
+    "0004-verisilo-remove-worker-gpc-mask-override.patch": {
+      "sha256": "5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185",
+      "sizeBytes": 412,
+      "diagnosticOnly": false
+    },
+    "9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch": {
+      "sha256": "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8",
+      "sizeBytes": 7808,
+      "diagnosticOnly": true,
+      "diagnosticMarker": "# VERISILO-DIAGNOSTIC-MARKER: v1"
+    }
+  },
+  "seams": {
+    "toolkit-xre-nsAppRunner-pre": "f9c0dfb11cf20ab1864f3d5c791f88ec26e24b154474e93c0d8898f712099d11",
+    "toolkit-xre-nsAppRunner-post": "7847e88093beeff74aa8a7e89f5e5f1e3ea0d6b1f9dece21f97387940fbe8b94",
+    "xre-mozbuild-pre": "03442255ef528f22927c17f5769b089e37a79c79c9a9bec0004b2139dba4a3ba",
+    "xre-mozbuild-post": "831f388c8b16c162f21d5ab034329dd837f5e542b85fed1b8c277cbce3233131",
+    "WorkerNavigator-pre": "b927fb42169159a6e001e442c7b4c0916f46d6b3b88c4d1baf5ef5d979be7f09",
+    "WorkerNavigator-post": "693aee50dfa3ba44505656a0cdc5899753690df53ca76031b2b69c46ae0aa1d1",
+    "nsSynthVoiceRegistry-pre": "9eac4b53804588d57f4309ed0e6f8d9c971ca876473efd698d30d90a4bf18a3f",
+    "nsSynthVoiceRegistry-post": "19ccd59ce3f0601ebaf0fdf5b05e4a4c6192a03540d9cd962a8baf2999f91864",
+    "SpeechSynthesis-pre": "54611fee854db93922b3c36ad6ff014d07eaa3ea68abb49bc1bbd9392a7ce75f",
+    "SpeechSynthesis-post": "b2e908b78c2f442aaed5fafd7397855968d2503385d6bedd5db865406d6946b4",
+    "SapiService-pre": "d316d9f48c6123aed43612b0d21e8d64a2ea388c6bd40cad45b2848f42066274",
+    "SapiService-post": "42db11a25b6b089258e670c62adde8d2ecbe305c0a8a8429b14383f5987eb9e9",
+    "SpeechSynthesisParent-pre": "c6171e3689fab1789c459b924c7420786d2efed0caf2741747b910e0a3dcd61f",
+    "SpeechSynthesisParent-post": "9b978c5a833ab8250610ad8167a2961e8ae23146a5b68f7075d5c6a0d008ec84",
+    "windows-mozbuild-pre": "db7ad453391005b2e93da3816bef2453a283e42d09572faa918ff5def52a9e6f",
+    "windows-mozbuild-post": "84fb47618f1b1de47132ae6c8fcd1b7e0c2b39d400668193e6831c1b18b5ee83"
+  },
+  "verification": {
+    "roundTrip": {
+      "appliedCleanly": ["0003", "0004", "9000"],
+      "freshTreePostImageDigestsMatchedSeamPins": true,
+      "newFileDiffsUsedDevNullHeaders": ["camoucfg/GpcProjection.h", "camoucfg/VsiDiag.h"]
+    },
+    "staticRegressions": {
+      "file": "apps/camoufox-host/test_engine_remediation_patches.py",
+      "result": "9/9 OK"
+    },
+    "policyModelTests": {
+      "file": "apps/camoufox-host/test_gpc_policy_contract.py",
+      "result": "7/7 OK"
+    }
+  },
+  "pendingAtNextPhase": [
+    "strict_build DIAGNOSTIC-marker rejection step for formal recipes",
+    "new source-lock (engineRevision r1-diag) binding sections+seams+builder image",
+    "diagnostic build on Linux builder per canvas-engine recipe constraints"
+  ]
+}

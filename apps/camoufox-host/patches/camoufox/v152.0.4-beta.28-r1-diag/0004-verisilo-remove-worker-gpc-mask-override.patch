@@ -1,0 +1,12 @@
+--- a/dom/workers/WorkerNavigator.cpp
++++ b/dom/workers/WorkerNavigator.cpp
+@@ -109,9 +109,6 @@
+ }
+ 
+ bool WorkerNavigator::GlobalPrivacyControl() const {
+-  if (auto value = MaskConfig::GetBool("navigator.globalPrivacyControl");
+-      value.has_value())
+-    return value.value();
+   bool gpcStatus = StaticPrefs::privacy_globalprivacycontrol_enabled();
+   if (!gpcStatus) {
+     JSObject* jso = GetWrapper();

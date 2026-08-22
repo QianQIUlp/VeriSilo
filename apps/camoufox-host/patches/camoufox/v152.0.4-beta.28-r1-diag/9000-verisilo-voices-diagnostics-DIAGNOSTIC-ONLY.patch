@@ -1,0 +1,236 @@
+# VERISILO-DIAGNOSTIC-MARKER: v1
+# VERISILO-DIAGNOSTIC-ONLY - investigation instrumentation only.
+# Formal R1 build drivers MUST reject this file.
+--- /dev/null
++++ b/camoucfg/VsiDiag.h
+@@ -0,0 +1,90 @@
++// VERISILO-DIAGNOSTIC-MARKER: v1
++// VERISILO-DIAGNOSTIC-ONLY - investigation instrumentation for the FP2-R1
++// voices V1-V4 discrimination (implementation contract section 2). Pure
++// observer: never changes voice ordering, initialization timing, native
++// suppression, managed inventory, or cache semantics. Bounded: <=512 events
++// per process, then a single OVERFLOW note. Every event is one stderr line
++// "VSIDIAG {...}" <=240 chars; URIs appear only as the first 12 hex chars of
++// their SHA-256. Formal R1 builds MUST NOT include instrumentation.
++#ifndef camoucfg_VsiDiag_h
++#define camoucfg_VsiDiag_h
++
++#include "mozilla/crypto_hash_sha2.h"
++
++#include <atomic>
++#include <cstdio>
++#include <mutex>
++#include <set>
++#include <string>
++
++#include "nsString.h"
++#include "nsXULAppAPI.h"
++
++namespace camoucfg {
++
++inline void VsiDiagEmit(const char* aEvent, const std::string& aFields) {
++  static std::atomic<uint32_t> sSeq{0};
++  static std::atomic<bool> sOverflow{false};
++  uint32_t seq = sSeq.fetch_add(1, std::memory_order_relaxed);
++  if (seq >= 512u) {
++    bool expected = false;
++    if (sOverflow.compare_exchange_strong(expected, true)) {
++      std::fprintf(stderr, "VSIDIAG {\"e\":\"OVERFLOW\"}\n");
++    }
++    return;
++  }
++  std::string line = "{\"e\":\"";
++  line += aEvent;
++  line += "\",\"proc\":\"";
++  line += (XRE_IsParentProcess() ? 'P' : 'C');
++  line += "\",\"seq\":";
++  line += std::to_string(seq);
++  if (!aFields.empty()) {
++    line += ',';
++    line += aFields;
++  }
++  line += '}';
++  if (line.size() > 232u) {
++    return;  // bounded output
++  }
++  std::fprintf(stderr, "VSIDIAG %s\n", line.c_str());
++}
++
++inline std::string VsiDiagUriHash(const nsAString& aUri) {
++  NS_ConvertUTF16toUTF8 utf8(aUri);
++  uint8_t digest[32];
++  crypto_hash_sha256(reinterpret_cast<const uint8_t*>(utf8.get()),
++                     static_cast<unsigned long long>(utf8.Length()), digest);
++  static const char kHex[] = "0123456789abcdef";
++  std::string out;
++  out.reserve(12);
++  for (int i = 0; i < 6; ++i) {
++    out.push_back(kHex[(digest[i] >> 4) & 0xF]);
++    out.push_back(kHex[digest[i] & 0xF]);
++  }
++  return out;
++}
++
++inline void VsiDiagEventUri(const char* aEvent, const nsAString& aUri) {
++  VsiDiagEmit(aEvent, "\"h\":\"" + VsiDiagUriHash(aUri) + "\"");
++}
++
++inline void VsiDiagGetVoices(void* aObj, unsigned aCtxId, unsigned aCount,
++                             unsigned aCacheSize) {
++  static std::mutex sMutex;
++  static std::set<void*> sSeen;
++  bool first = false;
++  {
++    std::lock_guard<std::mutex> lock(sMutex);
++    first = sSeen.insert(aObj).second;
++  }
++  char fields[96];
++  std::snprintf(fields, sizeof(fields),
++                "\"ctx\":%u,\"n\":%u,\"cache\":%u,\"first\":%d", aCtxId,
++                aCount, aCacheSize, first ? 1 : 0);
++  VsiDiagEmit("E7_getvoices", fields);
++}
++
++}  // namespace camoucfg
++
++#endif  // camoucfg_VsiDiag_h
+--- a/dom/media/webspeech/synth/windows/moz.build
++++ b/dom/media/webspeech/synth/windows/moz.build
+@@ -12,4 +12,8 @@
+ 
+ include("/ipc/chromium/chromium-config.mozbuild")
+ 
++LOCAL_INCLUDES += [
++    "/camoucfg",
++]
++
+ FINAL_LIBRARY = "xul"
+--- a/dom/media/webspeech/synth/windows/SapiService.cpp
++++ b/dom/media/webspeech/synth/windows/SapiService.cpp
+@@ -3,6 +3,7 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+ #include "SapiService.h"
++#include "VsiDiag.h"
+ 
+ #include "mozilla/ClearOnShutdown.h"
+ #include "mozilla/Preferences.h"
+@@ -193,6 +194,11 @@
+ 
+ bool SapiService::Init() {
+   AUTO_PROFILER_LABEL("SapiService::Init", OTHER);
++
++  struct VsiScopeEndLog {
++    ~VsiScopeEndLog() { camoucfg::VsiDiagEmit("E2b_sapi_init_end", ""); }
++  } vsiScopeEndLog;
++  camoucfg::VsiDiagEmit("E2a_sapi_init_begin", "");
+ 
+   MOZ_ASSERT(!mInitialized);
+ 
+--- a/dom/media/webspeech/synth/ipc/SpeechSynthesisParent.cpp
++++ b/dom/media/webspeech/synth/ipc/SpeechSynthesisParent.cpp
+@@ -5,6 +5,7 @@
+ #include "SpeechSynthesisParent.h"
+ 
+ #include "nsSynthVoiceRegistry.h"
++#include "VsiDiag.h"
+ 
+ namespace mozilla::dom {
+ 
+@@ -21,6 +22,12 @@
+ }
+ 
+ bool SpeechSynthesisParent::SendInit() {
++  uint32_t vsiN = 0;
++  if (NS_SUCCEEDED(
++          nsSynthVoiceRegistry::GetInstance()->GetVoiceCount(&vsiN))) {
++    camoucfg::VsiDiagEmit("E4_sendinit_snapshot",
++                          ("\"n\":" + std::to_string(vsiN)).c_str());
++  }
+   return nsSynthVoiceRegistry::GetInstance()->SendInitialVoicesAndState(this);
+ }
+ 
+--- a/dom/media/webspeech/synth/nsSynthVoiceRegistry.cpp
++++ b/dom/media/webspeech/synth/nsSynthVoiceRegistry.cpp
+@@ -25,6 +25,7 @@
+ #include "nsString.h"
+ 
+ #include "MaskConfig.hpp"
++#include "VsiDiag.h"
+ using mozilla::intl::LocaleService;
+ 
+ #undef LOG
+@@ -167,9 +168,17 @@
+       NS_CreateServicesFromCategory(NS_SPEECH_SYNTH_STARTED, nullptr,
+                                     NS_SPEECH_SYNTH_STARTED);
+       // Load voices from MaskConfig
+-      if (auto voices = MaskConfig::MVoices()) {
++      auto vsiVoices = MaskConfig::MVoices();
++      camoucfg::VsiDiagEmit(
++          "E1_mvoices_parsed",
++          vsiVoices ? ("\"n\":" + std::to_string(vsiVoices->size()))
++                    : std::string("\"n\":null"));
++      if (vsiVoices) {
++        camoucfg::VsiDiagEmit("E3a_managed_batch_begin",
++                              ("\"n\":" + std::to_string(vsiVoices->size()))
++                                  .c_str());
+         for (const auto& [lang, name, uri, isDefault, isLocal] :
+-             voices.value()) {
++             vsiVoices.value()) {
+           gSynthVoiceRegistry->AddVoiceImpl(
+               nullptr, NS_ConvertUTF8toUTF16(uri), NS_ConvertUTF8toUTF16(name),
+               NS_ConvertUTF8toUTF16(lang), isLocal,
+@@ -179,6 +188,7 @@
+                                                  true);
+           }
+         }
++        camoucfg::VsiDiagEmit("E3b_managed_batch_end", "");
+       }
+     }
+   }
+@@ -220,6 +230,8 @@
+   // We really should have a local instance since this is a directed response to
+   // an Init() call.
+   MOZ_ASSERT(gSynthVoiceRegistry);
++  camoucfg::VsiDiagEmit("E6_recv_initial_voices",
++                        ("\"n\":" + std::to_string(aVoices.Length())).c_str());
+ 
+   for (uint32_t i = 0; i < aVoices.Length(); ++i) {
+     RemoteVoice voice = aVoices[i];
+@@ -250,6 +262,7 @@
+ }
+ 
+ void nsSynthVoiceRegistry::RecvAddVoice(const RemoteVoice& aVoice) {
++  camoucfg::VsiDiagEventUri("E6_recv_add_voice", aVoice.voiceURI());
+   // If we dont have a local instance of the registry yet, we will recieve
+   // current voices at contruction time.
+   if (!gSynthVoiceRegistry) {
+@@ -539,6 +552,7 @@
+                                       aQueuesUtterances);
+ 
+     for (uint32_t i = 0; i < ssplist.Length(); ++i) {
++      camoucfg::VsiDiagEventUri("E5_send_voice_added", ssvoice.voiceURI());
+       (void)ssplist[i]->SendVoiceAdded(ssvoice);
+     }
+   }
+--- a/dom/media/webspeech/synth/SpeechSynthesis.cpp
++++ b/dom/media/webspeech/synth/SpeechSynthesis.cpp
+@@ -13,6 +13,7 @@
+ #include "nsGlobalWindowInner.h"
+ #include "mozilla/dom/BrowsingContext.h"
+ #include "SpeechVoicesManager.h"
++#include "VsiDiag.h"
+ #include "nsIDocShell.h"
+ #include "nsISupportsPrimitives.h"
+ #include "nsSpeechTask.h"
+@@ -283,6 +284,10 @@
+     SpeechSynthesisVoice* voice = aResult[i];
+     mVoiceCache.InsertOrUpdate(voice->mUri, RefPtr{voice});
+   }
++
++  camoucfg::VsiDiagGetVoices(this, speechVoiceCtxId,
++                             static_cast<unsigned>(aResult.Length()),
++                             static_cast<unsigned>(mVoiceCache.Count()));
+ }
+ 
+ // For testing purposes, allows us to cancel the current task that is

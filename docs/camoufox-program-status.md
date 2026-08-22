@@ -805,3 +805,42 @@ Implementation Contract upgrades to **Accepted** once this correction lands in a
 clean commit; then patch authoring + seam digests + diagnostic build are allowed.
 Browser discrimination run still requires a separate authorization; Browser
 remains CLOSED; FP3 remains Closed.
+
+### 2026-08-22 R1-diag patch authoring checkpoint
+
+Implementation Contract Accepted at `38ff360c…`/tree `2325bc4b…`. The three
+authorized downstream patches have been authored and verified offline:
+
+```text
+0003-verisilo-gpc-canonical-pref-projection.patch   3a13cb79…
+0004-verisilo-remove-worker-gpc-mask-override.patch 5598a95e…
+9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY    1bc47837…
+location: apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/
+```
+
+Derivation is reproducible from pinned inputs (FF152 release @
+`FIREFOX_152_0_4_RELEASE`; upstream stack tree hash verified against the source
+lock via sparse checkout) by the committed script
+`build/r1-diag-v1/author_patches.py`; per-file upstream sections, seam pre/post
+digests, and verification results are recorded in
+`build/r1-diag-v1/authoring-record.json`. Reconstruction hunk outcomes match the
+candidate build's container.log exactly.
+
+Verification: round-trip application on fresh trees rc=0 for all three patches
+with post-image digests matching seam pins byte-exactly; static regressions
+9/9 (`test_engine_remediation_patches.py`: single GPC projection writer, golden
+Worker native restore as pure removal, DIAGNOSTIC marker format + behavioral-
+invariant bans + URI-hash-only logging, formal-series exclusion); GPC policy
+model 7/7; FP2 suite 63/63.
+
+0003 implements model B projection (MaskConfig key read once in parent at
+XRE_mainRun entry; managed-opt-out writes enabled+functionality_enabled only;
+native writes nothing). 0004 restores the exact FF152 native WorkerNavigator
+GPC getter body (pure removal of the three override lines). 9000 adds bounded
+pure-observer events E1–E7 across SapiService/nsSynthVoiceRegistry/
+SpeechSynthesisParent/SpeechSynthesis with no ordering/timing/suppression
+changes.
+
+Next: strict_build DIAGNOSTIC-rejection step + r1-diag source lock + diagnostic
+build (Linux builder). Browser discrimination run remains unauthorized; Browser
+CLOSED; FP2-R1 not yet executable; FP3 Closed.

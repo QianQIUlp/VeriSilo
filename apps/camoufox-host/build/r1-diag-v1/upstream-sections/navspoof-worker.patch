@@ -1,0 +1,69 @@
+diff --git a/dom/workers/WorkerNavigator.cpp b/dom/workers/WorkerNavigator.cpp
+index c9a65ff013..d8268dd9ce 100644
+--- a/dom/workers/WorkerNavigator.cpp
++++ b/dom/workers/WorkerNavigator.cpp
+@@ -6,6 +6,8 @@
+ 
+ #include "mozilla/dom/WorkerNavigator.h"
+ #include "MaskConfig.hpp"
++#include "mozilla/dom/NavigatorManager.h"
++#include "mozilla/dom/WorkerPrivate.h"
+ 
+ #include <utility>
+ 
+@@ -153,6 +155,18 @@ void WorkerNavigator::GetAppVersion(nsString& aAppVersion,
+ 
+ void WorkerNavigator::GetPlatform(nsString& aPlatform, CallerType aCallerType,
+                                   ErrorResult& aRv) const {
++  // Camoufox: per-context navigator platform for workers
++  {
++    WorkerPrivate* wp = GetCurrentThreadWorkerPrivate();
++    if (wp) {
++      uint32_t ucid = wp->GetOriginAttributes().mUserContextId;
++      nsAutoString stored;
++      if (mozilla::dom::NavigatorManager::GetPlatform(ucid, stored)) {
++        aPlatform = stored;
++        return;
++      }
++    }
++  }
+   if (auto value = MaskConfig::GetString("navigator.platform"))
+     return aPlatform.Assign(NS_ConvertUTF8toUTF16(value.value()));
+   WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
+@@ -215,6 +229,18 @@ class GetUserAgentRunnable final : public WorkerMainThreadRunnable {
+ 
+ void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
+                                    ErrorResult& aRv) const {
++  // Camoufox: per-context user agent for workers
++  {
++    WorkerPrivate* wp = GetCurrentThreadWorkerPrivate();
++    if (wp) {
++      uint32_t ucid = wp->GetOriginAttributes().mUserContextId;
++      nsAutoString stored;
++      if (mozilla::dom::NavigatorManager::GetUserAgent(ucid, stored)) {
++        aUserAgent = stored;
++        return;
++      }
++    }
++  }
+   if (auto value = MaskConfig::GetString("navigator.userAgent"))
+     return aUserAgent.Assign(NS_ConvertUTF8toUTF16(value.value()));
+   WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
+@@ -228,6 +254,17 @@ void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
+ }
+ 
+ uint64_t WorkerNavigator::HardwareConcurrency() const {
++  // Camoufox: per-context hardware concurrency for workers
++  {
++    WorkerPrivate* wp = GetCurrentThreadWorkerPrivate();
++    if (wp) {
++      uint32_t ucid = wp->GetOriginAttributes().mUserContextId;
++      uint32_t stored = mozilla::dom::NavigatorManager::GetHardwareConcurrency(ucid);
++      if (stored > 0) {
++        return static_cast<uint64_t>(stored);
++      }
++    }
++  }
+   if (auto value = MaskConfig::GetUint64("navigator.hardwareConcurrency"))
+     return value.value();
+   RuntimeService* rts = RuntimeService::GetService();
