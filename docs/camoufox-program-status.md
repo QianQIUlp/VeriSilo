@@ -744,3 +744,36 @@ injection never engaged"): injection worked; enumeration coherence is the defect
 FP2 remains Failed / Not Accepted under unchanged comparator semantics. No
 browser was started; Browser stays CLOSED; next Gate is main-brain review of the
 design freeze before any patch implementation contract.
+
+### 2026-08-22 Design Freeze Accepted with tightenings; Implementation Contract drafted
+
+Main brain Accepted `FP2-R1 Engine Remediation Design Freeze` at checkpoint
+`ff4f8c960d5cf63ff242da990b904fca8743be54`
+(tree `e000f6ad8ebf2bf1ac2c06be8ebdf6fb2c0a4004`) with two mandatory
+tightenings carried into the successor contract: (1) GPC must freeze a concrete
+**canonical owner** — prefer driving all three exposures through native pref
+machinery and removing the Worker-specific override rather than spoofing three
+places alike; (2) the voices 5-vs-58 observation must stay causally neutral —
+"cross-realm inconsistency observed, realm vs temporal initialization
+UNRESOLVED"; "realm bug" phrasing is banned until V1–V4 discrimination closes.
+Additional frozen rulings: enforcement control (native suppression,
+blockIfNotDefined as policy-derived engine key) is separated from identity
+declaration (voices inventory, fakeCompletion observable semantics); FP1-R1
+Carry-Forward Qualification answer frozen — no auto-inheritance, two layers
+(static binding closure + browser replay qualification with A-R1/B-R1), no
+historical deBG archaeology redo; lineage tree formalized as Candidate C0
+(retired) → diagnostic candidates → Candidate R1; Generation numbering retired.
+
+The next authorized task `FP2-R1 Engine Remediation Implementation Contract`
+(offline only) has been drafted in
+[camoufox-fp2-r1-engine-remediation-implementation.md](camoufox-fp2-r1-engine-remediation-implementation.md):
+GPC remediation patch contract (canonical owner = MaskConfig key; single
+parent-process projection into `privacy.globalprivacycontrol.enabled` +
+`functionality_enabled`; Worker override reverted to exact FF152 release body;
+Sec-GPC emitter anchor `nsHttpChannel::SetGlobalPrivacyControl()` verified
+semantically identical; truth table + T1–T4 no-browser regressions + seam
+verification driver steps) and a bounded voices diagnostics contract (events
+E1–E8 mapped to V1–V4 with a frozen discrimination decision table; hard
+behavioral-invariant constraints; DIAGNOSTIC-ONLY patch series excluded from the
+final R1 Engine Binding). Voices final patch remains unauthorized until the
+discrimination report converges. Browser stays CLOSED.
