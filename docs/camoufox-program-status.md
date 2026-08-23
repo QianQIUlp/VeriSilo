@@ -1057,3 +1057,27 @@ root provisioning + stage/reboot/verify qualification；本裁决不自动授权
 Phase C-2、`prepare-bound-image` 实机消费、Phase D、Browser 或 V1–V4。ultratone 的
 scratch free-space 与 swap 两个 frozen resource blockers 仍未解决，不能声称 host 已具备
 Phase-D 资格。
+
+### 2026-08-23 ultratone durable-root reboot qualification Accepted
+
+在精确远端基线 `d1ee700da1201a4feb396fd89ae732379778aaa0` / tree
+`2fcc98e26a0fcca83012cb67e92aca5e168acf0b` 上完成唯一 qualification
+`r1diag-durable-qual-20260823t084001z`。固定 root
+`/var/lib/verisilo/camoufox-build-evidence` 是 UID/GID `1000:1000`、mode `0750` 的真实可写
+目录，位于 device `2049`；scratch `/mnt/camoufox-build` 位于 device `2065`，两者不共享
+filesystem。reboot 前后 mount identity 均为 target `/`、source `/dev/sda1`、`ext4`、
+UUID `1f78b266-0950-45fc-ab40-9032b0b55eac`。
+
+stage boot ID `c8495db5-9362-495e-bef6-f77d457b59bf`，verify boot ID
+`b815e1df-b4af-4e3c-bef1-f9dc8e22b37f`。request SHA-256
+`aa9d79c5ff93ac2b1adf8f716eba407150911886be84372b5f51c13e6d8366a2`（596 bytes），
+64-byte sentinel SHA-256
+`089250ce8ae6c8e9cc13bd49555acf8d7dba05d9d73d4c9f4d23eeb38c17ed14`，result SHA-256
+`00386123d60810d044b9eb2b247b3fc5c7ebd5602dfa3f117dee622564571522`（744 bytes）；result
+状态为 `qualified-after-reboot`，且由 launcher 在新 boot 中重读闭合。
+
+主脑 Gate：**Accepted**。这是 ultratone 的一次性宿主前置资格，不是产品阶段，也不再
+扩展 host architecture。该过程未执行 Docker build/load/run、engine build、Camoufox 或
+browser，`browserLaunches = 0`。项目主线返回 R1-diag diagnostic engine build closure；
+在 engine build 前仍须以宿主配置方式满足既有 scratch `85899345920` bytes 与 swap
+`25769799680` bytes 门槛，不修改 recipe、schema 或冻结阈值。
