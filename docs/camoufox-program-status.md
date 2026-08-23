@@ -1248,3 +1248,37 @@ mozbootstrap 后由 strict driver 显式安装、选择并输出 `rustc -vV`，�
 
 由于 strict recipe bytes 改变，`610c9304…` image 与 Phase C-4 binding 被 supersede；
 现行 lock 重回 unbound，下一步为新 builder/binding。1046z 保留且不得重试。
+
+### 2026-08-23 Phase B-5 Accepted；Phase C-5 Rust-pinned builder binding
+
+全新 builder run `r1diag-builder-20260823t1105z` 使用 Rust 1.90.0 pin checkpoint
+`01bebed12a8142f64b993123d397cb4441f8891f` / tree
+`6531d106b210f2ae274833d995b70d09b8864566`，source-lock SHA-256
+`59b1d478a7785c555fbe517fe7ebd13f19a517665f8cf0395243c8f03d559a4b`。新 image ID
+为 `sha256:2cc52edb2e93e4a52437e0098326612ff7b05d5f3978111cf06c15e65002a323`；
+saved archive SHA-256 为
+`6f8a0aeae2ab77cd01ecc75011b35d4031db6621953095e06fd9a20ef07fe810`，size
+`1471563776` bytes；proposal canonical SHA-256 为
+`4d6b9c55c52cb1868c120cb1462a79f8fef9feb9aa15f7186f3e583e68ab4f20`。
+
+durable result SHA-256 为
+`b75872aacc05f793bd20d1b47c9f3cc36654ede75189b2a064bdcfec63ebcd06`；manifest
+SHA-256 / canonical SHA-256 为
+`2996434e971217e568e8e561c16cea7b7feb4868201c10b3645e98c623033d37` /
+`bf8d0ff2b0a61b1bf20f171bcc23e18028c089afb1115b18c437c8a3334c28d4`；receipt
+SHA-256 / canonical SHA-256 为
+`08d0c670fed7c8ae2673411bc791ca3c16d5da97cc933cfc5252fc1758aa96ad` /
+`2db7a78448607337def4ad1f1b2a683a170908bdfde4146c00e162135b434b5c`。build context
+SHA-256 为 `d734fdfb606e95b0d10963677a83ad85e9d585e6c868e15691578f4ae7c7b56e`，
+size `153600` bytes。
+
+主脑独立重读 durable bundle，并重新计算全部 payload SHA/size、proposal/result/manifest/
+receipt canonical digest、saved tar config digest 与 image inspect；所有值与 receipt、manifest
+及当前 Docker immutable ID 精确一致。Gate：**Phase B-5 Accepted**。Phase C-5 只把上述
+原始 proposal 与 durable evidence 逐字段写入 lock，不修改 Dockerfile、strict driver、
+diag gate、host launcher 或 0000–0004/9000 patch bytes。current lock 状态为
+`builder-bound-durable-evidence-awaiting-diagnostic-engine-build`，`binaryBinding = null`、
+`diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`。
+
+下一步仅从 durable bundle 执行 exact-ID `prepare-bound-image`，随后以全新 run-id 执行一次性
+diagnostic engine build。不得启动 Camoufox，也不得执行 V1–V4。
