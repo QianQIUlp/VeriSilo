@@ -45,6 +45,9 @@ DIAG_GATE_REL = RECIPE_REL / "diag_gate.py"
 EXPECTED_SOURCE_DIR = "camoufox-152.0.4-beta.28"
 EXPECTED_OUTPUT = "camoufox-152.0.4-beta.28-win.x86_64.zip"
 DEFAULT_MOZ_BUILD_DATE = "20260811045234"
+PINNED_RUST_TOOLCHAIN = "1.90.0"
+RUSTUP_BIN = Path("/build-home/.cargo/bin/rustup")
+RUSTC_BIN = Path("/build-home/.cargo/bin/rustc")
 EXPECTED_BASE_INDEX_DIGEST = (
     "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea"
 )
@@ -252,6 +255,47 @@ def _validate_resources(lock: dict) -> dict:
     return {"freeBytes": free, "swapBytes": swap, "logicalCpu": cpu}
 
 
+def _pin_rust_toolchain(
+    lock: dict, cwd: Path, environment: dict[str, str], log: BuildLog
+) -> str:
+    version = lock["buildBinding"]["recipe"]["fixedEnvironment"].get(
+        "RUST_TOOLCHAIN"
+    )
+    if version != PINNED_RUST_TOOLCHAIN:
+        raise BuildFailure("R1 Rust toolchain binding is not exact")
+    if "RUSTUP_TOOLCHAIN" in environment:
+        raise BuildFailure("R1 Rust toolchain cannot be overridden by environment")
+    if not RUSTUP_BIN.is_file() or not RUSTC_BIN.is_file():
+        raise BuildFailure("mozbootstrap did not install the Rust toolchain manager")
+    log.run(
+        [
+            str(RUSTUP_BIN),
+            "toolchain",
+            "install",
+            version,
+            "--profile",
+            "minimal",
+        ],
+        cwd=cwd,
+        env=environment,
+        label="install-pinned-rust-toolchain",
+    )
+    log.run(
+        [str(RUSTUP_BIN), "default", version],
+        cwd=cwd,
+        env=environment,
+        label="select-pinned-rust-toolchain",
+    )
+    environment["RUSTUP_TOOLCHAIN"] = version
+    log.run(
+        [str(RUSTC_BIN), "-vV"],
+        cwd=cwd,
+        env=environment,
+        label="verify-pinned-rust-toolchain",
+    )
+    return version
+
+
 def _load_gate_module():
     if not EMBEDDED_GATE.is_file() or EMBEDDED_GATE.is_symlink():
         raise BuildFailure("embedded diagnostic gate is missing")
@@ -300,6 +344,16 @@ def _validate_recipe_and_mode(lock: dict) -> None:
         raise BuildFailure("R1 diagnostic recipe binding is malformed")
     if recipe.get("name") != "camoufox-152.0.4-beta.28-r1-diag-v2":
         raise BuildFailure("R1 diagnostic recipe name is not exact")
+    if recipe.get("fixedEnvironment") != {
+        "BUILD_TARGET": "windows,x86_64",
+        "CARGO_BUILD_JOBS": "1",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "MOZBUILD_DATE": DEFAULT_MOZ_BUILD_DATE,
+        "RUST_TOOLCHAIN": PINNED_RUST_TOOLCHAIN,
+        "TZ": "Etc/UTC",
+    }:
+        raise BuildFailure("R1 diagnostic fixed environment is not exact")
     recipe_paths = [item["path"] for item in recipe["files"]]
     expected_paths = [
         (RECIPE_REL / "Dockerfile").as_posix(),
@@ -721,6 +775,9 @@ def execute(args: argparse.Namespace) -> dict:
             raise BuildFailure("setup-minimal did not materialize the expected source")
         toolchain_manifest = _verify_windows_toolchain_manifest(lock, source)
         log.run(["make", "mozbootstrap"], cwd=upstream, env=environment, label="mozbootstrap")
+        rust_toolchain = _pin_rust_toolchain(
+            lock, upstream, environment, log
+        )
         log.run(
             ["python3", "scripts/patch.py", "--mozconfig-only", "152.0.4", "beta.28"],
             cwd=upstream,
@@ -770,6 +827,7 @@ def execute(args: argparse.Namespace) -> dict:
             "resourcesAtStart": resources,
             "inputs": inputs,
             "diagnosticGate": gate_result,
+            "rustToolchain": rust_toolchain,
             "upstreamPatchCount": len(upstream_applied),
             "completeAppliedPatchOrder": applied,
             "archive": archive,

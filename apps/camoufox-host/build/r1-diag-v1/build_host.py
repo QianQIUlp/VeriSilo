@@ -133,7 +133,7 @@ UNBOUND_LINEAGE_CURRENT = {
     "durableEvidence": "retained-but-recipe-superseded",
     "phaseB2": "closed-pending-rebuild",
     "reasonCodes": [
-        "embedded_diag_gate_dynamic_module_not_registered",
+        "unbounded_rustup_stable_broke_firefox_152_triplet_detection",
     ],
 }
 BOUND_LINEAGE_CURRENT = {

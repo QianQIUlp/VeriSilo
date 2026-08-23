@@ -52,24 +52,7 @@
     }
   ],
   "browserLaunches": 0,
-  "builderImagePreparationEvidence": {
-    "bindingProposalCanonicalSha256": "81c98c5d333a3d9cd9dc53c06a34a67db931a3d9c448685cce62c9933fd55088",
-    "buildContextSha256": "35f91a4964cc7e9a08be4cd741201cd57c10f0f005854b9dbdd8538dd1cee549",
-    "buildContextSizeBytes": 153600,
-    "builderImageResultSha256": "baec0de167d2e6bd3f3c874d6411af0dc16e5eded190a720cd6f52eb6f4a7002",
-    "durableManifestCanonicalSha256": "fd4f71ea30a9d1128a3cfaa91924df916d9a3d7e0e9c60c5b0c0ccc3f52a169e",
-    "durableManifestSha256": "88c65618aa1602d76d149f7dc4f7b23d064e40f924f8637ba60a2d1e841c2726",
-    "durableQualificationId": "r1diag-durable-qual-20260823t084001z",
-    "durableQualificationResultSha256": "00386123d60810d044b9eb2b247b3fc5c7ebd5602dfa3f117dee622564571522",
-    "reReadable": true,
-    "retained": true,
-    "retentionReceiptCanonicalSha256": "6949bab47a35bcf7795575785d643a13cb81a164f9c271b48ed81ca7b834fb02",
-    "retentionReceiptSha256": "69dfb5a5dd1b6662aa7a2b97ad269a6b29eba363579687fd3b5636cd9a336016",
-    "runId": "r1diag-builder-20260823t1040z",
-    "sourceCommit": "dd3a9ce796ec32a7aa49b076527f02ec6958008c",
-    "sourceLockSha256": "31b215e679876a376add1d842f547c9478a737d69427a7955d99750ed2d836b1",
-    "sourceTree": "d454b3eba5900a99bc3da1f36cd608001250c9f3"
-  },
+  "builderImagePreparationEvidence": null,
   "builderImagePreparationEvidenceRequiredFields": [
     "bindingProposalCanonicalSha256",
     "buildContextSha256",
@@ -90,10 +73,12 @@
   ],
   "builderOperationalLineage": {
     "current": {
-      "bindingState": "bound",
-      "durableEvidence": "retained-and-reread",
-      "phaseB2": "accepted",
-      "reasonCodes": []
+      "bindingState": "unbound",
+      "durableEvidence": "retained-but-recipe-superseded",
+      "phaseB2": "closed-pending-rebuild",
+      "reasonCodes": [
+        "unbounded_rustup_stable_broke_firefox_152_triplet_detection"
+      ]
     },
     "excludedFailedPreparation": {
       "classification": "failed-before-binding",
@@ -122,22 +107,7 @@
   },
   "buildBinding": {
     "binaryBinding": null,
-    "builderImageBinding": {
-      "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
-      "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
-      "buildxLogSha256": "d87eca3017185c5053295afb4ceb1b1894ccae783af232a73ccd35b447e19271",
-      "buildxLogSizeBytes": 77261,
-      "buildxMetadataSha256": "d943adad84dd1be543e061e9c07b2210c7e742c0fad436fdf6899bb064a3fffd",
-      "dockerfileSha256": "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2",
-      "hostToolingSha256": "18b75470f64dc5700329824bd4335c92ef8daed392730195ded19c04d782e971",
-      "imageId": "sha256:610c93044112e0330854b9765f19637c1d3edd51dd0a3ab792df72fccabd4301",
-      "imageInspectSha256": "47af1a835910980313ca251010af6542bb7da854fff9c0ca9c21e6d5672eefec",
-      "recipeSourceCommit": "dd3a9ce796ec32a7aa49b076527f02ec6958008c",
-      "recipeSourceLockSha256": "31b215e679876a376add1d842f547c9478a737d69427a7955d99750ed2d836b1",
-      "recipeSourceTree": "d454b3eba5900a99bc3da1f36cd608001250c9f3",
-      "savedArchiveSha256": "821e512c608af680081789615585f9a473072fe0cdfc26beaf9e02667e92939b",
-      "savedArchiveSizeBytes": 1471562240
-    },
+    "builderImageBinding": null,
     "builderImageBindingRequiredFields": [
       "baseIndexDigest",
       "baseLinuxAmd64ManifestDigest",
@@ -171,8 +141,8 @@
         },
         {
           "path": "apps/camoufox-host/build/r1-diag-v1/strict_build.py",
-          "sha256": "0b7c5bc8237089cffda7967e52eac1c4601734499b9981b6044e2cbf43178ee4",
-          "sizeBytes": 35424
+          "sha256": "f21c6e814124bfdc967d7a79918e078ad196b4659d2154153bf64679c6ea22f3",
+          "sizeBytes": 37306
         },
         {
           "path": "apps/camoufox-host/build/r1-diag-v1/diag_gate.py",
@@ -181,8 +151,8 @@
         },
         {
           "path": "apps/camoufox-host/build/r1-diag-v1/build_host.py",
-          "sha256": "63688b666e29b593d4333cacb6ca312300882c498ec2f6005826fbff5fde883c",
-          "sizeBytes": 101728
+          "sha256": "827e7530a90e916b468907bc5cbc311921f1bb7c3a5182dd3e9378f5d0625618",
+          "sizeBytes": 101739
         }
       ],
       "fixedEnvironment": {
@@ -191,6 +161,7 @@
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
         "MOZ_BUILD_DATE": "20260811045234",
+        "RUST_TOOLCHAIN": "1.90.0",
         "TZ": "Etc/UTC"
       },
       "name": "camoufox-152.0.4-beta.28-r1-diag-v2",
@@ -291,7 +262,7 @@
         "policy": "closed"
       }
     },
-    "status": "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+    "status": "recipe-frozen-durable-evidence-unbound",
     "supportedBuildExecutionEnvironment": "linux",
     "supportedPhysicalHostWrapper": "upstream Linux Docker container supports all physical host platforms",
     "target": "x86_64-pc-windows-msvc",
@@ -614,6 +585,8 @@
     }
   ],
   "pendingAtBuildHost": [
+    "new Phase B-5 builder image transaction with Rust 1.90.0 pin",
+    "new Phase C-5 exact builder image and durable evidence binding",
     "prepare-bound-image exact-ID rehydration closure",
     "build log and complete patch application closure",
     "Windows archive SHA-256 and size",
@@ -1114,7 +1087,7 @@
     "supersededLockSha256": "3248dd1da1c06e115b9b8f40a5e17d6012bc2521c627304e814735b0d54fbbd2",
     "supersedes": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-diag-v1-source.json"
   },
-  "status": "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+  "status": "recipe-frozen-durable-evidence-unbound",
   "upstream": {
     "commit": "0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d",
     "repository": "https://github.com/daijro/camoufox",

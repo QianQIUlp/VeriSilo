@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag durable builder evidence / rehydration   | **gate-loader 修复后 Phase B-4 Accepted；新 durable builder 已绑定，待新 engine run** |
+| R1-diag durable builder evidence / rehydration   | **Phase C-4 历史 Accepted；Rust 1.90.0 pin 后 operational lock unbound，待重建** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1226,3 +1226,25 @@ durable root 重读、config digest 与 exact image inspect 均通过。
 `builder-bound-durable-evidence-awaiting-diagnostic-engine-build`，`binaryBinding = null`、
 `diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`。下一步必须使用
 全新 engine run 验证 container gate PASS 后进入真正 build。
+
+### 2026-08-23 第三次 engine run进入 configure；冻结 Rust 1.90.0
+
+Phase C-4 后的全新 run `r1diag-engine-20260823t1046z` 首次完成了真正的 pre-build
+主链：container diagnostic gate 在 source extraction 前结构化 PASS；冻结 upstream export、
+Firefox 152.0.4 extraction、50 个 upstream patch 与完整 downstream
+`0000 → 0001 → 0002 → 0003 → 0004 → 9000` 均成功。configure 精确识别 target
+`x86_64-pc-windows-msvc`、Clang 20.1.8、MSVC 14.50.35717、Windows SDK
+10.0.26100.0，随后在 Rust host-triplet 检测处 fail-closed。container log SHA-256 为
+`c140502e609f899134d0b1383ae0bece0c533016aa749a26cff450ed3a858dd2`；strict failure
+SHA-256 为 `84cf3bc9a9813e2676a5a6a776ecbc323db9b47937327fd0e380635a0789e415`；
+build log SHA-256 为 `6a22e3f198eb4da442e231b1d9cd48982290f017dbdf6a62a09a9b6e8ae580ab`。
+没有 binary output，`browserLaunches = 0`。
+
+根因是 recipe 允许 `mozbootstrap` 安装随时间漂移的 current stable，本次得到 Rust 1.98.0；
+Firefox 152 source 自身则在顶层 `Cargo.toml` 和 `mozboot.util.MINIMUM_RUST_VERSION` 同时声明
+`1.90.0`。新 recipe 将 `RUST_TOOLCHAIN = 1.90.0` 写入 locked fixed environment；
+mozbootstrap 后由 strict driver 显式安装、选择并输出 `rustc -vV`，同时拒绝外部
+`RUSTUP_TOOLCHAIN` override。未修改 Firefox source、patch chain 或产品行为。
+
+由于 strict recipe bytes 改变，`610c9304…` image 与 Phase C-4 binding 被 supersede；
+现行 lock 重回 unbound，下一步为新 builder/binding。1046z 保留且不得重试。
