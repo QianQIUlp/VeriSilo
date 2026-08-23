@@ -1361,3 +1361,32 @@ build log SHA-256 为 `dfb08e6f8f5cf874cbded006ba678bd310a8b77688bec0198691f502a
 前缀。未修改 Dockerfile、strict driver、patch 或 engine source。由于 build-host recipe bytes
 变化，Phase B-6 image / Phase C-6 binding 被 supersede；现行 lock 重回 unbound，下一步为
 全新 Phase B-7 / C-7 与 engine run。`1137z` 保留且不得重试。
+
+### 2026-08-23 Phase B-7 Accepted；Phase C-7 container-WINEPREFIX repaired binding
+
+全新 builder run `r1diag-builder-20260823t1153z` 使用 checkpoint
+`70d088072b1f1626163c4bd1ad743079c8a80fc4` / tree
+`7846f8ac1f3132369643ec9d37815e6a7d16f44a`，source-lock SHA-256
+`4ba9d7df03f0804c58b34c7796ead07fdac342a5930c3273a64ab116f7dd7be7`。新 image ID
+为 `sha256:706c07f499240f76bc5fcc7ffbc4e9b66e819acf9a54dbc8b57353faae93138b`；archive
+SHA-256 为 `9dec4f59df8f21921ba08acd78a860e2318a211b5c8696bbfebef151d1489f24`，size
+`1471563776` bytes；proposal canonical SHA-256 为
+`5c3f48c8d64fe2e7f32dbc9cdae37cc52f377288137d4bee04d34d50b6afd9a4`。
+
+durable result SHA-256 为
+`4afc515d56724b281467da49800f59e11b898d398e92c19eab5dbabc5ba3840f`；manifest
+SHA-256 / canonical SHA-256 为
+`a21c28f261a7d5332ab326d779df0b183660c711aeeba00e551509b8fe60458d` /
+`c0e44528dc4a629019a443caed1dfc7275e236c64dc918d17d50c47258d633cd`；receipt
+SHA-256 / canonical SHA-256 为
+`bef98d4c1dbd6980d7f1dc3df051606d7517fa1de6d99447bc62c874f1b1c7a9` /
+`1294ecde65bf9259bee757708af5abcad48d848d6e870e2151fe82438defb7e2`；build context
+SHA-256 为 `b04571b2c2bdfa65e41539cbfc641adfbe5077ec991a122588d50d36851ee13d`，
+size `153600` bytes。
+
+主脑独立重算全部 durable payload SHA/size、proposal/result/manifest/receipt canonical digest、
+saved tar config digest、image inspect 与 Docker exact ID，全部匹配。Gate：**Phase B-7
+Accepted**。Phase C-7 仅逐字段绑定上述 proposal/evidence；current lock 为
+`builder-bound-durable-evidence-awaiting-diagnostic-engine-build`，`binaryBinding = null`、
+`diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`。下一步只允许全新
+diagnostic engine run；不得启动 Camoufox，也不得执行 V1–V4。

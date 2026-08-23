@@ -52,7 +52,24 @@
     }
   ],
   "browserLaunches": 0,
-  "builderImagePreparationEvidence": null,
+  "builderImagePreparationEvidence": {
+    "bindingProposalCanonicalSha256": "5c3f48c8d64fe2e7f32dbc9cdae37cc52f377288137d4bee04d34d50b6afd9a4",
+    "buildContextSha256": "b04571b2c2bdfa65e41539cbfc641adfbe5077ec991a122588d50d36851ee13d",
+    "buildContextSizeBytes": 153600,
+    "builderImageResultSha256": "4afc515d56724b281467da49800f59e11b898d398e92c19eab5dbabc5ba3840f",
+    "durableManifestCanonicalSha256": "c0e44528dc4a629019a443caed1dfc7275e236c64dc918d17d50c47258d633cd",
+    "durableManifestSha256": "a21c28f261a7d5332ab326d779df0b183660c711aeeba00e551509b8fe60458d",
+    "durableQualificationId": "r1diag-durable-qual-20260823t084001z",
+    "durableQualificationResultSha256": "00386123d60810d044b9eb2b247b3fc5c7ebd5602dfa3f117dee622564571522",
+    "reReadable": true,
+    "retained": true,
+    "retentionReceiptCanonicalSha256": "1294ecde65bf9259bee757708af5abcad48d848d6e870e2151fe82438defb7e2",
+    "retentionReceiptSha256": "bef98d4c1dbd6980d7f1dc3df051606d7517fa1de6d99447bc62c874f1b1c7a9",
+    "runId": "r1diag-builder-20260823t1153z",
+    "sourceCommit": "70d088072b1f1626163c4bd1ad743079c8a80fc4",
+    "sourceLockSha256": "4ba9d7df03f0804c58b34c7796ead07fdac342a5930c3273a64ab116f7dd7be7",
+    "sourceTree": "7846f8ac1f3132369643ec9d37815e6a7d16f44a"
+  },
   "builderImagePreparationEvidenceRequiredFields": [
     "bindingProposalCanonicalSha256",
     "buildContextSha256",
@@ -73,12 +90,10 @@
   ],
   "builderOperationalLineage": {
     "current": {
-      "bindingState": "unbound",
-      "durableEvidence": "retained-but-recipe-superseded",
-      "phaseB2": "closed-pending-rebuild",
-      "reasonCodes": [
-        "host_wineprefix_used_host_path_inside_container"
-      ]
+      "bindingState": "bound",
+      "durableEvidence": "retained-and-reread",
+      "phaseB2": "accepted",
+      "reasonCodes": []
     },
     "excludedFailedPreparation": {
       "classification": "failed-before-binding",
@@ -107,7 +122,22 @@
   },
   "buildBinding": {
     "binaryBinding": null,
-    "builderImageBinding": null,
+    "builderImageBinding": {
+      "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+      "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+      "buildxLogSha256": "66fb4baf3a3343a67a2b3ce40d366011b47283627b64bc262e757c33f0a208d2",
+      "buildxLogSizeBytes": 77262,
+      "buildxMetadataSha256": "0d0f0403921325c2700daa66aad88ff85a0a7d3e18cc4158efb63c08a2fe57ae",
+      "dockerfileSha256": "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2",
+      "hostToolingSha256": "d1b2a05dda2f51253f1bbcba40d0530f3aa8c44bb7bfb14490d600ab1bffe8df",
+      "imageId": "sha256:706c07f499240f76bc5fcc7ffbc4e9b66e819acf9a54dbc8b57353faae93138b",
+      "imageInspectSha256": "bea84315fbbd877f68d37f25a2af1aa8313fb35969917d48e8e4746d7f360feb",
+      "recipeSourceCommit": "70d088072b1f1626163c4bd1ad743079c8a80fc4",
+      "recipeSourceLockSha256": "4ba9d7df03f0804c58b34c7796ead07fdac342a5930c3273a64ab116f7dd7be7",
+      "recipeSourceTree": "7846f8ac1f3132369643ec9d37815e6a7d16f44a",
+      "savedArchiveSha256": "9dec4f59df8f21921ba08acd78a860e2318a211b5c8696bbfebef151d1489f24",
+      "savedArchiveSizeBytes": 1471563776
+    },
     "builderImageBindingRequiredFields": [
       "baseIndexDigest",
       "baseLinuxAmd64ManifestDigest",
@@ -262,7 +292,7 @@
         "policy": "closed"
       }
     },
-    "status": "recipe-frozen-durable-evidence-unbound",
+    "status": "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
     "supportedBuildExecutionEnvironment": "linux",
     "supportedPhysicalHostWrapper": "upstream Linux Docker container supports all physical host platforms",
     "target": "x86_64-pc-windows-msvc",
@@ -585,8 +615,6 @@
     }
   ],
   "pendingAtBuildHost": [
-    "new Phase B-7 builder image transaction after container WINEPREFIX repair",
-    "new Phase C-7 exact builder image and durable evidence binding",
     "prepare-bound-image exact-ID rehydration closure",
     "build log and complete patch application closure",
     "Windows archive SHA-256 and size",
@@ -1087,7 +1115,7 @@
     "supersededLockSha256": "3248dd1da1c06e115b9b8f40a5e17d6012bc2521c627304e814735b0d54fbbd2",
     "supersedes": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-diag-v1-source.json"
   },
-  "status": "recipe-frozen-durable-evidence-unbound",
+  "status": "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
   "upstream": {
     "commit": "0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d",
     "repository": "https://github.com/daijro/camoufox",
