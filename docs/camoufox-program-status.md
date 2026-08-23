@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag durable builder evidence / rehydration   | **Phase C-2 历史 Accepted；strict mount 判据修复后 operational lock unbound，待重建 builder** |
+| R1-diag durable builder evidence / rehydration   | **strict mount 修复后 Phase B-3 Accepted；新 durable builder 已绑定，待新 engine run** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1151,3 +1151,29 @@ driver 只以 mountinfo 的 `filesystem + source` 判别 identity；同一 scrat
 binding 只能保留为已接受但被 recipe defect supersede 的历史证据，不得重用。现行 lock
 重新设为 unbound，下一步必须使用新 checkpoint、新 run-id 重建 builder，再形成精确 binding；
 失败 engine run 保留且不得重试。
+
+### 2026-08-23 Phase B-3 Accepted；Phase C-3 repaired builder binding
+
+全新 builder run `r1diag-builder-20260823t1028z` 使用 strict mount 修复 checkpoint
+`10759efa07484a6569c61d3b79a3ac2ec7507295` / tree
+`d25e552d8b91e204a778dc8c7003fca194b4f25c`，source-lock SHA-256
+`94d3bd3617c4a8d5f1008f6dd03bdab3756b26c4bd17ce7de147b1cf39c0a9f3`。新 image ID
+为 `sha256:271885058636c5390ad8d6e6ffe66f43ea0377c6abf9d4b7e0adb57382581da4`；archive
+SHA-256 为 `43412a7b958818b0e74546da77865f9d58cfa13ce0f03b276cf1dac708c7c5db`，size
+`1471561728` bytes。proposal canonical SHA-256 为
+`37b80df5c1a4f1bdd74dbcfaf72892d9f55be339b1417d280b3689ea9e8fd788`。
+
+durable result SHA-256 为 `fc12af60af0d70dc6b5ba6f1dd452cbf7c9fe348e48eafe5000886f88ef93723`；
+manifest SHA-256 / canonical SHA-256 为
+`016712b56a1f24064b857c869d14794202bd3224d91cba85576a024974e39f7f` /
+`730354365216420aeb6947259cba514662819643ca369152b8bb0dfca94817a9`；receipt
+SHA-256 / canonical SHA-256 为
+`fd0594397ede43c1f0f3c595dbd42c3c67d167594698be5efcbdafe51348e8ed` /
+`4b975a1c566cc0115f2ab5cb139c8ff12b1f7e400f387d12de8e417a20313ad2`。
+全部文件已从 durable root 重读，exact image inspect 与 recipe source commit/tree 一致。
+
+主脑 Gate：**Phase B-3 Accepted**。Phase C-3 逐字段绑定新 proposal/evidence，lock 状态为
+`builder-bound-durable-evidence-awaiting-diagnostic-engine-build`；旧 `b30686ae…` image、
+Phase C-2 binding 与 1020z engine failure 只保留历史审计意义，不进入 current lock。
+`binaryBinding = null`、`diagnosticOnly = true`、`formalEligible = false`、
+`browserLaunches = 0`。下一步必须新建 engine run。

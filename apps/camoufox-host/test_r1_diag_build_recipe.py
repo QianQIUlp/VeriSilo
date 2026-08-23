@@ -51,7 +51,7 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
         cls.v1_lock = json.loads(V1_LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_v2_is_unbound_after_mount_identity_repair(self) -> None:
+    def test_v2_is_bound_to_repaired_durable_builder(self) -> None:
         self.assertEqual(self.lock["schema"], "verisilo-r1-diag-source-binding/v2")
         self.assertEqual(
             self.lock["engineRevision"],
@@ -59,14 +59,17 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         )
         self.assertEqual(
             self.lock["status"],
-            "recipe-frozen-durable-evidence-unbound",
+            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
         )
         self.assertEqual(
             self.lock["buildBinding"]["status"],
-            "recipe-frozen-durable-evidence-unbound",
+            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
         )
-        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
-        self.assertIsNone(self.lock["builderImagePreparationEvidence"])
+        self.assertIsInstance(
+            self.lock["buildBinding"]["builderImageBinding"], dict
+        )
+        self.assertTrue(self.lock["builderImagePreparationEvidence"]["retained"])
+        self.assertTrue(self.lock["builderImagePreparationEvidence"]["reReadable"])
         self.assertNotIn("builderImageBinding", self.lock)
         self.assertTrue(self.lock["diagnosticOnly"])
         self.assertFalse(self.lock["formalEligible"])
@@ -101,10 +104,10 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         )
         self.assertFalse(contract["environmentOverride"])
         lineage = self.lock["builderOperationalLineage"]
-        self.assertEqual(lineage["current"]["bindingState"], "unbound")
+        self.assertEqual(lineage["current"]["bindingState"], "bound")
         self.assertEqual(
             lineage["current"]["durableEvidence"],
-            "retained-but-recipe-superseded",
+            "retained-and-reread",
         )
         superseded = lineage["supersededPhaseC1"]
         self.assertEqual(
