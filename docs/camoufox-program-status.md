@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag diagnostic engine build / provenance     | **`1206z` compile failure retained；Phase B-8 Accepted / C-8 exact bound；`1531z` resource-gate failed，等待 scratch 扩容授权** |
+| R1-diag diagnostic engine build / provenance     | **`1206z` compile failure retained；Phase B-8 Accepted / C-8 exact bound；scratch 已扩容；`1542z` diagnostic build 正常运行中** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1519,3 +1519,27 @@ source/patch、recipe/driver、toolchain 或 transport failure。
 现行 C-8 builder binding 不变，`buildBinding.binaryBinding = null`、
 `diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`、
 `verified = false`；`1531z` 保留且不得复用。
+
+### 2026-08-23 scratch capacity repaired；`1542z` diagnostic build started
+
+用户明确批准这台一次性编译机的 scratch 扩容后，既有
+`/var/lib/verisilo/r1diag-scratch.ext4` 由 192 GiB 在线扩至 240 GiB；没有删除、移动或
+覆盖任何历史 run。`resize2fs` 成功，ext4 state 为 `clean`；扩容后
+`/mnt/camoufox-build` available bytes 为 `96509194240`，高于冻结最低值
+`85899345920`。
+
+全新 run `r1diag-engine-20260823t1542z` 继续使用未变的 Phase C-8 checkpoint
+`6bc297de827055f7591b6e17e8098142df70d67a` / tree
+`3fb8a83a1f8beb49d784b2e8e76c33785276d3a9` / source-lock SHA-256
+`02b7de1a0e6d87cd4a08be1c7bffe3b5979be3f4f9ffcf85c951ca80720441a7`。
+`prepare-bound-image` exact-ID rehydration PASS；prepared record SHA-256 为
+`6b7293148ced32081937423b2a846bdc580f157c60bcc3f13be55082c647b503`，size
+`3464` bytes。build 启动前 available bytes 为 `94126686208`。
+
+首次且唯一一次启动健康检查确认：exact image
+`sha256:2742be96b8160fc9206585c8af6abcc95a9bc73d13a39fc2faa1c18c0bb2ea92`
+container 正常运行，diagnostic gate 已在 source extraction 前 Accepted，并已进入 Firefox
+source extraction；当时 `build-result.json`、`build-failure.json` 与
+`host-provenance.json` 均尚未出现。该状态不是 build/provenance closure，更不是 FP2-R1
+pass、GPC runtime verification 或 voices remediation success。`browserLaunches = 0`；
+停止高频轮询，等待下一次明确继续通知。
