@@ -119,7 +119,11 @@ class R1DiagSourceLockTests(unittest.TestCase):
         return diag_gate.evaluate(mode, series_dir, self.expected, patch_texts=texts)
 
     def test_gate_formal_rejects_diagnostic_series(self) -> None:
-        result = self._eval_with_dir(diag_gate.MODE_FORMAL, SERIES_DIR)
+        with tempfile.TemporaryDirectory() as td:
+            historical = Path(td)
+            for meta in self.expected.values():
+                shutil.copy(SERIES_DIR / meta["filename"], historical / meta["filename"])
+            result = self._eval_with_dir(diag_gate.MODE_FORMAL, historical)
         self.assertFalse(result.ok)
         self.assertIn("HARD FAIL", result.reason)
 
@@ -172,12 +176,24 @@ class R1DiagSourceLockTests(unittest.TestCase):
         self.assertEqual(result.details["drift"], ["0004"])
 
     def test_gate_diagnostic_accepts_frozen_trio(self) -> None:
-        result = self._eval_with_dir(diag_gate.MODE_DIAGNOSTIC, SERIES_DIR)
+        with tempfile.TemporaryDirectory() as td:
+            historical = Path(td)
+            for meta in self.expected.values():
+                shutil.copy(SERIES_DIR / meta["filename"], historical / meta["filename"])
+            result = self._eval_with_dir(diag_gate.MODE_DIAGNOSTIC, historical)
         self.assertTrue(result.ok)
         self.assertTrue(result.diagnosticOnly)
         self.assertFalse(result.formalEligible)
         self.assertEqual(result.details["purpose"],
                          "fp2-r1-voices-v1-v4-discrimination")
+
+    def test_v1_gate_rejects_amended_v2_series_without_reinterpretation(self) -> None:
+        result = self._eval_with_dir(diag_gate.MODE_DIAGNOSTIC, SERIES_DIR)
+        self.assertFalse(result.ok)
+        self.assertEqual(
+            result.details["extra"],
+            ["0003a-verisilo-gpc-preferences-namespace-compile-repair.patch"],
+        )
 
     def test_gate_diagnostic_rejects_sha_drift(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import inspect
 import io
@@ -19,6 +20,11 @@ from unittest import mock
 
 HOST_DIR = Path(__file__).resolve().parent
 BUILD_DIR = HOST_DIR / "build" / "r1-diag-v1"
+LOCK_PATH = (
+    HOST_DIR
+    / "lock"
+    / "camoufox-v152.0.4-beta.28-verisilo-r1-diag-v2-source.json"
+)
 sys.path.insert(0, str(BUILD_DIR))
 import build_host  # noqa: E402
 
@@ -119,6 +125,25 @@ def _saved_image_stream(
 
 
 class R1DiagHostLauncherTests(unittest.TestCase):
+    def test_host_patch_contract_requires_0003a_in_amended_order(self) -> None:
+        lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+        build_host._validate_patch_contract(lock)
+        self.assertEqual(
+            lock["completeAppliedPatchOrder"],
+            ["0000", "0001", "0002", "0003", "0003a", "0004", "9000"],
+        )
+
+        missing = copy.deepcopy(lock)
+        missing["completePatchSeries"] = [
+            item
+            for item in missing["completePatchSeries"]
+            if item["id"] != "0003a"
+        ]
+        with self.assertRaisesRegex(
+            build_host.HostBuildFailure, "complete patch IDs are not exact"
+        ):
+            build_host._validate_patch_contract(missing)
+
     def test_saved_image_accepts_legacy_config_member(self) -> None:
         stream, image_id = _saved_image_stream()
         identity = build_host._validate_saved_image_stream(

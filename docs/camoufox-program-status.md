@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag durable builder evidence / rehydration   | **Phase C-4 历史 Accepted；Rust 1.90.0 pin 后 operational lock unbound，待重建** |
+| R1-diag diagnostic engine build / provenance     | **`1206z` compile failed；B-7/C-7 superseded；0003a additive repair frozen；operational lock unbound，待 B-8/C-8** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1390,3 +1390,61 @@ Accepted**。Phase C-7 仅逐字段绑定上述 proposal/evidence；current lock
 `builder-bound-durable-evidence-awaiting-diagnostic-engine-build`，`binaryBinding = null`、
 `diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`。下一步只允许全新
 diagnostic engine run；不得启动 Camoufox，也不得执行 V1–V4。
+
+### 2026-08-23 `1206z` diagnostic engine compile failure closure；0003a additive repair
+
+全新 run `r1diag-engine-20260823t1206z` 使用 Phase C-7 的 exact builder image
+`sha256:706c07f499240f76bc5fcc7ffbc4e9b66e819acf9a54dbc8b57353faae93138b`。
+它完成 durable bundle 重读与 exact-ID preparation、container diagnostic gate、Firefox
+152.0.4 extraction、Rust 1.90.0 pin、50 个 upstream patches，以及原始下游
+`0000 → 0001 → 0002 → 0003 → 0004 → 9000` 的 `--fuzz=0` 应用，随后进入真实
+Windows `mach build`。host provenance 最终为 `container-failed` / exit `1`；没有
+`build-result.json`、Windows archive、binary 或 browser launch。
+
+失败 evidence 已保留于既有 durable root：
+
+```text
+/var/lib/verisilo/camoufox-build-evidence/r1diag-engine-20260823t1206z
+```
+
+| Artifact | SHA-256 | Size (bytes) |
+| --- | --- | ---: |
+| `host-provenance.json` | `5888c637859b22fbc6b5320e145f7c727e5e45afcbf4f01f30e7cfd0926e138a` | 4,616 |
+| `build-failure.json` | `b90f6c2b2cdbe03c96c3e36a93c420f89b90e6c44724b62eb66ee56bd4a03bda` | 376 |
+| `container.log` | `ed728a71eb1d8a80990cbc24d47e0ad7a0c73361639f86f447b1201e9843fde0` | 1,422,435 |
+| `build.log` | `4ebaff48a277475e40c36cb2ca3971bc6e3255eb01c56f5b31b824cac174db2b` | 1,420,797 |
+| `diagnostic-gate-result.json` | `931a11c64381aae83d823226ae07e2a3dc90c0db6a5a45c9f639318ea66c70d3` | 523 |
+
+根因分类是 **source/patch compile error**，不是 recipe/driver、toolchain、resource 或
+transport failure。`toolkit/xre/nsAppRunner.cpp` 消费的 `camoucfg/GpcProjection.h`
+第 38/39 行使用未限定 identifier `Preferences`；Firefox 实际声明为
+`mozilla::Preferences`。因此，原始六 patch chain 已被本次真实编译证明为
+**non-compiling**。原始六份 patch bytes 与 SHA-256 全部保持不变：
+
+```text
+0000  8d407bdc4010f7b2989f206a70909bfa9ad89046ddb9e17fa76092c864433600
+0001  4fa6d3bbf203e2385e29a72ec2669ee17a571281be7ee2a73598e38918069b02
+0002  efb006d5b2b05756fc310b52eb48e0bdab5e8b23e780fa08534a7fc099c22ce7
+0003  3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b
+0004  5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185
+9000  1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8
+```
+
+最小修复不改写 0003，而是在其后追加
+`0003a-verisilo-gpc-preferences-namespace-compile-repair.patch`：SHA-256
+`c2f9a9f88ba8aeb610eb1cb29f2515f1d79fcf582393397a571bc3206889588c`，size
+`500` bytes；`camoucfg/GpcProjection.h` seam pre/post SHA-256 分别为
+`ab0b4c26e628a74d0ef4bac66d35bc6b0e9aee45cd67ad6bd5e5da91b609cf3f` /
+`364655669418c106f80f030a7a48797dbdbca1030c0d29e4e91c841129999bda`。
+0003a 只把两处 `Preferences::SetBool` 限定为
+`mozilla::Preferences::SetBool`；pref keys、条件、调用时序、GPC canonical-owner
+语义和 voices instrumentation 均不变。reason code 为
+`gpc_projection_preferences_namespace_unqualified`。
+
+由于 patch series、strict driver、gate 与 source-lock recipe binding 变化，Phase B-7
+image / Phase C-7 binding 仅保留历史 evidence，现行 operational lock 已回到
+`recipe-frozen-durable-evidence-unbound`，等待全新 Phase B-8 / C-8；不得复用
+`1206z`。`buildBinding.binaryBinding = null`、`diagnosticOnly = true`、
+`formalEligible = false`、`browserLaunches = 0`、`verified = false`。本闭包不是
+FP2-R1 pass，不是 GPC runtime verification，不是 voices remediation success，也未创建
+Formal R1 candidate、0005 或 V1–V4 evidence。

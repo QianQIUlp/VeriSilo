@@ -25,11 +25,13 @@ FORMAL_DIR = HOST_DIR / "patches" / "camoufox" / "v152.0.4-beta.28-r1"
 SECTIONS_DIR = HOST_DIR / "build" / "r1-diag-v1" / "upstream-sections"
 
 P_0003 = "0003-verisilo-gpc-canonical-pref-projection.patch"
+P_0003A = "0003a-verisilo-gpc-preferences-namespace-compile-repair.patch"
 P_0004 = "0004-verisilo-remove-worker-gpc-mask-override.patch"
 P_9000 = "9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch"
 
 PINNED_PATCHES = {
     P_0003: "3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b",
+    P_0003A: "c2f9a9f88ba8aeb610eb1cb29f2515f1d79fcf582393397a571bc3206889588c",
     P_0004: "5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185",
     P_9000: "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8",
 }
@@ -46,6 +48,8 @@ PINNED_SEAMS = {
     "toolkit-xre-nsAppRunner-post": "7847e88093beeff74aa8a7e89f5e5f1e3ea0d6b1f9dece21f97387940fbe8b94",
     "xre-mozbuild-pre": "03442255ef528f22927c17f5769b089e37a79c79c9a9bec0004b2139dba4a3ba",
     "xre-mozbuild-post": "831f388c8b16c162f21d5ab034329dd837f5e542b85fed1b8c277cbce3233131",
+    "GpcProjection-compile-repair-pre": "ab0b4c26e628a74d0ef4bac66d35bc6b0e9aee45cd67ad6bd5e5da91b609cf3f",
+    "GpcProjection-compile-repair-post": "364655669418c106f80f030a7a48797dbdbca1030c0d29e4e91c841129999bda",
     "WorkerNavigator-pre": "b927fb42169159a6e001e442c7b4c0916f46d6b3b88c4d1baf5ef5d979be7f09",
     "WorkerNavigator-post": "693aee50dfa3ba44505656a0cdc5899753690df53ca76031b2b69c46ae0aa1d1",
     "nsSynthVoiceRegistry-pre": "9eac4b53804588d57f4309ed0e6f8d9c971ca876473efd698d30d90a4bf18a3f",
@@ -127,6 +131,26 @@ class EngineRemediationPatchTests(unittest.TestCase):
         self.assertTrue(any("std::call_once" in l for l in plus))
         self.assertTrue(any("XRE_IsParentProcess()" in l for l in plus))
 
+    def test_0003a_is_namespace_only_compile_repair(self) -> None:
+        text = self.patches[P_0003A]
+        self.assertEqual(
+            minus_lines(text),
+            [
+                '-    Preferences::SetBool("privacy.globalprivacycontrol.enabled", true);',
+                "-    Preferences::SetBool(",
+            ],
+        )
+        self.assertEqual(
+            plus_lines(text),
+            [
+                '+    mozilla::Preferences::SetBool("privacy.globalprivacycontrol.enabled", true);',
+                "+    mozilla::Preferences::SetBool(",
+            ],
+        )
+        self.assertEqual(text.count("@@"), 2)
+        self.assertNotIn("pbmode", text)
+        self.assertNotIn("MaskConfig", "\n".join(plus_lines(text)))
+
     # ---------------- 0004 ----------------
 
     def test_0004_golden_removal_only(self) -> None:
@@ -181,8 +205,10 @@ class EngineRemediationPatchTests(unittest.TestCase):
 
     def test_formal_series_excludes_diagnostics(self) -> None:
         first_0003 = self.patches[P_0003].splitlines()[0]
+        first_0003a = self.patches[P_0003A].splitlines()[0]
         first_0004 = self.patches[P_0004].splitlines()[0]
         self.assertNotIn("VERISILO-DIAGNOSTIC-MARKER", first_0003)
+        self.assertNotIn("VERISILO-DIAGNOSTIC-MARKER", first_0003a)
         self.assertNotIn("VERISILO-DIAGNOSTIC-MARKER", first_0004)
         if FORMAL_DIR.is_dir():
             for path in FORMAL_DIR.glob("*.patch"):
@@ -200,6 +226,10 @@ class EngineRemediationPatchTests(unittest.TestCase):
                          "19ccd59ce3f0601ebaf0fdf5b05e4a4c6192a03540d9cd962a8baf2999f91864")
         self.assertEqual(PINNED_SEAMS["toolkit-xre-nsAppRunner-post"],
                          "7847e88093beeff74aa8a7e89f5e5f1e3ea0d6b1f9dece21f97387940fbe8b94")
+        self.assertEqual(PINNED_SEAMS["GpcProjection-compile-repair-pre"],
+                         "ab0b4c26e628a74d0ef4bac66d35bc6b0e9aee45cd67ad6bd5e5da91b609cf3f")
+        self.assertEqual(PINNED_SEAMS["GpcProjection-compile-repair-post"],
+                         "364655669418c106f80f030a7a48797dbdbca1030c0d29e4e91c841129999bda")
 
 
 if __name__ == "__main__":

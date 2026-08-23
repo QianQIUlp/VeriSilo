@@ -23,8 +23,8 @@ import diag_gate  # noqa: E402
 import strict_build  # noqa: E402
 
 
-COMPLETE_ORDER = ["0000", "0001", "0002", "0003", "0004", "9000"]
-INCREMENTAL_ORDER = ["0003", "0004", "9000"]
+COMPLETE_ORDER = ["0000", "0001", "0002", "0003", "0003a", "0004", "9000"]
+INCREMENTAL_ORDER = ["0003", "0003a", "0004", "9000"]
 RECIPE_FILES = [
     BUILD_DIR / "Dockerfile",
     BUILD_DIR / "strict_build.py",
@@ -33,14 +33,15 @@ RECIPE_FILES = [
 ]
 FROZEN_CONTAINER_RECIPE_SHA256 = {
     "Dockerfile": "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2",
-    "strict_build.py": "f5cec504e34d744c31e9806c89cd578dc309b65cbdb5593853ccdfdbd2d5ccc9",
-    "diag_gate.py": "cf192ec3a6a3471381e46eade9fc80c879e807e592000e8ab145fc6c9bc3c96a",
+    "strict_build.py": "19c8ca4450d3192592c80eb06fb5565e36449b173accdaef706207b77bf1e51a",
+    "diag_gate.py": "1f5ed796e981cc00596f33f4d0a7f29356febacf330ad8bbeb5e34e3ba5429ff",
 }
 FROZEN_PATCH_SHA256 = {
     "0000": "8d407bdc4010f7b2989f206a70909bfa9ad89046ddb9e17fa76092c864433600",
     "0001": "4fa6d3bbf203e2385e29a72ec2669ee17a571281be7ee2a73598e38918069b02",
     "0002": "efb006d5b2b05756fc310b52eb48e0bdab5e8b23e780fa08534a7fc099c22ce7",
     "0003": "3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b",
+    "0003a": "c2f9a9f88ba8aeb610eb1cb29f2515f1d79fcf582393397a571bc3206889588c",
     "0004": "5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185",
     "9000": "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8",
 }
@@ -52,7 +53,7 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
         cls.v1_lock = json.loads(V1_LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_v2_is_bound_after_container_wineprefix_repair(self) -> None:
+    def test_v2_is_unbound_after_gpc_namespace_compile_repair(self) -> None:
         self.assertEqual(self.lock["schema"], "verisilo-r1-diag-source-binding/v2")
         self.assertEqual(
             self.lock["engineRevision"],
@@ -60,17 +61,14 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         )
         self.assertEqual(
             self.lock["status"],
-            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+            "recipe-frozen-durable-evidence-unbound",
         )
         self.assertEqual(
             self.lock["buildBinding"]["status"],
-            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+            "recipe-frozen-durable-evidence-unbound",
         )
-        self.assertIsInstance(
-            self.lock["buildBinding"]["builderImageBinding"], dict
-        )
-        self.assertTrue(self.lock["builderImagePreparationEvidence"]["retained"])
-        self.assertTrue(self.lock["builderImagePreparationEvidence"]["reReadable"])
+        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
+        self.assertIsNone(self.lock["builderImagePreparationEvidence"])
         self.assertNotIn("builderImageBinding", self.lock)
         self.assertTrue(self.lock["diagnosticOnly"])
         self.assertFalse(self.lock["formalEligible"])
@@ -109,10 +107,14 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         )
         self.assertFalse(contract["environmentOverride"])
         lineage = self.lock["builderOperationalLineage"]
-        self.assertEqual(lineage["current"]["bindingState"], "bound")
+        self.assertEqual(lineage["current"]["bindingState"], "unbound")
         self.assertEqual(
             lineage["current"]["durableEvidence"],
-            "retained-and-reread",
+            "retained-but-recipe-superseded",
+        )
+        self.assertEqual(
+            lineage["current"]["reasonCodes"],
+            ["gpc_projection_preferences_namespace_unqualified"],
         )
         superseded = lineage["supersededPhaseC1"]
         self.assertEqual(
@@ -140,7 +142,7 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
             [item["id"] for item in self.lock["r1IncrementalPatches"]], INCREMENTAL_ORDER
         )
 
-    def test_all_six_patch_bytes_match_v2_lock(self) -> None:
+    def test_all_seven_patch_bytes_match_v2_lock(self) -> None:
         for item in self.lock["completePatchSeries"]:
             path = REPO_ROOT / item["path"]
             data = path.read_bytes()
@@ -247,6 +249,30 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
             self.assertRegex(seam["postSha256"], r"^[0-9a-f]{64}$")
         self.assertEqual(set(seams_by_patch), set(COMPLETE_ORDER))
         self.assertTrue(all(seams_by_patch[patch_id] for patch_id in COMPLETE_ORDER))
+        self.assertEqual(
+            seams_by_patch["0003a"],
+            [
+                {
+                    "id": "0003a",
+                    "path": "camoucfg/GpcProjection.h",
+                    "preSha256": "ab0b4c26e628a74d0ef4bac66d35bc6b0e9aee45cd67ad6bd5e5da91b609cf3f",
+                    "postSha256": "364655669418c106f80f030a7a48797dbdbca1030c0d29e4e91c841129999bda",
+                }
+            ],
+        )
+
+    def test_recipe_orders_0003a_between_projection_and_worker_restore(self) -> None:
+        order = self.lock["buildBinding"]["recipe"]["order"]
+        expected = [
+            "apply-0003-gpc",
+            "verify-0003-seams",
+            "apply-0003a-gpc-namespace-compile-repair",
+            "verify-0003a-seams",
+            "apply-0004-worker-restore",
+            "verify-0004-seams",
+        ]
+        start = order.index(expected[0])
+        self.assertEqual(order[start:start + len(expected)], expected)
 
     def test_recipe_file_hashes_are_frozen(self) -> None:
         locked = self.lock["buildBinding"]["recipe"]["files"]
@@ -307,6 +333,40 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         self.assertTrue(result.diagnosticOnly)
         self.assertFalse(result.formalEligible)
         self.assertEqual(result.details["purpose"], self.lock["diagnosticPurpose"])
+
+    def test_v2_formal_gate_requires_compile_repair_and_rejects_9000(self) -> None:
+        expected = diag_gate.expected_series_from_lock(self.lock)
+        formal_ids = ["0003", "0003a", "0004"]
+        from shutil import copy2
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            for patch_id in formal_ids:
+                name = expected[patch_id]["filename"]
+                copy2(SERIES_DIR / name, target / name)
+            result = diag_gate.evaluate(diag_gate.MODE_FORMAL, target, expected)
+            self.assertTrue(result.ok)
+            self.assertTrue(result.formalEligible)
+            self.assertFalse(result.diagnosticOnly)
+
+            (target / expected["0003a"]["filename"]).unlink()
+            missing = diag_gate.evaluate(diag_gate.MODE_FORMAL, target, expected)
+            self.assertFalse(missing.ok)
+            self.assertEqual(missing.details["missing"], ["0003a"])
+
+            copy2(
+                SERIES_DIR / expected["0003a"]["filename"],
+                target / expected["0003a"]["filename"],
+            )
+            copy2(
+                SERIES_DIR / expected["9000"]["filename"],
+                target / expected["9000"]["filename"],
+            )
+            diagnostic = diag_gate.evaluate(
+                diag_gate.MODE_FORMAL, target, expected
+            )
+            self.assertFalse(diagnostic.ok)
+            self.assertIn("HARD FAIL", diagnostic.reason)
 
     def test_diagnostic_mode_rejects_unknown_patch_with_structured_details(self) -> None:
         expected = diag_gate.expected_series_from_lock(self.lock)

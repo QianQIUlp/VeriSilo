@@ -134,7 +134,7 @@ UNBOUND_LINEAGE_CURRENT = {
     "durableEvidence": "retained-but-recipe-superseded",
     "phaseB2": "closed-pending-rebuild",
     "reasonCodes": [
-        "host_wineprefix_used_host_path_inside_container",
+        "gpc_projection_preferences_namespace_unqualified",
     ],
 }
 BOUND_LINEAGE_CURRENT = {
@@ -186,6 +186,7 @@ EXPECTED_COMPLETE_PATCH_PATHS = [
     "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0001-verisilo-canvas-export-key.patch",
     "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0002-verisilo-juggler-bounded-close.patch",
     "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/0003-verisilo-gpc-canonical-pref-projection.patch",
+    "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/0003a-verisilo-gpc-preferences-namespace-compile-repair.patch",
     "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/0004-verisilo-remove-worker-gpc-mask-override.patch",
     "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch",
 ]
@@ -1348,18 +1349,18 @@ def _validate_recipe(lock: dict, checkout: Path) -> dict:
 def _validate_patch_contract(lock: dict) -> None:
     complete = lock.get("completePatchSeries")
     if type(complete) is not list or [item.get("id") for item in complete] != [
-        "0000", "0001", "0002", "0003", "0004", "9000"
+        "0000", "0001", "0002", "0003", "0003a", "0004", "9000"
     ]:
         raise HostBuildFailure("R1 complete patch IDs are not exact")
     if [item.get("path") for item in complete] != EXPECTED_COMPLETE_PATCH_PATHS:
         raise HostBuildFailure("R1 complete patch paths are not exact")
     if lock.get("completeAppliedPatchOrder") != [
-        "0000", "0001", "0002", "0003", "0004", "9000"
+        "0000", "0001", "0002", "0003", "0003a", "0004", "9000"
     ]:
         raise HostBuildFailure("R1 complete patch application order is not exact")
     incremental = lock.get("r1IncrementalPatches")
     if type(incremental) is not list or [item.get("id") for item in incremental] != [
-        "0003", "0004", "9000"
+        "0003", "0003a", "0004", "9000"
     ]:
         raise HostBuildFailure("R1 incremental patch IDs are not exact")
     if [item.get("path") for item in incremental] != EXPECTED_COMPLETE_PATCH_PATHS[3:]:

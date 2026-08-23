@@ -5,11 +5,11 @@ Two explicit modes bound by the r1-diag source lock; there is deliberately NO
 process-env override of any kind:
 
   formal     : any DIAGNOSTIC-MARKED patch present  -> HARD FAIL
-               accepted series = exactly {0003, 0004} with pinned SHAs
+               accepted series = exactly every pinned non-diagnostic patch
                -> verdict.formalEligible = True
 
-  diagnostic : accepted series = exactly the frozen trio {0003, 0004, 9000}
-               with pinned SHAs and the v1 marker in 9000
+  diagnostic : accepted series = exactly every pinned patch with pinned SHAs
+               and the v1 marker in 9000
                -> verdict.diagnosticOnly = True, formalEligible = False,
                   purpose = fp2-r1-voices-v1-v4-discrimination
 
@@ -168,7 +168,7 @@ def evaluate(
         if missing or drifted or set(found) != set(wanted):
             return _failure(
                 MODE_FORMAL,
-                "formal series must be exactly 0003+0004 with pinned SHAs",
+                "formal series must contain every pinned non-diagnostic patch",
                 missing=missing,
                 drift=drifted,
             )

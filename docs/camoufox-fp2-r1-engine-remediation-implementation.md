@@ -97,6 +97,7 @@ diagnostic 候选修订: verisilo-camoufox-152.0.4-beta.28-r1-diag-v1
   apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/
     0000..0002  ← 现行 midl/canvas/bounded-close 三 patch 原样携带（digest 不变）
     0003-verisilo-gpc-canonical-pref-projection.patch
+    0003a-verisilo-gpc-preferences-namespace-compile-repair.patch
     0004-verisilo-remove-worker-gpc-mask-override.patch
     9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch
 
@@ -123,18 +124,77 @@ R1 正式候选修订: verisilo-camoufox-152.0.4-beta.28-r1-v1
 ```
 
 派生记录（sections SHA、seam pre/post digest、验证结果）见
-`apps/camoufox-host/build/r1-diag-v1/authoring-record.json`；静态回归
-`test_engine_remediation_patches.py` 9/9 锁定上述指纹与行为不变量。
+`apps/camoufox-host/build/r1-diag-v1/authoring-record.json` 保持为原始
+0003/0004/9000 作者化记录；0003a 由现行 v2 source lock 单独绑定。静态回归
+`test_engine_remediation_patches.py` 锁定原始 patch 指纹、0003a 精确修复边界与行为不变量。
+
+#### 2026-08-23 compile-failure closure 与 0003a additive repair
+
+精确 run `r1diag-engine-20260823t1206z` 已完成 diagnostic gate、50 个 upstream
+patch 和原始下游
+`0000 → 0001 → 0002 → 0003 → 0004 → 9000` 的 `--fuzz=0` 应用并进入真实
+Windows `mach build`，随后以 container exit `1` 失败。分类是
+**source/patch compile error**，不是 recipe/driver、toolchain、resource 或 transport
+失败：`toolkit/xre/nsAppRunner.cpp` 消费的 `camoucfg/GpcProjection.h` 第 38/39 行使用
+未限定的 `Preferences`，而 Firefox 声明为 `mozilla::Preferences`。因此上述精确六
+patch chain 已被真实构建证明为 **non-compiling**；没有 archive 或 binary 产出。
+
+失败证据的持久副本位于：
+
+```text
+/var/lib/verisilo/camoufox-build-evidence/r1diag-engine-20260823t1206z
+```
+
+| Artifact | SHA-256 | Size (bytes) |
+| --- | --- | ---: |
+| `host-provenance.json` | `5888c637859b22fbc6b5320e145f7c727e5e45afcbf4f01f30e7cfd0926e138a` | 4,616 |
+| `build-failure.json` | `b90f6c2b2cdbe03c96c3e36a93c420f89b90e6c44724b62eb66ee56bd4a03bda` | 376 |
+| `container.log` | `ed728a71eb1d8a80990cbc24d47e0ad7a0c73361639f86f447b1201e9843fde0` | 1,422,435 |
+| `build.log` | `4ebaff48a277475e40c36cb2ca3971bc6e3255eb01c56f5b31b824cac174db2b` | 1,420,797 |
+| `diagnostic-gate-result.json` | `931a11c64381aae83d823226ae07e2a3dc90c0db6a5a45c9f639318ea66c70d3` | 523 |
+
+原始六个 patch bytes 均保持不变：
+
+```text
+0000  8d407bdc4010f7b2989f206a70909bfa9ad89046ddb9e17fa76092c864433600
+0001  4fa6d3bbf203e2385e29a72ec2669ee17a571281be7ee2a73598e38918069b02
+0002  efb006d5b2b05756fc310b52eb48e0bdab5e8b23e780fa08534a7fc099c22ce7
+0003  3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b
+0004  5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185
+9000  1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8
+```
+
+最小修复只在 0003 后追加：
+
+```text
+0003a-verisilo-gpc-preferences-namespace-compile-repair.patch
+SHA-256: c2f9a9f88ba8aeb610eb1cb29f2515f1d79fcf582393397a571bc3206889588c
+size: 500 bytes
+seam: camoucfg/GpcProjection.h
+pre:  ab0b4c26e628a74d0ef4bac66d35bc6b0e9aee45cd67ad6bd5e5da91b609cf3f
+post: 364655669418c106f80f030a7a48797dbdbca1030c0d29e4e91c841129999bda
+```
+
+0003a 仅把两处 `Preferences::SetBool` 词法限定为
+`mozilla::Preferences::SetBool`；pref keys、条件、调用时序、canonical GPC owner 和
+三投影语义均不变。它不是 voices fix，也不创建 Formal R1 candidate；其
+`formalCarryForward` 仅为 `allowed-after-qualification`。由于 patch series、strict driver、
+gate 和 source-lock recipe binding 随之变化，Phase B-7 image / Phase C-7 binding 已
+supersede，现行 lock 回到 unbound，等待全新 Phase B-8 / C-8。`binaryBinding = null`、
+`diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`、
+`verified = false`。
 
 ### 1.4 Seam 与验证步骤（沿用 canvas recipe 模式）
 
 | Seam 文件 | Pre-image | Post-image 语义 |
 | --- | --- | --- |
-| 父进程初始化锚点（作者期定针：优先扩展现行 `browser-init.patch` 已落点的同一初始化路径；备选为 additions/camoucfg 新增投影单元被该路径调用） | 构建驱动 `verify-gpc-seam-preimage` | 单点、once、父进程守卫的 `Preferences::SetBool ×2` 投影块 |
+| 父进程初始化锚点（作者期定针：优先扩展现行 `browser-init.patch` 已落点的同一初始化路径；备选为 additions/camoucfg 新增投影单元被该路径调用） | 构建驱动 `verify-gpc-seam-preimage` | 单点、once、父进程守卫的 pref 投影块 |
+| `camoucfg/GpcProjection.h`（0003 后） | `ab0b4c26e628a74d0ef4bac66d35bc6b0e9aee45cd67ad6bd5e5da91b609cf3f` | 0003a 后为 `364655669418c106f80f030a7a48797dbdbca1030c0d29e4e91c841129999bda`；两处调用限定到 `mozilla::Preferences`，行为语义不变 |
 | `dom/workers/WorkerNavigator.cpp` | `verify-worker-seam-preimage`（= fingerprint-injection 后状态） | 精确还原 FF152 release 原生 getter 体（golden 片段见附录 A），且全文件不再出现 `MaskConfig` GPC 引用 |
 
 Driver 步骤顺序（新增，位于 upstream patches 之后、编译之前）：
 `verify-gpc-seam-preimage → apply-0003 → verify-gpc-seam-postimage →
+verify-0003a-seam-preimage → apply-0003a → verify-0003a-seam-postimage →
 apply-0004 → verify-worker-native-restored →（diag recipe: apply-9000）`。
 
 ### 1.5 无浏览器回归（host 侧，随本合同落地）
@@ -146,7 +206,7 @@ apply-0004 → verify-worker-native-restored →（diag recipe: apply-9000）`�
 - **T3 投影策略模型测试**：`test_gpc_policy_contract.py` 纯 Python 镜像 §1.2
   policy-state 判定式——managed-opt-out/native 两态投影、非法形状（显式 false、
   policy 与引擎键不一致）拒绝、pbmode 组合不变性。
-- **T4 driver 顺序测试**：recipe step 列表含 §1.4 五个新校验步且序正确。
+- **T4 driver 顺序测试**：recipe step 列表含 §1.4 的 0003a pre/apply/post 闭包且顺序正确。
 
 ---
 
@@ -271,7 +331,7 @@ Generation 编号永久退役。
 
 ```text
 本合同 Accepted
-  → patch 作者化（0003/0004/9000；seam digest 实算入新 lock）
+  → patch chain 冻结（0003/0003a/0004/9000；seam digest 实算入新 lock）
   → diagnostic 构建（Linux 绑定路线）
   → bounded voices 判别实验（需主脑单独授权浏览器）
   → V1–V4 收敛报告 → 0005 起草审批
