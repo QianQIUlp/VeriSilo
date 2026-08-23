@@ -915,3 +915,29 @@ family，保留 0000→0001→0002 base carry-forward，并在其后应用
 当前仅授权 Phase A offline/static：修复 gate、冻结独立 recipe、完成 no-browser
 验证并形成 clean checkpoint。Phase B builder-image build、Phase C lock binding、
 Phase D diagnostic engine build、Browser、V1–V4、FP2-R1、FP3 均保持 CLOSED。
+
+### 2026-08-23 Phase B provenance 写出失败；授权 Phase A-min ownership repair
+
+主脑将 `r1diag-builder-20260823t0435z` 定性为
+**FAILED / BLOCKED-BEFORE-BINDING**：buildx image build、immutable image
+inspect 与 Docker archive 写出均完成，但旧 `build_host.py` 让
+`sudo docker image save -o` 以 root 创建 `builder-image.tar`，随后非 root
+launcher 无法读取并 hash。image `sha256:e6e61c5d5196957d7d60eadec992cfe84a3d6edc0b930c6969e3857878a1021e`
+仅是失败 run 内的未绑定中间产物；binding proposal 未创建，失败 run 必须保留且
+不得 chmod/chown、手造 result 或重试同一 run。Diagnostic engine、Browser 与实验均未进入，
+`browserLaunches = 0`。
+
+Phase B 在新的 Phase-A checkpoint 被主脑复核前重新 CLOSED。授权的最小修复仅限
+R1 host provenance 边界：由非 root Python launcher 以 exclusive create 打开 archive，
+将 `sudo docker image save TAG` 的 binary stdout 写入该已打开 fd，stderr 独立写入
+`docker-save.log`，child exit、archive regular/non-empty/readability、SHA-256 与 size
+全部闭合后才写 `builder-image-result.json`。失败或 partial archive 不产生 binding；
+不使用 chmod/chown filesystem repair，不修改 Dockerfile、strict driver、diag gate、patch
+bytes 或 engine semantics。
+
+当前 v2 lock 仍为 `recipe-frozen-builder-unbound`，
+`buildBinding.builderImageBinding = null`。本修复后的 `build_host.py` recipe hash 为
+`d463c0aa31e1eefdd8be49df7b70adb3571dd2aeba89ea75702daaf0e89ad58c`（29063 bytes），
+v2 source-lock SHA-256 为 `db55354d8b47c3a5379d6bfd26459fdc440ae216df6ddaefbaa3522cd2044c24`。
+修复验证完成并形成新的 clean checkpoint 后，停止等待主脑重新审核；不得自动延伸至
+新的 Phase B。

@@ -16,6 +16,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -151,6 +152,73 @@ def _run_logged(command: list[str], cwd: Path, log_path: Path) -> int:
         returncode = process.wait()
         stream.write(f"[{_utc_now()}] exit={returncode}\n")
         return returncode
+
+
+def _docker_image_save_command(tag: str) -> list[str]:
+    return [*DOCKER, "image", "save", tag]
+
+
+def _save_binary_stdout(
+    command: list[str],
+    archive: Path,
+    save_log: Path,
+    cwd: Path,
+) -> int:
+    """Save a Docker archive through a launcher-owned binary output stream."""
+    try:
+        log_stream = save_log.open("w", encoding="utf-8", newline="\n")
+    except OSError as exc:
+        raise HostBuildFailure(f"cannot create docker save log: {save_log}") from exc
+
+    with log_stream:
+        log_stream.write(f"[{_utc_now()}] start: {' '.join(command)}\n")
+        log_stream.flush()
+        try:
+            with archive.open("xb") as archive_stream:
+                process = subprocess.Popen(
+                    command,
+                    cwd=cwd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=archive_stream,
+                    stderr=log_stream,
+                )
+                returncode = process.wait()
+        except FileExistsError as exc:
+            log_stream.write(f"[{_utc_now()}] save-output-failed: {exc}\n")
+            raise HostBuildFailure(f"refusing to overwrite builder image archive: {archive}") from exc
+        except OSError as exc:
+            log_stream.write(f"[{_utc_now()}] save-process-failed: {exc}\n")
+            raise HostBuildFailure(f"builder image save output unavailable: {archive}") from exc
+        log_stream.write(f"[{_utc_now()}] exit={returncode}\n")
+        log_stream.flush()
+
+    if returncode == 0:
+        _archive_provenance(archive)
+    return returncode
+
+
+def _archive_provenance(archive: Path) -> dict:
+    """Verify the launcher can read the exact archive it is about to hash."""
+    try:
+        metadata = archive.stat()
+        if not archive.is_file():
+            raise HostBuildFailure(f"builder image archive is not a regular file: {archive}")
+        if metadata.st_size <= 0:
+            raise HostBuildFailure(f"builder image archive is empty: {archive}")
+        with archive.open("rb") as stream:
+            stream.read(1)
+    except HostBuildFailure:
+        raise
+    except FileNotFoundError as exc:
+        raise HostBuildFailure(f"builder image archive is missing: {archive}") from exc
+    except OSError as exc:
+        raise HostBuildFailure(f"builder image archive is not launcher-readable: {archive}") from exc
+
+    return {
+        "archiveOwnerUid": getattr(metadata, "st_uid", None),
+        "archiveMode": format(stat.S_IMODE(metadata.st_mode), "#06o"),
+        "launcherReadable": True,
+    }
 
 
 def _owner(run_id: str) -> dict:
@@ -389,9 +457,10 @@ def prepare_image(args: argparse.Namespace) -> int:
             raise HostBuildFailure("docker inspect returned no immutable image ID")
         archive = provenance / "builder-image.tar"
         save_log = provenance / "docker-save.log"
-        save_exit = _run_logged([*DOCKER, "image", "save", tag, "-o", str(archive)], root, save_log)
-        if save_exit != 0 or not archive.is_file():
+        save_exit = _save_binary_stdout(_docker_image_save_command(tag), archive, save_log, root)
+        if save_exit != 0:
             raise HostBuildFailure("builder image save failed")
+        archive_details = _archive_provenance(archive)
         proposal = {
             "imageId": image_id,
             "savedArchiveSha256": _sha(archive),
@@ -418,6 +487,7 @@ def prepare_image(args: argparse.Namespace) -> int:
                 "owner": owner,
                 "source": source,
                 "upstream": other,
+                "archiveProvenance": archive_details,
                 "bindingProposal": proposal,
                 "status": "prepared-awaiting-source-lock-binding",
             },
