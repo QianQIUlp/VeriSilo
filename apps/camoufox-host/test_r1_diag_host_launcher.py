@@ -20,14 +20,77 @@ sys.path.insert(0, str(BUILD_DIR))
 import build_host  # noqa: E402
 
 
+IMAGE_ID = "sha256:" + "1" * 64
+QUALIFICATION = {
+    "qualificationId": "r1diag-durable-qual-test0001",
+    "mountIdentity": {
+        "target": "/var/lib/verisilo",
+        "source": "/dev/test",
+        "filesystemType": "ext4",
+        "uuid": "test-uuid",
+    },
+    "requestSha256": "2" * 64,
+    "resultSha256": "3" * 64,
+}
+BUILD_CONTEXT = {
+    "name": build_host.BUILD_CONTEXT_NAME,
+    "sha256": "4" * 64,
+    "sizeBytes": 10240,
+    "members": [
+        {"name": name, "sha256": "5" * 64, "sizeBytes": 1}
+        for name in build_host.BUILD_CONTEXT_MEMBERS
+    ],
+}
+
+
 def _child(code: str) -> list[str]:
     return [sys.executable, "-c", code]
 
 
+def _fake_buildx(
+    command: list[str],
+    _cwd: Path,
+    log_path: Path,
+    _input_path: Path,
+    _expected_input: dict,
+) -> int:
+    if command[-1] != "-" or command[command.index("--file") + 1] != "Dockerfile":
+        raise AssertionError("buildx must consume the frozen tar context from stdin")
+    log_path.write_text("build-log\n", encoding="utf-8")
+    metadata_path = Path(command[command.index("--metadata-file") + 1])
+    metadata_path.write_text(
+        json.dumps({"containerimage.config.digest": IMAGE_ID}) + "\n",
+        encoding="utf-8",
+    )
+    return 0
+
+
+def _inspect_json(source: dict) -> str:
+    return json.dumps(
+        [
+            {
+                "Id": IMAGE_ID,
+                "Config": {
+                    "Labels": {
+                        "io.verisilo.recipe-source-commit": source["commit"],
+                        "io.verisilo.recipe-source-tree": source["tree"],
+                        "io.verisilo.recipe-source-lock-sha256": source[
+                            "lockSha256"
+                        ],
+                        "io.verisilo.recipe-dockerfile-sha256": source[
+                            "dockerfileSha256"
+                        ],
+                    }
+                },
+            }
+        ]
+    )
+
+
 class R1DiagHostLauncherTests(unittest.TestCase):
     def test_save_command_has_no_path_redirection_or_o_option(self) -> None:
-        command = build_host._docker_image_save_command("builder:test")
-        self.assertEqual(command, [*build_host.DOCKER, "image", "save", "builder:test"])
+        command = build_host._docker_image_save_command(IMAGE_ID)
+        self.assertEqual(command, [*build_host.DOCKER, "image", "save", IMAGE_ID])
         self.assertNotIn("-o", command)
         self.assertNotIn("builder-image.tar", command)
 
@@ -101,7 +164,7 @@ class R1DiagHostLauncherTests(unittest.TestCase):
             save_log = root / "docker-save.log"
 
             with self.assertRaisesRegex(
-                build_host.HostBuildFailure, "builder image archive is empty"
+                build_host.HostBuildFailure, "not a non-empty regular file"
             ):
                 build_host._save_binary_stdout(
                     _child("pass"), archive, save_log, root
@@ -112,10 +175,10 @@ class R1DiagHostLauncherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             archive = Path(directory) / "builder-image.tar"
             archive.write_bytes(b"archive")
-            with mock.patch.object(Path, "open", side_effect=PermissionError("denied")):
+            with mock.patch.object(os, "open", side_effect=PermissionError("denied")):
                 with self.assertRaisesRegex(
                     build_host.HostBuildFailure,
-                    "builder image archive is not launcher-readable",
+                    "builder image archive .* is unavailable",
                 ):
                     build_host._archive_provenance(archive)
 
@@ -136,19 +199,39 @@ class R1DiagHostLauncherTests(unittest.TestCase):
                 "lockSha256": "c" * 64,
                 "dockerfileSha256": "d" * 64,
             }
-            locked = {"lock": {}}
-            args = Namespace(run_root=str(root), run_id="r1diag-test-run")
+            locked = {"lock": {}, "recipe": {}}
+            args = Namespace(
+                run_root=str(root),
+                run_id="r1diag-test-run",
+                qualification_id=QUALIFICATION["qualificationId"],
+            )
 
             with (
                 mock.patch.object(build_host, "_run_root", return_value=(root, inputs, owner)),
+                mock.patch.object(
+                    build_host,
+                    "_validate_durable_qualification",
+                    return_value=QUALIFICATION,
+                ),
                 mock.patch.object(build_host, "_validate_input_names"),
                 mock.patch.object(build_host, "_validate_verisilo", return_value=(source, locked)),
                 mock.patch.object(build_host, "_validate_upstream", return_value={}),
-                mock.patch.object(build_host, "_run_logged", return_value=0),
+                mock.patch.object(
+                    build_host, "_reject_historical_preparation_run_id"
+                ),
+                mock.patch.object(build_host, "_reserve_durable_bundle"),
+                mock.patch.object(
+                    build_host, "_create_build_context", return_value=BUILD_CONTEXT
+                ),
+                mock.patch.object(
+                    build_host,
+                    "_run_logged_with_binary_stdin",
+                    side_effect=_fake_buildx,
+                ),
                 mock.patch.object(
                     build_host,
                     "_capture",
-                    return_value='[{"Id":"sha256:image"}]',
+                    return_value=_inspect_json(source),
                 ),
                 mock.patch.object(build_host, "_save_binary_stdout", return_value=7),
             ):
@@ -176,24 +259,44 @@ class R1DiagHostLauncherTests(unittest.TestCase):
                 "lockSha256": "c" * 64,
                 "dockerfileSha256": "d" * 64,
             }
-            locked = {"lock": {}}
-            args = Namespace(run_root=str(root), run_id="r1diag-test-run")
+            locked = {"lock": {}, "recipe": {}}
+            args = Namespace(
+                run_root=str(root),
+                run_id="r1diag-test-run",
+                qualification_id=QUALIFICATION["qualificationId"],
+            )
 
             with (
                 mock.patch.object(build_host, "_run_root", return_value=(root, inputs, owner)),
+                mock.patch.object(
+                    build_host,
+                    "_validate_durable_qualification",
+                    return_value=QUALIFICATION,
+                ),
                 mock.patch.object(build_host, "_validate_input_names"),
                 mock.patch.object(build_host, "_validate_verisilo", return_value=(source, locked)),
                 mock.patch.object(build_host, "_validate_upstream", return_value={}),
-                mock.patch.object(build_host, "_run_logged", return_value=0),
+                mock.patch.object(
+                    build_host, "_reject_historical_preparation_run_id"
+                ),
+                mock.patch.object(build_host, "_reserve_durable_bundle"),
+                mock.patch.object(
+                    build_host, "_create_build_context", return_value=BUILD_CONTEXT
+                ),
+                mock.patch.object(
+                    build_host,
+                    "_run_logged_with_binary_stdin",
+                    side_effect=_fake_buildx,
+                ),
                 mock.patch.object(
                     build_host,
                     "_capture",
-                    return_value='[{"Id":"sha256:image"}]',
+                    return_value=_inspect_json(source),
                 ),
                 mock.patch.object(build_host, "_save_binary_stdout", return_value=0),
             ):
                 with self.assertRaisesRegex(
-                    build_host.HostBuildFailure, "builder image archive is missing"
+                    build_host.HostBuildFailure, "builder image archive .* is unavailable"
                 ):
                     build_host.prepare_image(args)
 
@@ -211,33 +314,56 @@ class R1DiagHostLauncherTests(unittest.TestCase):
                 "lockSha256": "c" * 64,
                 "dockerfileSha256": "d" * 64,
             }
-            locked = {"lock": {}}
-            args = Namespace(run_root=str(root), run_id="r1diag-test-run")
-
-            def fake_build(command: list[str], _cwd: Path, log_path: Path) -> int:
-                log_path.write_text("build-log\n", encoding="utf-8")
-                metadata_path = Path(command[command.index("--metadata-file") + 1])
-                metadata_path.write_text("{}\n", encoding="utf-8")
-                return 0
+            locked = {"lock": {}, "recipe": {}}
+            args = Namespace(
+                run_root=str(root),
+                run_id="r1diag-test-run",
+                qualification_id=QUALIFICATION["qualificationId"],
+            )
 
             def fake_save(_command: list[str], archive: Path, save_log: Path, _cwd: Path) -> int:
+                self.assertEqual(
+                    _command,
+                    [*build_host.DOCKER, "image", "save", IMAGE_ID],
+                )
                 archive.write_bytes(b"builder-image-archive")
                 save_log.write_text("save-log\n", encoding="utf-8")
                 return 0
 
             with (
                 mock.patch.object(build_host, "_run_root", return_value=(root, inputs, owner)),
+                mock.patch.object(
+                    build_host,
+                    "_validate_durable_qualification",
+                    return_value=QUALIFICATION,
+                ),
                 mock.patch.object(build_host, "_validate_input_names"),
                 mock.patch.object(build_host, "_validate_verisilo", return_value=(source, locked)),
                 mock.patch.object(build_host, "_validate_upstream", return_value={}),
-                mock.patch.object(build_host, "_run_logged", side_effect=fake_build),
+                mock.patch.object(
+                    build_host, "_reject_historical_preparation_run_id"
+                ),
+                mock.patch.object(build_host, "_reserve_durable_bundle"),
+                mock.patch.object(
+                    build_host, "_create_build_context", return_value=BUILD_CONTEXT
+                ),
+                mock.patch.object(
+                    build_host,
+                    "_run_logged_with_binary_stdin",
+                    side_effect=_fake_buildx,
+                ),
                 mock.patch.object(
                     build_host,
                     "_capture",
-                    return_value='[{"Id":"sha256:image"}]',
-                ),
+                    return_value=_inspect_json(source),
+                ) as capture,
                 mock.patch.object(build_host, "_save_binary_stdout", side_effect=fake_save),
-                mock.patch.object(build_host, "_tooling_sha", return_value="e" * 64),
+                mock.patch.object(
+                    build_host,
+                    "_validate_saved_image_tar",
+                    return_value={"imageId": IMAGE_ID},
+                ),
+                mock.patch.object(build_host, "_retain_durable_bundle") as retain,
             ):
                 self.assertEqual(build_host.prepare_image(args), 0)
 
@@ -246,11 +372,22 @@ class R1DiagHostLauncherTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            self.assertEqual(result["status"], "prepared-awaiting-source-lock-binding")
+            self.assertEqual(result["status"], "prepared-awaiting-durable-retention")
             self.assertEqual(result["archiveProvenance"]["launcherReadable"], True)
             self.assertEqual(
                 result["bindingProposal"]["savedArchiveSizeBytes"],
                 len(b"builder-image-archive"),
+            )
+            self.assertEqual(
+                result["bindingProposal"]["hostToolingSha256"],
+                build_host._tooling_sha_from_build_context(BUILD_CONTEXT),
+            )
+            retain.assert_called_once_with(
+                root / "provenance", "r1diag-test-run", QUALIFICATION
+            )
+            capture.assert_called_once_with(
+                [*build_host.DOCKER, "image", "inspect", IMAGE_ID],
+                environment=build_host.DOCKER_ENV,
             )
 
     def test_failed_run_without_result_cannot_be_accepted(self) -> None:

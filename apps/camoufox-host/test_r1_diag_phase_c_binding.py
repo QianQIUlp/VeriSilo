@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""No-browser Phase C tests for the accepted R1 diagnostic builder binding."""
+"""No-browser tests for superseded Phase C-1 and future durable binding."""
 
 from __future__ import annotations
 
-import hashlib
+import copy
 import json
 import sys
 import tempfile
@@ -14,60 +14,109 @@ from unittest import mock
 
 HOST_DIR = Path(__file__).resolve().parent
 BUILD_DIR = HOST_DIR / "build" / "r1-diag-v1"
-LOCK_PATH = HOST_DIR / "lock" / "camoufox-v152.0.4-beta.28-verisilo-r1-diag-v2-source.json"
+LOCK_PATH = (
+    HOST_DIR
+    / "lock"
+    / "camoufox-v152.0.4-beta.28-verisilo-r1-diag-v2-source.json"
+)
 sys.path.insert(0, str(BUILD_DIR))
 import build_host  # noqa: E402
 
 
-RUN_ID = "r1diag-builder-20260823t0504z"
-PHASE_B_SOURCE_COMMIT = "0600e8922ee67322aaf55c5ea10e7ecde9663307"
-PHASE_B_SOURCE_TREE = "46471bbb4ca48cd260019b217f5f2a68cd4dbb6c"
-PHASE_B_SOURCE_LOCK_SHA256 = "db55354d8b47c3a5379d6bfd26459fdc440ae216df6ddaefbaa3522cd2044c24"
-PROPOSAL_CANONICAL_SHA256 = "66d2dad23fa769e9b3fcf55aff91a615d8e1b19d52bfe2676563dfe1adb2251d"
-RESULT_SHA256 = "80df26ccd257789ad0b922f6ea80b7d6dcc66cec22fad05bbd6666dc90f1c636"
-HISTORICAL_FAILED_IMAGE_ID = "sha256:e6e61c5d5196957d7d60eadec992cfe84a3d6edc0b930c6969e3857878a1021e"
-
-EXPECTED_PROPOSAL = {
-    "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
-    "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
-    "buildxLogSha256": "5ef77404e15f06d783f8a832358e72e946860f7d985d5ff3baec5c73a5dab2f2",
-    "buildxLogSizeBytes": 78095,
-    "buildxMetadataSha256": "11fac51a48a1c658d7c1a27bfad91d8b9e4c5a7f8e1c1080a3e45a15a6053691",
-    "dockerfileSha256": "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2",
-    "hostToolingSha256": "374ac14473fe269ab2577100dccbe219176db6ea8252c8790310fdd0a78f711e",
-    "imageId": "sha256:f46ec076dcde9b3759007c3683c07e5a3c563f9145475b335b6f40a82bb6732c",
-    "imageInspectSha256": "2c77ff767eec994bd10d1c943273a633c5cdaa5ae6f4b1d1f5bcfa23fe7c6e03",
-    "recipeSourceCommit": PHASE_B_SOURCE_COMMIT,
-    "recipeSourceLockSha256": PHASE_B_SOURCE_LOCK_SHA256,
-    "recipeSourceTree": PHASE_B_SOURCE_TREE,
-    "savedArchiveSha256": "8f1ca52564c6b039351e3cee01894fb3c3d28a6e351ab6b145491abc288d03f2",
-    "savedArchiveSizeBytes": 483575296,
-}
-
-EXPECTED_EVIDENCE = {
-    "bindingProposalCanonicalSha256": PROPOSAL_CANONICAL_SHA256,
-    "builderImageResultSha256": RESULT_SHA256,
-    "runId": RUN_ID,
-    "sourceCommit": PHASE_B_SOURCE_COMMIT,
-    "sourceLockSha256": PHASE_B_SOURCE_LOCK_SHA256,
-    "sourceTree": PHASE_B_SOURCE_TREE,
-}
+HISTORICAL_RUN_ID = "r1diag-builder-20260823t0504z"
+HISTORICAL_IMAGE_ID = (
+    "sha256:f46ec076dcde9b3759007c3683c07e5a3c563f9145475b335b6f40a82bb6732c"
+)
+HISTORICAL_FAILED_IMAGE_ID = (
+    "sha256:e6e61c5d5196957d7d60eadec992cfe84a3d6edc0b930c6969e3857878a1021e"
+)
+HISTORICAL_PROPOSAL_SHA256 = (
+    "66d2dad23fa769e9b3fcf55aff91a615d8e1b19d52bfe2676563dfe1adb2251d"
+)
 
 
-def _canonical_proposal_sha(proposal: dict) -> str:
-    encoded = json.dumps(
-        proposal, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _prepared_record(proposal: dict | None = None) -> dict:
+def _proposal() -> dict:
     return {
-        "recordType": "verisilo-r1-diag-builder-image-result/v2",
-        "runId": RUN_ID,
-        "status": "prepared-awaiting-source-lock-binding",
-        "bindingProposal": dict(proposal or EXPECTED_PROPOSAL),
+        "baseIndexDigest": build_host.EXPECTED_BASE_INDEX_DIGEST,
+        "baseLinuxAmd64ManifestDigest": (
+            build_host.EXPECTED_BASE_AMD64_MANIFEST_DIGEST
+        ),
+        "buildxLogSha256": "1" * 64,
+        "buildxLogSizeBytes": 17,
+        "buildxMetadataSha256": "2" * 64,
+        "dockerfileSha256": "3" * 64,
+        "hostToolingSha256": "4" * 64,
+        "imageId": "sha256:" + "5" * 64,
+        "imageInspectSha256": "6" * 64,
+        "recipeSourceCommit": "7" * 40,
+        "recipeSourceLockSha256": "8" * 64,
+        "recipeSourceTree": "9" * 40,
+        "savedArchiveSha256": "a" * 64,
+        "savedArchiveSizeBytes": 1234,
     }
+
+
+def _evidence(run_id: str = "r1diag-builder-future0001") -> dict:
+    return {
+        "bindingProposalCanonicalSha256": "b" * 64,
+        "buildContextSha256": "1" * 64,
+        "buildContextSizeBytes": 10240,
+        "builderImageResultSha256": "c" * 64,
+        "durableManifestCanonicalSha256": "d" * 64,
+        "durableManifestSha256": "e" * 64,
+        "durableQualificationId": "r1diag-durable-qual-future01",
+        "durableQualificationResultSha256": "f" * 64,
+        "reReadable": True,
+        "retained": True,
+        "retentionReceiptCanonicalSha256": "a" * 64,
+        "retentionReceiptSha256": "b" * 64,
+        "runId": run_id,
+        "sourceCommit": "7" * 40,
+        "sourceLockSha256": "8" * 64,
+        "sourceTree": "9" * 40,
+    }
+
+
+def _bound_preparation(run_id: str, proposal: dict, evidence: dict) -> dict:
+    return {
+        "recordType": "verisilo-r1-diag-bound-image-preparation/v3",
+        "runId": run_id,
+        "sourceRunId": evidence["runId"],
+        "owner": {
+            "recordType": "verisilo-r1-diag-build-owner/v1",
+            "runId": run_id,
+            "createdAtUtc": "2026-08-23T00:00:00Z",
+            "pid": 123,
+        },
+        "source": {
+            "commit": "1" * 40,
+            "tree": "2" * 40,
+            "lockPath": build_host.LOCK_REL.as_posix(),
+            "lockSha256": "3" * 64,
+            "dockerfileSha256": "4" * 64,
+        },
+        "bindingProposal": proposal,
+        "durableEvidence": evidence,
+        "rehydration": {
+            "action": "already-present",
+            "exactImageIdVerified": True,
+            "imageId": proposal["imageId"],
+        },
+        "retained": True,
+        "status": "prepared-from-durable-builder-binding",
+    }
+
+
+def _bound_lock(base: dict, proposal: dict, evidence: dict) -> dict:
+    lock = copy.deepcopy(base)
+    lock["buildBinding"]["builderImageBinding"] = proposal
+    lock["builderImagePreparationEvidence"] = evidence
+    lock["status"] = build_host.BOUND_LOCK_STATUS
+    lock["buildBinding"]["status"] = build_host.BOUND_LOCK_STATUS
+    lock["builderOperationalLineage"]["current"] = copy.deepcopy(
+        build_host.BOUND_LINEAGE_CURRENT
+    )
+    return lock
 
 
 class R1DiagPhaseCBindingTests(unittest.TestCase):
@@ -75,118 +124,143 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_lock_contains_exact_phase_b_proposal_and_evidence_lineage(self) -> None:
+    def test_current_lock_is_unbound_while_phase_c1_history_is_preserved(self) -> None:
+        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
+        self.assertIsNone(self.lock["builderImagePreparationEvidence"])
+        self.assertEqual(self.lock["status"], build_host.UNBOUND_LOCK_STATUS)
+        historical = self.lock["builderOperationalLineage"]["supersededPhaseC1"]
+        self.assertEqual(historical["runId"], HISTORICAL_RUN_ID)
+        self.assertEqual(historical["imageId"], HISTORICAL_IMAGE_ID)
         self.assertEqual(
-            self.lock["buildBinding"]["builderImageBinding"], EXPECTED_PROPOSAL
+            historical["bindingProposalCanonicalSha256"],
+            HISTORICAL_PROPOSAL_SHA256,
         )
-        self.assertEqual(
-            self.lock["builderImagePreparationEvidence"], EXPECTED_EVIDENCE
-        )
-        self.assertEqual(
-            self.lock["status"], "builder-bound-awaiting-diagnostic-engine-build"
-        )
-        self.assertEqual(
-            self.lock["buildBinding"]["status"],
-            "builder-bound-awaiting-diagnostic-engine-build",
+        self.assertEqual(historical["bindingCorrectness"], "historically-accepted")
+        self.assertFalse(historical["operationallyConsumable"])
+
+    def test_lost_and_failed_images_exist_only_in_historical_lineage(self) -> None:
+        encoded = json.dumps(self.lock, sort_keys=True)
+        self.assertEqual(encoded.count(HISTORICAL_IMAGE_ID), 1)
+        self.assertEqual(encoded.count(HISTORICAL_FAILED_IMAGE_ID), 1)
+        self.assertNotEqual(
+            self.lock["builderOperationalLineage"]["current"].get("imageId"),
+            HISTORICAL_IMAGE_ID,
         )
 
-    def test_proposal_required_fields_are_exact(self) -> None:
-        self.assertEqual(
-            set(EXPECTED_PROPOSAL), set(build_host.REQUIRED_BINDING_FIELDS)
-        )
-        self.assertEqual(
-            set(self.lock["buildBinding"]["builderImageBinding"]),
-            set(self.lock["buildBinding"]["builderImageBindingRequiredFields"]),
-        )
-
-    def test_missing_or_unknown_binding_field_is_rejected(self) -> None:
-        for mutation in ("missing", "unknown"):
-            proposal = dict(EXPECTED_PROPOSAL)
-            if mutation == "missing":
-                proposal.pop("imageId")
-            else:
-                proposal["unexpectedField"] = "reject-me"
-            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
-                path = Path(directory) / "builder-image-result.json"
-                path.write_text(json.dumps(_prepared_record(proposal)), encoding="utf-8")
-                with self.assertRaisesRegex(
-                    build_host.HostBuildFailure,
-                    "builder image binding proposal fields are not exact",
-                ):
-                    build_host._validate_prepared_result(path, RUN_ID)
-
-    def test_proposal_sha_and_result_record_sha_are_pinned(self) -> None:
-        self.assertEqual(_canonical_proposal_sha(EXPECTED_PROPOSAL), PROPOSAL_CANONICAL_SHA256)
-        self.assertEqual(
-            self.lock["builderImagePreparationEvidence"]["builderImageResultSha256"],
-            RESULT_SHA256,
-        )
-        drifted = dict(EXPECTED_PROPOSAL)
-        drifted["imageId"] = "sha256:" + "0" * 64
-        self.assertNotEqual(_canonical_proposal_sha(drifted), PROPOSAL_CANONICAL_SHA256)
-
-    def test_source_commit_tree_and_lock_mismatch_are_rejected(self) -> None:
-        for field in ("recipeSourceCommit", "recipeSourceTree", "recipeSourceLockSha256"):
-            proposal = dict(EXPECTED_PROPOSAL)
-            proposal[field] = "0" * len(proposal[field])
-            with self.subTest(field=field):
-                with self.assertRaisesRegex(
-                    build_host.HostBuildFailure,
-                    "prepared builder image proposal differs from v2 lock",
-                ):
-                    build_host._validate_bound_binding(
-                        self.lock, _prepared_record(proposal), RUN_ID
-                    )
-
-    def test_historical_failed_image_and_run_are_not_current_binding(self) -> None:
-        binding = self.lock["buildBinding"]["builderImageBinding"]
-        evidence = self.lock["builderImagePreparationEvidence"]
-        self.assertNotEqual(binding["imageId"], HISTORICAL_FAILED_IMAGE_ID)
-        self.assertNotEqual(evidence["runId"], "r1diag-builder-20260823t0435z")
-        self.assertEqual(evidence["runId"], RUN_ID)
-
-    def test_failed_preparation_record_cannot_be_accepted(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "builder-image-failure.json").write_text(
-                json.dumps(
-                    {
-                        "recordType": "verisilo-r1-diag-builder-image-failure/v2",
-                        "runId": RUN_ID,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            with self.assertRaises(build_host.HostBuildFailure):
-                build_host._validate_prepared_result(
-                    root / "builder-image-result.json", RUN_ID
-                )
-
-    def test_prepare_image_rejects_bound_lock(self) -> None:
-        git_outputs = iter(["", PHASE_B_SOURCE_COMMIT, PHASE_B_SOURCE_TREE])
+    def test_current_unbound_lock_is_eligible_for_future_prepare_image_only(self) -> None:
+        git_values = iter(["", "1" * 40, "2" * 40])
         with (
-            mock.patch.object(build_host, "_git", side_effect=lambda *_: next(git_outputs)),
+            mock.patch.object(
+                build_host, "_git", side_effect=lambda *_: next(git_values)
+            ),
             mock.patch.object(build_host, "_strict_json", return_value=self.lock),
-            mock.patch.object(build_host, "_sha", return_value="f" * 64),
+            mock.patch.object(build_host, "_sha", return_value="3" * 64),
             mock.patch.object(build_host, "_validate_recipe", return_value={}),
             mock.patch.object(build_host, "_validate_patch_contract"),
         ):
+            source, _ = build_host._validate_verisilo(
+                Path("unused-checkout"), binding_state="unbound"
+            )
+        self.assertEqual(source["commit"], "1" * 40)
+
+    def test_current_unbound_lock_is_not_engine_eligible(self) -> None:
+        with self.assertRaises(build_host.HostBuildFailure):
+            build_host._validate_bound_binding(
+                self.lock, {}, "r1diag-engine-future0001"
+            )
+
+    def test_historical_raw_phase_b_result_is_not_durably_acceptable(self) -> None:
+        historical = {
+            "recordType": "verisilo-r1-diag-builder-image-result/v2",
+            "runId": HISTORICAL_RUN_ID,
+            "status": "prepared-awaiting-source-lock-binding",
+            "bindingProposal": {"imageId": HISTORICAL_IMAGE_ID},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "builder-image-result.json"
+            path.write_text(json.dumps(historical), encoding="utf-8")
             with self.assertRaisesRegex(
                 build_host.HostBuildFailure,
-                "prepare-image requires builderImageBinding=null",
+                "not pending durable retention",
             ):
-                build_host._validate_verisilo(Path("unused-checkout"), binding_state="unbound")
+                build_host._validate_prepared_result(path, HISTORICAL_RUN_ID)
 
-    def test_exact_bound_proposal_is_eligible_for_later_consumption_only(self) -> None:
-        prepared = _prepared_record()
-        self.assertEqual(
-            build_host._validate_bound_binding(self.lock, prepared, RUN_ID),
-            EXPECTED_PROPOSAL,
+    def test_future_binding_requires_all_durable_evidence_fields(self) -> None:
+        proposal = _proposal()
+        lock = _bound_lock(
+            self.lock,
+            proposal,
+            {"bindingProposalCanonicalSha256": "b" * 64},
         )
-        self.assertIsNone(self.lock["buildBinding"]["binaryBinding"])
-        self.assertEqual(self.lock["browserLaunches"], 0)
-        self.assertTrue(self.lock["diagnosticOnly"])
-        self.assertFalse(self.lock["formalEligible"])
+        with self.assertRaisesRegex(
+            build_host.HostBuildFailure, "durable evidence is malformed"
+        ):
+            build_host._validate_bound_binding(
+                lock,
+                _bound_preparation(
+                    "r1diag-engine-future0001",
+                    proposal,
+                    _evidence(),
+                ),
+                "r1diag-engine-future0001",
+            )
+
+    def test_exact_future_durable_binding_can_pass_offline_validator(self) -> None:
+        proposal = _proposal()
+        evidence = _evidence()
+        lock = _bound_lock(self.lock, proposal, evidence)
+        run_id = "r1diag-engine-future0001"
+        self.assertEqual(
+            build_host._validate_bound_binding(
+                lock,
+                _bound_preparation(run_id, proposal, evidence),
+                run_id,
+            ),
+            proposal,
+        )
+
+    def test_bound_status_with_unbound_operational_lineage_is_rejected(self) -> None:
+        proposal = _proposal()
+        evidence = _evidence()
+        lock = _bound_lock(self.lock, proposal, evidence)
+        lock["builderOperationalLineage"]["current"] = copy.deepcopy(
+            build_host.UNBOUND_LINEAGE_CURRENT
+        )
+        with self.assertRaisesRegex(
+            build_host.HostBuildFailure,
+            "operational lineage disagrees with binding state",
+        ):
+            build_host._validate_bound_binding(
+                lock,
+                _bound_preparation(
+                    "r1diag-engine-future0001", proposal, evidence
+                ),
+                "r1diag-engine-future0001",
+            )
+
+    def test_historical_builder_run_ids_cannot_be_reused(self) -> None:
+        for run_id in (
+            build_host.HISTORICAL_FAILED_RUN_ID,
+            build_host.HISTORICAL_SUPERSEDED_RUN_ID,
+        ):
+            with self.subTest(run_id=run_id), self.assertRaisesRegex(
+                build_host.HostBuildFailure,
+                "historical R1 builder run-id cannot be reused",
+            ):
+                build_host._reject_historical_preparation_run_id(
+                    run_id, self.lock
+                )
+
+    def test_historical_proposal_digest_remains_auditably_exact(self) -> None:
+        historical = self.lock["builderOperationalLineage"]["supersededPhaseC1"]
+        self.assertEqual(
+            historical["bindingProposalCanonicalSha256"],
+            HISTORICAL_PROPOSAL_SHA256,
+        )
+        self.assertEqual(
+            historical["sourceLockSha256"],
+            "fc9635500a8667520a1cd4b28ebd9fea31c8bf23a341c4bba2df42c575a84b46",
+        )
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**可变项目状态页**
-- 更新日期：2026-08-21
+- 更新日期：2026-08-23
 
 本文只记录当前执行阶段、证据 checkpoint 和下一项任务。长期产品意图见[身份平台北极星](identity-platform-north-star.md)，路线原因见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。每次 Gate 变化后更新本文，不用本文反向改写长期决策。
 
@@ -158,6 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
+| R1-diag durable builder evidence / rehydration   | **Phase-A implementation candidate；operational lock unbound；Phase B-2/C-2/D CLOSED；ultratone resource Gate 不满足** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -973,3 +974,56 @@ Phase C 不修改 Dockerfile、strict driver、diag gate、build host、patch by
 Phase D diagnostic engine build、`prepare-bound-image`、Browser、V1–V4、FP2-R1、
 Formal R1、FP1-R1 与 FP3 仍 CLOSED；本 checkpoint 完成后停止等待主脑审核，
 不得消费该 bound image。
+
+### 2026-08-23 Mount Recovery Closed；Durable Evidence & Rehydration Phase A authorized
+
+主脑接受 Phase C-1 的 binding correctness（checkpoint
+`f267bb4ff3f00115a37546bbe0649d0db889a7d3` / tree
+`d923535f105169b40d3ae091b9b925c864a086d7`），但 Mount Recovery 只读闭包证明
+Phase-B material evidence 与 bound Docker image 已永久丢失。旧 run
+`r1diag-builder-20260823t0504z`、image `sha256:f46ec076…` 与其 binding 继续作为
+历史 Accepted 事实保留，operational consumability 则永久 superseded。
+
+宿主证据确认 `/mnt` 是 Azure Temporary Storage；重启后 cloud-init 于
+2026-08-23 06:11:28 UTC 对 `/dev/sdb1` 执行 `mkfs.ext4`。当前 filesystem 的创建时间
+与该时刻一致，原 run/result/archive/log/metadata/inspect 均不存在，Docker data-root
+为空且 bound image 不在 store，也没有其他 attached volume 或替代 artifact location。
+Mount Recovery 因此 **Accepted / CLOSED**，不再搜索旧 bytes，不手造 result、重新
+save 旧 image 或直接消费历史 image ID。
+
+当前阻断升级为两个独立 host evidence lifecycle 缺口：关键 Phase-B bytes 没有从
+ephemeral scratch 晋升为 durable artifact；Docker store 丢失后，现有
+`prepare-bound-image` 又没有从 verified archive 恢复 exact image ID 的 rehydration
+seam。下一项已授权任务为 offline/no-browser
+[R1-diag Durable Builder Evidence & Rehydration Contract](camoufox-r1-diag-durable-builder-evidence-contract.md)：
+分离 `/mnt/camoufox-build` scratch 与固定 durable evidence root，加入 reboot
+qualification、exclusive+fsync bundle/manifest、重读验证和 exact-ID `docker image load`
+rehydration，并将当前 operational lock 恢复为 unbound。`f267bb4` 历史不改写。
+
+Phase B-2、Phase C-2、`prepare-bound-image` 实机消费、Phase D、Browser、V1–V4、
+FP1-R1、FP2-R1 与 FP3 全部 CLOSED。本 Phase A 不修改 Dockerfile、strict driver、
+diag gate、0000–0004/9000、engine source、Artifact、probe 或 comparator。
+
+本 Phase-A implementation candidate 已将现行 v2 operational lock 恢复为
+`recipe-frozen-durable-evidence-unbound`，当前 `builderImageBinding = null`、
+`builderImagePreparationEvidence = null`；`f267bb4`、旧 proposal/result digest 与
+丢失 image 只保留在 `builderOperationalLineage.supersededPhaseC1`。host launcher 新增
+固定 durable root、跨 reboot qualification、exclusive+fsync bundle、manifest payload
+commit、Docker 前 exclusive reservation + write/fsync/read preflight、durable re-read +
+final retention receipt、immutable-ID save/tar-config/result identity 交叉验证、
+deterministic build-context tar stdin、buildx config-digest/recipe-label cross-binding、
+exact-ID inspect/load/inspect、engine-time durable receipt re-read 以及
+engine 前 `--pull=never` 边界；历史 Phase-B run-id 永久拒绝复用，bound/unbound lock 与
+`builderOperationalLineage.current` 必须一致。actual qualification、Docker build/load、engine 与 browser
+均未执行，`browserLaunches = 0`。
+
+2026-08-23 对在线 `ultratone` 的只读 host baseline 还确认了一个独立的 Phase-D
+resource blocker：scratch `/mnt` 位于 Azure Temporary Storage `/dev/sdb1`，当前可用
+`63863042048` bytes，小于 lock 的 `85899345920` minimum；`SwapTotal = 0`，小于
+`25769799680` minimum；logical CPU 为 4，满足最低 2。OS filesystem `/dev/sda1`
+与 scratch 不同且有 `261631582208` bytes 可用，适合作为 durable evidence 所在的持久
+filesystem，但固定 durable root 当前尚不存在；Docker data-root 仍在
+`/mnt/camoufox-build/docker-data`，历史 bound image 仍不存在。因此即使本 durable
+closure 被接受，当前 host layout 也 **NOT ELIGIBLE FOR PHASE D**，必须在后续独立
+Gate 解决 `r1_diag_scratch_below_minimum_free_bytes` 与
+`r1_diag_swap_below_frozen_minimum`，不得通过降低冻结阈值或忽略 strict-driver gate 绕过。

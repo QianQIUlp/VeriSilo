@@ -28,6 +28,19 @@ RECIPE_FILES = [
     BUILD_DIR / "diag_gate.py",
     BUILD_DIR / "build_host.py",
 ]
+FROZEN_CONTAINER_RECIPE_SHA256 = {
+    "Dockerfile": "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2",
+    "strict_build.py": "9bb40a42c0fe4b8193104477fb0228038b8329df6023f304badcea0d782c42ff",
+    "diag_gate.py": "cf192ec3a6a3471381e46eade9fc80c879e807e592000e8ab145fc6c9bc3c96a",
+}
+FROZEN_PATCH_SHA256 = {
+    "0000": "8d407bdc4010f7b2989f206a70909bfa9ad89046ddb9e17fa76092c864433600",
+    "0001": "4fa6d3bbf203e2385e29a72ec2669ee17a571281be7ee2a73598e38918069b02",
+    "0002": "efb006d5b2b05756fc310b52eb48e0bdab5e8b23e780fa08534a7fc099c22ce7",
+    "0003": "3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b",
+    "0004": "5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185",
+    "9000": "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8",
+}
 
 
 class R1DiagBuildRecipeTests(unittest.TestCase):
@@ -36,21 +49,64 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
         cls.v1_lock = json.loads(V1_LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_v2_is_bound_and_not_the_historical_v1_lock(self) -> None:
+    def test_v2_is_durable_evidence_unbound_and_not_historical_v1(self) -> None:
         self.assertEqual(self.lock["schema"], "verisilo-r1-diag-source-binding/v2")
         self.assertEqual(
             self.lock["engineRevision"],
             "verisilo-camoufox-152.0.4-beta.28-r1-diag-v2",
         )
         self.assertEqual(
-            self.lock["status"], "builder-bound-awaiting-diagnostic-engine-build"
+            self.lock["status"], "recipe-frozen-durable-evidence-unbound"
         )
-        self.assertIsInstance(self.lock["buildBinding"]["builderImageBinding"], dict)
+        self.assertEqual(
+            self.lock["buildBinding"]["status"],
+            "recipe-frozen-durable-evidence-unbound",
+        )
+        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
+        self.assertIsNone(self.lock["builderImagePreparationEvidence"])
         self.assertNotIn("builderImageBinding", self.lock)
         self.assertTrue(self.lock["diagnosticOnly"])
         self.assertFalse(self.lock["formalEligible"])
         self.assertEqual(self.lock["browserLaunches"], 0)
         self.assertNotEqual(self.lock["engineRevision"], self.v1_lock["engineRevision"])
+
+    def test_durable_evidence_contract_and_superseded_lineage_are_explicit(self) -> None:
+        contract = self.lock["durableBuilderEvidenceContract"]
+        self.assertEqual(
+            contract["schema"],
+            "verisilo-r1-diag-durable-builder-evidence-contract/v1",
+        )
+        self.assertEqual(contract["scratchRoot"], "/mnt/camoufox-build")
+        self.assertEqual(
+            contract["durableRoot"],
+            "/var/lib/verisilo/camoufox-build-evidence",
+        )
+        self.assertTrue(contract["qualificationRequired"])
+        self.assertEqual(contract["imageSaveReference"], "immutable-image-id")
+        self.assertEqual(contract["dockerPullPolicy"], "never")
+        self.assertIn("durable-manifest.json", contract["bundleRequiredFiles"])
+        self.assertIn("retention-receipt.json", contract["bundleRequiredFiles"])
+        self.assertIn("retention-preflight.json", contract["bundleRequiredFiles"])
+        self.assertIn("builder-build-context.tar", contract["bundleRequiredFiles"])
+        self.assertEqual(
+            contract["retentionPreflightSchema"],
+            "verisilo-r1-diag-durable-retention-preflight/v1",
+        )
+        self.assertEqual(
+            contract["retentionReceiptSchema"],
+            "verisilo-r1-diag-durable-builder-retention-receipt/v1",
+        )
+        self.assertFalse(contract["environmentOverride"])
+        lineage = self.lock["builderOperationalLineage"]
+        self.assertEqual(lineage["current"]["bindingState"], "unbound")
+        superseded = lineage["supersededPhaseC1"]
+        self.assertEqual(
+            superseded["bindingCheckpointCommit"],
+            "f267bb4ff3f00115a37546bbe0649d0db889a7d3",
+        )
+        self.assertEqual(superseded["bindingCorrectness"], "historically-accepted")
+        self.assertEqual(superseded["materialEvidence"], "permanently-lost")
+        self.assertFalse(superseded["operationallyConsumable"])
 
     def test_complete_patch_lineage_preserves_base_and_incremental_order(self) -> None:
         self.assertEqual(
@@ -97,6 +153,21 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
             data = path.read_bytes()
             self.assertEqual(len(data), item["sizeBytes"], path.name)
             self.assertEqual(hashlib.sha256(data).hexdigest(), item["sha256"], path.name)
+
+    def test_container_recipe_and_patch_bytes_remain_at_accepted_hashes(self) -> None:
+        for path in RECIPE_FILES[:3]:
+            self.assertEqual(
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+                FROZEN_CONTAINER_RECIPE_SHA256[path.name],
+                path.name,
+            )
+        for item in self.lock["completePatchSeries"]:
+            path = REPO_ROOT / item["path"]
+            self.assertEqual(
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+                FROZEN_PATCH_SHA256[item["id"]],
+                item["id"],
+            )
 
     def test_dockerfile_embeds_independent_driver_and_gate(self) -> None:
         text = (BUILD_DIR / "Dockerfile").read_text(encoding="utf-8")
