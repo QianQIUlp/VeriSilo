@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag durable builder evidence / rehydration   | **Phase-A implementation candidate；operational lock unbound；Phase B-2/C-2/D CLOSED；ultratone resource Gate 不满足** |
+| R1-diag durable builder evidence / rehydration   | **Phase A Accepted at `88fb25a`；operational lock unbound；Phase B-2/C-2/D CLOSED；ultratone resource Gate 不满足** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1027,3 +1027,33 @@ filesystem，但固定 durable root 当前尚不存在；Docker data-root 仍在
 closure 被接受，当前 host layout 也 **NOT ELIGIBLE FOR PHASE D**，必须在后续独立
 Gate 解决 `r1_diag_scratch_below_minimum_free_bytes` 与
 `r1_diag_swap_below_frozen_minimum`，不得通过降低冻结阈值或忽略 strict-driver gate 绕过。
+
+### 2026-08-23 Durable Evidence & Rehydration Phase A Accepted
+
+主脑对 clean implementation checkpoint
+`88fb25aa866d450f57fa7bf6defdd987399b1ad0` / tree
+`644a761b86f8d5698cf0a1ac6d51a8c4766f51f3` 完成独立 Gate，结论为
+**Accepted**。现行 v2 source lock SHA-256 为
+`213133afbb7b61cb995d2b1446c8f28c830d55a72fd882712b3e9f26343daf05`；
+受锁 `build_host.py` SHA-256 为
+`5c6a93372a9e4257beea842ef228081c2e807afc0871a008cce94a4217b958a1`，size
+`100626` bytes。由于 embedded strict driver 固定消费 v2 schema/revision，且本任务禁止
+修改 container recipe，当前方案有意演进现行 v2 host-evidence contract，而不是创建
+strict driver 无法消费的 v3 execution lock。
+
+两轮只读对抗审计发现并关闭了全部阻断：live checkout/build-context tooling TOCTOU、
+mutable tag identity、engine preparation-record bypass、历史 run-id 复用、bound/unbound
+operational-lineage 矛盾、result/tar identity 漂移，以及 Docker 前 durable root 当前
+write/fsync/re-read 缺口。最终 no-browser 验证为 R1 相关 `77/77`、engine remediation
+`9/9`、GPC `7/7`、FP2 static `63/63`；changed Python `py_compile` 与
+`git diff --check` 均通过。Docker build/load、engine build 与 browser 均未执行，
+`browserLaunches = 0`。
+
+本裁决只接受 Phase-A implementation。当前 lock 继续为
+`recipe-frozen-durable-evidence-unbound`，`builderImageBinding = null`、
+`builderImagePreparationEvidence = null`、`binaryBinding = null`、
+`diagnosticOnly = true`、`formalEligible = false`。下一项有资格被单独裁决的是 durable
+root provisioning + stage/reboot/verify qualification；本裁决不自动授权 Phase B-2、
+Phase C-2、`prepare-bound-image` 实机消费、Phase D、Browser 或 V1–V4。ultratone 的
+scratch free-space 与 swap 两个 frozen resource blockers 仍未解决，不能声称 host 已具备
+Phase-D 资格。
