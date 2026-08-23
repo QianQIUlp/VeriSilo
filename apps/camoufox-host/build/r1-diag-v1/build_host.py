@@ -126,6 +126,7 @@ UNBOUND_LOCK_STATUS = "recipe-frozen-durable-evidence-unbound"
 BOUND_LOCK_STATUS = (
     "builder-bound-durable-evidence-awaiting-diagnostic-engine-build"
 )
+CONTAINER_WINE_PREFIX_TEMPLATE = "/work/{runId}/.wine-prefix"
 HISTORICAL_FAILED_RUN_ID = "r1diag-builder-20260823t0435z"
 HISTORICAL_SUPERSEDED_RUN_ID = "r1diag-builder-20260823t0504z"
 UNBOUND_LINEAGE_CURRENT = {
@@ -133,7 +134,7 @@ UNBOUND_LINEAGE_CURRENT = {
     "durableEvidence": "retained-but-recipe-superseded",
     "phaseB2": "closed-pending-rebuild",
     "reasonCodes": [
-        "strict_fixed_environment_moz_build_date_key_mismatch",
+        "host_wineprefix_used_host_path_inside_container",
     ],
 }
 BOUND_LINEAGE_CURRENT = {
@@ -2433,7 +2434,7 @@ def build_engine(args: argparse.Namespace) -> int:
         if (root / name).exists():
             raise HostBuildFailure(f"build run already contains {name}")
         (root / name).mkdir()
-    wine_prefix = root / "work" / f"{args.run_id}" / ".wine-prefix"
+    wine_prefix = CONTAINER_WINE_PREFIX_TEMPLATE.format(runId=args.run_id)
     start = {
         "recordType": "verisilo-r1-diag-build-engine-start/v2",
         "runId": args.run_id,

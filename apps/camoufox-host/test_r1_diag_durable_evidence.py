@@ -1027,7 +1027,10 @@ class R1DiagDurableEvidenceTests(unittest.TestCase):
                 }
             }
 
-            def fake_container(_command: list[str], _cwd: Path, log: Path) -> int:
+            observed_commands: list[list[str]] = []
+
+            def fake_container(command: list[str], _cwd: Path, log: Path) -> int:
+                observed_commands.append(command)
                 log.write_text("container-not-run\n", encoding="utf-8")
                 return 1
 
@@ -1064,6 +1067,17 @@ class R1DiagDurableEvidenceTests(unittest.TestCase):
                 self.assertEqual(build_host.build_engine(args), 1)
             durable.assert_called_once_with(RUN_ID)
             bound_evidence.assert_called_once()
+            self.assertEqual(len(observed_commands), 1)
+            self.assertIn(
+                f"WINEPREFIX=/work/{run_id}/.wine-prefix",
+                observed_commands[0],
+            )
+            self.assertFalse(
+                any(
+                    item.startswith(f"WINEPREFIX={root}")
+                    for item in observed_commands[0]
+                )
+            )
 
     def test_load_nonzero_and_same_fd_archive_mutation_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

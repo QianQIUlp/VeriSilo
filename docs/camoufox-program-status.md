@@ -1336,3 +1336,28 @@ proposal/evidence；current lock 为
 `builder-bound-durable-evidence-awaiting-diagnostic-engine-build`，`binaryBinding = null`、
 `diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`。下一步使用全新
 engine run；不启动 Camoufox，不执行 V1–V4。
+
+### 2026-08-23 第五次 engine run进入 build；修正 container WINEPREFIX
+
+Phase C-6 checkpoint `fe7f121f23d5b6826fdf41d74a852e266db99767` / tree
+`18d3971ad8f490d084e0974289a4d5a5264ec837` 已绑定 fixed-environment repaired builder，
+lock SHA-256 为 `2899d8518e4f5143393c21ae013e89a8d5dc655a470a1749951426dd19acf20f`。
+全新 run `r1diag-engine-20260823t1137z` 的 durable/bound preparation 成功，随后完成 container
+diagnostic gate、Firefox extraction、Rust 1.90.0 安装/选择/`rustc -vV`、50 upstream patches、
+完整 `0000 → 0001 → 0002 → 0003 → 0004 → 9000`、Windows target configure。configure
+精确识别 Rust host/target、MSVC 14.50.35717、SDK 10.0.26100.0 与 MIDL，随后首次真正进入
+`mach build`。
+
+build 在最初 MIDL tasks fail-closed：launcher 将 host path
+`/mnt/camoufox-build/runs/.../work/.../.wine-prefix` 作为容器内 `WINEPREFIX`，而该路径在容器
+namespace 不存在；冻结合同要求的是 `/work/{runId}/.wine-prefix`。container log SHA-256 为
+`8c966e26abc2d62fc24d6b1db0e2b9817ac8c012f3f2ea8e0335228bb0d62d37`；strict failure
+SHA-256 为 `2feb2c1c2ae4d70a7ef15b2cdd3446e9764627f8168b3faa352f7c4cec679398`；
+build log SHA-256 为 `dfb08e6f8f5cf874cbded006ba678bd310a8b77688bec0198691f502a5d854f4`。
+未产出 binary，`browserLaunches = 0`。
+
+最小修复只让 host command 使用 frozen container namespace 模板
+`/work/{runId}/.wine-prefix`，并新增 regression 捕获 exact Docker command，明确拒绝 host-root
+前缀。未修改 Dockerfile、strict driver、patch 或 engine source。由于 build-host recipe bytes
+变化，Phase B-6 image / Phase C-6 binding 被 supersede；现行 lock 重回 unbound，下一步为
+全新 Phase B-7 / C-7 与 engine run。`1137z` 保留且不得重试。
