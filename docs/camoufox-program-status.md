@@ -1308,3 +1308,31 @@ build log SHA-256 为 `84649f2ef055f6004bbdd4846463992bbde1ae0e371f6e398f4115b5d
 strict/build-host recipe bytes 已变化，因此 Phase B-5 image 与 Phase C-5 binding 被
 supersede；现行 lock 重回 unbound。下一步必须使用全新 Phase B-6 run、新 image 和 Phase C-6
 binding；`1120z`、`1122z` 均不得复用。
+
+### 2026-08-23 Phase B-6 Accepted；Phase C-6 fixed-environment repaired binding
+
+全新 builder run `r1diag-builder-20260823t1130z` 使用 checkpoint
+`648435b1a589c668824ec2eb03b8c3e3239c3812` / tree
+`511d441e8d2b842c48dd20dc0bf8fbc7519b151e`，source-lock SHA-256
+`d99d18e2abdd92e1853f146548bd3c6ccc626589ee541c4eb2a58b23ec96f403`。新 image ID
+为 `sha256:beaa23e93cd17af49a5b97dae4997a84448f61cd65679e90d579a1a1db7366d3`；archive
+SHA-256 为 `d450a783dcd2eeab2422cc9d6e052500930011c18aadef57143cf5fc6e7c140c`，
+size `1471563776` bytes；proposal canonical SHA-256 为
+`06d4c58aaaffa1ee3e7138734d6a5b9353a6d29fd6fa6f0c161f70898a370509`。
+
+durable result SHA-256 为
+`6c6775db02eab21ce453d615d64328cf5e214a78e23bd146a276f014ef6fed30`；manifest
+SHA-256 / canonical SHA-256 为
+`5e3c7d3b2edcee09b4cdfd190e2f68a7417d296351771de91d715d10fa8c9727` /
+`92719570a4c2e36461e0d0d2d8efca22a4cfce949af212f4d37d338383b8f689`；receipt
+SHA-256 / canonical SHA-256 为
+`60c4d0693bb19e3947385cbca035df1211b8ed139116e17684e02c2870c5bfc7` /
+`fe6066578094402227497eddadffd382c963fd4036191b26c7de28a37ba6a2a4`；build context
+SHA-256 为 `3424459d3eb02f5bda5cf17af601361725a2b0859c3c822fc7425d7789765661`。
+
+主脑独立重算全部 payload SHA/size、canonical digest、saved tar config digest、image inspect
+和 Docker exact ID，全部匹配。Gate：**Phase B-6 Accepted**。Phase C-6 仅逐字段绑定新
+proposal/evidence；current lock 为
+`builder-bound-durable-evidence-awaiting-diagnostic-engine-build`，`binaryBinding = null`、
+`diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`。下一步使用全新
+engine run；不启动 Camoufox，不执行 V1–V4。
