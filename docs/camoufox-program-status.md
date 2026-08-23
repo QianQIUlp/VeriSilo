@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag durable builder evidence / rehydration   | **Phase C-3 历史 Accepted；embedded gate loader 修复后 operational lock unbound，待重建** |
+| R1-diag durable builder evidence / rehydration   | **gate-loader 修复后 Phase B-4 Accepted；新 durable builder 已绑定，待新 engine run** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1200,3 +1200,29 @@ source lock、实际 `diag_gate.py` 和实际 diagnostic patch series，要求 s
 由于 strict bytes 再次变化，`27188505…` image 与 Phase C-3 binding 被 recipe defect
 supersede；现行 lock 重回 unbound，必须使用新 checkpoint、新 builder run 和新 binding。
 1034z 原 run 保留且不得重试。
+
+### 2026-08-23 Phase B-4 Accepted；Phase C-4 gate-loader repaired binding
+
+全新 builder run `r1diag-builder-20260823t1040z` 使用 checkpoint
+`dd3a9ce796ec32a7aa49b076527f02ec6958008c` / tree
+`d454b3eba5900a99bc3da1f36cd608001250c9f3`，source-lock SHA-256
+`31b215e679876a376add1d842f547c9478a737d69427a7955d99750ed2d836b1`。新 image ID
+`sha256:610c93044112e0330854b9765f19637c1d3edd51dd0a3ab792df72fccabd4301`；archive
+SHA-256 `821e512c608af680081789615585f9a473072fe0cdfc26beaf9e02667e92939b`，size
+`1471562240` bytes；proposal canonical SHA-256
+`81c98c5d333a3d9cd9dc53c06a34a67db931a3d9c448685cce62c9933fd55088`。
+
+durable result SHA-256 为 `baec0de167d2e6bd3f3c874d6411af0dc16e5eded190a720cd6f52eb6f4a7002`；
+manifest SHA-256 / canonical SHA-256 为
+`88c65618aa1602d76d149f7dc4f7b23d064e40f924f8637ba60a2d1e841c2726` /
+`fd4f71ea30a9d1128a3cfaa91924df916d9a3d7e0e9c60c5b0c0ccc3f52a169e`；receipt
+SHA-256 / canonical SHA-256 为
+`69dfb5a5dd1b6662aa7a2b97ad269a6b29eba363579687fd3b5636cd9a336016` /
+`6949bab47a35bcf7795575785d643a13cb81a164f9c271b48ed81ca7b834fb02`。
+durable root 重读、config digest 与 exact image inspect 均通过。
+
+主脑 Gate：**Phase B-4 Accepted**。Phase C-4 将新 proposal/evidence 逐字段绑定；旧
+`27188505…` / Phase C-3 只保留历史审计意义。current lock 为
+`builder-bound-durable-evidence-awaiting-diagnostic-engine-build`，`binaryBinding = null`、
+`diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`。下一步必须使用
+全新 engine run 验证 container gate PASS 后进入真正 build。
