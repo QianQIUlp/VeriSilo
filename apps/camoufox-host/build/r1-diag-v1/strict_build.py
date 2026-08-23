@@ -200,6 +200,7 @@ def _mount_table() -> dict[str, dict[str, object]]:
             raise BuildFailure("truncated mountinfo entry")
         mounts[fields[4]] = {
             "options": set(fields[5].split(",")),
+            "root": fields[3],
             "filesystem": fields[separator + 1],
             "source": fields[separator + 2],
         }
@@ -221,7 +222,11 @@ def _validate_mounts() -> dict[str, dict[str, object]]:
             raise BuildFailure(f"run-owned mount must be read-write: {path}")
         selected[path.as_posix()] = entry
     identities = {
-        (selected[path.as_posix()]["filesystem"], selected[path.as_posix()]["source"])
+        (
+            selected[path.as_posix()]["filesystem"],
+            selected[path.as_posix()]["source"],
+            selected[path.as_posix()]["root"],
+        )
         for path in (BUILD_HOME, WORK_ROOT, OUT_ROOT)
     }
     if len(identities) != 3:

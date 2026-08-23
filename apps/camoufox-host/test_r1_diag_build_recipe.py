@@ -8,6 +8,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 HOST_DIR = Path(__file__).resolve().parent
@@ -18,6 +19,7 @@ V1_LOCK_PATH = HOST_DIR / "lock" / "camoufox-v152.0.4-beta.28-verisilo-r1-diag-v
 SERIES_DIR = HOST_DIR / "patches" / "camoufox" / "v152.0.4-beta.28-r1-diag"
 sys.path.insert(0, str(BUILD_DIR))
 import diag_gate  # noqa: E402
+import strict_build  # noqa: E402
 
 
 COMPLETE_ORDER = ["0000", "0001", "0002", "0003", "0004", "9000"]
@@ -30,7 +32,7 @@ RECIPE_FILES = [
 ]
 FROZEN_CONTAINER_RECIPE_SHA256 = {
     "Dockerfile": "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2",
-    "strict_build.py": "9bb40a42c0fe4b8193104477fb0228038b8329df6023f304badcea0d782c42ff",
+    "strict_build.py": "75e03d5eb7ca6816424d27fc844bb806bca8098f38690f4efb88199b935cade0",
     "diag_gate.py": "cf192ec3a6a3471381e46eade9fc80c879e807e592000e8ab145fc6c9bc3c96a",
 }
 FROZEN_PATCH_SHA256 = {
@@ -49,7 +51,7 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
         cls.v1_lock = json.loads(V1_LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_v2_is_durable_evidence_bound_and_not_historical_v1(self) -> None:
+    def test_v2_is_unbound_after_mount_identity_repair(self) -> None:
         self.assertEqual(self.lock["schema"], "verisilo-r1-diag-source-binding/v2")
         self.assertEqual(
             self.lock["engineRevision"],
@@ -57,17 +59,14 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         )
         self.assertEqual(
             self.lock["status"],
-            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+            "recipe-frozen-durable-evidence-unbound",
         )
         self.assertEqual(
             self.lock["buildBinding"]["status"],
-            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+            "recipe-frozen-durable-evidence-unbound",
         )
-        self.assertIsInstance(
-            self.lock["buildBinding"]["builderImageBinding"], dict
-        )
-        self.assertTrue(self.lock["builderImagePreparationEvidence"]["retained"])
-        self.assertTrue(self.lock["builderImagePreparationEvidence"]["reReadable"])
+        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
+        self.assertIsNone(self.lock["builderImagePreparationEvidence"])
         self.assertNotIn("builderImageBinding", self.lock)
         self.assertTrue(self.lock["diagnosticOnly"])
         self.assertFalse(self.lock["formalEligible"])
@@ -102,9 +101,10 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         )
         self.assertFalse(contract["environmentOverride"])
         lineage = self.lock["builderOperationalLineage"]
-        self.assertEqual(lineage["current"]["bindingState"], "bound")
+        self.assertEqual(lineage["current"]["bindingState"], "unbound")
         self.assertEqual(
-            lineage["current"]["durableEvidence"], "retained-and-reread"
+            lineage["current"]["durableEvidence"],
+            "retained-but-recipe-superseded",
         )
         superseded = lineage["supersededPhaseC1"]
         self.assertEqual(
@@ -138,6 +138,44 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
             data = path.read_bytes()
             self.assertEqual(len(data), item["sizeBytes"], item["id"])
             self.assertEqual(hashlib.sha256(data).hexdigest(), item["sha256"], item["id"])
+
+    def test_distinct_bind_roots_can_share_one_backing_filesystem(self) -> None:
+        mountinfo = "\n".join(
+            [
+                "100 1 7:0 /runs/test/inputs /inputs ro - ext4 /dev/loop0 rw",
+                "101 1 7:0 /runs/test/build-home /build-home rw - ext4 /dev/loop0 rw",
+                "102 1 7:0 /runs/test/work /work rw - ext4 /dev/loop0 rw",
+                "103 1 7:0 /runs/test/out /out rw - ext4 /dev/loop0 rw",
+            ]
+        )
+        with mock.patch.object(Path, "read_text", return_value=mountinfo):
+            selected = strict_build._validate_mounts()
+        self.assertEqual(
+            {selected[path]["root"] for path in ("/build-home", "/work", "/out")},
+            {
+                "/runs/test/build-home",
+                "/runs/test/work",
+                "/runs/test/out",
+            },
+        )
+
+    def test_duplicate_bind_root_is_not_a_distinct_mount_identity(self) -> None:
+        mountinfo = "\n".join(
+            [
+                "100 1 7:0 /runs/test/inputs /inputs ro - ext4 /dev/loop0 rw",
+                "101 1 7:0 /runs/test/shared /build-home rw - ext4 /dev/loop0 rw",
+                "102 1 7:0 /runs/test/shared /work rw - ext4 /dev/loop0 rw",
+                "103 1 7:0 /runs/test/shared /out rw - ext4 /dev/loop0 rw",
+            ]
+        )
+        with (
+            mock.patch.object(Path, "read_text", return_value=mountinfo),
+            self.assertRaisesRegex(
+                strict_build.BuildFailure,
+                "build-home, work and out must be distinct mounts",
+            ),
+        ):
+            strict_build._validate_mounts()
 
     def test_each_patch_has_pre_and_post_seam_binding(self) -> None:
         seams_by_patch: dict[str, list[dict]] = {}

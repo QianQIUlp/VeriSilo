@@ -130,12 +130,10 @@ HISTORICAL_FAILED_RUN_ID = "r1diag-builder-20260823t0435z"
 HISTORICAL_SUPERSEDED_RUN_ID = "r1diag-builder-20260823t0504z"
 UNBOUND_LINEAGE_CURRENT = {
     "bindingState": "unbound",
-    "durableEvidence": "not-yet-generated",
-    "phaseB2": "closed-pending-checkpoint-acceptance",
+    "durableEvidence": "retained-but-recipe-superseded",
+    "phaseB2": "closed-pending-rebuild",
     "reasonCodes": [
-        "phase_b_material_evidence_permanently_lost",
-        "bound_builder_image_permanently_lost",
-        "durable_retention_and_rehydration_contract_required",
+        "strict_mount_identity_conflated_bind_mount_with_backing_filesystem",
     ],
 }
 BOUND_LINEAGE_CURRENT = {

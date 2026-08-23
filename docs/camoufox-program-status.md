@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag durable builder evidence / rehydration   | **Phase B-2 Accepted；durable image bound；diagnostic engine build 下一步** |
+| R1-diag durable builder evidence / rehydration   | **Phase C-2 历史 Accepted；strict mount 判据修复后 operational lock unbound，待重建 builder** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1127,3 +1127,27 @@ inspect 仍匹配 recipe commit/tree。
 继续只作审计记录。`binaryBinding = null`、`diagnosticOnly = true`、`formalEligible = false`、
 `browserLaunches = 0`。本 checkpoint 不修改 recipe 或 patch bytes；下一步只允许从 durable
 bundle 执行 exact-ID `prepare-bound-image`，再进入一次性 diagnostic engine build。
+
+### 2026-08-23 首次 engine run fail-closed；strict mount identity 最小修复
+
+Phase C-2 checkpoint `39e53e605ad7ba77ee01ea89611dc7e70f831b32` / tree
+`1a6ff5e7baacbc313f82e069db11cc8df352be95` 已将 Phase-B-2 identity 精确绑定，lock
+SHA-256 为 `cef3f9dd63cbb109a78858f095410fe5ff947119dd560b8fd227c036acb143cb`。
+随后全新 run `r1diag-engine-20260823t1020z` 的 `prepare-bound-image` 成功重读 durable
+evidence，并以 exact ID 验证 image；但 `build-engine` 在约 7 秒内由 embedded strict driver
+拒绝，未进入 source extraction、patch application 或编译。container log SHA-256 为
+`41d2ff40130865f039ececbc7cc41adcee7fff56041f49518ab6bdb154ee2383`，明确 verdict 为
+`build-home, work and out must be distinct mounts`；没有 strict result 或 binary output，
+`browserLaunches = 0`。
+
+事实根因是 launcher 已将三个不同 host 目录作为三个 exact RW bind mounts，但旧 strict
+driver 只以 mountinfo 的 `filesystem + source` 判别 identity；同一 scratch filesystem 上的
+三个合法 bind mount 因而被误判为一个。合同要求的是独立 mount，而不是三块底层磁盘。
+最小修复只把 mountinfo 的 bind `root` 纳入 identity，即
+`filesystem + source + root`；相同 backing filesystem 上的三个不同 bind roots 被接受，
+重复 root 仍 fail-closed。未新增 disk/volume 架构，未修改 patch、gate 或 engine source。
+
+由于 `strict_build.py` 是 image-embedded recipe bytes，现有 `b30686ae…` image 与 Phase C-2
+binding 只能保留为已接受但被 recipe defect supersede 的历史证据，不得重用。现行 lock
+重新设为 unbound，下一步必须使用新 checkpoint、新 run-id 重建 builder，再形成精确 binding；
+失败 engine run 保留且不得重试。
