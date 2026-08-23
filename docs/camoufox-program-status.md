@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag diagnostic engine build / provenance     | **`1206z` compile failure retained；Phase B-8 Accepted / C-8 exact bound；等待新的 diagnostic engine build** |
+| R1-diag diagnostic engine build / provenance     | **`1206z` compile failure retained；Phase B-8 Accepted / C-8 exact bound；`1531z` resource-gate failed，等待 scratch 扩容授权** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1484,3 +1484,38 @@ receipt canonical digest、saved tar config digest、image inspect 与 Docker ex
 `1206z` compile failure 与 Phase B-7/C-7 superseded lineage 保持不变。下一步只允许使用
 全新 run-id 执行一次 diagnostic engine build；不得启动 Camoufox，不得执行 Browser、
 V1–V4、FP1-R1、FP2-R1 或 FP3。
+
+### 2026-08-23 `1531z` resource-gate failure；C-8 binding 保持有效
+
+全新 run `r1diag-engine-20260823t1531z` 从 Phase C-8 durable bundle 成功执行
+`prepare-bound-image`，prepared record SHA-256 为
+`b7c034a26cd5d1eb14390a9c26b0ca2f384a0e542f669cd47e51c3f188066a44`，size
+`3464` bytes；exact image ID、source commit/tree/lock 和 B-8 evidence 均匹配。随后
+container 在 source extraction 和 diagnostic gate 之前由冻结 resource gate fail-closed：
+`builder free space is below the frozen minimum`。分类为 **resource failure**，不是
+source/patch、recipe/driver、toolchain 或 transport failure。
+
+失败 evidence 已复制并重读于既有 durable root：
+
+```text
+/var/lib/verisilo/camoufox-build-evidence/r1diag-engine-20260823t1531z
+```
+
+| Artifact | SHA-256 | Size (bytes) |
+| --- | --- | ---: |
+| `run-owner.json` | `fa8ffaf0c805e63c55883c41251df67b90a92ea81aa45052e2d38829c59f5367` | 163 |
+| `builder-image-result.json` | `b7c034a26cd5d1eb14390a9c26b0ca2f384a0e542f669cd47e51c3f188066a44` | 3,464 |
+| `build-engine-start.json` | `eed73f3594fe69818450f1f983ba98096899c36259ffb10924172a634df5676a` | 1,764 |
+| `container.log` | `646a903d067c0b1ebbe7fdd71e368a03b21477d7644c0b261c7b86ff253b7c55` | 1,742 |
+| `host-provenance.json` | `46ad9e3f15b20c6b010bf45bd80b87527d44b474fe2dca86bfb482f8d37ab4ad` | 4,613 |
+| `build-failure.json` | `53bdbcaba0ab81d2348f67090fa89f45acf650c34311a7a987741af56dd37dfe` | 390 |
+| `build.log` | `f2c71fa43bfec7140a69f185f32c702af7aac6113e17053923da70ec7284f75d` | 85 |
+
+失败时 `/mnt/camoufox-build` available bytes 为 `47839571968`，低于锁定最低值
+`85899345920`；历史 run 全部保留且未删除。已定位 scratch 为既有
+`/var/lib/verisilo/r1diag-scratch.ext4` 的 192 GiB sparse loop；底层 root 尚有
+`62725189632` available bytes。拟议的最小、零删除修复是将该既有 scratch 在线扩至
+240 GiB 并验证 ext4/available bytes，但该具体系统级变更尚未获显式批准，因此未执行。
+现行 C-8 builder binding 不变，`buildBinding.binaryBinding = null`、
+`diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`、
+`verified = false`；`1531z` 保留且不得复用。
