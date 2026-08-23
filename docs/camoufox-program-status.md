@@ -884,3 +884,34 @@ Execution boundary reached on this host: Docker is ABSENT here, so diagnostic
 build steps ⑤⑥ must run on the Linux builder host (frozen image
 `dfd59e5a…`, archive `f8061d1c…`). Everything up to that boundary is complete
 and verified offline. `browserLaunches = 0`.
+
+### 2026-08-23 R1-diag builder route repair: current gate BLOCKED / Phase A authorized
+
+主脑裁决已撤回对旧 frozen Canvas builder 执行 diagnostic build 的授权。
+`c2c7ace25616711b1d8506819c1f3b3480dcaa7a` / tree
+`bc1133501155892f5e559b243bbec6dcd31d5c91` 保留为历史审计 checkpoint，
+但不再是 build-ready checkpoint；其 R1-diag v1 source lock
+`3248dd1da1c06e115b9b8f40a5e17d6012bc2521c627304e814735b0d54fbbd2`
+标记为 **NON-EXECUTABLE / SUPERSEDED**。
+
+事实源冲突裁决：diagnostic 缺 patch 必须返回结构化拒绝；旧
+`canvas-engine-v1` image 内嵌 Canvas-only strict driver、Canvas ENTRYPOINT
+和旧 launcher schema，**NOT AN R1-DIAG EXECUTOR**。旧 Canvas builder lineage
+保持不可变，仅作为 Candidate C0 历史事实；不允许环境变量、driver mount、
+`docker cp` 或 `--entrypoint` 注入。
+
+设计冻结为 Accepted（`ff4f8c960d5cf63ff242da990b904fca8743be54`，含
+`38ff360c` policy-state amendment）；Implementation Contract 为 Accepted
+（`38ff360c65f2fb5e28fe3ebaed7931727c0d6b68`）；Patch Authoring 为 Accepted
+（`b6aeaac5db831721eed93e506d6fed240d463745`）。
+
+选定 route A′：新增独立 `apps/camoufox-host/build/r1-diag-v1/` builder
+family，保留 0000→0001→0002 base carry-forward，并在其后应用
+0003→0004→9000；新增 v2 source lock
+`apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-diag-v2-source.json`，
+当前状态 `recipe-frozen-builder-unbound`，`buildBinding.builderImageBinding = null`。
+旧 Canvas recipe、driver、launcher、patch bytes 与历史 evidence 未修改。
+
+当前仅授权 Phase A offline/static：修复 gate、冻结独立 recipe、完成 no-browser
+验证并形成 clean checkpoint。Phase B builder-image build、Phase C lock binding、
+Phase D diagnostic engine build、Browser、V1–V4、FP2-R1、FP3 均保持 CLOSED。

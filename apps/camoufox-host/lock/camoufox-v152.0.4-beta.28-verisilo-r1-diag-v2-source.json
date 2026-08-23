@@ -1,0 +1,1002 @@
+{
+  "baseBuilderImageBinding": {
+    "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+    "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+    "buildxLogSha256": "960f6343f03d1941486eb286b16f75aac9e967f594838c83d6eba4ae7c3af041",
+    "buildxLogSizeBytes": 78397,
+    "buildxMetadataSha256": "b5c0aa3df155fe7fa164e06f316272b10b1e7c6710dabf7692f8cb0b7f2ab6a3",
+    "dockerfileSha256": "ae3e28d39c2c996d0c70f6fbd4b182f4e1585eb79fd7fc662e50b158300e5e6d",
+    "eligibility": "historical-candidate-c0-only",
+    "hostToolingSha256": "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b",
+    "imageId": "sha256:dfd59e5a518c9ea2a87b5c3592a040371e8a366ee61f1bd85097773e497ac4fc",
+    "imageInspectSha256": "393efbfd448794b1abac8041618e94b8e676c3a368467257838668bce45fe191",
+    "recipeSourceCommit": "be9eec880959650916c8f149aff4f54d872f23f6",
+    "recipeSourceLockSha256": "b36b4b4ae9cde8460d37432b82707ceb60b7065e1143f6ab314c032812c11b4b",
+    "recipeSourceTree": "ec01cbe47658351f5808ccbd0f882fb7bedcef25",
+    "role": "base-provenance-reference-not-r1-executor",
+    "savedArchiveSha256": "f8061d1cb5a4b8e5612d6fc6a5dbbba31c6b33ff1593afb5fd1088a4745ab851",
+    "savedArchiveSizeBytes": 483576320,
+    "sourceLockPath": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-canvas-v1-source.json",
+    "sourceLockSha256": "42b14bfe7331e6c023a3a6fa49da614852b6fd0a28c3225cc84bfc515d4036d5"
+  },
+  "baseCarryForwardPatches": [
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": false,
+      "formalCarryForward": "allowed-after-qualification",
+      "id": "0000",
+      "kind": "carry-forward",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0000-verisilo-ff152-midl-cross-build-input.patch",
+      "sha256": "8d407bdc4010f7b2989f206a70909bfa9ad89046ddb9e17fa76092c864433600",
+      "sizeBytes": 1184
+    },
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": false,
+      "formalCarryForward": "allowed-after-qualification",
+      "id": "0001",
+      "kind": "carry-forward",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0001-verisilo-canvas-export-key.patch",
+      "sha256": "4fa6d3bbf203e2385e29a72ec2669ee17a571281be7ee2a73598e38918069b02",
+      "sizeBytes": 2121
+    },
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": false,
+      "formalCarryForward": "allowed-after-qualification",
+      "id": "0002",
+      "kind": "carry-forward",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0002-verisilo-juggler-bounded-close.patch",
+      "sha256": "efb006d5b2b05756fc310b52eb48e0bdab5e8b23e780fa08534a7fc099c22ce7",
+      "sizeBytes": 3059
+    }
+  ],
+  "browserLaunches": 0,
+  "buildBinding": {
+    "binaryBinding": null,
+    "builderImageBinding": null,
+    "builderImageBindingRequiredFields": [
+      "imageId",
+      "savedArchiveSha256",
+      "savedArchiveSizeBytes",
+      "recipeSourceCommit",
+      "recipeSourceTree",
+      "recipeSourceLockSha256",
+      "dockerfileSha256",
+      "baseIndexDigest",
+      "baseLinuxAmd64ManifestDigest",
+      "buildxLogSha256",
+      "buildxLogSizeBytes",
+      "buildxMetadataSha256",
+      "imageInspectSha256",
+      "hostToolingSha256"
+    ],
+    "ociBase": {
+      "indexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+      "linuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+      "reference": "docker.io/library/ubuntu:24.04",
+      "resolutionSource": "Docker Hub registry v2 manifest response",
+      "resolvedAtUtc": "2026-08-11T05:46:36Z"
+    },
+    "officialReferenceHost": "ubuntu-24.04",
+    "recipe": {
+      "files": [
+        {
+          "path": "apps/camoufox-host/build/r1-diag-v1/Dockerfile",
+          "sha256": "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2",
+          "sizeBytes": 2068
+        },
+        {
+          "path": "apps/camoufox-host/build/r1-diag-v1/strict_build.py",
+          "sha256": "9bb40a42c0fe4b8193104477fb0228038b8329df6023f304badcea0d782c42ff",
+          "sizeBytes": 35033
+        },
+        {
+          "path": "apps/camoufox-host/build/r1-diag-v1/diag_gate.py",
+          "sha256": "cf192ec3a6a3471381e46eade9fc80c879e807e592000e8ab145fc6c9bc3c96a",
+          "sizeBytes": 7480
+        },
+        {
+          "path": "apps/camoufox-host/build/r1-diag-v1/build_host.py",
+          "sha256": "9382b30b50ba23d9fee49c71692096b094aeffbdc09d28de1e36c68581999527",
+          "sizeBytes": 26434
+        }
+      ],
+      "fixedEnvironment": {
+        "BUILD_TARGET": "windows,x86_64",
+        "CARGO_BUILD_JOBS": "1",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "MOZ_BUILD_DATE": "20260811045234",
+        "TZ": "Etc/UTC"
+      },
+      "name": "camoufox-152.0.4-beta.28-r1-diag-v2",
+      "oneShotRunDirectoryRequired": true,
+      "order": [
+        "verify-bound-inputs",
+        "verify-builder-identity",
+        "verify-diagnostic-gate-before-extraction",
+        "extract-firefox-source",
+        "verify-windows-toolchain-selection-manifest",
+        "mozbootstrap",
+        "apply-50-upstream-patches",
+        "apply-0000-midl",
+        "verify-0000-seams",
+        "apply-0001-canvas",
+        "verify-0001-seams",
+        "apply-0002-close-bound",
+        "verify-0002-seams",
+        "apply-0003-gpc",
+        "verify-0003-seams",
+        "apply-0004-worker-restore",
+        "verify-0004-seams",
+        "apply-9000-voices-diagnostic",
+        "verify-9000-seams",
+        "configure-windows-x86_64-and-bootstrap-toolchains",
+        "resolve-bound-windows-toolchain",
+        "freeze-pre-build-toolchain-tree",
+        "build-windows-x86_64",
+        "package-windows-x86_64-with-explicit-bound-crt",
+        "freeze-post-package-toolchain-tree",
+        "freeze-candidate-archive"
+      ],
+      "sharedMozbuildCacheAllowed": false
+    },
+    "requiredBeforeRuntime": [
+      "immutable Linux build-environment image digest",
+      "saved builder image archive SHA-256",
+      "exact FF152 vs2026 manifest, compiler, SDK and packaged VC145 CRT versions/digests",
+      "Firefox source SHA-512 verification before extraction",
+      "exact downstream recipe digest and logged upstream-patches -> FF152-MIDL-patch -> Canvas-patch -> build -> package order",
+      "build run identity and logs",
+      "Windows archive name/size/sha256",
+      "complete extraction-tree manifest",
+      "camoufox.exe hash, BuildID, SourceStamp, application.ini and platform.ini hashes"
+    ],
+    "resourceGate": {
+      "configuredNominalSwapBytes": 25769803776,
+      "minimumFreeBytes": 85899345920,
+      "minimumLogicalCpu": 2,
+      "minimumSwapBytes": 25769799680,
+      "recommendedFreeBytes": 107374182400,
+      "recommendedLogicalCpu": 4
+    },
+    "runtimeContainer": {
+      "distinctEmptyReadWriteMounts": [
+        "/build-home",
+        "/work",
+        "/out"
+      ],
+      "dpkgClosureMustRemainStable": true,
+      "hostRuntime": {
+        "foreignArchitectures": [],
+        "policy": "closed",
+        "requiredDpkgPackages": [
+          {
+            "architecture": "amd64",
+            "name": "libc6",
+            "version": "2.39-0ubuntu8.8"
+          },
+          {
+            "architecture": "amd64",
+            "name": "libc6-i386",
+            "version": "2.39-0ubuntu8.8"
+          }
+        ],
+        "requiredExecutablePaths": [
+          "/lib/ld-linux.so.2"
+        ]
+      },
+      "inputMount": "/inputs read-only",
+      "readOnlyRoot": true,
+      "tmpfs": {
+        "options": [
+          "rw",
+          "nosuid",
+          "nodev",
+          "exec",
+          "mode=1777",
+          "size=4g"
+        ],
+        "path": "/tmp",
+        "purpose": "execute checksum-verified Mozilla bootstrap temporary tools"
+      },
+      "winePrefix": {
+        "defaultHomeFallbackAllowed": false,
+        "environmentVariable": "WINEPREFIX",
+        "pathTemplate": "/work/{runId}/.wine-prefix",
+        "policy": "closed"
+      }
+    },
+    "status": "recipe-frozen-builder-unbound",
+    "supportedBuildExecutionEnvironment": "linux",
+    "supportedPhysicalHostWrapper": "upstream Linux Docker container supports all physical host platforms",
+    "target": "x86_64-pc-windows-msvc",
+    "unsupportedBuildRoutes": [
+      "direct native-Windows",
+      "WSL"
+    ],
+    "windowsToolchain": {
+      "compiler": {
+        "relativePath": "vs/VC/Tools/MSVC/14.50.35717",
+        "version": "14.50.35717",
+        "versionDirectoryNames": [
+          "14.50.35717"
+        ]
+      },
+      "crt": {
+        "architecture": "x64",
+        "family": "Microsoft.VC145.CRT",
+        "files": [
+          {
+            "path": "concrt140.dll",
+            "sha256": "b2faf3b85b23c840b654e57d5497a0ad31acd02fb01856cad4725a1715d5f78e",
+            "size": 321696
+          },
+          {
+            "path": "msvcp140.dll",
+            "sha256": "def46aa6a8f72f27bafac0c43334419486a4d1dcdb6c479a8ef7034b3e1fa4cb",
+            "size": 553552
+          },
+          {
+            "path": "msvcp140_1.dll",
+            "sha256": "2dd670f874562fbdca5b022df1943d70a57ba91fde559280e3a1daebe4db2380",
+            "size": 35488
+          },
+          {
+            "path": "msvcp140_2.dll",
+            "sha256": "1d60da3ac2b06482912ca852fa7047436e6e474b4cfffa3bf77f4598cfbf454c",
+            "size": 278608
+          },
+          {
+            "path": "msvcp140_atomic_wait.dll",
+            "sha256": "e7963645e0d1db08e300614d4c5fa7194bd8173e9ab7a5558859e6b232ed3241",
+            "size": 48800
+          },
+          {
+            "path": "msvcp140_codecvt_ids.dll",
+            "sha256": "ae8d922b00cdd93e3ebecc37beb46c800f383ebdeb9f9e5b84e04a72428b6fb3",
+            "size": 31392
+          },
+          {
+            "path": "vccorlib140.dll",
+            "sha256": "6b8d8a76c3e6664293407553650e60b94df9aaafc7c92057ea83032bd228e44f",
+            "size": 350880
+          },
+          {
+            "path": "vcruntime140.dll",
+            "sha256": "184146852727a9db4eea06178716bec3cdbb1015c911f6b0f915b184ad7775b2",
+            "size": 123472
+          },
+          {
+            "path": "vcruntime140_1.dll",
+            "sha256": "e6bfb3662ab4b1969a73441dbe35c96d51441b6bff8cf1fe7430bd5b246ca605",
+            "size": 47264
+          },
+          {
+            "path": "vcruntime140_threads.dll",
+            "sha256": "a6222020b500a9a86b36e040c2dbd0e459716db1bf2810a11cd7512ea9b8d89b",
+            "size": 37456
+          }
+        ],
+        "redistDirectoryNames": [
+          "14.50.35710",
+          "v145"
+        ],
+        "redistVersion": "14.50.35710",
+        "relativePath": "vs/VC/Redist/MSVC/14.50.35710/x64/Microsoft.VC145.CRT",
+        "tree": {
+          "canonicalTreeSha256": "97fd9b9e690301e9e066b40aef96f980ed195b226312a016cccb96ef64db73cd",
+          "fileCount": 10,
+          "totalBytes": 1828608
+        }
+      },
+      "selectionManifest": {
+        "path": "build/vs/vs2026.yaml",
+        "sha256": "ffeef9c51797082dbfef5f6608d75638d3ca3cb11c17cef9f8deea9fde58c188",
+        "size": 136448
+      },
+      "windowsSdk": {
+        "includeRelativePath": "vs/Windows Kits/10/Include/10.0.26100.0",
+        "includeVersionDirectoryNames": [
+          "10.0.26100.0"
+        ],
+        "libRelativePath": "vs/Windows Kits/10/Lib/10.0.26100.0",
+        "libVersionDirectoryNames": [
+          "10.0.26100.0"
+        ],
+        "version": "10.0.26100.0"
+      }
+    }
+  },
+  "buildMode": "diagnostic",
+  "compatibility": {
+    "artifactTopLevelSchema": "verisilo-camoufox-resolved-identity/v3",
+    "historicalOfficialBindingModified": false,
+    "policyRequirement": "deterministic Canvas Policy v3 variant must be selected fail-closed by the future exact binary binding"
+  },
+  "completeAppliedPatchOrder": [
+    "0000",
+    "0001",
+    "0002",
+    "0003",
+    "0004",
+    "9000"
+  ],
+  "completePatchSeries": [
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": false,
+      "formalCarryForward": "allowed-after-qualification",
+      "id": "0000",
+      "kind": "carry-forward",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0000-verisilo-ff152-midl-cross-build-input.patch",
+      "sha256": "8d407bdc4010f7b2989f206a70909bfa9ad89046ddb9e17fa76092c864433600",
+      "sizeBytes": 1184
+    },
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": false,
+      "formalCarryForward": "allowed-after-qualification",
+      "id": "0001",
+      "kind": "carry-forward",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0001-verisilo-canvas-export-key.patch",
+      "sha256": "4fa6d3bbf203e2385e29a72ec2669ee17a571281be7ee2a73598e38918069b02",
+      "sizeBytes": 2121
+    },
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": false,
+      "formalCarryForward": "allowed-after-qualification",
+      "id": "0002",
+      "kind": "carry-forward",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0002-verisilo-juggler-bounded-close.patch",
+      "sha256": "efb006d5b2b05756fc310b52eb48e0bdab5e8b23e780fa08534a7fc099c22ce7",
+      "sizeBytes": 3059
+    },
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": false,
+      "formalCarryForward": "allowed-after-qualification",
+      "id": "0003",
+      "kind": "r1-diagnostic",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/0003-verisilo-gpc-canonical-pref-projection.patch",
+      "sha256": "3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b",
+      "sizeBytes": 2774
+    },
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": false,
+      "formalCarryForward": "allowed-after-qualification",
+      "id": "0004",
+      "kind": "r1-diagnostic",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/0004-verisilo-remove-worker-gpc-mask-override.patch",
+      "sha256": "5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185",
+      "sizeBytes": 412
+    },
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": true,
+      "formalCarryForward": "never",
+      "id": "9000",
+      "kind": "r1-diagnostic",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch",
+      "sha256": "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8",
+      "sizeBytes": 7808
+    }
+  ],
+  "diagnosticGate": {
+    "environmentOverrides": "none",
+    "markerLine": "# VERISILO-DIAGNOSTIC-MARKER: v1",
+    "modeSource": "source-lock-only",
+    "module": "apps/camoufox-host/build/r1-diag-v1/diag_gate.py",
+    "purpose": "fp2-r1-voices-v1-v4-discrimination",
+    "schema": "verisilo-r1-diag-build-gate/v1",
+    "seriesDir": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag"
+  },
+  "diagnosticOnly": true,
+  "diagnosticPurpose": "fp2-r1-voices-v1-v4-discrimination",
+  "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-diag-v2",
+  "firefoxSource": {
+    "sha512": "0c5662aba8fb897902af95dbb2fd988b196d9cf9ae8b987ae89e0a6492ac753b8d4b8bb7b3274909c2eb200ab098df356e23cd6084556467f55e69127317f39a",
+    "sizeBytes": 799102676,
+    "url": "https://archive.mozilla.org/pub/firefox/releases/152.0.4/source/firefox-152.0.4.source.tar.xz",
+    "version": "152.0.4"
+  },
+  "formalEligible": false,
+  "output": {
+    "applicationIniMember": "application.ini",
+    "archiveName": "camoufox-152.0.4-beta.28-win.x86_64.zip",
+    "executableMember": "camoufox.exe",
+    "platformIniMember": "platform.ini"
+  },
+  "patchSeams": [
+    {
+      "id": "0000",
+      "path": "build/midl.py",
+      "postSha256": "c4091b253f215a08cd229a2bbefba1875ec1c68e02b2970978aeee53f6789b14",
+      "preSha256": "411d59bd795d2517367fdec4c26921c1d257415e71f10d98f10046752c23f248"
+    },
+    {
+      "id": "0000",
+      "path": "config/rules.mk",
+      "postSha256": "b41f128e28829e5550197611d40f37ea563804cca35ea56374c502c5787d41f9",
+      "preSha256": "739dfaecfe48f9bc9d4d7727d57e2c16aafef47983ab8efae3bca5e439d09639"
+    },
+    {
+      "id": "0001",
+      "path": "toolkit/components/resistfingerprinting/nsRFPService.cpp",
+      "postSha256": "a10b648f2edb55ff94c31fc9e67212909d1ba46d37d1ece03f681f89dd11e2fb",
+      "preSha256": "5d22f0af2254e21b566530c8d05f87107ba54864738aea82dd135231cf33b379"
+    },
+    {
+      "id": "0001",
+      "path": "toolkit/components/resistfingerprinting/moz.build",
+      "postSha256": "3c7754f9d348d7c5bf821d1603f8f84111eec7ba409d13bb7f378f2814540b66",
+      "preSha256": "dae0e9f46aa455b03d858ce3bf5137d63244e7a552cf4b85ed93aa4571240b19"
+    },
+    {
+      "id": "0002",
+      "path": "juggler/protocol/BrowserHandler.js",
+      "postSha256": "3b5d24b610e85370e3c55f2c2d619b0c0bdf388061c3fa4290ab20f33db3b38e",
+      "preSha256": "7eadb3dd570cd98688d4c3120f7ab36fe1cdc808f89ff51b61ce19db2661afc0"
+    },
+    {
+      "id": "0003",
+      "path": "toolkit/xre/moz.build",
+      "postSha256": "831f388c8b16c162f21d5ab034329dd837f5e542b85fed1b8c277cbce3233131",
+      "preSha256": "03442255ef528f22927c17f5769b089e37a79c79c9a9bec0004b2139dba4a3ba"
+    },
+    {
+      "id": "0003",
+      "path": "toolkit/xre/nsAppRunner.cpp",
+      "postSha256": "7847e88093beeff74aa8a7e89f5e5f1e3ea0d6b1f9dece21f97387940fbe8b94",
+      "preSha256": "f9c0dfb11cf20ab1864f3d5c791f88ec26e24b154474e93c0d8898f712099d11"
+    },
+    {
+      "id": "0004",
+      "path": "dom/workers/WorkerNavigator.cpp",
+      "postSha256": "693aee50dfa3ba44505656a0cdc5899753690df53ca76031b2b69c46ae0aa1d1",
+      "preSha256": "b927fb42169159a6e001e442c7b4c0916f46d6b3b88c4d1baf5ef5d979be7f09"
+    },
+    {
+      "id": "9000",
+      "path": "dom/media/webspeech/synth/windows/moz.build",
+      "postSha256": "84fb47618f1b1de47132ae6c8fcd1b7e0c2b39d400668193e6831c1b18b5ee83",
+      "preSha256": "db7ad453391005b2e93da3816bef2453a283e42d09572faa918ff5def52a9e6f"
+    },
+    {
+      "id": "9000",
+      "path": "dom/media/webspeech/synth/windows/SapiService.cpp",
+      "postSha256": "42db11a25b6b089258e670c62adde8d2ecbe305c0a8a8429b14383f5987eb9e9",
+      "preSha256": "d316d9f48c6123aed43612b0d21e8d64a2ea388c6bd40cad45b2848f42066274"
+    },
+    {
+      "id": "9000",
+      "path": "dom/media/webspeech/synth/ipc/SpeechSynthesisParent.cpp",
+      "postSha256": "9b978c5a833ab8250610ad8167a2961e8ae23146a5b68f7075d5c6a0d008ec84",
+      "preSha256": "c6171e3689fab1789c459b924c7420786d2efed0caf2741747b910e0a3dcd61f"
+    },
+    {
+      "id": "9000",
+      "path": "dom/media/webspeech/synth/nsSynthVoiceRegistry.cpp",
+      "postSha256": "19ccd59ce3f0601ebaf0fdf5b05e4a4c6192a03540d9cd962a8baf2999f91864",
+      "preSha256": "9eac4b53804588d57f4309ed0e6f8d9c971ca876473efd698d30d90a4bf18a3f"
+    },
+    {
+      "id": "9000",
+      "path": "dom/media/webspeech/synth/SpeechSynthesis.cpp",
+      "postSha256": "b2e908b78c2f442aaed5fafd7397855968d2503385d6bedd5db865406d6946b4",
+      "preSha256": "54611fee854db93922b3c36ad6ff014d07eaa3ea68abb49bc1bbd9392a7ce75f"
+    }
+  ],
+  "pendingAtBuildHost": [
+    "build log and complete patch application closure",
+    "new R1 diagnostic builder image binding",
+    "Windows archive SHA-256 and size",
+    "camoufox.exe SHA-256, BuildID, SourceStamp",
+    "extraction tree manifest SHA-256",
+    "diagnosticOnly=true / formalEligible=false proof artifacts",
+    "GPC startup-order and diagnostic seam proof capture"
+  ],
+  "r1IncrementalPatches": [
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": false,
+      "formalCarryForward": "allowed-after-qualification",
+      "id": "0003",
+      "kind": "r1-diagnostic",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/0003-verisilo-gpc-canonical-pref-projection.patch",
+      "sha256": "3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b",
+      "sizeBytes": 2774
+    },
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": false,
+      "formalCarryForward": "allowed-after-qualification",
+      "id": "0004",
+      "kind": "r1-diagnostic",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/0004-verisilo-remove-worker-gpc-mask-override.patch",
+      "sha256": "5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185",
+      "sizeBytes": 412
+    },
+    {
+      "applyAfterUpstream": true,
+      "diagnosticOnly": true,
+      "formalCarryForward": "never",
+      "id": "9000",
+      "kind": "r1-diagnostic",
+      "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch",
+      "sha256": "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8",
+      "sizeBytes": 7808
+    }
+  ],
+  "schema": "verisilo-r1-diag-source-binding/v2",
+  "sourceInputs": {
+    "baseCarryForwardPatchOrder": [
+      "0000",
+      "0001",
+      "0002"
+    ],
+    "completePatchOrder": [
+      "0000",
+      "0001",
+      "0002",
+      "0003",
+      "0004",
+      "9000"
+    ],
+    "downstreamPatches": [
+      {
+        "applyAfterUpstream": true,
+        "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0000-verisilo-ff152-midl-cross-build-input.patch",
+        "sha256": "8d407bdc4010f7b2989f206a70909bfa9ad89046ddb9e17fa76092c864433600",
+        "sizeBytes": 1184
+      },
+      {
+        "applyAfterUpstream": true,
+        "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0001-verisilo-canvas-export-key.patch",
+        "sha256": "4fa6d3bbf203e2385e29a72ec2669ee17a571281be7ee2a73598e38918069b02",
+        "sizeBytes": 2121
+      },
+      {
+        "applyAfterUpstream": true,
+        "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28/0002-verisilo-juggler-bounded-close.patch",
+        "sha256": "efb006d5b2b05756fc310b52eb48e0bdab5e8b23e780fa08534a7fc099c22ce7",
+        "sizeBytes": 3059
+      },
+      {
+        "applyAfterUpstream": true,
+        "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/0003-verisilo-gpc-canonical-pref-projection.patch",
+        "sha256": "3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b",
+        "sizeBytes": 2774
+      },
+      {
+        "applyAfterUpstream": true,
+        "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/0004-verisilo-remove-worker-gpc-mask-override.patch",
+        "sha256": "5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185",
+        "sizeBytes": 412
+      },
+      {
+        "applyAfterUpstream": true,
+        "path": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag/9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch",
+        "sha256": "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8",
+        "sizeBytes": 7808
+      }
+    ],
+    "inputTreeCanonicalization": "compact UTF-8 JSON array sorted ordinal by forward-slash path; object keys sorted; each entry contains path, sha256, size",
+    "inputTrees": [
+      {
+        "canonicalTreeSha256": "e1e481043f19b1c2ca807e302bdc1a338299a42c302a27c3200c8cd3e1902b85",
+        "fileCount": 129,
+        "path": "additions",
+        "totalBytes": 8491616
+      },
+      {
+        "canonicalTreeSha256": "f70a70ba936817c365d581fdddc4c3e3b43297903530b65d25842aaeaa94be75",
+        "fileCount": 6,
+        "path": "settings",
+        "totalBytes": 57784
+      },
+      {
+        "canonicalTreeSha256": "e289169a6b12fac714e77e98588d9e99f27f358823d519e5a5db0911c5a76e1d",
+        "fileCount": 7,
+        "path": "assets",
+        "totalBytes": 50273
+      },
+      {
+        "canonicalTreeSha256": "3e826922d8e0ecf4d94aacd6d2f723d884e52d16e30461d2101edc1d386957ad",
+        "fileCount": 355,
+        "path": "bundle/fonts/macos",
+        "totalBytes": 595326474
+      },
+      {
+        "canonicalTreeSha256": "30b4f9ddd2cec18427a563c2c83b1ee92dc87ff65329f54402f47b0c25b29ccc",
+        "fileCount": 143,
+        "path": "bundle/fonts/linux",
+        "totalBytes": 42270388
+      }
+    ],
+    "r1IncrementalPatchOrder": [
+      "0003",
+      "0004",
+      "9000"
+    ],
+    "recipeFiles": [
+      {
+        "path": "upstream.sh",
+        "sha256": "10679e6bdd62d25374f10338cb09ffd548971d9014d3dea5dd3f90cb609b1bee",
+        "sizeBytes": 52
+      },
+      {
+        "path": "Makefile",
+        "sha256": "f3ee59236813e78ffe9be8e97060f135b9f22c4091e0c6e268be842d3acc6f71",
+        "sizeBytes": 8746
+      },
+      {
+        "path": "multibuild.py",
+        "sha256": "0f0070b5eb76b7184145eca14156bde66f4e14e66ac424005bdb3f16ded3de27",
+        "sizeBytes": 4968
+      },
+      {
+        "path": "scripts/patch.py",
+        "sha256": "6f7e5095fffdf55afbf1a37fce49d436c30343f9d95250157be609e9f7ee141e",
+        "sizeBytes": 8449
+      },
+      {
+        "path": "scripts/_mixin.py",
+        "sha256": "e798db2dd10e4ef1e0409156e79a4f4e5b96b519fe67ce8d90f385e48a53acd3",
+        "sizeBytes": 3810
+      },
+      {
+        "path": "scripts/copy-additions.sh",
+        "sha256": "c1f72fe8e015d6d0576894de29192d0a5ae75fe7bac57d3f63b20e7f8f38499b",
+        "sizeBytes": 2231
+      },
+      {
+        "path": "scripts/package.py",
+        "sha256": "9e278fa4328d5f07f860fb79ef1ef067f439a5d068be32b3bb06cce52f31070f",
+        "sizeBytes": 6290
+      },
+      {
+        "path": "patches/librewolf/pack_vs.py",
+        "sha256": "425a73fcfb5e40d0113b6e0e3a71bbf6bec921f727d3298748a81a568d48e592",
+        "sizeBytes": 4287
+      },
+      {
+        "path": ".github/workflows/build.yml",
+        "sha256": "db82496faa2fd5b0595843eca6a1c46858643d581b53d778ac3f0d506892a42a",
+        "sizeBytes": 4446
+      },
+      {
+        "path": "assets/base.mozconfig",
+        "sha256": "b74bc0c376d6662e3c2883ce053da181e2bb086d9d5210dda49e32492cc92b6b",
+        "sizeBytes": 1222
+      },
+      {
+        "path": "assets/windows.mozconfig",
+        "sha256": "447b3565c7e4afdd4d4af3b694387b4da56bcb3d2da9fed2e115d21c9c87a389",
+        "sizeBytes": 83
+      },
+      {
+        "path": "settings/properties.json",
+        "sha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+        "sizeBytes": 6075
+      },
+      {
+        "path": "settings/camoufox.cfg",
+        "sha256": "2d4e2d1ebca1a7103b03477d7d11dc056ae0f53ab12ef63e55d8bf2ff4b5722a",
+        "sizeBytes": 36394
+      }
+    ],
+    "upstreamPatchApplication": {
+      "command": [
+        "patch",
+        "-p1",
+        "--batch",
+        "--binary",
+        "--forward",
+        "--ignore-whitespace",
+        "--fuzz=2",
+        "--no-backup-if-mismatch",
+        "-i",
+        "{patch}"
+      ],
+      "createdPathCount": 19,
+      "debrisBaselineCanonicalization": "ordinal-sorted relative POSIX paths; orig path list is UTF-8 with each path LF-terminated; canonical orig state is a compact sorted-key UTF-8 JSON array with path,sha256,size; mode and mtime excluded",
+      "headerPairCount": 281,
+      "pathListCanonicalization": "ordinal-sorted safe relative POSIX paths, UTF-8, each LF-terminated",
+      "postPatchSurface": {
+        "absentCount": 0,
+        "canonicalSurfaceSha256": "761da79324631c5cfccfb00e6621947c70fde9c392a83c7b9a0d8359cf70ca8d",
+        "fileCount": 222,
+        "surfacePathCount": 222,
+        "totalFileBytes": 14068638
+      },
+      "prePatchDebrisBaseline": {
+        "canonicalOrigSha256": "ae23e8cf45f40bceed7292ab20965d399be12dc21323b94bd3a7c2c0f3b14da7",
+        "origCount": 548,
+        "origPathListSha256": "5257c70c7d8d471eafbf33862e894324831bfd2a5c78d2f1ef08e7201280360f",
+        "rejectCount": 0,
+        "totalOrigBytes": 714909
+      },
+      "prePatchSurface": {
+        "absentCount": 19,
+        "canonicalSurfaceSha256": "1a6f9fb5fc08efab2814d8cfbaa306d1202b82b044a2b743de3af95068089408",
+        "fileCount": 203,
+        "surfacePathCount": 222,
+        "totalFileBytes": 13879593
+      },
+      "programVersion": "GNU patch 2.7.6",
+      "surfaceCanonicalization": "same path order; compact sorted-key UTF-8 JSON array; file rows contain path,sha256,size,type=file; absent rows contain path,type=absent; mode and mtime excluded",
+      "surfacePathCount": 222,
+      "surfacePathListSha256": "6c4dd3fa1e6431773aaa4aa37173052761b43025df966a7438a4d34facde8ae6"
+    },
+    "upstreamPatchOrderRule": "recursive patches/**/*.patch sorted by basename; non-roverfox first, roverfox last",
+    "upstreamPatches": [
+      {
+        "path": "patches/playwright/0-playwright.patch",
+        "sha256": "af11f54b2d89a7a6952e8f1653a0d2af018bcb73a2d2ebac14a5a1dd510c7e26",
+        "sizeBytes": 137278
+      },
+      {
+        "path": "patches/playwright/1-leak-fixes.patch",
+        "sha256": "ec451f976a730e84165f18caed76ac533f24e99d34f114b1f72888438774e670",
+        "sizeBytes": 1732
+      },
+      {
+        "path": "patches/ghostery/Disable-Onboarding-Messages.patch",
+        "sha256": "dce5eb6f1758602f7dcc810c337ce14b3914760ff73a807796e14c97573bb8f0",
+        "sizeBytes": 929
+      },
+      {
+        "path": "patches/all-addons-private-mode.patch",
+        "sha256": "f3dde19167e4cd0e39e0f60e525df14d5857d58cb99d2f9e89749ad52032e049",
+        "sizeBytes": 787
+      },
+      {
+        "path": "patches/anti-font-fingerprinting.patch",
+        "sha256": "925dabc8d975642bf60311bc291c1914e2d30aa07b0a91953122e7c2a3f25a82",
+        "sizeBytes": 56116
+      },
+      {
+        "path": "patches/audio-context-spoofing.patch",
+        "sha256": "073b552b369064974eeab94646b46c1618d65bef0ee864b346777deeaea13b4e",
+        "sizeBytes": 2417
+      },
+      {
+        "path": "patches/audio-fingerprint-manager.patch",
+        "sha256": "ce541dace41ecf4e1168dc2b0f1ade6e10e51f947d3a257c8d3fd3d9b187708c",
+        "sizeBytes": 16749
+      },
+      {
+        "path": "patches/librewolf/bootstrap.patch",
+        "sha256": "7d91135459ceb58516e4ac6c2138c629f77ca7914a8be9219350b3aa136cbbfb",
+        "sizeBytes": 685
+      },
+      {
+        "path": "patches/browser-init.patch",
+        "sha256": "675c150f99a776e8a9e89814766bdab300d2859795602be018a5ce05a86c0188",
+        "sizeBytes": 9752
+      },
+      {
+        "path": "patches/chromeutil.patch",
+        "sha256": "35d30963aa5e6e05e8fa753532334d8e6afd839654c103e6f622087ec441ba29",
+        "sizeBytes": 7132
+      },
+      {
+        "path": "patches/config.patch",
+        "sha256": "8d86c6f7034e630d7e517e1f5e0361661d312db2d12fcb7b6ad8eadc2544914f",
+        "sizeBytes": 1204
+      },
+      {
+        "path": "patches/cross-process-storage.patch",
+        "sha256": "246543638cbd326796f7d3127c0e360db1b9e6f4dd5500d442fe1f706aad0cc6",
+        "sizeBytes": 4276
+      },
+      {
+        "path": "patches/librewolf/custom-ubo-assets-bootstrap-location.patch",
+        "sha256": "a22fc61e871d8e6ad25ea79a5e7326e2aaa7f92cfe011688dd91e4f2fbdd6e4a",
+        "sizeBytes": 996
+      },
+      {
+        "path": "patches/librewolf/dbus_name.patch",
+        "sha256": "9253991c113f0177ce73947ca626f043dfaffbad5a110bfb34a22aae52064aa1",
+        "sizeBytes": 4731
+      },
+      {
+        "path": "patches/librewolf/devtools-bypass.patch",
+        "sha256": "b2619b732ec6776f5f884934b838561144f1a0598846e6c140d17ccf4891e869",
+        "sizeBytes": 1260
+      },
+      {
+        "path": "patches/librewolf/disable-data-reporting-at-compile-time.patch",
+        "sha256": "926cbcb6e1f47e8a4037deab4637b93d5c6a0541392af23cf7bb42708e0bff7c",
+        "sizeBytes": 1387
+      },
+      {
+        "path": "patches/disable-extension-newtab.patch",
+        "sha256": "248ca904243a31bd8e0ce369e9dde48baa94df18fd01b604a6206c881b9afac7",
+        "sizeBytes": 1361
+      },
+      {
+        "path": "patches/fingerprint-injection.patch",
+        "sha256": "0408cf447924a007df1bc0dc9b10344383c14f3cc5828b44068de706ffadf8d7",
+        "sizeBytes": 13729
+      },
+      {
+        "path": "patches/librewolf/ui-patches/firefox-view.patch",
+        "sha256": "465c07f9a9999b4002d8a70e30644bcc74b169f4a23ff486e9c4b0ea7a1f1fa8",
+        "sizeBytes": 2601
+      },
+      {
+        "path": "patches/font-hijacker.patch",
+        "sha256": "be6699fa828c28b14583187bbc633d8ff5afcb3e69476bf433c4051772c5a7bf",
+        "sizeBytes": 5290
+      },
+      {
+        "path": "patches/font-list-spoofing.patch",
+        "sha256": "a0135b4233ffe2a00212456919b8cae19fe9d75dc21981e5641dcb9566bc288c",
+        "sizeBytes": 10249
+      },
+      {
+        "path": "patches/font-system-fonts-css2.patch",
+        "sha256": "4416682675c4bf7b6e4daf01d64813fdb65bce30c732f8fdd18378f1107cfe37",
+        "sizeBytes": 12857
+      },
+      {
+        "path": "patches/force-default-pointer.patch",
+        "sha256": "526725d9853feaab3c28965a155967108b7be38262ccbd88bf3d8a6192c30da9",
+        "sizeBytes": 1090
+      },
+      {
+        "path": "patches/geolocation-spoofing.patch",
+        "sha256": "90da4888b68bf7ba15c693709f19088f953d85198673ff67796722176ab743d5",
+        "sizeBytes": 5425
+      },
+      {
+        "path": "patches/global-style-sheets.patch",
+        "sha256": "2f02cdd8d17b7b13cc6abfba6f1ed281b48a5b72f9949c556d515e402a86e5db",
+        "sizeBytes": 1630
+      },
+      {
+        "path": "patches/librewolf/ui-patches/handlers.patch",
+        "sha256": "0c889f4b8c0a849799e1f6acd2b8f758d013a8043e323cb580e5abbde0f447c4",
+        "sizeBytes": 4878
+      },
+      {
+        "path": "patches/librewolf/ui-patches/hide-default-browser.patch",
+        "sha256": "f2b0bfa21950db26a252cb82d237265075b7b951983f9aaa6bb8f41046712809",
+        "sizeBytes": 2828
+      },
+      {
+        "path": "patches/locale-spoofing.patch",
+        "sha256": "e040e7cae4affe7c37c37f6bb1a482d861f99c0c3c90191462ae5d67ffb411b1",
+        "sizeBytes": 6875
+      },
+      {
+        "path": "patches/macos-sandbox-crash-fix.patch",
+        "sha256": "d4c47c9cf6c333bbc92f949947fb5aee84c9edc3a39e9c7544ad8b4e56c99ab4",
+        "sizeBytes": 1460
+      },
+      {
+        "path": "patches/media-device-spoofing.patch",
+        "sha256": "a286a37aa1d33550af0ab57c1003f366f361bc958e7270215ca91a5cb987cf3c",
+        "sizeBytes": 4626
+      },
+      {
+        "path": "patches/librewolf/mozilla_dirs.patch",
+        "sha256": "7e241eba0b0adfe9aa026ed1e3673e442373d05203a230046402b64be27aba1e",
+        "sizeBytes": 6587
+      },
+      {
+        "path": "patches/navigator-spoofing.patch",
+        "sha256": "b951b62655927b33bcd8f02bc12dcfaf7051ec64a48526d2974fd70f303b7a58",
+        "sizeBytes": 20401
+      },
+      {
+        "path": "patches/network-patches.patch",
+        "sha256": "ae4c20bf791173ab3b8a9cdb8627668cecefd46e9fc928501b396d0094230a8e",
+        "sizeBytes": 2433
+      },
+      {
+        "path": "patches/no-css-animations.patch",
+        "sha256": "e940f991a1f6996ac6b5241569b589c7f644f3496892994d0f780b792e0fea2e",
+        "sizeBytes": 2086
+      },
+      {
+        "path": "patches/no-search-engines.patch",
+        "sha256": "ef7f85bf74d042d1e2962ac31daf47172b31805c5327e6606491dc8e7d869d80",
+        "sizeBytes": 1512
+      },
+      {
+        "path": "patches/pin-addons.patch",
+        "sha256": "0d1d8093ddd7254c255b41b245a59111dac75985255ec7f50cabbe092e8a0a2e",
+        "sizeBytes": 1206
+      },
+      {
+        "path": "patches/librewolf/ui-patches/remove-organization-policy-banner.patch",
+        "sha256": "21dfd320408ffd57239eabf13df493fe7d575be6b12b07554f8454c233750ab2",
+        "sizeBytes": 514
+      },
+      {
+        "path": "patches/librewolf/rust-gentoo-musl.patch",
+        "sha256": "1bb4b36860308a3b54d786ca0da2d4f4b19a17703b6c6b3155a0dc7a2f9f3372",
+        "sizeBytes": 1045
+      },
+      {
+        "path": "patches/screen-spoofing.patch",
+        "sha256": "859709064fd9b880508d41f43089b71a939d2a74a6d250af5f0b2a8c3d5a4903",
+        "sizeBytes": 3698
+      },
+      {
+        "path": "patches/sessionstore-popup-close-crash.patch",
+        "sha256": "2714e3c4e14ed45aa43ce0970cd8f9c8779e17657330db67c6d4d4ec0b9cf909",
+        "sizeBytes": 1261
+      },
+      {
+        "path": "patches/shadow-root-bypass.patch",
+        "sha256": "f29455be19205edde28b6ed5ab02b9329f902d18eee5c226bdf5c00592acc4ec",
+        "sizeBytes": 550
+      },
+      {
+        "path": "patches/speech-voices-spoofing.patch",
+        "sha256": "73ddfa9655193b4df1e30b5ab1775b13fb333747ea2400f98752be479d49ae31",
+        "sizeBytes": 8897
+      },
+      {
+        "path": "patches/librewolf/sed-patches/stop-undesired-requests.patch",
+        "sha256": "02e316537966e5557fced4a4c40c9d70f4a35ac06607d5ec074ba5ba14a1dfb4",
+        "sizeBytes": 961
+      },
+      {
+        "path": "patches/system-ui-font-spoofing.patch",
+        "sha256": "9c73db14ab465a5c62eac6e38588896f4cc6402334fd8992e9ad5391efc8f1e3",
+        "sizeBytes": 985
+      },
+      {
+        "path": "patches/timezone-spoofing.patch",
+        "sha256": "766ece79d009ddc4024b135cccaaf633ed7ccca2330b0362901d70dc02987e7d",
+        "sizeBytes": 13973
+      },
+      {
+        "path": "patches/librewolf/urlbarprovider-interventions.patch",
+        "sha256": "87acbf01bbdcc2a52ed7e07d8ed8d0ef4fcfd3b38ab57767f330358e9af347c9",
+        "sizeBytes": 636
+      },
+      {
+        "path": "patches/voice-spoofing.patch",
+        "sha256": "476adbedadd74b19db4f38437f20ccff1f7187fc30024c3b140e4908ccab4cbb",
+        "sizeBytes": 3266
+      },
+      {
+        "path": "patches/webgl-spoofing.patch",
+        "sha256": "63d8c2a5997ddc7786ccc60da4e9910dd0447de010823ddab9498559282e6c9e",
+        "sizeBytes": 26078
+      },
+      {
+        "path": "patches/webrtc-ip-spoofing.patch",
+        "sha256": "108aae65952bc4c2752bbbb4846459ba19c3238900c97c71bf9143f35c7332ae",
+        "sizeBytes": 42059
+      },
+      {
+        "path": "patches/windows-theming-bug-modified.patch",
+        "sha256": "992e8ae7ff63927a713f7ac5d7153721332df93ba953054f01e4105414ac28a7",
+        "sizeBytes": 1549
+      }
+    ]
+  },
+  "sourceLockLineage": {
+    "reason": "v1 was non-executable: embedded driver and launcher were canvas-specific; v2 is an independent R1 diagnostic build family",
+    "supersededLockSha256": "3248dd1da1c06e115b9b8f40a5e17d6012bc2521c627304e814735b0d54fbbd2",
+    "supersedes": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-diag-v1-source.json"
+  },
+  "status": "recipe-frozen-builder-unbound",
+  "upstream": {
+    "commit": "0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d",
+    "repository": "https://github.com/daijro/camoufox",
+    "tag": "v152.0.4-beta.28",
+    "tree": "1435d544d9b61dee7fcf74cf92462952ca43d38e"
+  },
+  "verified": false
+}

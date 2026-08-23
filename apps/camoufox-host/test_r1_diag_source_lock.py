@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -143,6 +145,32 @@ class R1DiagSourceLockTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("unrecognized", result.reason)
 
+    def test_gate_formal_rejects_missing_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            shutil.copy(
+                SERIES_DIR / self.expected["0003"]["filename"],
+                tmp / self.expected["0003"]["filename"],
+            )
+            result = self._eval_with_dir(diag_gate.MODE_FORMAL, tmp)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.details["missing"], ["0004"])
+        self.assertEqual(result.details["extra"], [])
+        self.assertEqual(result.details["drift"], [])
+
+    def test_gate_formal_rejects_sha_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            for pid in ("0003", "0004"):
+                name = self.expected[pid]["filename"]
+                data = (SERIES_DIR / name).read_bytes()
+                if pid == "0004":
+                    data += b"\n"
+                (tmp / name).write_bytes(data)
+            result = self._eval_with_dir(diag_gate.MODE_FORMAL, tmp)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.details["drift"], ["0004"])
+
     def test_gate_diagnostic_accepts_frozen_trio(self) -> None:
         result = self._eval_with_dir(diag_gate.MODE_DIAGNOSTIC, SERIES_DIR)
         self.assertTrue(result.ok)
@@ -163,6 +191,71 @@ class R1DiagSourceLockTests(unittest.TestCase):
             result = self._eval_with_dir(diag_gate.MODE_DIAGNOSTIC, tmp)
         self.assertFalse(result.ok)
         self.assertIn("drift", result.reason)
+
+    def test_gate_diagnostic_rejects_missing_patch(self) -> None:
+        for missing in ("0003", "0004", "9000"):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as td:
+                tmp = Path(td)
+                for pid in ("0003", "0004", "9000"):
+                    if pid == missing:
+                        continue
+                    name = self.expected[pid]["filename"]
+                    shutil.copy(SERIES_DIR / name, tmp / name)
+                result = self._eval_with_dir(diag_gate.MODE_DIAGNOSTIC, tmp)
+                self.assertFalse(result.ok)
+                self.assertEqual(result.details["missing"], [missing])
+                self.assertEqual(result.details["extra"], [])
+                self.assertEqual(result.details["drift"], [])
+                self.assertNotIn("Traceback", result.to_json())
+
+    def test_gate_diagnostic_rejects_empty_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            result = self._eval_with_dir(diag_gate.MODE_DIAGNOSTIC, Path(td))
+        self.assertFalse(result.ok)
+        self.assertEqual(result.details["missing"], ["0003", "0004", "9000"])
+        self.assertEqual(result.details["extra"], [])
+        self.assertEqual(result.details["drift"], [])
+
+    def test_gate_diagnostic_rejects_marker_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            for pid in ("0003", "0004", "9000"):
+                name = self.expected[pid]["filename"]
+                shutil.copy(SERIES_DIR / name, tmp / name)
+            result = self._eval_with_dir(
+                diag_gate.MODE_DIAGNOSTIC,
+                tmp,
+                texts={"9000": "# VERISILO-DIAGNOSTIC-MARKER: v2\n"},
+            )
+        self.assertFalse(result.ok)
+        self.assertEqual(result.details["marker"], "missing-or-drifted")
+
+    def test_gate_cli_missing_patch_is_json_and_exit_two(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            for pid in ("0003", "9000"):
+                name = self.expected[pid]["filename"]
+                shutil.copy(SERIES_DIR / name, tmp / name)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(BUILD_DIR / "diag_gate.py"),
+                    "--mode",
+                    "diagnostic",
+                    "--series-dir",
+                    str(tmp),
+                    "--authoring-record",
+                    str(RECORD_PATH),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(completed.returncode, 2)
+        payload = json.loads(completed.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["details"]["missing"], ["0004"])
+        self.assertNotIn("Traceback", completed.stdout + completed.stderr)
 
     def test_gate_unknown_mode_rejected(self) -> None:
         result = self._eval_with_dir("formal-with-env-override", SERIES_DIR)

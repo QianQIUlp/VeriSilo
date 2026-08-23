@@ -1,6 +1,6 @@
 # FP2-R1 Engine Remediation Design Freeze
 
-- 状态：**Proposed（待主脑 Gate 审阅）**
+- 状态：**Accepted**（checkpoint `ff4f8c960d5cf63ff242da990b904fca8743be54`；含 `38ff360c` policy-state amendment）
 - 形成日期：2026-08-22
 - 授权任务：`FP2-R1 Engine Remediation Design Freeze`（offline/static only）
 - 浏览器执行：本任务全程未启动浏览器；Browser 保持 CLOSED

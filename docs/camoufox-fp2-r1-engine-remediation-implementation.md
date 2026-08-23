@@ -1,6 +1,6 @@
 # FP2-R1 Engine Remediation Implementation Contract
 
-- 状态：**Proposed（待主脑 Gate 审阅）**
+- 状态：**Accepted**（checkpoint `38ff360c65f2fb5e28fe3ebaed7931727c0d6b68`）
 - 形成日期：2026-08-22
 - 前置：[设计冻结](camoufox-fp2-r1-engine-remediation-design.md) 已 Accepted
   （checkpoint `ff4f8c960d5cf63ff242da990b904fca8743be54` /
