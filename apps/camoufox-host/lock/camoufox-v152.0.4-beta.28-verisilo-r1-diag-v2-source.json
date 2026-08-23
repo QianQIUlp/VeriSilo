@@ -153,8 +153,8 @@
         },
         {
           "path": "apps/camoufox-host/build/r1-diag-v1/build_host.py",
-          "sha256": "5c6a93372a9e4257beea842ef228081c2e807afc0871a008cce94a4217b958a1",
-          "sizeBytes": 100626
+          "sha256": "389c77e2b46e5b1ed3dada909b164d9622f3b8219c55808b956678ca4107a36c",
+          "sizeBytes": 101834
         }
       ],
       "fixedEnvironment": {

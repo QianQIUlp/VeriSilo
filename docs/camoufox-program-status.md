@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag durable builder evidence / rehydration   | **Phase A Accepted at `88fb25a`；operational lock unbound；Phase B-2/C-2/D CLOSED；ultratone resource Gate 不满足** |
+| R1-diag durable builder evidence / rehydration   | **宿主 qualification/resource Gate 已关闭；Phase B-2 重跑中；operational lock unbound** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1081,3 +1081,19 @@ stage boot ID `c8495db5-9362-495e-bef6-f77d457b59bf`，verify boot ID
 browser，`browserLaunches = 0`。项目主线返回 R1-diag diagnostic engine build closure；
 在 engine build 前仍须以宿主配置方式满足既有 scratch `85899345920` bytes 与 swap
 `25769799680` bytes 门槛，不修改 recipe、schema 或冻结阈值。
+
+### 2026-08-23 Phase B-2 实机兼容修正
+
+ultratone 已以宿主配置关闭既有资源门槛：scratch 可用空间超过冻结 minimum，swap 为
+`25769799680` bytes，CPU 为 4；durable root 与 qualification 不变。三次全新 Phase-B
+run 均 fail-closed 并原样保留：`0939z` 暴露输入 cache 缺少冻结 upstream tag，修正 cache
+后关闭；`0941z` 证明 Docker 29 默认 containerd image store 不提供合同要求的可 inspect
+config digest，因此切换 Docker 自带 classic image store；`0957z` 已得到 exact config
+image ID，但 Docker 29 的 saved archive 将同一 config 放在
+`blobs/sha256/<digest>`，而 launcher 只接受历史 `<digest>.json` 成员名。
+
+本次最小修正仅让 saved-image validator 精确接受上述两种 canonical config 成员名；两种
+路径都继续要求 config bytes 的 SHA-256 等于 immutable image ID，所有近似路径、未知路径和
+digest drift 均拒绝。未修改 Dockerfile、strict driver、diag gate、source-lock schema、
+0000–0004/9000 或 engine semantics。operational lock 继续 unbound；旧 run/image 均不得
+复用，下一次只能使用全新 run-id。Browser 与 engine 尚未启动，`browserLaunches = 0`。

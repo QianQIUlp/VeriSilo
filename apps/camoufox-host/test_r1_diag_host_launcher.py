@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import inspect
+import io
 import json
 import os
 import sys
+import tarfile
 import tempfile
 import unittest
 from argparse import Namespace
@@ -87,7 +90,95 @@ def _inspect_json(source: dict) -> str:
     )
 
 
+def _saved_image_stream(
+    config_member: str | None = None,
+    *,
+    config_bytes: bytes = b'{"architecture":"amd64"}',
+    image_id: str | None = None,
+) -> tuple[io.BytesIO, str]:
+    actual_image_id = image_id or (
+        f"sha256:{hashlib.sha256(config_bytes).hexdigest()}"
+    )
+    expected_hex = actual_image_id.removeprefix("sha256:")
+    member_name = config_member or f"{expected_hex}.json"
+    manifest_bytes = json.dumps(
+        [{"Config": member_name, "RepoTags": None, "Layers": []}],
+        separators=(",", ":"),
+    ).encode("utf-8")
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w") as archive:
+        for name, payload in (
+            ("manifest.json", manifest_bytes),
+            (member_name, config_bytes),
+        ):
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+    stream.seek(0)
+    return stream, actual_image_id
+
+
 class R1DiagHostLauncherTests(unittest.TestCase):
+    def test_saved_image_accepts_legacy_config_member(self) -> None:
+        stream, image_id = _saved_image_stream()
+        identity = build_host._validate_saved_image_stream(
+            stream, image_id, "legacy-test"
+        )
+        self.assertEqual(
+            identity["configMember"], f"{image_id.removeprefix('sha256:')}.json"
+        )
+
+    def test_saved_image_accepts_docker_29_oci_config_member(self) -> None:
+        config_bytes = b'{"architecture":"amd64","os":"linux"}'
+        image_id = f"sha256:{hashlib.sha256(config_bytes).hexdigest()}"
+        config_member = f"blobs/sha256/{image_id.removeprefix('sha256:')}"
+        stream, _ = _saved_image_stream(
+            config_member, config_bytes=config_bytes, image_id=image_id
+        )
+        identity = build_host._validate_saved_image_stream(
+            stream, image_id, "docker-29-test"
+        )
+        self.assertEqual(identity["configMember"], config_member)
+
+    def test_saved_image_rejects_noncanonical_config_members(self) -> None:
+        config_bytes = b'{"architecture":"amd64"}'
+        image_id = f"sha256:{hashlib.sha256(config_bytes).hexdigest()}"
+        expected_hex = image_id.removeprefix("sha256:")
+        for config_member in (
+            f"../{expected_hex}.json",
+            f"blobs/sha512/{expected_hex}",
+            f"blobs/sha256/{expected_hex}.json",
+            f"other/{expected_hex}",
+        ):
+            with self.subTest(config_member=config_member):
+                stream, _ = _saved_image_stream(
+                    config_member, config_bytes=config_bytes, image_id=image_id
+                )
+                with self.assertRaisesRegex(
+                    build_host.HostBuildFailure,
+                    "config does not name the proposed image ID",
+                ):
+                    build_host._validate_saved_image_stream(
+                        stream, image_id, "noncanonical-test"
+                    )
+
+    def test_saved_image_rejects_config_digest_drift(self) -> None:
+        expected_bytes = b'{"architecture":"amd64"}'
+        image_id = f"sha256:{hashlib.sha256(expected_bytes).hexdigest()}"
+        config_member = f"blobs/sha256/{image_id.removeprefix('sha256:')}"
+        stream, _ = _saved_image_stream(
+            config_member,
+            config_bytes=b'{"architecture":"arm64"}',
+            image_id=image_id,
+        )
+        with self.assertRaisesRegex(
+            build_host.HostBuildFailure,
+            "config digest differs from proposed image ID",
+        ):
+            build_host._validate_saved_image_stream(
+                stream, image_id, "digest-drift-test"
+            )
+
     def test_save_command_has_no_path_redirection_or_o_option(self) -> None:
         command = build_host._docker_image_save_command(IMAGE_ID)
         self.assertEqual(command, [*build_host.DOCKER, "image", "save", IMAGE_ID])

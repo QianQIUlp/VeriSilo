@@ -348,6 +348,27 @@ class R1DiagDurableEvidenceTests(unittest.TestCase):
             ):
                 build_host._validate_prepared_result(result_path, RUN_ID)
 
+    def test_prepared_result_accepts_docker_29_oci_tar_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            provenance, _ = _make_provenance(Path(directory))
+            result_path = provenance / "builder-image-result.json"
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            image_hex = result["bindingProposal"]["imageId"].removeprefix(
+                "sha256:"
+            )
+            result["archiveProvenance"]["tarIdentity"][
+                "configMember"
+            ] = f"blobs/sha256/{image_hex}"
+            result_path.write_text(
+                json.dumps(result, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            accepted = build_host._validate_prepared_result(result_path, RUN_ID)
+            self.assertEqual(
+                accepted["archiveProvenance"]["tarIdentity"]["configMember"],
+                f"blobs/sha256/{image_hex}",
+            )
+
     def test_prepare_image_rejects_unqualified_storage_before_docker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

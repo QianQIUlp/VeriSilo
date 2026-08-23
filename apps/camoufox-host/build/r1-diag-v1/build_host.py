@@ -708,6 +708,31 @@ def _expected_saved_image_identity(image_id: str) -> dict:
     }
 
 
+def _saved_image_config_members(image_id: str) -> tuple[str, str]:
+    if not _matches(r"sha256:[0-9a-f]{64}", image_id):
+        raise HostBuildFailure("saved image proposal has no immutable image ID")
+    expected_hex = image_id.removeprefix("sha256:")
+    return (
+        f"{expected_hex}.json",
+        f"blobs/sha256/{expected_hex}",
+    )
+
+
+def _validate_saved_image_identity(identity: dict, image_id: str) -> dict:
+    expected = _expected_saved_image_identity(image_id)
+    if (
+        type(identity) is not dict
+        or set(identity)
+        != {"configMember", "configSha256", "imageId", "manifestMember"}
+        or identity.get("configMember") not in _saved_image_config_members(image_id)
+        or identity.get("configSha256") != expected["configSha256"]
+        or identity.get("imageId") != image_id
+        or identity.get("manifestMember") != "manifest.json"
+    ):
+        raise HostBuildFailure("saved image archive identity is malformed")
+    return identity
+
+
 def _validate_saved_image_stream(stream, image_id: str, label: str) -> dict:
     """Bind an open Docker-save stream back to the immutable image ID."""
     expected_identity = _expected_saved_image_identity(image_id)
@@ -737,8 +762,7 @@ def _validate_saved_image_stream(stream, image_id: str, label: str) -> dict:
                 raise HostBuildFailure("Docker image archive manifest is malformed")
             config_name = entry["Config"]
             if (
-                Path(config_name).name != config_name
-                or config_name != f"{expected_hex}.json"
+                config_name not in _saved_image_config_members(image_id)
                 or config_name not in names
             ):
                 raise HostBuildFailure(
@@ -763,7 +787,9 @@ def _validate_saved_image_stream(stream, image_id: str, label: str) -> dict:
         raise HostBuildFailure("Docker image archive is invalid") from exc
     finally:
         stream.seek(0)
-    return expected_identity
+    observed_identity = dict(expected_identity)
+    observed_identity["configMember"] = config_name
+    return _validate_saved_image_identity(observed_identity, image_id)
 
 
 def _verify_open_archive(stream, binding: dict, label: str) -> dict:
@@ -1691,8 +1717,6 @@ def _validate_prepared_result(path: Path, expected_run_id: str) -> dict:
         != {"archiveOwnerUid", "archiveMode", "launcherReadable", "tarIdentity"}
         or archive.get("launcherReadable") is not True
         or type(archive.get("tarIdentity")) is not dict
-        or archive["tarIdentity"]
-        != _expected_saved_image_identity(proposal["imageId"])
         or type(build_context) is not dict
         or set(build_context) != {"name", "sha256", "sizeBytes", "members"}
         or build_context.get("name") != BUILD_CONTEXT_NAME
@@ -1712,6 +1736,10 @@ def _validate_prepared_result(path: Path, expected_run_id: str) -> dict:
         )
     ):
         raise HostBuildFailure("builder image result lineage is malformed")
+    try:
+        _validate_saved_image_identity(archive["tarIdentity"], proposal["imageId"])
+    except HostBuildFailure as exc:
+        raise HostBuildFailure("builder image result lineage is malformed") from exc
     if proposal["hostToolingSha256"] != _tooling_sha_from_build_context(
         build_context
     ):
