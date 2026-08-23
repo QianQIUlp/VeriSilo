@@ -259,7 +259,16 @@ def _load_gate_module():
     if spec is None or spec.loader is None:
         raise BuildFailure("cannot load embedded diagnostic gate")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    had_previous = spec.name in sys.modules
+    previous = sys.modules.get(spec.name)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if had_previous:
+            sys.modules[spec.name] = previous
+        else:
+            sys.modules.pop(spec.name, None)
     return module
 
 

@@ -133,7 +133,7 @@ UNBOUND_LINEAGE_CURRENT = {
     "durableEvidence": "retained-but-recipe-superseded",
     "phaseB2": "closed-pending-rebuild",
     "reasonCodes": [
-        "strict_mount_identity_conflated_bind_mount_with_backing_filesystem",
+        "embedded_diag_gate_dynamic_module_not_registered",
     ],
 }
 BOUND_LINEAGE_CURRENT = {

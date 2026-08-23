@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -32,7 +33,7 @@ RECIPE_FILES = [
 ]
 FROZEN_CONTAINER_RECIPE_SHA256 = {
     "Dockerfile": "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2",
-    "strict_build.py": "75e03d5eb7ca6816424d27fc844bb806bca8098f38690f4efb88199b935cade0",
+    "strict_build.py": "0b7c5bc8237089cffda7967e52eac1c4601734499b9981b6044e2cbf43178ee4",
     "diag_gate.py": "cf192ec3a6a3471381e46eade9fc80c879e807e592000e8ab145fc6c9bc3c96a",
 }
 FROZEN_PATCH_SHA256 = {
@@ -51,7 +52,7 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
         cls.v1_lock = json.loads(V1_LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_v2_is_bound_to_repaired_durable_builder(self) -> None:
+    def test_v2_is_unbound_after_embedded_gate_loader_repair(self) -> None:
         self.assertEqual(self.lock["schema"], "verisilo-r1-diag-source-binding/v2")
         self.assertEqual(
             self.lock["engineRevision"],
@@ -59,17 +60,14 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         )
         self.assertEqual(
             self.lock["status"],
-            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+            "recipe-frozen-durable-evidence-unbound",
         )
         self.assertEqual(
             self.lock["buildBinding"]["status"],
-            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+            "recipe-frozen-durable-evidence-unbound",
         )
-        self.assertIsInstance(
-            self.lock["buildBinding"]["builderImageBinding"], dict
-        )
-        self.assertTrue(self.lock["builderImagePreparationEvidence"]["retained"])
-        self.assertTrue(self.lock["builderImagePreparationEvidence"]["reReadable"])
+        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
+        self.assertIsNone(self.lock["builderImagePreparationEvidence"])
         self.assertNotIn("builderImageBinding", self.lock)
         self.assertTrue(self.lock["diagnosticOnly"])
         self.assertFalse(self.lock["formalEligible"])
@@ -104,10 +102,10 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         )
         self.assertFalse(contract["environmentOverride"])
         lineage = self.lock["builderOperationalLineage"]
-        self.assertEqual(lineage["current"]["bindingState"], "bound")
+        self.assertEqual(lineage["current"]["bindingState"], "unbound")
         self.assertEqual(
             lineage["current"]["durableEvidence"],
-            "retained-and-reread",
+            "retained-but-recipe-superseded",
         )
         superseded = lineage["supersededPhaseC1"]
         self.assertEqual(
@@ -179,6 +177,19 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
             ),
         ):
             strict_build._validate_mounts()
+
+    def test_embedded_gate_loader_executes_actual_diagnostic_contract(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(strict_build, "EMBEDDED_GATE", BUILD_DIR / "diag_gate.py"),
+            mock.patch.object(strict_build, "VERISILO_ROOT", REPO_ROOT),
+        ):
+            result = strict_build._run_diagnostic_gate(
+                self.lock, Path(directory)
+            )
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["diagnosticOnly"])
+        self.assertFalse(result["formalEligible"])
 
     def test_each_patch_has_pre_and_post_seam_binding(self) -> None:
         seams_by_patch: dict[str, list[dict]] = {}

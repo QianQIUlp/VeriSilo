@@ -36,12 +36,8 @@ HISTORICAL_PROPOSAL_SHA256 = (
 SUPERSEDED_RECIPE_IMAGE_ID = (
     "sha256:b30686aefb44a6162d1ef5527a42920873c2faeae80527c7306e1beafa3c4706"
 )
-CURRENT_RUN_ID = "r1diag-builder-20260823t1028z"
-CURRENT_IMAGE_ID = (
+SUPERSEDED_GATE_LOADER_IMAGE_ID = (
     "sha256:271885058636c5390ad8d6e6ffe66f43ea0377c6abf9d4b7e0adb57382581da4"
-)
-CURRENT_PROPOSAL_SHA256 = (
-    "37b80df5c1a4f1bdd74dbcfaf72892d9f55be339b1417d280b3689ea9e8fd788"
 )
 
 
@@ -134,27 +130,21 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_current_lock_is_bound_to_repaired_durable_builder(
+    def test_current_lock_is_unbound_after_gate_loader_repair(
         self,
     ) -> None:
-        binding = self.lock["buildBinding"]["builderImageBinding"]
-        evidence = self.lock["builderImagePreparationEvidence"]
-        self.assertEqual(self.lock["status"], build_host.BOUND_LOCK_STATUS)
+        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
+        self.assertIsNone(self.lock["builderImagePreparationEvidence"])
+        self.assertEqual(self.lock["status"], build_host.UNBOUND_LOCK_STATUS)
         self.assertEqual(
-            self.lock["buildBinding"]["status"], build_host.BOUND_LOCK_STATUS
+            self.lock["buildBinding"]["status"], build_host.UNBOUND_LOCK_STATUS
         )
-        self.assertEqual(binding["imageId"], CURRENT_IMAGE_ID)
-        self.assertEqual(
-            build_host._canonical_json_sha(binding), CURRENT_PROPOSAL_SHA256
-        )
-        self.assertEqual(
-            evidence["bindingProposalCanonicalSha256"], CURRENT_PROPOSAL_SHA256
-        )
-        self.assertEqual(evidence["runId"], CURRENT_RUN_ID)
-        self.assertTrue(evidence["retained"])
-        self.assertTrue(evidence["reReadable"])
         current = self.lock["builderOperationalLineage"]["current"]
-        self.assertEqual(current, build_host.BOUND_LINEAGE_CURRENT)
+        self.assertEqual(current, build_host.UNBOUND_LINEAGE_CURRENT)
+        self.assertIn(
+            "embedded_diag_gate_dynamic_module_not_registered",
+            current["reasonCodes"],
+        )
         historical = self.lock["builderOperationalLineage"]["supersededPhaseC1"]
         self.assertEqual(historical["runId"], HISTORICAL_RUN_ID)
         self.assertEqual(historical["imageId"], HISTORICAL_IMAGE_ID)
@@ -170,13 +160,13 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
         self.assertEqual(encoded.count(HISTORICAL_IMAGE_ID), 1)
         self.assertEqual(encoded.count(HISTORICAL_FAILED_IMAGE_ID), 1)
         self.assertNotIn(SUPERSEDED_RECIPE_IMAGE_ID, encoded)
-        self.assertEqual(encoded.count(CURRENT_IMAGE_ID), 1)
+        self.assertNotIn(SUPERSEDED_GATE_LOADER_IMAGE_ID, encoded)
         self.assertNotEqual(
             self.lock["builderOperationalLineage"]["current"].get("imageId"),
             HISTORICAL_IMAGE_ID,
         )
 
-    def test_current_bound_lock_is_eligible_for_bound_consumption(self) -> None:
+    def test_current_unbound_lock_is_eligible_for_prepare_image(self) -> None:
         git_values = iter(["", "1" * 40, "2" * 40])
         with (
             mock.patch.object(
@@ -188,11 +178,11 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
             mock.patch.object(build_host, "_validate_patch_contract"),
         ):
             source, _ = build_host._validate_verisilo(
-                Path("unused-checkout"), binding_state="bound"
+                Path("unused-checkout"), binding_state="unbound"
             )
         self.assertEqual(source["commit"], "1" * 40)
 
-    def test_current_bound_lock_rejects_prepare_image(self) -> None:
+    def test_current_unbound_lock_rejects_bound_consumption(self) -> None:
         git_values = iter(["", "1" * 40, "2" * 40])
         with (
             mock.patch.object(
@@ -208,10 +198,10 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
             ),
         ):
             build_host._validate_verisilo(
-                Path("unused-checkout"), binding_state="unbound"
+                Path("unused-checkout"), binding_state="bound"
             )
 
-    def test_current_bound_lock_still_requires_prepared_record(self) -> None:
+    def test_current_unbound_lock_is_not_engine_eligible(self) -> None:
         with self.assertRaises(build_host.HostBuildFailure):
             build_host._validate_bound_binding(
                 self.lock, {}, "r1diag-engine-future0001"

@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag durable builder evidence / rehydration   | **strict mount 修复后 Phase B-3 Accepted；新 durable builder 已绑定，待新 engine run** |
+| R1-diag durable builder evidence / rehydration   | **Phase C-3 历史 Accepted；embedded gate loader 修复后 operational lock unbound，待重建** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1177,3 +1177,26 @@ SHA-256 / canonical SHA-256 为
 Phase C-2 binding 与 1020z engine failure 只保留历史审计意义，不进入 current lock。
 `binaryBinding = null`、`diagnosticOnly = true`、`formalEligible = false`、
 `browserLaunches = 0`。下一步必须新建 engine run。
+
+### 2026-08-23 第二次 engine run fail-closed；embedded gate loader 最小修复
+
+Phase C-3 checkpoint `9d3f98145e991e96fa8b43623bd2879618172fdc` / tree
+`03ebe518078c495a5b974ef29c066348d96f6138` 已绑定 repaired builder；lock SHA-256
+`d934a668491504827867e2054187eecc6ab6cfab4cce7f26751842dbb9c8cf3b`。全新 run
+`r1diag-engine-20260823t1034z` 的 durable/bound preparation 成功；strict mount、resource、
+checkout 与 builder identity Gate 也全部通过。container 随后在 source extraction 前加载
+embedded `diag_gate.py` 时 fail-closed，container log SHA-256 为
+`d5a3666e63847b7e1eac379de95238dce0b2c84d67edc8d7a76536935527f8a0`，strict failure
+SHA-256 为 `d6b42497df181ad219ca2900703844ade44caf7f222a2a3d32f701c0480c0c5e`，
+`browserLaunches = 0`。
+
+根因是 strict driver 以 `module_from_spec()` 创建 embedded gate module 后直接
+`exec_module()`，没有执行 Python import 机制所需的临时 `sys.modules` 注册；Python 3.12
+的 `@dataclass` 因此在解析 module namespace 时触发 `NoneType.__dict__`。最小修复在执行
+module bytes 期间注册 exact spec name，完成后恢复此前 module state。新增回归直接使用当前
+source lock、实际 `diag_gate.py` 和实际 diagnostic patch series，要求 structured
+`ok=true / diagnosticOnly=true / formalEligible=false`。未修改 gate、patch 或 engine source。
+
+由于 strict bytes 再次变化，`27188505…` image 与 Phase C-3 binding 被 recipe defect
+supersede；现行 lock 重回 unbound，必须使用新 checkpoint、新 builder run 和新 binding。
+1034z 原 run 保留且不得重试。
