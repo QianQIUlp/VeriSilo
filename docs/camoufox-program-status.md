@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag durable builder evidence / rehydration   | **宿主 qualification/resource Gate 已关闭；Phase B-2 重跑中；operational lock unbound** |
+| R1-diag durable builder evidence / rehydration   | **Phase B-2 Accepted；durable image bound；diagnostic engine build 下一步** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1097,3 +1097,33 @@ image ID，但 Docker 29 的 saved archive 将同一 config 放在
 digest drift 均拒绝。未修改 Dockerfile、strict driver、diag gate、source-lock schema、
 0000–0004/9000 或 engine semantics。operational lock 继续 unbound；旧 run/image 均不得
 复用，下一次只能使用全新 run-id。Browser 与 engine 尚未启动，`browserLaunches = 0`。
+
+### 2026-08-23 Phase B-2 Accepted；Phase C-2 durable binding
+
+全新 run `r1diag-builder-20260823t1009z` 在精确 recipe checkpoint
+`c3a4fe0b359e9534215a446edd817c9f3708f4fe` / tree
+`379acd61872fe2a6a4fda5b098cbe0cda84f8812` 上完成。source-lock SHA-256 为
+`b0f0bbf78224b2f4a922a0efbbf144516b41e132f8874d541133b8205837d6a2`。新 image ID 为
+`sha256:b30686aefb44a6162d1ef5527a42920873c2faeae80527c7306e1beafa3c4706`；saved archive
+SHA-256 为 `1e71bd3c36e355f38b6c77c49f8e17f16bedd92d52055935b916be708d4f7f25`，size
+`1471561728` bytes。archive config member 为
+`blobs/sha256/b30686aefb44a6162d1ef5527a42920873c2faeae80527c7306e1beafa3c4706`，其 bytes
+SHA-256 与 image ID 精确相等。
+
+durable result SHA-256 为 `440563dac161e6b731550e3a9680e85a65616e3caace29db0fd1a8604eff45c8`；
+manifest SHA-256 / canonical SHA-256 分别为
+`88ffc28c7a88b869d0bbf7dff32c33cc3074ce2976089459134ad9cceb702edf` /
+`9e176fc96210cd53910a2bc68c6ad67c216bc8d6dd2eaedeebdfd813d0c7c380`；retention receipt
+SHA-256 / canonical SHA-256 分别为
+`0897aa6b44bb4eeb29935885f84a5a0adf4f9dc7a8af3eff15aef46ed802bd52` /
+`26f09d0e081e6666654a93aa254cd78e7e96a77c2e0e7f479cc4b1a1cbce2236`。proposal
+canonical SHA-256 为 `997a4a23f25a4d7e8732d0f93c9b5a6560714e46e2a31ffa6f296bda39a65815`。
+launcher 已从 durable root 完整重读并写出 `retained=true / reReadable=true` receipt；exact image
+inspect 仍匹配 recipe commit/tree。
+
+主脑 Gate：**Phase B-2 Accepted**。Phase C-2 将上述原始 proposal 与 durable evidence
+逐字段绑定进现行 v2 lock，状态推进为
+`builder-bound-durable-evidence-awaiting-diagnostic-engine-build`；历史 Phase C-1 与失败 run
+继续只作审计记录。`binaryBinding = null`、`diagnosticOnly = true`、`formalEligible = false`、
+`browserLaunches = 0`。本 checkpoint 不修改 recipe 或 patch bytes；下一步只允许从 durable
+bundle 执行 exact-ID `prepare-bound-image`，再进入一次性 diagnostic engine build。
