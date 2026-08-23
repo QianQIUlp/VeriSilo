@@ -52,9 +52,32 @@
     }
   ],
   "browserLaunches": 0,
+  "builderImagePreparationEvidence": {
+    "bindingProposalCanonicalSha256": "66d2dad23fa769e9b3fcf55aff91a615d8e1b19d52bfe2676563dfe1adb2251d",
+    "builderImageResultSha256": "80df26ccd257789ad0b922f6ea80b7d6dcc66cec22fad05bbd6666dc90f1c636",
+    "runId": "r1diag-builder-20260823t0504z",
+    "sourceCommit": "0600e8922ee67322aaf55c5ea10e7ecde9663307",
+    "sourceLockSha256": "db55354d8b47c3a5379d6bfd26459fdc440ae216df6ddaefbaa3522cd2044c24",
+    "sourceTree": "46471bbb4ca48cd260019b217f5f2a68cd4dbb6c"
+  },
   "buildBinding": {
     "binaryBinding": null,
-    "builderImageBinding": null,
+    "builderImageBinding": {
+      "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+      "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+      "buildxLogSha256": "5ef77404e15f06d783f8a832358e72e946860f7d985d5ff3baec5c73a5dab2f2",
+      "buildxLogSizeBytes": 78095,
+      "buildxMetadataSha256": "11fac51a48a1c658d7c1a27bfad91d8b9e4c5a7f8e1c1080a3e45a15a6053691",
+      "dockerfileSha256": "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2",
+      "hostToolingSha256": "374ac14473fe269ab2577100dccbe219176db6ea8252c8790310fdd0a78f711e",
+      "imageId": "sha256:f46ec076dcde9b3759007c3683c07e5a3c563f9145475b335b6f40a82bb6732c",
+      "imageInspectSha256": "2c77ff767eec994bd10d1c943273a633c5cdaa5ae6f4b1d1f5bcfa23fe7c6e03",
+      "recipeSourceCommit": "0600e8922ee67322aaf55c5ea10e7ecde9663307",
+      "recipeSourceLockSha256": "db55354d8b47c3a5379d6bfd26459fdc440ae216df6ddaefbaa3522cd2044c24",
+      "recipeSourceTree": "46471bbb4ca48cd260019b217f5f2a68cd4dbb6c",
+      "savedArchiveSha256": "8f1ca52564c6b039351e3cee01894fb3c3d28a6e351ab6b145491abc288d03f2",
+      "savedArchiveSizeBytes": 483575296
+    },
     "builderImageBindingRequiredFields": [
       "imageId",
       "savedArchiveSha256",
@@ -208,7 +231,7 @@
         "policy": "closed"
       }
     },
-    "status": "recipe-frozen-builder-unbound",
+    "status": "builder-bound-awaiting-diagnostic-engine-build",
     "supportedBuildExecutionEnvironment": "linux",
     "supportedPhysicalHostWrapper": "upstream Linux Docker container supports all physical host platforms",
     "target": "x86_64-pc-windows-msvc",
@@ -991,7 +1014,7 @@
     "supersededLockSha256": "3248dd1da1c06e115b9b8f40a5e17d6012bc2521c627304e814735b0d54fbbd2",
     "supersedes": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-diag-v1-source.json"
   },
-  "status": "recipe-frozen-builder-unbound",
+  "status": "builder-bound-awaiting-diagnostic-engine-build",
   "upstream": {
     "commit": "0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d",
     "repository": "https://github.com/daijro/camoufox",

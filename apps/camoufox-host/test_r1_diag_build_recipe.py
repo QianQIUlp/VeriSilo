@@ -36,14 +36,16 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
         cls.v1_lock = json.loads(V1_LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_v2_is_unbound_and_not_the_historical_v1_lock(self) -> None:
+    def test_v2_is_bound_and_not_the_historical_v1_lock(self) -> None:
         self.assertEqual(self.lock["schema"], "verisilo-r1-diag-source-binding/v2")
         self.assertEqual(
             self.lock["engineRevision"],
             "verisilo-camoufox-152.0.4-beta.28-r1-diag-v2",
         )
-        self.assertEqual(self.lock["status"], "recipe-frozen-builder-unbound")
-        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
+        self.assertEqual(
+            self.lock["status"], "builder-bound-awaiting-diagnostic-engine-build"
+        )
+        self.assertIsInstance(self.lock["buildBinding"]["builderImageBinding"], dict)
         self.assertNotIn("builderImageBinding", self.lock)
         self.assertTrue(self.lock["diagnosticOnly"])
         self.assertFalse(self.lock["formalEligible"])

@@ -941,3 +941,35 @@ bytes 或 engine semantics。
 v2 source-lock SHA-256 为 `db55354d8b47c3a5379d6bfd26459fdc440ae216df6ddaefbaa3522cd2044c24`。
 修复验证完成并形成新的 clean checkpoint 后，停止等待主脑重新审核；不得自动延伸至
 新的 Phase B。
+
+### 2026-08-23 Phase B accepted；Phase C builder binding authorized
+
+主脑接受 Phase B run `r1diag-builder-20260823t0504z` 的 immutable builder-image
+preparation transaction。其状态为 `prepared-awaiting-source-lock-binding`，
+`engineBuildStarted = false`，`browserLaunches = 0`。Phase-B
+`bindingProposal` 的 canonical SHA-256 为
+`66d2dad23fa769e9b3fcf55aff91a615d8e1b19d52bfe2676563dfe1adb2251d`；完整
+`builder-image-result.json` SHA-256 为
+`80df26ccd257789ad0b922f6ea80b7d6dcc66cec22fad05bbd6666dc90f1c636`。
+
+接受的 builder identity 为 image
+`sha256:f46ec076dcde9b3759007c3683c07e5a3c563f9145475b335b6f40a82bb6732c`，
+saved archive SHA-256
+`8f1ca52564c6b039351e3cee01894fb3c3d28a6e351ab6b145491abc288d03f2`，size
+`483575296` bytes；archive owner UID 为 `1000`、mode 为 `0o0664`，且由同一
+launcher 验证可读。proposal 的 recipe source 固定为 Phase-A-min
+`0600e8922ee67322aaf55c5ea10e7ecde9663307` / tree
+`46471bbb4ca48cd260019b217f5f2a68cd4dbb6c`，source-lock SHA 为
+`db55354d8b47c3a5379d6bfd26459fdc440ae216df6ddaefbaa3522cd2044c24`。
+
+Phase C 仅将 Phase-B result 中的 `bindingProposal` 逐字段写入 v2 source lock，
+并新增 `builderImagePreparationEvidence`，保留 result SHA、proposal SHA、run
+ID 和 Phase-B source lineage。v2 lock 当前状态为
+`builder-bound-awaiting-diagnostic-engine-build`；`binaryBinding = null`、
+`diagnosticOnly = true`、`formalEligible = false`、`browserLaunches = 0`。
+Phase C 不修改 Dockerfile、strict driver、diag gate、build host、patch bytes
+或 engine semantics。
+
+Phase D diagnostic engine build、`prepare-bound-image`、Browser、V1–V4、FP2-R1、
+Formal R1、FP1-R1 与 FP3 仍 CLOSED；本 checkpoint 完成后停止等待主脑审核，
+不得消费该 bound image。
