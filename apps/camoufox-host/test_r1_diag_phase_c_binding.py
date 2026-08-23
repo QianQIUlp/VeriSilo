@@ -51,6 +51,13 @@ SUPERSEDED_WINEPREFIX_IMAGE_ID = (
 SUPERSEDED_GPC_NAMESPACE_IMAGE_ID = (
     "sha256:706c07f499240f76bc5fcc7ffbc4e9b66e819acf9a54dbc8b57353faae93138b"
 )
+CURRENT_RUN_ID = "r1diag-builder-20260823t1521z"
+CURRENT_IMAGE_ID = (
+    "sha256:2742be96b8160fc9206585c8af6abcc95a9bc73d13a39fc2faa1c18c0bb2ea92"
+)
+CURRENT_PROPOSAL_SHA256 = (
+    "fbe82a129e247646d74fd36b808ffb76cc22a7334a271b959379fa6700566e46"
+)
 
 
 def _proposal() -> dict:
@@ -142,21 +149,64 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_current_lock_is_unbound_after_gpc_namespace_compile_repair(
+    def test_current_lock_is_bound_to_phase_c8_builder(
         self,
     ) -> None:
-        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
-        self.assertIsNone(self.lock["builderImagePreparationEvidence"])
-        self.assertEqual(self.lock["status"], build_host.UNBOUND_LOCK_STATUS)
+        binding = self.lock["buildBinding"]["builderImageBinding"]
+        evidence = self.lock["builderImagePreparationEvidence"]
+        self.assertEqual(self.lock["status"], build_host.BOUND_LOCK_STATUS)
         self.assertEqual(
-            self.lock["buildBinding"]["status"], build_host.UNBOUND_LOCK_STATUS
+            self.lock["buildBinding"]["status"], build_host.BOUND_LOCK_STATUS
         )
+        self.assertEqual(binding["imageId"], CURRENT_IMAGE_ID)
+        self.assertEqual(
+            binding["savedArchiveSha256"],
+            "ad48844404013c97acf162d4dd2502007636e30070ae31bb1573387eb99137b2",
+        )
+        self.assertEqual(binding["savedArchiveSizeBytes"], 1471564288)
+        self.assertEqual(
+            build_host._canonical_json_sha(binding), CURRENT_PROPOSAL_SHA256
+        )
+        self.assertEqual(
+            evidence["bindingProposalCanonicalSha256"], CURRENT_PROPOSAL_SHA256
+        )
+        self.assertEqual(evidence["runId"], CURRENT_RUN_ID)
+        self.assertEqual(
+            evidence["builderImageResultSha256"],
+            "79b4c186b33624d9213a2282133331f2eebee5adf85da9988ba51c1c0925b93d",
+        )
+        self.assertEqual(
+            evidence["durableManifestSha256"],
+            "ee46c04e52a1f6deedbd9e01c2a50a750d4d9bfca358e21f8ccc8b8a5ec73000",
+        )
+        self.assertEqual(
+            evidence["durableManifestCanonicalSha256"],
+            "bb79e9890f2ffade10c940a2c924b8e7bb918d71f9fd4c2d7bf1042f0c252c12",
+        )
+        self.assertEqual(
+            evidence["retentionReceiptSha256"],
+            "4f633d82dc532aa52bef229f60c0949f935edbba3d6e0be710ba42861532002e",
+        )
+        self.assertEqual(
+            evidence["retentionReceiptCanonicalSha256"],
+            "99cec9c2041b035962d92840afdb098e2eab917e124956bbe51f2d980cb8e934",
+        )
+        self.assertEqual(
+            evidence["sourceCommit"],
+            "1579564e703d4b11dae590e1f1bb910f9a3c319d",
+        )
+        self.assertEqual(
+            evidence["sourceTree"],
+            "b113cee594f94ab07b663217c6c47908a2055efa",
+        )
+        self.assertEqual(
+            evidence["sourceLockSha256"],
+            "1086f39a212a73ceac4c17e771a402751a1912e0a6c913dba64c252a7fead68f",
+        )
+        self.assertTrue(evidence["retained"])
+        self.assertTrue(evidence["reReadable"])
         current = self.lock["builderOperationalLineage"]["current"]
-        self.assertEqual(current, build_host.UNBOUND_LINEAGE_CURRENT)
-        self.assertEqual(
-            current["reasonCodes"],
-            ["gpc_projection_preferences_namespace_unqualified"],
-        )
+        self.assertEqual(current, build_host.BOUND_LINEAGE_CURRENT)
         historical = self.lock["builderOperationalLineage"]["supersededPhaseC1"]
         self.assertEqual(historical["runId"], HISTORICAL_RUN_ID)
         self.assertEqual(historical["imageId"], HISTORICAL_IMAGE_ID)
@@ -177,12 +227,13 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
         self.assertNotIn(SUPERSEDED_FIXED_ENV_IMAGE_ID, encoded)
         self.assertNotIn(SUPERSEDED_WINEPREFIX_IMAGE_ID, encoded)
         self.assertNotIn(SUPERSEDED_GPC_NAMESPACE_IMAGE_ID, encoded)
+        self.assertEqual(encoded.count(CURRENT_IMAGE_ID), 1)
         self.assertNotEqual(
             self.lock["builderOperationalLineage"]["current"].get("imageId"),
             HISTORICAL_IMAGE_ID,
         )
 
-    def test_current_unbound_lock_is_eligible_for_prepare_image(self) -> None:
+    def test_current_bound_lock_is_eligible_for_bound_consumption(self) -> None:
         git_values = iter(["", "1" * 40, "2" * 40])
         with (
             mock.patch.object(
@@ -194,11 +245,11 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
             mock.patch.object(build_host, "_validate_patch_contract"),
         ):
             source, _ = build_host._validate_verisilo(
-                Path("unused-checkout"), binding_state="unbound"
+                Path("unused-checkout"), binding_state="bound"
             )
         self.assertEqual(source["commit"], "1" * 40)
 
-    def test_current_unbound_lock_rejects_bound_consumption(self) -> None:
+    def test_current_bound_lock_rejects_prepare_image(self) -> None:
         git_values = iter(["", "1" * 40, "2" * 40])
         with (
             mock.patch.object(
@@ -214,10 +265,10 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
             ),
         ):
             build_host._validate_verisilo(
-                Path("unused-checkout"), binding_state="bound"
+                Path("unused-checkout"), binding_state="unbound"
             )
 
-    def test_current_unbound_lock_is_not_engine_eligible(self) -> None:
+    def test_current_bound_lock_still_requires_prepared_record(self) -> None:
         with self.assertRaises(build_host.HostBuildFailure):
             build_host._validate_bound_binding(
                 self.lock, {}, "r1diag-engine-future0001"

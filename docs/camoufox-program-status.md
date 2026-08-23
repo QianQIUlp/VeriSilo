@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag diagnostic engine build / provenance     | **`1206z` compile failed；B-7/C-7 superseded；0003a additive repair frozen；operational lock unbound，待 B-8/C-8** |
+| R1-diag diagnostic engine build / provenance     | **`1206z` compile failure retained；Phase B-8 Accepted / C-8 exact bound；等待新的 diagnostic engine build** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1448,3 +1448,39 @@ image / Phase C-7 binding 仅保留历史 evidence，现行 operational lock 已
 `formalEligible = false`、`browserLaunches = 0`、`verified = false`。本闭包不是
 FP2-R1 pass，不是 GPC runtime verification，不是 voices remediation success，也未创建
 Formal R1 candidate、0005 或 V1–V4 evidence。
+
+### 2026-08-23 Phase B-8 Accepted；Phase C-8 0003a-repaired exact binding
+
+全新 builder run `r1diag-builder-20260823t1521z` 使用 0003a repair checkpoint
+`1579564e703d4b11dae590e1f1bb910f9a3c319d` / tree
+`b113cee594f94ab07b663217c6c47908a2055efa`，source-lock SHA-256 为
+`1086f39a212a73ceac4c17e771a402751a1912e0a6c913dba64c252a7fead68f`。
+新 image ID 为
+`sha256:2742be96b8160fc9206585c8af6abcc95a9bc73d13a39fc2faa1c18c0bb2ea92`；
+saved archive SHA-256 为
+`ad48844404013c97acf162d4dd2502007636e30070ae31bb1573387eb99137b2`，size
+`1471564288` bytes；binding proposal canonical SHA-256 为
+`fbe82a129e247646d74fd36b808ffb76cc22a7334a271b959379fa6700566e46`。
+
+builder result SHA-256 为
+`79b4c186b33624d9213a2282133331f2eebee5adf85da9988ba51c1c0925b93d`；
+build context SHA-256 为
+`5666ff1e0b347d71344bbb4d6728d7cffdf16bd4666178817b4c66cc92ff9156`，size
+`153600` bytes；durable manifest raw / canonical SHA-256 为
+`ee46c04e52a1f6deedbd9e01c2a50a750d4d9bfca358e21f8ccc8b8a5ec73000` /
+`bb79e9890f2ffade10c940a2c924b8e7bb918d71f9fd4c2d7bf1042f0c252c12`；
+retention receipt raw / canonical SHA-256 为
+`4f633d82dc532aa52bef229f60c0949f935edbba3d6e0be710ba42861532002e` /
+`99cec9c2041b035962d92840afdb098e2eab917e124956bbe51f2d980cb8e934`。
+
+主脑已从 durable bundle 独立重读并重算 payload SHA/size、proposal/result/manifest/
+receipt canonical digest、saved tar config digest、image inspect 与 Docker exact ID；全部
+匹配。Gate：**Phase B-8 Accepted**。Phase C-8 仅把该 proposal 与 durable evidence
+逐字段写入现行 lock；current status 为
+`builder-bound-durable-evidence-awaiting-diagnostic-engine-build`，
+`buildBinding.binaryBinding = null`、`diagnosticOnly = true`、
+`formalEligible = false`、`browserLaunches = 0`、`verified = false`。
+
+`1206z` compile failure 与 Phase B-7/C-7 superseded lineage 保持不变。下一步只允许使用
+全新 run-id 执行一次 diagnostic engine build；不得启动 Camoufox，不得执行 Browser、
+V1–V4、FP1-R1、FP2-R1 或 FP3。
