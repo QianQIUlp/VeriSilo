@@ -42,12 +42,8 @@ SUPERSEDED_GATE_LOADER_IMAGE_ID = (
 SUPERSEDED_UNPINNED_RUST_IMAGE_ID = (
     "sha256:610c93044112e0330854b9765f19637c1d3edd51dd0a3ab792df72fccabd4301"
 )
-CURRENT_RUN_ID = "r1diag-builder-20260823t1105z"
-CURRENT_IMAGE_ID = (
+SUPERSEDED_FIXED_ENV_IMAGE_ID = (
     "sha256:2cc52edb2e93e4a52437e0098326612ff7b05d5f3978111cf06c15e65002a323"
-)
-CURRENT_PROPOSAL_SHA256 = (
-    "4d6b9c55c52cb1868c120cb1462a79f8fef9feb9aa15f7186f3e583e68ab4f20"
 )
 
 
@@ -140,97 +136,20 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_current_lock_is_bound_to_rust_pinned_builder(
+    def test_current_lock_is_unbound_after_fixed_environment_key_repair(
         self,
     ) -> None:
-        binding = self.lock["buildBinding"]["builderImageBinding"]
-        evidence = self.lock["builderImagePreparationEvidence"]
-        self.assertEqual(self.lock["status"], build_host.BOUND_LOCK_STATUS)
+        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
+        self.assertIsNone(self.lock["builderImagePreparationEvidence"])
+        self.assertEqual(self.lock["status"], build_host.UNBOUND_LOCK_STATUS)
         self.assertEqual(
-            self.lock["buildBinding"]["status"], build_host.BOUND_LOCK_STATUS
-        )
-        self.assertEqual(
-            binding,
-            {
-                "baseIndexDigest": build_host.EXPECTED_BASE_INDEX_DIGEST,
-                "baseLinuxAmd64ManifestDigest": (
-                    build_host.EXPECTED_BASE_AMD64_MANIFEST_DIGEST
-                ),
-                "buildxLogSha256": (
-                    "c26072338766632c221375754a4af518380c9d684ed880b482947ff6f0ce930d"
-                ),
-                "buildxLogSizeBytes": 77262,
-                "buildxMetadataSha256": (
-                    "cc25e8043fdc34d62652fc6481683f99a48539c00b6ec0f76783c66e94af2bf2"
-                ),
-                "dockerfileSha256": (
-                    "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2"
-                ),
-                "hostToolingSha256": (
-                    "a495351efbd438a30c7ad912e1a9c0889432b5d19cc22e8a9b805800b6d4a8f8"
-                ),
-                "imageId": CURRENT_IMAGE_ID,
-                "imageInspectSha256": (
-                    "747f2566b97787d5b805d9fee82327336009fa2e860d13fdff4798640d70c61b"
-                ),
-                "recipeSourceCommit": (
-                    "01bebed12a8142f64b993123d397cb4441f8891f"
-                ),
-                "recipeSourceLockSha256": (
-                    "59b1d478a7785c555fbe517fe7ebd13f19a517665f8cf0395243c8f03d559a4b"
-                ),
-                "recipeSourceTree": (
-                    "6531d106b210f2ae274833d995b70d09b8864566"
-                ),
-                "savedArchiveSha256": (
-                    "6f8a0aeae2ab77cd01ecc75011b35d4031db6621953095e06fd9a20ef07fe810"
-                ),
-                "savedArchiveSizeBytes": 1471563776,
-            },
+            self.lock["buildBinding"]["status"], build_host.UNBOUND_LOCK_STATUS
         )
         current = self.lock["builderOperationalLineage"]["current"]
-        self.assertEqual(current, build_host.BOUND_LINEAGE_CURRENT)
-        self.assertEqual(
-            build_host._canonical_json_sha(binding), CURRENT_PROPOSAL_SHA256
-        )
-        self.assertEqual(
-            evidence,
-            {
-                "bindingProposalCanonicalSha256": CURRENT_PROPOSAL_SHA256,
-                "buildContextSha256": (
-                    "d734fdfb606e95b0d10963677a83ad85e9d585e6c868e15691578f4ae7c7b56e"
-                ),
-                "buildContextSizeBytes": 153600,
-                "builderImageResultSha256": (
-                    "b75872aacc05f793bd20d1b47c9f3cc36654ede75189b2a064bdcfec63ebcd06"
-                ),
-                "durableManifestCanonicalSha256": (
-                    "bf8d0ff2b0a61b1bf20f171bcc23e18028c089afb1115b18c437c8a3334c28d4"
-                ),
-                "durableManifestSha256": (
-                    "2996434e971217e568e8e561c16cea7b7feb4868201c10b3645e98c623033d37"
-                ),
-                "durableQualificationId": (
-                    "r1diag-durable-qual-20260823t084001z"
-                ),
-                "durableQualificationResultSha256": (
-                    "00386123d60810d044b9eb2b247b3fc5c7ebd5602dfa3f117dee622564571522"
-                ),
-                "reReadable": True,
-                "retained": True,
-                "retentionReceiptCanonicalSha256": (
-                    "2db7a78448607337def4ad1f1b2a683a170908bdfde4146c00e162135b434b5c"
-                ),
-                "retentionReceiptSha256": (
-                    "08d0c670fed7c8ae2673411bc791ca3c16d5da97cc933cfc5252fc1758aa96ad"
-                ),
-                "runId": CURRENT_RUN_ID,
-                "sourceCommit": "01bebed12a8142f64b993123d397cb4441f8891f",
-                "sourceLockSha256": (
-                    "59b1d478a7785c555fbe517fe7ebd13f19a517665f8cf0395243c8f03d559a4b"
-                ),
-                "sourceTree": "6531d106b210f2ae274833d995b70d09b8864566",
-            },
+        self.assertEqual(current, build_host.UNBOUND_LINEAGE_CURRENT)
+        self.assertIn(
+            "strict_fixed_environment_moz_build_date_key_mismatch",
+            current["reasonCodes"],
         )
         historical = self.lock["builderOperationalLineage"]["supersededPhaseC1"]
         self.assertEqual(historical["runId"], HISTORICAL_RUN_ID)
@@ -249,13 +168,13 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
         self.assertNotIn(SUPERSEDED_RECIPE_IMAGE_ID, encoded)
         self.assertNotIn(SUPERSEDED_GATE_LOADER_IMAGE_ID, encoded)
         self.assertNotIn(SUPERSEDED_UNPINNED_RUST_IMAGE_ID, encoded)
-        self.assertEqual(encoded.count(CURRENT_IMAGE_ID), 1)
+        self.assertNotIn(SUPERSEDED_FIXED_ENV_IMAGE_ID, encoded)
         self.assertNotEqual(
             self.lock["builderOperationalLineage"]["current"].get("imageId"),
             HISTORICAL_IMAGE_ID,
         )
 
-    def test_current_bound_lock_is_eligible_for_bound_consumption(self) -> None:
+    def test_current_unbound_lock_is_eligible_for_prepare_image(self) -> None:
         git_values = iter(["", "1" * 40, "2" * 40])
         with (
             mock.patch.object(
@@ -267,11 +186,11 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
             mock.patch.object(build_host, "_validate_patch_contract"),
         ):
             source, _ = build_host._validate_verisilo(
-                Path("unused-checkout"), binding_state="bound"
+                Path("unused-checkout"), binding_state="unbound"
             )
         self.assertEqual(source["commit"], "1" * 40)
 
-    def test_current_bound_lock_rejects_prepare_image(self) -> None:
+    def test_current_unbound_lock_rejects_bound_consumption(self) -> None:
         git_values = iter(["", "1" * 40, "2" * 40])
         with (
             mock.patch.object(
@@ -287,10 +206,10 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
             ),
         ):
             build_host._validate_verisilo(
-                Path("unused-checkout"), binding_state="unbound"
+                Path("unused-checkout"), binding_state="bound"
             )
 
-    def test_current_bound_lock_still_requires_prepared_record(self) -> None:
+    def test_current_unbound_lock_is_not_engine_eligible(self) -> None:
         with self.assertRaises(build_host.HostBuildFailure):
             build_host._validate_bound_binding(
                 self.lock, {}, "r1diag-engine-future0001"

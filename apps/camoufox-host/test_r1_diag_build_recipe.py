@@ -33,7 +33,7 @@ RECIPE_FILES = [
 ]
 FROZEN_CONTAINER_RECIPE_SHA256 = {
     "Dockerfile": "6bdd56672de8ad1c12f466aa60f1ceb16613267dff8f7bc3ec3058c1c3f6bfb2",
-    "strict_build.py": "f21c6e814124bfdc967d7a79918e078ad196b4659d2154153bf64679c6ea22f3",
+    "strict_build.py": "f5cec504e34d744c31e9806c89cd578dc309b65cbdb5593853ccdfdbd2d5ccc9",
     "diag_gate.py": "cf192ec3a6a3471381e46eade9fc80c879e807e592000e8ab145fc6c9bc3c96a",
 }
 FROZEN_PATCH_SHA256 = {
@@ -52,7 +52,7 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
         cls.v1_lock = json.loads(V1_LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_v2_is_bound_to_rust_pinned_builder(self) -> None:
+    def test_v2_is_unbound_after_fixed_environment_key_repair(self) -> None:
         self.assertEqual(self.lock["schema"], "verisilo-r1-diag-source-binding/v2")
         self.assertEqual(
             self.lock["engineRevision"],
@@ -60,26 +60,21 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         )
         self.assertEqual(
             self.lock["status"],
-            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+            "recipe-frozen-durable-evidence-unbound",
         )
         self.assertEqual(
             self.lock["buildBinding"]["status"],
-            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+            "recipe-frozen-durable-evidence-unbound",
         )
-        self.assertIsInstance(
-            self.lock["buildBinding"]["builderImageBinding"], dict
-        )
-        self.assertTrue(self.lock["builderImagePreparationEvidence"]["retained"])
-        self.assertTrue(self.lock["builderImagePreparationEvidence"]["reReadable"])
+        self.assertIsNone(self.lock["buildBinding"]["builderImageBinding"])
+        self.assertIsNone(self.lock["builderImagePreparationEvidence"])
         self.assertNotIn("builderImageBinding", self.lock)
         self.assertTrue(self.lock["diagnosticOnly"])
         self.assertFalse(self.lock["formalEligible"])
         self.assertEqual(self.lock["browserLaunches"], 0)
         self.assertEqual(
-            self.lock["buildBinding"]["recipe"]["fixedEnvironment"][
-                "RUST_TOOLCHAIN"
-            ],
-            "1.90.0",
+            self.lock["buildBinding"]["recipe"]["fixedEnvironment"],
+            strict_build.EXPECTED_FIXED_ENVIRONMENT,
         )
         self.assertNotEqual(self.lock["engineRevision"], self.v1_lock["engineRevision"])
 
@@ -111,10 +106,10 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         )
         self.assertFalse(contract["environmentOverride"])
         lineage = self.lock["builderOperationalLineage"]
-        self.assertEqual(lineage["current"]["bindingState"], "bound")
+        self.assertEqual(lineage["current"]["bindingState"], "unbound")
         self.assertEqual(
             lineage["current"]["durableEvidence"],
-            "retained-and-reread",
+            "retained-but-recipe-superseded",
         )
         superseded = lineage["supersededPhaseC1"]
         self.assertEqual(

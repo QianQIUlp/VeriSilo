@@ -1282,3 +1282,29 @@ diag gate、host launcher 或 0000–0004/9000 patch bytes。current lock 状态
 
 下一步仅从 durable bundle 执行 exact-ID `prepare-bound-image`，随后以全新 run-id 执行一次性
 diagnostic engine build。不得启动 Camoufox，也不得执行 V1–V4。
+
+### 2026-08-23 第四次 engine run在 fixed-environment Gate 拒绝；键名最小修复
+
+Phase C-5 checkpoint `5ec23fbe7bac1b2d76c37857b8430f4e0444401f` / tree
+`172aa0534ed9b528fa5dfc803f147a38e72bdd93` 已绑定 Rust-pinned builder，lock SHA-256 为
+`73d2fe9f9db2f28e89deff2a346b5a4cf1696579d1398895512c93e7ba409b45`。首次输入准备目录
+`r1diag-engine-20260823t1120z` 因宿主缓存是缺少新 blob 的 partial clone 而不完整；该目录原样
+保留且未进入 launcher。替代 run `r1diag-engine-20260823t1122z` 使用 GitHub 直接 exact checkout，
+其 `prepare-bound-image` 成功重读 durable bundle 并验证 image
+`sha256:2cc52edb2e93e4a52437e0098326612ff7b05d5f3978111cf06c15e65002a323`。
+
+`1122z` 随后在约 7 秒内由 embedded strict driver fail-closed，未进入 source extraction、
+patch application 或编译。container log SHA-256 为
+`7fb7f3724754a72861430b0d8ad4d246a3708a8bce6e5bd69a29bb389fa1ed33`；strict failure
+SHA-256 为 `44639f560b34f0b248b6f34996222460571d3bd70bb6e755cc77a08ca90320f9`；
+build log SHA-256 为 `84649f2ef055f6004bbdd4846463992bbde1ae0e371f6e398f4115b5deb674f6`。
+`browserLaunches = 0`。
+
+根因是 Rust pin checkpoint 新增的 exact fixed-environment validator 把既有 authoritative lock
+键 `MOZ_BUILD_DATE` 误写为 `MOZBUILD_DATE`；host launcher 和 strict runtime environment 均一直
+使用前者。最小修复将 strict 预期恢复为 `MOZ_BUILD_DATE`，并把完整预期字典提取为单一常量，
+由 no-browser regression 与 lock 逐字段比较。未修改 patch、Firefox source 或产品行为。
+
+strict/build-host recipe bytes 已变化，因此 Phase B-5 image 与 Phase C-5 binding 被
+supersede；现行 lock 重回 unbound。下一步必须使用全新 Phase B-6 run、新 image 和 Phase C-6
+binding；`1120z`、`1122z` 均不得复用。

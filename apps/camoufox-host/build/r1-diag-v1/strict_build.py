@@ -46,6 +46,15 @@ EXPECTED_SOURCE_DIR = "camoufox-152.0.4-beta.28"
 EXPECTED_OUTPUT = "camoufox-152.0.4-beta.28-win.x86_64.zip"
 DEFAULT_MOZ_BUILD_DATE = "20260811045234"
 PINNED_RUST_TOOLCHAIN = "1.90.0"
+EXPECTED_FIXED_ENVIRONMENT = {
+    "BUILD_TARGET": "windows,x86_64",
+    "CARGO_BUILD_JOBS": "1",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "MOZ_BUILD_DATE": DEFAULT_MOZ_BUILD_DATE,
+    "RUST_TOOLCHAIN": PINNED_RUST_TOOLCHAIN,
+    "TZ": "Etc/UTC",
+}
 RUSTUP_BIN = Path("/build-home/.cargo/bin/rustup")
 RUSTC_BIN = Path("/build-home/.cargo/bin/rustc")
 EXPECTED_BASE_INDEX_DIGEST = (
@@ -344,15 +353,7 @@ def _validate_recipe_and_mode(lock: dict) -> None:
         raise BuildFailure("R1 diagnostic recipe binding is malformed")
     if recipe.get("name") != "camoufox-152.0.4-beta.28-r1-diag-v2":
         raise BuildFailure("R1 diagnostic recipe name is not exact")
-    if recipe.get("fixedEnvironment") != {
-        "BUILD_TARGET": "windows,x86_64",
-        "CARGO_BUILD_JOBS": "1",
-        "LANG": "C.UTF-8",
-        "LC_ALL": "C.UTF-8",
-        "MOZBUILD_DATE": DEFAULT_MOZ_BUILD_DATE,
-        "RUST_TOOLCHAIN": PINNED_RUST_TOOLCHAIN,
-        "TZ": "Etc/UTC",
-    }:
+    if recipe.get("fixedEnvironment") != EXPECTED_FIXED_ENVIRONMENT:
         raise BuildFailure("R1 diagnostic fixed environment is not exact")
     recipe_paths = [item["path"] for item in recipe["files"]]
     expected_paths = [
