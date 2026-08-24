@@ -1,5 +1,9 @@
 # M3-0 Camoufox Host / EngineAdapter 集成任务合同
 
+> **历史 Accepted 合同**：M3-0 已关闭，本文的必读清单和验收矩阵不适用于当前任务。
+> 只有调查 `e96ef3f` contract evidence 时才读取，当前 Gate 见
+> [状态页](camoufox-program-status.md)。
+
 - 状态：**Main-brain Gate Accepted on 2026-08-09**
 - 冻结日期：2026-08-09
 - `main` 起始基线：`8de389db366d1d9ff510b1e885fab7f49a89aad0`（PR #10 merge commit）

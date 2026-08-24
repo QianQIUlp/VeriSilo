@@ -2,26 +2,16 @@
 
 - 状态：**Accepted**
 - 决策形成：2026-08-03
-- 最后确认：2026-08-10
+- 当前事实与 Gate：[Camoufox 状态页](camoufox-program-status.md)
 
-本文记录为什么 VeriSilo 当前优先完成 Camoufox Managed Engine，而不是继续扩张控制面、自研 Chromium，或把虚拟化当成指纹层。
+本文只记录稳定架构决策。阶段 checkpoint、失败 run、patch hash 和实施细节属于状态页、
+当前任务合同、lock/result 与 Git，不追加到本 ADR。
 
-## 背景
+## 问题
 
-VeriSilo 已经具备较完整的 Silo、Vault、独立 Profile、Stock Chrome/Edge、网络 Provider、EngineAdapter 控制协议和环境后端框架。真正没有落地的是：把一套持久、协调、可重放的身份实际应用到网站可见浏览器信号的执行层。
-
-### 第一次主脑纠偏：产品顺序不等于当前风险顺序
-
-最初的 Codex 归纳正确识别了 Standard、Managed、Isolated 三层，却把一般性的“先完成基础层”继续当成当前执行顺序，并更多是在压缩对话，而没有充分理解个人开发者最需要验证的未知。用户随后明确纠正：Standard 控制层不是当前最大风险，首先需要证明指纹执行与持久存储能力能否成立。
-
-这项纠正不否定 Standard Silo 的长期价值，而是把近期工作改为风险优先：
-
-```text
-已有管理与控制平面
-→ 先验证缺失的 Managed Engine 执行面
-→ 原生 Windows Gate
-→ 再接入既有 EngineAdapter/Tauri
-```
+VeriSilo 已有 Silo、Vault、Profile、网络 Provider 和 EngineAdapter 控制面，当前最大的产品
+未知不是“能否再做一个控制界面”，而是能否把持久、协调的身份真实应用到网站可见信号并
+跨启动重放。个人开发者资源不足以同时维护多个浏览器内核或默认引入整机虚拟化。
 
 ## 决策
 
@@ -29,183 +19,86 @@ VeriSilo 已经具备较完整的 Silo、Vault、独立 Profile、Stock Chrome/E
 
 ```text
 VeriSilo
-→ EngineAdapter（M3 接入）
-→ standalone Python Host
-→ 固定预编译 Camoufox
-→ BrowserForge / constrained preset
+→ EngineAdapter
+→ standalone Host
+→ 固定且受绑定的 Camoufox/Firefox engine
 → Resolved Identity Artifact
 → Persistent Profile
-→ first-party probe evidence
+→ first-party runtime evidence
 ```
 
-职责边界如下：
+Camoufox-first 是近期风险顺序，不删除 Standard Silo，也不把 Camoufox 等同于整个产品。
+先关闭一个受控引擎的真实执行风险，再做桌面产品集成、网络协调和发布。
 
-- **BrowserForge** 生成来自现实分布、相互约束的候选身份参数；它不是浏览器内核。
-- **Camoufox** 在 Firefox 内核层应用身份；它不是 VeriSilo 管理平台，也不能宣传为真实 Chromium 模拟。
-- **standalone Host** 负责固定资产、Artifact 重放、Profile 独占、浏览器生命周期和严格本地协议。
-- **EngineAdapter** 在 M2-W 通过后连接桌面控制面、包验证、bootstrap、receipt 和能力状态。
-- **VeriSilo** 负责 Silo、Vault、用户策略、网络、版本迁移、UI 和证据语义。
+## 职责边界
 
-## 为什么选择这条路线
+- **BrowserForge** 只生成受约束的候选身份参数，不负责浏览器实际返回值。
+- **Camoufox** 在 Firefox 内核层应用身份，不是管理平台，也不是 Chromium 模拟。
+- **standalone Host** 负责资产绑定、Artifact 重放、Profile 独占和浏览器生命周期。
+- **EngineAdapter** 负责桌面调用、包验证、transport 和能力状态，不重新生成身份。
+- **VeriSilo** 负责 Silo、Vault、用户策略、网络、迁移、UI 和 evidence 语义。
 
-### 个人开发者资源约束
+Profile、Identity Artifact、Engine Binding、Network Policy 与 Runtime Evidence 保持独立
+生命周期。配置声明不能替代 runtime observation，Host 自报不能自动提升为 verified。
 
-当前 Linux 开发机为 2C / 8GB / 64GiB，适合运行预编译 Camoufox、少量浏览器实例、Python Host 和 Playwright 证据测试；不适合保存和编译完整 Firefox/Chromium 源码树，更不适合长期维护多平台 patch stack。
+## 为什么是 Camoufox
 
-### 复用真实内核能力
-
-JavaScript getter 覆盖、扩展和 stealth 插件只能处理部分表面信号，容易产生 Window、iframe、Worker、Header 与引擎行为矛盾。Camoufox 提供更接近所需层级的 Firefox 内核控制，使个人开发者可以把资源放在身份制品、Profile、版本和产品集成上。
-
-### 先证明最小垂直链路
-
-当前必须先证明：
-
-```text
-生成身份
-→ 存储 Artifact
-→ 用固定引擎应用
-→ 跨冷启动和 Host 进程保持
-→ 由网站探针观测
-```
-
-在这条链路成立前继续扩张 UI、虚拟化或更多控制协议，不能回答 VeriSilo 是否真的拥有 Managed Identity 能力。
+- 它提供 Firefox 内核层信号控制，避免把 JS getter、扩展或 stealth 脚本当成完整身份层；
+- 可复用预编译资产与窄 downstream patch，符合个人开发者资源；
+- 能先证明“生成 → 存储 → 应用 → 冷启动重放 → 网站观测”的最小垂直链；
+- 比同时自研 Chromium、Camoufox 与虚拟化后端更可维护。
 
 ## 平台分工
 
-- **Linux**：开发 Host、固定资产、生成/重放 Artifact、自动化探针和轻量兼容性测试。
-- **原生 Windows**：验证 Windows 资产、Profile 持久化、文件锁、进程句柄、Job Object、reparse point 和真实桌面生命周期。
-- **Tauri/EngineAdapter**：只在 Windows standalone Gate 通过后进入集成。
-- **按需高配构建机**：仅在未来确实需要维护浏览器源码时使用，不让当前 Linux 主机承担。
+- **原生 Windows**：Windows 资产、桌面生命周期、文件锁、Job Object 与 Windows 专属结论；
+- **Linux/构建宿主**：开发、静态验证和按需 engine cross-build，不替代 Windows runtime；
+- **Tauri/EngineAdapter**：只消费已通过对应 standalone/runtime Gate 的能力；
+- **临时构建机**：一次性编译工具，不是产品架构或长期事实源。
 
-## 当前不采用的路线
+## 当前不采用
 
-| 路线                                      | 当前决定                                                       |
-| ----------------------------------------- | -------------------------------------------------------------- |
-| 继续只打磨 Standard Silo                  | Standard 保留，但不替代当前 Managed Engine 风险验证            |
-| 自研 Controlled Chromium                  | 延后；个人开发者当前无法合理承担 patch、构建、升级和多平台成本 |
-| BrowserForge 单独使用                     | 拒绝；它生成配置，不负责让普通浏览器真实返回配置               |
-| JS stealth / 扩展注入作为专业指纹层       | 拒绝作为主执行层；只可用于有限观察或显式实验                   |
-| WSL 作为默认指纹隔离                      | 拒绝；只作为 Linux 浏览器环境，不等于独立设备                  |
-| VMware 集成                               | 暂停；会把项目扩张为桌面虚拟化编排器                           |
-| Hyper-V / Remote 优先                     | 延后到 Managed Engine 和基础产品稳定之后                       |
-| 同时维护 Firefox 与 Chromium 两条受控内核 | 拒绝当前并行投入，先完成一个可用引擎                           |
+| 路线 | 决策 |
+| --- | --- |
+| 只继续打磨 Standard | Standard 保留，但不替代 Managed Engine 风险验证 |
+| Controlled Chromium | 延后；出现明确 Chromium 兼容需求和可承担维护资源时重评 |
+| BrowserForge 单独作为执行层 | 拒绝；它不改变浏览器实现 |
+| JS/扩展 stealth 作为主身份层 | 拒绝；只允许有限实验或观测 |
+| WSL/VMware/Hyper-V/Remote 作为默认身份层 | 延后；环境隔离不等于协调身份 |
+| 同时维护多个受控内核 | 拒绝当前并行投入 |
 
 ## 版本与发布原则
 
-- 固定经过 VeriSilo 验收的 Camoufox、Playwright、BrowserForge 和浏览器资产版本。
-- 不在运行时跟随 `latest`，不把自动下载当作安装策略。
-- 身份声明的浏览器版本必须与真实引擎能力和资产绑定。
-- 上游更新经过独立兼容性、Artifact 重放和平台 Gate 后才能进入新版本。
-- 当前 Linux/Windows Host 证据不等于可发布引擎包；签名、SBOM、NOTICE、更新和回滚仍属于后续发布 Gate。
+- 固定经过验收的 engine、source revision、patch series、toolchain 与资产；
+- 不在 runtime 跟随 `latest`，不把自动下载当作安装策略；
+- 自建 archive 不冒充上游 release；身份声明版本必须与真实 engine binding 一致；
+- 上游升级只验证受影响能力，不自动重跑所有历史研究；
+- build/provenance、runtime qualification、签名发布与产品 shipped 是不同 Gate。
 
-## 明确边界
-
-- Camoufox 是 Firefox 系身份引擎；产品必须写成 Camoufox/Firefox Identity，不能写成 Chrome 模拟。
-- 当前不声明 TLS ClientHello、QUIC、跨主机字体隔离、Canvas 身份稳定或不可检测。
-- `verified: false` 的原型证据不能被 UI 或文档提升为产品验证。
-- Resolved Artifact 是内部重放制品，不是最终高级自定义 UI。
-
-## 重新评估 Controlled Chromium 的触发条件
-
-只有出现以下一种或多种情况时，才重新打开浏览器内核路线决策：
-
-- 目标网站或主要用户必须依赖 Chromium 特有 API 或 Chrome 扩展生态；
-- Firefox 身份无法满足明确的兼容性目标；
-- 产品需要直接控制 Chromium TLS/QUIC 或 V8 特有行为；
-- Camoufox 维护停止、许可证/分发条件不再可接受，或关键缺陷长期无法修复；
-- 产品收入和团队规模能够支持固定上游版本、patch stack、多平台构建和持续升级。
-
-## M3 桌面接入决策
-
-M2-W 已于 2026-08-09 Accepted。两套现有协议的真实语义不同：generic external-engine 路径是一次性 length-prefixed bootstrap/receipt，standalone Host 是持久双向 JSON Lines 生命周期。M3 因此采用以下接入方式：
-
-- Camoufox package entrypoint 是受验证的 Host，不是浏览器树中的原始 `camoufox.exe`；
-- EngineAdapter 为 Host 使用显式、独立的 `camoufox-host-jsonl-v1` transport，Controlled Chromium 的既有 native bootstrap v1 不变；
-- v3 Resolved Identity Artifact 的 ID + raw file SHA 是 Camoufox 重放权威，桌面不在启动时重新生成身份；
-- Silo seed、Artifact seed 和代理秘密不进入 Host/browser argv、日志或 evidence；
-- Host 的 `verified: false` / `observed-on-this-host` 结果只映射为 applied/observed，不伪造成 generic `verify` receipt；
-- 先由 M3-0 fake Host contract Gate 关闭协议、包和生命周期接缝，再进行独立的原生 Windows M3-WI；
-- 发布 signer、真实 Host runtime/package、UI、代理、site fallback 与 TLS/QUIC 仍属于后续 Gate。
-
-详细冻结范围与验收见 [M3-0 任务合同](camoufox-m3-engine-adapter-task.md)。
-
-## 2026-08-10 执行顺序附录：先收口指纹核心，再重做干净 M3-WI
-
-M3-0 已在 `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd` Accepted，但后续原生
-Windows M3-WI 真实 Host 调查没有定位第二 Host 历史 120 秒停顿的唯一调用，
-也没有产生 production fix、focused regression 或修复后最终真实验证。因此当前
-M3-WI Gate 保持 **Failed**，该次根因调查结论是 **Inconclusive**，Windows
-Managed 路径保持 `experimental`。调查收口只绑定到快照
-`186484feb935076766beab09595a9270f86f78ef` / tree
-`e33d6d68586a79796ffb9bcc668392e369dc97c6`；它不取代 M3-0 Accepted checkpoint。
-
-tracked R2 manifest 仅是执行 Agent 候选 evidence，未被主脑接受；随后的
-`186484f` 只增加 R2H runner/freezer/schema 与 Host matrix 调查基础，没有 tracked
-R2H result/manifest。不再主动运行 R2/R2H 矩阵追逐偶发失败；若生命周期问题在
-后续工作中自然再现，只根据届时持久的协议级阶段/target 证据修复那一个具体调用。
-
-受控引擎近期顺序调整为：
+## 当前执行顺序
 
 ```text
-FP1  Deterministic Artifact Projection
-→ FP2  top window / iframe / Worker 跨 realm 一致性
-→ FP3  代理 IP / Geo / timezone / locale / WebRTC 协调
-→ FP4  常见检测站点和普通站点兼容性
-→ 使用届时最终 Managed Engine 冻结新的 clean M3-WI
+完成当前 Camoufox FP2-R1 remediation
+→ FP1-R1 rebuilt-engine carry-forward
+→ FP2-R1 cross-realm/replay qualification
+→ FP3 network/geo/timezone/locale coordination
+→ FP4 ordinary-site compatibility
+→ 使用最终 Managed Engine 重开 clean M3-WI
 ```
 
-FP1 在已成立的 standalone Host 上证明同一 raw Artifact 的确定投影和跨独立
-Host 重放；它不宣称 M3-WI 已修复或桌面 Managed 能力已可发布。详细范围见
-[FP1 任务合同](camoufox-fp1-deterministic-artifact-projection-task.md)，M3-WI 调查与证据限制见
-[M3-WI 历史任务合同](camoufox-m3-wi-windows-task.md)。
+精确下一任务以状态页为准。旧 M3-WI、FP1/FP2 generation、diagnostic build 与 one-shot
+执行历史只在调查对应 evidence 时读取，不构成新任务的默认流程模板。
 
-这是执行 Gate 的排序调整，不是架构路线变更：Camoufox-first、三层 Silo 并存、
-Artifact/Profile/Engine/Network/Evidence 生命周期分离，以及 production package
-fail-closed 原则全部保持不变。
+## 重评或变更条件
 
-## 2026-08-11 FP1 Canvas Engine Patch 决策
+以下情况需要新的显式架构决策：
 
-FP1 的原生 Windows A1/A2 已证明相同 Artifact 的 Canvas raw pixels 稳定，但固定
-Camoufox `v152.0.4-beta.28` 仍把 Firefox browsing-session entropy 用于 PNG export
-metadata，且当前浏览器没有消费 `canvas:seed` 的受控实现。主脑据此授权 VeriSilo
-在固定 FF152/Camoufox source 上维护一个窄的 downstream browser patch；这仍属于
-FP1，不开放 FP2，也不重新打开 Controlled Chromium 或整机隔离路线。
+- 主要用户或目标站点必须依赖 Chromium API/扩展生态；
+- Camoufox 无法满足明确兼容目标或停止维护；
+- 产品需要直接控制 Chromium TLS/QUIC/V8 特有行为；
+- 团队和收入足以承担另一条固定内核的长期 patch/build/upgrade；
+- 要把 WSL、VM、Remote 设为普通 Silo 默认执行层；
+- 要合并 Profile、Artifact、网络秘密或 evidence 生命周期；
+- 要弱化 `configured/applied/observed/verified/unavailable` 的区别。
 
-Managed Identity 的 Canvas 身份范围冻结为 **Artifact / Silo**，而不是 Firefox
-anti-tracking 的 top-level-site 或 browsing-session 范围。确定性 key 的规范输入是：
-
-```text
-SHA-256(
-  ASCII("verisilo-canvas-export-v1\0")
-  || uint32_be(Artifact.canvas:seed)
-)
-```
-
-不得加入 site、origin、Profile、PID、时间、process/session UUID 或其他运行熵；配置值
-`0` 仍是有效 seed，是否启用只按 key 是否存在判断。相同 seed 和相同 Canvas operation
-跨独立 browser process 必须得到相同 export observable；不同 seed 必须在合同声明的
-Canvas export 表面产生确定、合法的差异。
-
-实现边界冻结为：
-
-- 只在 Canvas export / `EfficientCanvasRandomization` key seam 消费该值；
-- 不使用 JS/init script，不删除 `deBG`，不恢复旧 pixel-noise patch，不替换全局 RFP key；
-- `canvas:seed` 缺失时逐字节保留 Firefox 原 CookieJar/session/site fallback；
-- v1 首先控制 `toDataURL("image/png")` 及共享同一 PNG encoder key resolver 的 blob
-  export；raw `getImageData()` pixels 不做 noise；其他 MIME 不能被顺带宣称已控制；
-- Artifact 顶层 schema 和现有 47-key config 保持 v3；旧官方 Engine Binding、旧 Artifact
-  fixtures 和 Accepted evidence 不改写。deterministic Canvas classification 只能作为新
-  VeriSilo Engine Binding 对应的闭合 Policy v3 variant，validator 必须由精确 binding
-  选择旧/新语义，不能让二者模糊兼容。
-
-从该 patch 起，Managed Engine Binding 必须同时固定 upstream source revision、Firefox
-source digest、完整 patch 顺序与逐文件 digest、构建 recipe/toolchain、Windows archive
-SHA/size、解压 tree manifest、BuildID/SourceStamp 和配置资产 digest。自建 archive 不得
-冒充 GitHub 官方 release，也不得覆盖历史 official lock/tree/Artifact。
-
-## 后果
-
-- 当前 Managed Engine 工程路线只完成一个引擎，不同时扩张其他执行后端；standalone 代码已经进入 `main`，但不表示桌面集成或发布 Gate 已通过。
-- M0–M2 已在 Linux 形成可信垂直切片，M2-W 已在原生 Windows 关闭本阶段的平台生命周期差异。
-- M2-W 已通过；M3 按上面的专用 Host transport 决策实施，并继续把 production packaging 与真实桌面 evidence 作为独立 Gate。
-- 阶段进度与当前 Gate 只在[Camoufox Managed Engine 状态](camoufox-program-status.md)更新，不反向改写本决策原因。
+局部 bug、patch、builder 差异或测试失败不自动重开架构；只修复直接 owning seam，并把
+证据能支持的结论限定在对应层。

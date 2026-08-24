@@ -1,5 +1,9 @@
 # Camoufox Managed Fingerprint Core FP1 — Deterministic Artifact Projection
 
+> **历史合同与 evidence 记录**：FP1 当前结论及下一 Gate 以
+> [状态页](camoufox-program-status.md)为准。除非调查 immutable FP1 run，不读取或继承本文
+> 的旧 one-shot、矩阵和 checkpoint 要求。
+
 - 状态：**Frozen task contract / Canvas focused passed / Full FP1 Failed at A1 clean close / 未 Accepted**
 - 冻结日期：2026-08-10
 - 当前 Gate：**FP1**

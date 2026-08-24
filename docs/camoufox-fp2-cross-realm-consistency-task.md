@@ -1,5 +1,9 @@
 # VeriSilo Managed Fingerprint FP2 — Cross-Realm Consistency
 
+> **历史 generation 记录**：该 candidate 已 retired，Generation 6 永久关闭。当前工作不继承
+> 本文的 one-shot/claim/matrix；只有调查 Gen1–Gen5 evidence 时才读取，当前 Gate 见
+> [状态页](camoufox-program-status.md)。
+
 - 状态：**FP2 generation 1 blocked / generation 2 failed on HTTP harness / generation 3 failed on insufficient historical failure evidence / generation 4 failed formal execution with confirmed probe lifecycle semantic defect / ServiceWorker semantic closure accepted / generation 5 execution package frozen / claim not created**
 - task version：generation 1 `fp2-v1`；generation 2 execution package `fp2-v2`；generation 3 execution package `fp2-v3`；generation 4 execution package `fp2-v4`；generation 5 execution package `fp2-v5`
 - execution boundary：本文件、独立 `tests/fingerprint-probe/fp2/` bundle、纯比较/runner 与 gitignored FP2 evidence

@@ -1,5 +1,9 @@
 # FP2-R1 Engine Remediation Design Freeze
 
+> **历史设计记录**：当前执行入口是
+> [状态页“当前下一任务”](camoufox-program-status.md#当前下一任务)。只有追查 GPC/Voices
+> 设计理由或 source seam 裁决时才读取本文，不把早期 Gate/候选措辞复制进新任务。
+
 - 状态：**Accepted**（checkpoint `ff4f8c960d5cf63ff242da990b904fca8743be54`；含 `38ff360c` policy-state amendment）
 - 形成日期：2026-08-22
 - 授权任务：`FP2-R1 Engine Remediation Design Freeze`（offline/static only）

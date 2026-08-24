@@ -1,5 +1,9 @@
 # FP2-R1 Engine Remediation Implementation Contract
 
+> **历史实施记录**：当前执行入口是
+> [状态页“当前下一任务”](camoufox-program-status.md#当前下一任务)。§1–§8 记录已关闭的
+> GPC/diagnostic lineage，§9 保存 Voices authoring 推理；普通实现不需从头读取本文。
+
 - 状态：**Accepted**（checkpoint `38ff360c65f2fb5e28fe3ebaed7931727c0d6b68`）
 - 形成日期：2026-08-22
 - 前置：[设计冻结](camoufox-fp2-r1-engine-remediation-design.md) 已 Accepted

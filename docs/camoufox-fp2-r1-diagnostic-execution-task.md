@@ -1,5 +1,9 @@
 # FP2-R1 Voices Diagnostic Execution Readiness Contract
 
+> **历史 diagnostic execution 记录**：v1/v2 claims 已消费且 Browser Gate 已关闭。
+> 当前任务不继承本文的 diagnostic instrumentation、one-shot 或重算矩阵；仅在审计对应 run
+> 时读取，当前 Gate 见[状态页](camoufox-program-status.md)。
+
 - 状态：**Accepted：v2-executor-recovery-evidence-captured-and-adjudicated**
 - 日期：2026-08-24
 - 起始代码 checkpoint：`0efe8aa57bf2e83fc5f3552c1ecb0d1f8e645b72`

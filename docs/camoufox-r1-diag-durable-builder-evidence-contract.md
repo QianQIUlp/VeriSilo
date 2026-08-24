@@ -1,5 +1,9 @@
 # R1-diag Durable Builder Evidence & Rehydration Contract
 
+> **历史 builder 合同**：diagnostic build/provenance 已关闭；本文不再是当前执行约束。
+> 仅在审计对应 builder evidence 时读取，当前路线见
+> [状态页](camoufox-program-status.md)。
+
 - 状态：**Accepted for implementation**
 - 形成日期：2026-08-23
 - 起始 checkpoint：`f267bb4ff3f00115a37546bbe0649d0db889a7d3`
