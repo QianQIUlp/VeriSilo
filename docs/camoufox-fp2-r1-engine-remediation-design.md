@@ -289,3 +289,83 @@ source seam 才可限定为“在首个对内容可见的 readiness notification
 managed inventory 并应用 policy-derived native suppression”。不得转向 realm 特判、
 cache workaround、probe 延迟掩盖或通用初始化框架。本 amendment 不修改 frozen patch
 bytes、不创建 `0005`、不接受 FP2-R1 或 Formal R1。
+
+## 2026-08-24 Voices final remediation design freeze
+
+状态：**Accepted（design-only）**。唯一 v2 run
+`fp2-r1-phase-anchor-recovery-v2-20260824T112146Z-fee3df2667` 的同一
+`speechSynthesis` object 直接观测为：
+
+```text
+S0 = 0
+→ native VoiceAdded ×5
+→ first trusted voiceschanged: exact native 5
+→ managed VoiceAdded ×53
+→ initial snapshot / settled: exact native 5 + managed 53
+```
+
+这与固定 FF152 source 的父进程顺序完全一致：首个 content actor 的 `SendInit()` 懒触发
+`nsSynthVoiceRegistry::GetInstance()`；SAPI 同步 register/notify native voices，随后才执行
+`MaskConfig::MVoices()` 的 managed 注入与 default 设置。根因因此冻结为
+**首 actor 已可接收增量时，parent canonical managed state 尚未建立**，不是 realm filter、
+content cache 分叉或异步 SAPI 交错。
+
+### 最小 source seam
+
+未来保留名 `0005-verisilo-voices-final.patch` 只允许修改：
+
+```text
+dom/media/webspeech/synth/ipc/SpeechSynthesisParent.cpp
+preimage SHA-256:
+c6171e3689fab1789c459b924c7420786d2efed0caf2741747b910e0a3dcd61f
+```
+
+在 `SpeechSynthesisParent` 构造期，仅当 `MaskConfig::MVoices()` 存在且
+`MaskConfig::GetBool("voices:blockIfNotDefined").value_or(false)` 为 `true` 时，提前调用
+现有 `nsSynthVoiceRegistry::GetInstance()`。该调用发生在 `AllocPSpeechSynthesisParent()` 返回
+新 actor、IPDL 将其纳入 `ManagedPSpeechSynthesisParent` 集合之前；因此 parent 先完成
+SAPI suppression、managed inventory 和 default，随后既有 `SendInit()` 只向新 actor 发送
+完整 snapshot。authoring Gate 必须用 exact source/generated-IPDL lifecycle 检查锁住
+“构造期 actor 尚未注册”；若该条件不成立则 fail-closed，不得换用推测性实现。
+
+不采用较早候选“把 `GetInstance()` 内 managed block 移到 native service startup 前”。
+该候选虽能修正首个 `voiceschanged`，但已注册 actor 仍会逐条收到 managed
+`VoiceAdded`，无法排除脚本轮询观测 managed prefix。managed-only constructor seam 更小，
+且 managed/suppression 条件不成立时不提前初始化 registry，原生 FF152 路径与 historical
+v3 notification shape 保持原样。
+
+### Policy 与行为不变量
+
+| Artifact 模式 | 必须满足 | source/runtime 结果 |
+| --- | --- | --- |
+| managed | `voices` 为非空完整数组；`voices:blockIfNotDefined=true`；`voices:fakeCompletion=true`；`voices:fakeCompletion:charsPerSecond=12.5`；恰一项 default | native `AddVoice()` 被既有 guard 阻断；首个 content snapshot 为 exact managed inventory/default |
+| native | `voices` 及三个派生键全部缺失 | constructor 不 eager-init；沿用 FF152 原生 service、增量与 notification 路径 |
+| invalid | 空/畸形 managed list、派生键缺失或非精确值、default 非唯一 | Artifact generator/validator 在启动前拒绝；不得依赖 C++ 宽松解析兜底 |
+
+`MaskConfig::GetBool()` 返回 `optional<bool>`，现有 call site 按键存在性分支；因此 managed
+policy 只允许精确 `true`，显式 `false` 也是非法形状。suppression 与 source seam 缺一不可：
+只做 eager snapshot 会得到 native+managed union，只做 policy suppression 则首 notification
+可能对应空 inventory。
+
+R1 的可见语义冻结为：初始同步查询 `S0=0` 是合法的“尚未 ready”；每个 managed content
+registry 的 publication 轨迹只能是 `empty* → exact canonical snapshot*`，不得出现 native、
+union 或非空 managed prefix。首个 trusted、target-matched `voiceschanged` 必须携带与
+Artifact **按输入顺序全等**的 managed inventory，且唯一 default URI 一致；其后 top、
+same-origin iframe、cross-origin iframe 的查询均须保持该完整投影。未来同一次 FP2-R1
+probe 在 listener-before-query 到首 event 的 bounded window 内记录轮询 count/hash/default，
+只接受 `0* → N*`；不另建 diagnostic run。当前 executable comparator 实际执行有序 list
+equality，故本节以
+“保留 Artifact 输入顺序”supersede §B.4 的“顺序无关比较”措辞；不新增排序或把顺序随机化。
+允许重复的完整 notification，不冻结事件数量。
+
+### 明确禁止与 Gate 边界
+
+- 不改 `nsSynthVoiceRegistry::GetInstance()` 内 managed/native block、`AddVoiceImpl`、
+  `SetDefaultVoice`、SAPI、`SendInit`/`Recv*`、`GetVoices`/cache 或 `SpeakImpl`；
+- 不新增 ready flag、状态机、延迟、retry、event coalescer、realm 分支、cache workaround
+  或通用初始化框架；
+- authoring source review/compile 必须证明 constructor failure 不会发布 partial content state，
+  且进程 registry 只会 absent 或 fully initialized；仅当该证明不闭合时才增加 bounded fault
+  injection，不借此扩大 patch；
+- Formal R1 series 永久排除 9000/VsiDiag；本节不作者化 `0005`、不修改任何 frozen patch
+  bytes、不构建或启动 Camoufox，也不表示 Voices fixed、FP2-R1 或 Formal R1 通过。

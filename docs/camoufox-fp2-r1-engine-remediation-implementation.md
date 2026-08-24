@@ -458,3 +458,90 @@ immutable Gen5 + actual-9000 + fixed source causal alignment
   → 单独授权的一次 phase-anchor run（尚未执行）
   → supported 证据回到主脑，0005 仍须独立 design Gate 裁决
 ```
+
+## 9. 2026-08-24 Voices final remediation authoring contract
+
+状态：**Accepted（design/authoring contract only）**。唯一 v2 phase-anchor direct evidence
+已支持 `A0 empty → A1 native-only first notification → A2 settled union`；本节据此开放未来
+单独立项的 `0005` 作者化边界，但当前仍未创建该 patch、Formal candidate 或新 source lock。
+
+### 9.1 Formal series 与 exact seam
+
+未来 Formal R1 patch 顺序唯一允许为：
+
+```text
+0000 → 0001 → 0002 → 0003 → 0003a → 0004 → 0005
+```
+
+9000/VsiDiag/diagnostic marker 不得进入该 series。`0000`–`0004`（含 `0003a`）保持已冻结
+bytes；`0005-verisilo-voices-final.patch` 只允许触碰：
+
+```text
+dom/media/webspeech/synth/ipc/SpeechSynthesisParent.cpp
+preimage SHA-256:
+c6171e3689fab1789c459b924c7420786d2efed0caf2741747b910e0a3dcd61f
+```
+
+允许的 source 变化只有：引入既有 `MaskConfig.hpp`，并在
+`SpeechSynthesisParent::SpeechSynthesisParent()` 中以 `MaskConfig::MVoices()` 存在且
+`MaskConfig::GetBool("voices:blockIfNotDefined").value_or(false) == true` 共同守卫一次
+`nsSynthVoiceRegistry::GetInstance()`。不得把调用移到无条件 native path；不得
+移动 `nsSynthVoiceRegistry::GetInstance()` 内现有 block 或修改第二个文件。postimage、patch
+SHA 与完整 source-lock binding 只能在未来 authoring 时从实际 bytes 计算，本节不预填。
+
+authoring 静态 Gate 必须证明：
+
+1. `SpeechSynthesisParent` 唯一生产构造点仍是
+   `ContentParent::AllocPSpeechSynthesisParent()`；构造期间新 actor 尚未出现在 manager 的
+   `ManagedPSpeechSynthesisParent` 集合中，`RecvPSpeechSynthesisConstructor()` 仍在其后
+   调用既有 `SendInit()`；
+2. managed eager init 运行在 parent main thread，满足 `GetInstance()` assertion；
+3. synth target 继续使用既有 `/camoucfg` include path，无新 target、library 或 dependency；
+4. `nsSynthVoiceRegistry.cpp`、`SapiService.cpp`、`SpeechSynthesisChild.cpp`、
+   `ContentParent.cpp` 及其 seam bytes 不变；
+5. fresh exact tree `--fuzz=0` apply/reverse/apply、pre/post digest、patch order、diagnostic
+   rejection 与 clean compile 全部通过。
+
+### 9.2 Artifact v4 policy plumbing
+
+这是同一 Formal R1 outcome 的独立必要前置，不属于 `0005` source bytes：
+
+| mode | generator 输出与 validator 条件 |
+| --- | --- |
+| managed | `voices` 必须为非空、每项五字段完整并恰一 default；确定性派生 `voices:blockIfNotDefined=true`、`voices:fakeCompletion=true`、`voices:fakeCompletion:charsPerSecond=12.5` |
+| native | `voices` 与三个派生键全部缺失 |
+| invalid | managed list 为空/畸形、default 非唯一、派生键缺失、显式 `false` 或数值不等于 `12.5` 时双侧 fail-closed |
+
+当前 v3 的 47-key schema/generator 没有上述派生键，不能用于 Formal R1，也不得被静默
+兼容。实现时只扩展现有 `identity_policy.py` / `generate_identity.py` / strict Artifact tests；
+不新增 policy framework。`fakeCompletion` 继续是 policy-derived semantics，不是随机身份维度。
+
+### 9.3 行为不变量与未来验收矩阵
+
+| 层 | 必须通过 |
+| --- | --- |
+| source/patch | exact FF152/upstream/preimage；单文件 managed-only constructor guard；其余 voice source 不变；Formal series 无 9000 |
+| actor lifecycle | managed init 时新 actor 未注册，故没有 initialization `VoiceAdded`/default/notify 增量发给该 actor；随后一个 `InitialVoicesAndState` handler 同步形成完整 inventory/default |
+| native/historical preservation | `MVoices()` 或 exact-true suppression 条件不成立时 constructor 不调用 registry，原生与 historical v3 startup/incremental/notification shape 沿用现路径 |
+| managed readiness | bounded listener-before-query/poll/event 轨迹只允许 `0* → exact managed*`；首个 trusted、target-matched `voiceschanged` 必须 exact；任何 native、union、managed prefix 或错误 default 都失败 |
+| realms | top、same-origin iframe、cross-origin iframe 与 Artifact 按输入顺序全等；唯一 default URI 相同；不要求固定 notification 次数 |
+| replay | A-R1 两次冷启动投影相同，B-R1 精确投影 B 的 inventory/default；host native voices 从 managed observations 中消失 |
+| lifecycle | compile/source review 锁住 constructor main-thread、pre-registration 与 reentrancy；正式 browser Gate 继续要求 clean close、process tree 清零和 evidence binding |
+
+当前 comparator 的 `normalize_voice_projection(...) == expected_voice_projection(config)` 是有序
+list equality；实现与未来 fixture 必须保留 Artifact 输入顺序，不排序。初始 `S0=0` 不算
+失败；但出现任何非空 partial/native/union observation 都失败。旧 §B.4 的“包括 publication
+前在内任意查询时刻非空”和“顺序无关”不再作为比本节更强的 R1 判据。
+
+### 9.4 Gate 顺序与停止条件
+
+```text
+本 design/authoring contract（no browser，当前完成）
+  → 单独 bounded 0005 authoring + v4 Artifact/policy static implementation
+  → Formal source lock + clean Windows build/provenance closure
+  → FP1-R1 static binding + browser carry-forward qualification
+  → 一次 fresh FP2-R1 execution（phase/readiness + cross-realm + replay）
+```
+
+不需要再建或运行 diagnostic 9000 candidate。未来 authoring/build/FP1-R1/FP2-R1 各自按 Gate
+开放；本节本身不表示 `0005` 已实现、Voices fixed、FP2-R1、GPC runtime 或 Formal R1 通过。

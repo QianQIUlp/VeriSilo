@@ -21,6 +21,7 @@
 | 历史 FP2 generation 任务        | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 5 execution package frozen | generation 1 Blocked；generation 2 Failed on HTTP harness；generation 3 Failed / failure evidence insufficient；generation 4 formal execution Failed，root cause 确认为 probe ServiceWorker lifecycle semantic defect（semantic closure 已 Accepted）；Gen5 claim 尚未创建；FP2 capability 未裁决 |
 | FP2-R1 diagnostic readiness/run | [actual-9000 execution contract and result](camoufox-fp2-r1-diagnostic-execution-task.md) / readiness `37d44dc` / validator fix `1e889bb` / run `fp2-r1-diag-20260824T055549Z-56f7c5fced` | readiness 已关闭；一次 diagnostic run 原 verdict Failed、离线重裁决 Inconclusive；不接受 FP2-R1 |
 | FP2-R1 Voices phase-anchor readiness/run | [execution contract §9–§12](camoufox-fp2-r1-diagnostic-execution-task.md) / v1 run `fp2-r1-phase-anchor-20260824T102701Z-ee4a02f604` / v2 run `fp2-r1-phase-anchor-recovery-v2-20260824T112146Z-fee3df2667` | v1 Failed / no observation；v2 原生单次证据支持 A0→A1→A2 phase model；Browser Gate 已消费并关闭；`0005` 关闭 |
+| FP2-R1 Voices final remediation design | [design freeze](camoufox-fp2-r1-engine-remediation-design.md) / [authoring contract §9](camoufox-fp2-r1-engine-remediation-implementation.md) / starting checkpoint `09bc94f254c834ddae99fd4df0f9633f681ce7a2` | **Accepted design-only**；managed-only pre-registration constructor seam 已冻结；`0005` 尚未作者化 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -164,6 +165,7 @@ regression”的 integration extraction 均冻结在
 | FP2-R1 V1–V4 diagnostic execution readiness      | **FP2-R1 V1–V4 diagnostic execution readiness closure passed；actual-9000 top-only package 已冻结，browserLaunches=0** |
 | FP2-R1 actual-9000 diagnostic run                | **Original runner Failed（post-processing validator false negative）；immutable evidence offline readjudication Inconclusive；browserLaunches=1** |
 | FP2-R1 Voices phase-anchor                         | **v1 Failed before observation；v2 native one-shot supports A0→A1→A2 phase model；Browser Gate consumed/closed；`0005` 关闭** |
+| FP2-R1 Voices final remediation design             | **Accepted design-only；managed-only `SpeechSynthesisParent` pre-registration eager-init seam 与 v4 policy/验收矩阵已冻结；`0005` 未作者化** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -275,10 +277,16 @@ notification 内 S1=exact native 5、S2=exact native 5 + managed 53，且 C 序�
 主脑据此接受 A0→A1→A2 phase model 为 supported，并把历史 Gen5 top=5 的首选解释收敛为
 first-notification temporal sampling，而不是稳定 realm inventory split。该结论不等于
 Voices fixed、FP2-R1 Accepted、GPC runtime verified 或 remediation success。v1/v2 均不
-重试；Browser Gate 已关闭。下一项有资格单独立项的工作仅是基于该证据裁决最小 Voices
-source-level remediation design 与验收合同；在新目标形成前不作者化 `0005`、不改 patch、
-不再启动浏览器。FP1-R1、FP2-R1、FP3、M3-WI、UI、代理联动和 production
-package/signing 均保持关闭。
+重试；Browser Gate 已关闭。
+
+最小 Voices source-level remediation design 与验收合同现已 Accepted（design-only）：未来
+`0005` 只允许在 `SpeechSynthesisParent` 构造期以 managed-voices presence 与 exact-true
+native-suppression 共同守卫提前初始化 parent registry，使新 actor 只接收完整 initial
+snapshot；条件不成立时现有路径不变。较早的 registry-block reorder 候选因仍可能逐条暴露
+managed prefix 被拒绝。下一项
+有资格单独立项的工作是 bounded `0005` authoring 与既有 Artifact v4 policy plumbing/static
+tests；在该新 Gate 前不创建 patch/source lock、不构建或启动浏览器。FP1-R1、FP2-R1、
+FP3、M3-WI、UI、代理联动和 production package/signing 均保持关闭。
 
 ## 已知边界
 
@@ -1832,3 +1840,31 @@ OVERFLOW/unknown。主脑裁决为 `native-only-first-notification-phase-support
 A0→A1→A2，并解释历史 Gen5 top=5 为 first-notification temporal sampling 的首选根因。
 该裁决不是 exhaustive exclusion，更不是 FP2-R1、Voices remediation、GPC runtime、
 Formal R1 或 FP3 通过。v2 claim 已消费且不重试；`0005-remains-closed`。
+
+### 2026-08-24 FP2-R1 Voices final remediation design freeze
+
+本 design-only Gate 从 clean/pushed HEAD
+`09bc94f254c834ddae99fd4df0f9633f681ce7a2` / tree
+`29d80f130c3660900f0f3879f27c2899c9aed567` 开始。主脑将唯一 v2 direct sequence 与 exact
+FF152/Camoufox source 重新对齐，并由独立 source、adversarial 与 actor-atomicity 审查复核。
+根因冻结为：首个 content speech actor 已可接收 SAPI/managed 增量时，parent canonical
+managed inventory/default 尚未建立。
+
+未来 `0005` 的唯一允许 seam 是
+`dom/media/webspeech/synth/ipc/SpeechSynthesisParent.cpp`（preimage SHA-256
+`c6171e3689fab1789c459b924c7420786d2efed0caf2741747b910e0a3dcd61f`）：在 actor 构造、
+注册前，仅当 managed voices 存在且 `voices:blockIfNotDefined` 为 exact `true` 时 eager-init
+现有 registry。新 actor 随后只接收完整 `InitialVoicesAndState` snapshot。纯 registry-block
+reorder 候选被拒绝，因为它仍会把 managed voices 逐条发给已注册 actor，使非空 prefix
+polling source-level 可达。native/historical 条件不成立时保持现有路径。
+
+同一合同冻结 v4 Artifact 派生键（suppression/fakeCompletion exact `true`、12.5 chars/s、
+非空完整 voices、唯一 default）与 `empty* → exact managed*` publication 语义。当前 FP2
+comparator 是有序 list equality，因此保留 Artifact 输入顺序，修正旧“顺序无关”措辞。
+Formal series 为 `0000 → 0001 → 0002 → 0003 → 0003a → 0004 → 0005`，永久排除 9000。
+
+docs-only checkpoint 的无浏览器回归为 focused/R1/FP2 static `211/211`、Artifact/Host
+`49/49`，合计 `260/260`；`py_compile`、v2 source-lock JSON parse 与 `git diff --check`
+通过。没有作者化 `0005`、修改 frozen patch、构建或启动 Camoufox；本 checkpoint 的
+`browserLaunches=0`，也不表示 Voices fixed、FP2-R1、GPC runtime 或 Formal R1 通过。
+下一 Gate 仅是单独 bounded `0005` authoring + 既有 Artifact v4 policy/static tests。
