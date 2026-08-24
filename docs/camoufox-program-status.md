@@ -20,7 +20,7 @@
 | 当前 FP1 任务                   | [冻结合同、执行历史与离线证据闭包](camoufox-fp1-deterministic-artifact-projection-task.md) / closure baseline `b7a615ac39606deb741b3b3ea13d3584a987a39c` / tree `9461adcc6924539dc4c2bb80963fab71a2efef49` | 原始 full runner verdict 保持 Failed；主脑基于 immutable A1/A2/B1 evidence 与 corrected contract adjudication 接受 FP1，`verified:false` |
 | 历史 FP2 generation 任务        | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 5 execution package frozen | generation 1 Blocked；generation 2 Failed on HTTP harness；generation 3 Failed / failure evidence insufficient；generation 4 formal execution Failed，root cause 确认为 probe ServiceWorker lifecycle semantic defect（semantic closure 已 Accepted）；Gen5 claim 尚未创建；FP2 capability 未裁决 |
 | FP2-R1 diagnostic readiness/run | [actual-9000 execution contract and result](camoufox-fp2-r1-diagnostic-execution-task.md) / readiness `37d44dc` / validator fix `1e889bb` / run `fp2-r1-diag-20260824T055549Z-56f7c5fced` | readiness 已关闭；一次 diagnostic run 原 verdict Failed、离线重裁决 Inconclusive；不接受 FP2-R1 |
-| FP2-R1 Voices phase-anchor readiness/run | [execution contract §9–§11](camoufox-fp2-r1-diagnostic-execution-task.md) / readiness `e942a5b9bee642da51e4041ed2ae0359e18be078` / v1 run `fp2-r1-phase-anchor-20260824T102701Z-ee4a02f604` | v1 Failed / no observation；executor-recovery v2 package frozen no-browser；Browser Gate 等待用户明确授权；`0005` 关闭 |
+| FP2-R1 Voices phase-anchor readiness/run | [execution contract §9–§12](camoufox-fp2-r1-diagnostic-execution-task.md) / v1 run `fp2-r1-phase-anchor-20260824T102701Z-ee4a02f604` / v2 run `fp2-r1-phase-anchor-recovery-v2-20260824T112146Z-fee3df2667` | v1 Failed / no observation；v2 原生单次证据支持 A0→A1→A2 phase model；Browser Gate 已消费并关闭；`0005` 关闭 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -163,7 +163,7 @@ regression”的 integration extraction 均冻结在
 | R1-diag diagnostic engine build / provenance     | **R1-diag diagnostic engine build/provenance closure passed；`1542z` diagnostic-only binary 已绑定；后续 run 不追改本 Gate** |
 | FP2-R1 V1–V4 diagnostic execution readiness      | **FP2-R1 V1–V4 diagnostic execution readiness closure passed；actual-9000 top-only package 已冻结，browserLaunches=0** |
 | FP2-R1 actual-9000 diagnostic run                | **Original runner Failed（post-processing validator false negative）；immutable evidence offline readjudication Inconclusive；browserLaunches=1** |
-| FP2-R1 Voices phase-anchor                         | **v1 Failed before observation；v2 package frozen no-browser；Browser Gate CLOSED pending explicit user authorization；`0005` 关闭** |
+| FP2-R1 Voices phase-anchor                         | **v1 Failed before observation；v2 native one-shot supports A0→A1→A2 phase model；Browser Gate consumed/closed；`0005` 关闭** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -266,20 +266,18 @@ V1/V2 仍为 `source-refuted-as-written`。本次同一 content context 实际�
 `not-observed`。该模式支持“content mirror 存在初始化时序”的后续假设，但不能据此
 重写 T1 或称 FP2-R1 Accepted、Voices fixed、GPC runtime verified、remediation success。
 
-`voices-phase-anchor-v1` 的唯一 run 已消费，但在 Gecko content/tab subprocess 创建时
-失败，未产生任何 S0/S1/S2、E6/E7 或 VSIDIAG observation。该 run 必须保持
-Failed / no observation，不能裁决 temporal phase model，也不能称 Inconclusive runtime
-evidence。直接事实是命令运行于受限 Codex sandbox identity；executor-context mismatch
-因此是当前最强 bounded diagnosis 与下一判别项。raw evidence 没有形成 frozen binary、
-9000 或 Voices classifier failure evidence，但尚未因果排除这些层。
+`voices-phase-anchor-v1` 的唯一 run 保持 Failed / no observation：它在受限 sandbox
+executor 下未创建 Gecko content process，不能裁决 phase model。独立 v2 one-shot 随后在
+原生 `telecaster\qiu` token 下执行一次并干净退出；同一 object 直接观测 S0=0、首个 trusted
+notification 内 S1=exact native 5、S2=exact native 5 + managed 53，且 C 序列精确为
+`E7(0) → native E6×5 → E7(5) → managed E6×53 → initial(58) → E7(58)`。
 
-独立 executor-recovery v2 package 已按最短路径冻结：完整绑定 v1 claim、7 个 primary
-evidence 与 Failed/no-observation 语义；claim 前使用真实 Windows SAM token identity
-fail-closed，只接受 `telecaster\qiu`；measurement JS/classifier bytes 不变。实现与直接回归
-已形成 clean/pushed checkpoint `0d79b21d91972ecf39b88d3b0795ab7fdb6cccae`，因此技术
-precondition 已闭合；但此前用户级范围明确禁止启动 Camoufox，Browser Gate 仍须用户显式
-开放，不能由主脑自动覆盖。任何未来结果都返回主脑且不重试；不得删除、复用或改写 v1
-claim。`0005`、FP1-R1、FP2-R1、FP3、M3-WI、UI、代理联动和 production
+主脑据此接受 A0→A1→A2 phase model 为 supported，并把历史 Gen5 top=5 的首选解释收敛为
+first-notification temporal sampling，而不是稳定 realm inventory split。该结论不等于
+Voices fixed、FP2-R1 Accepted、GPC runtime verified 或 remediation success。v1/v2 均不
+重试；Browser Gate 已关闭。下一项有资格单独立项的工作仅是基于该证据裁决最小 Voices
+source-level remediation design 与验收合同；在新目标形成前不作者化 `0005`、不改 patch、
+不再启动浏览器。FP1-R1、FP2-R1、FP3、M3-WI、UI、代理联动和 production
 package/signing 均保持关闭。
 
 ## 已知边界
@@ -1808,3 +1806,29 @@ direct no-browser package tests 当前为 `36/36`；sandbox/native identity 的�
 execution 请求因现有用户级 Browser 禁止范围在进程创建前被拒绝；v2 claim/run 仍不存在，
 one-shot 未消费。下一步只等待用户明确开放这一 Browser Gate；获得后仍只运行一次，任何
 结果都停止重试并交回主脑。`0005`、FP2-R1、Formal R1 与 FP3 继续关闭。
+
+### 2026-08-24 Voices phase-anchor executor-recovery v2 one-shot closure
+
+用户明确开放 Browser Gate 后，唯一 v2 run
+`fp2-r1-phase-anchor-recovery-v2-20260824T112146Z-fee3df2667` 从 clean/pushed HEAD
+`651e34ec42ee635d4cf2b1f690b800b5c64c1a88` / tree
+`d3b95a947de981126880840382b0010ff8c7d82f` 执行；parent/child 的 Windows SAM identity
+均为 `telecaster\qiu`。claim SHA-256
+`47ce7d90230d90654d26e21c9aba5b73634760b154db10d1c3a902e915486e61` / 6325 bytes，
+global/run copies、完整 v1 prior-attempt binding、10 个 v2 primary evidence 与 sidecar 均经
+独立重算匹配。本机 run evidence 保持可重读，不依赖 ultratone。
+
+浏览器只启动一次；child/browser exit 0、close success、process tree exited，parent
+`processClean=true`，无目标进程或 18193 listener。run report、decision、observation 与
+timeline SHA-256 分别为
+`8f7108ff9e369d0f0b46d1b558825a81efa2112158b4ce3b5808d5c05f78bdb3`、
+`2708431234fc14682af509656249d1ebfc090458e85e971e643a517bdc31c31d`、
+`3f1da1f5cebfd3f96876031b02f84133f5d406886dd1d20017f1274777d26939`、
+`32776169111f664388cacce7a3189eb257211d2a29c1a7c6274b618b63cc4257`。
+
+同一 `speechSynthesis` object 观测 S0=0、首个 trusted event 内 S1=exact native 5、
+S2=exact native 5 + managed 53；单 transport 的 P `0..63`、C `0..61` 连续且无
+OVERFLOW/unknown。主脑裁决为 `native-only-first-notification-phase-supported`：直接支持
+A0→A1→A2，并解释历史 Gen5 top=5 为 first-notification temporal sampling 的首选根因。
+该裁决不是 exhaustive exclusion，更不是 FP2-R1、Voices remediation、GPC runtime、
+Formal R1 或 FP3 通过。v2 claim 已消费且不重试；`0005-remains-closed`。

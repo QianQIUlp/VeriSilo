@@ -1,9 +1,9 @@
 # FP2-R1 Voices Diagnostic Execution Readiness Contract
 
-- 状态：**Accepted：execution-package-ready-no-browser**
+- 状态：**Accepted：v2-executor-recovery-evidence-captured-and-adjudicated**
 - 日期：2026-08-24
 - 起始代码 checkpoint：`0efe8aa57bf2e83fc5f3552c1ecb0d1f8e645b72`
-- Browser Gate：**CLOSED：v1 consumed；v2 awaits explicit user browser authorization**
+- Browser Gate：**CLOSED：v1/v2 one-shot claims consumed；no retry authorized**
 
 ## 1. 目标与边界
 
@@ -274,3 +274,49 @@ v2 只有在本实现与直接回归形成 clean/pushed checkpoint，且用户�
 Gate 未通过时必须在 claim/run 创建前停止，`browserLaunches=0`；通过后无论 supported、
 Inconclusive 或 Failed 都保留原始 bytes、禁止自动重试，并返回主脑裁决。classifier 继续
 输出 `0005-remains-closed`；FP2-R1、Formal R1 与 FP3 不开放。
+
+## 12. Executor-recovery v2 单次执行与主脑裁决
+
+用户明确开放 v2 Browser Gate 后，唯一 run
+`fp2-r1-phase-anchor-recovery-v2-20260824T112146Z-fee3df2667` 从 clean/pushed HEAD
+`651e34ec42ee635d4cf2b1f690b800b5c64c1a88` / tree
+`d3b95a947de981126880840382b0010ff8c7d82f` 执行。parent 与 child 均由 Windows primary
+token 读得 `telecaster\qiu`；v2 claim SHA-256 为
+`47ce7d90230d90654d26e21c9aba5b73634760b154db10d1c3a902e915486e61`，size `6325`
+bytes，global 与 run copy 逐字节相同，并精确绑定 §10 的 v1 claim、7 个 primary evidence、
+全部现存 sidecar 及 Failed/no-observation 语义。
+
+浏览器只启动一次。child completed、exit 0、clean close、process tree exited；parent
+`processClean=true`、`browserLaunches=1`，当前没有目标进程或 18193 listener。完整 run 与
+global claim 保留在本机 `artifacts/camoufox-fp2-r1-diag/`，所有 primary/sidecar 已独立重算：
+
+| evidence | SHA-256 | bytes |
+| --- | --- | ---: |
+| `child-authorization-consumed.json` | `12b5297693549f0c88f34ba28d2f30d54254e60096ad8027ab063500b267596e` | 262 |
+| `child-authorization.json` | `faaa851c8873b7877e7b14345175ee8f2a0f950719c0e7715baeab216366b9d9` | 4177 |
+| `child-result.json` | `aa6dd845213cf2b1f025997fa1cfb41062d8b17c0de5bc789eee4ed3bf3b3183` | 521 |
+| `child-stderr.log` | `ad1bbf3b4036aff8fddd3d0fcf1f417af52f5fb5f45eb46260935e398da7180f` | 19541 |
+| `child-stdout.log` | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | 0 |
+| `one-shot-claim.json` | `47ce7d90230d90654d26e21c9aba5b73634760b154db10d1c3a902e915486e61` | 6325 |
+| `phase-anchor-decision.json` | `2708431234fc14682af509656249d1ebfc090458e85e971e643a517bdc31c31d` | 895 |
+| `run-report.json` | `8f7108ff9e369d0f0b46d1b558825a81efa2112158b4ce3b5808d5c05f78bdb3` | 9571 |
+| `voice-observation.json` | `3f1da1f5cebfd3f96876031b02f84133f5d406886dd1d20017f1274777d26939` | 2444 |
+| `vsidiag-timeline.json` | `32776169111f664388cacce7a3189eb257211d2a29c1a7c6274b618b63cc4257` | 13729 |
+
+配置 digest 与期望值同为
+`sha256:c672afc21d9975b85a4bc032261d462ceae8573cfcf9f9a071f2fdfdca9a381f`。
+同一 `speechSynthesis` object 的 S0 在 67 ms 为 0；79 ms 的首个 trusted/target-matched
+`voiceschanged` callback 内，S1 精确为 5 个 known native voices；3071 ms 的 S2 精确为
+相同 native 5 + managed 53。总 event count 为 2。
+
+单一 transport PID 捕获 126 个 VSIDIAG 事件，无 unknown、OVERFLOW 或 seq gap：P 为
+`E2a → native E5×5 → E2b → E1(53) → E3a(53) → managed E5×53 → E3b → E4(58)`；
+C 为 `E7(0,first=1) → native E6×5 → E7(5) → managed E6×53 → E6 initial(58) → E7(58)`。
+全部 E7 使用同一 ctx；裁决没有把 P/C seq 或 stderr 行序拼成跨 producer 总时序。
+
+上述直接支持 A0(0) → A1(native 5 / 首次 notification) → A2(native 5 + managed 53) 的
+phase model，并把历史 Gen5 top=5 的首选解释收敛为 first-notification temporal sampling，
+而不是稳定 realm inventory split。结论固定为
+`native-only-first-notification-phase-supported`，但不构成 exhaustive exclusion，也不表示
+FP2-R1、Voices remediation、GPC runtime、Formal R1 或 FP3 通过。v2 不重试，
+`0005-remains-closed`。
