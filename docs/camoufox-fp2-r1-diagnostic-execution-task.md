@@ -3,7 +3,7 @@
 - 状态：**Accepted：execution-package-ready-no-browser**
 - 日期：2026-08-24
 - 起始代码 checkpoint：`0efe8aa57bf2e83fc5f3552c1ecb0d1f8e645b72`
-- Browser Gate：**v1 CONSUMED；executor-recovery v2 conditional on clean/pushed checkpoint**
+- Browser Gate：**CLOSED：v1 consumed；v2 awaits explicit user browser authorization**
 
 ## 1. 目标与边界
 
@@ -269,7 +269,8 @@ execution lineage，不改任何 measurement、classifier、binary、9000 或 ti
   `93af1e2e68c5fbe1c568abf7435ff8494b19eef054440c9b00b114ce7685a708` 与
   `11286655ca82fdcd3c5f4c81bb5badbefa5796b624b3f6644b3faae702112388`。
 
-v2 只有在本实现与直接回归形成 clean/pushed checkpoint 后才可消费一次。native executor
+v2 只有在本实现与直接回归形成 clean/pushed checkpoint，且用户明确开放本次 Browser Gate
+后才可消费一次；主脑授权不能覆盖此前“禁止启动 Camoufox”的用户级范围。native executor
 Gate 未通过时必须在 claim/run 创建前停止，`browserLaunches=0`；通过后无论 supported、
 Inconclusive 或 Failed 都保留原始 bytes、禁止自动重试，并返回主脑裁决。classifier 继续
 输出 `0005-remains-closed`；FP2-R1、Formal R1 与 FP3 不开放。
