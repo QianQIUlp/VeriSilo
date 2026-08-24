@@ -3,7 +3,7 @@
 - 状态：**Accepted：execution-package-ready-no-browser**
 - 日期：2026-08-24
 - 起始代码 checkpoint：`0efe8aa57bf2e83fc5f3552c1ecb0d1f8e645b72`
-- Browser Gate：**CONSUMED：v1 run Failed before observation**
+- Browser Gate：**v1 CONSUMED；executor-recovery v2 conditional on clean/pushed checkpoint**
 
 ## 1. 目标与边界
 
@@ -245,3 +245,31 @@ valid-but-Inconclusive。child exit 已确认，parent 最终复核 `processClea
 `0005`、FP2-R1、Formal R1、FP3 与其他浏览器实验继续关闭。若继续，只能先以新的 clean
 checkpoint 冻结独立 executor-recovery claim lineage，并从非 sandbox 原生身份执行；不得
 删除或复用本次 v1 claim。
+
+## 11. Executor-recovery v2 no-browser freeze
+
+v1 失败闭包确认当时命令运行于 `telecaster\codexsandboxonline`，但 executor identity 与
+Gecko `SpawnTarget` 失败之间仍只是当前最强 bounded diagnosis。为直接判别该项，v2 只改
+execution lineage，不改任何 measurement、classifier、binary、9000 或 timeout：
+
+- v1 global claim 与 run copy 必须逐字节相同；run 的 7 个 primary JSON/log 及现有
+  sidecar 全部按 §10 的固定 SHA/size 重读，且语义仍为 browser launch 1、watchdog failure、
+  no observation / timeline / decision / VSIDIAG；
+- 新 claim 为
+  `fp2-r1-voices-phase-anchor-v2-executor-recovery-one-shot-claim.json`，schema
+  `verisilo-fp2-r1-voices-phase-anchor-executor-recovery-one-shot-claim/v2`，并内嵌完整
+  `priorAttempt` receipt；v1 claim 不删除、不改写、不复用；
+- parent 在 readiness、run directory 与 claim 创建前，以 Windows
+  `GetUserNameExW(NameSamCompatible)` 读取真实 token identity；只接受
+  `telecaster\qiu`。child 在消费 authorization、启动浏览器前重算同一 receipt；环境变量、
+  `getpass.getuser()` 等可继承值不参与 Gate；
+- `PHASE_CONTRACT`、observation/decision schema、top-only JS、listener-before-S0、首 event
+  callback 内同步 S1、固定 3 秒 S2 与 exact 5/53/58 classifier 均保持 v1。JS 与 classifier
+  source fingerprint 分别固定为 SHA-256
+  `93af1e2e68c5fbe1c568abf7435ff8494b19eef054440c9b00b114ce7685a708` 与
+  `11286655ca82fdcd3c5f4c81bb5badbefa5796b624b3f6644b3faae702112388`。
+
+v2 只有在本实现与直接回归形成 clean/pushed checkpoint 后才可消费一次。native executor
+Gate 未通过时必须在 claim/run 创建前停止，`browserLaunches=0`；通过后无论 supported、
+Inconclusive 或 Failed 都保留原始 bytes、禁止自动重试，并返回主脑裁决。classifier 继续
+输出 `0005-remains-closed`；FP2-R1、Formal R1 与 FP3 不开放。

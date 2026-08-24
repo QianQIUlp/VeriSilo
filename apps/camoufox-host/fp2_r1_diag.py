@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import copy
 import contextlib
+import ctypes
 import hashlib
 import json
 import os
@@ -25,6 +26,7 @@ import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
+from ctypes import wintypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -81,7 +83,13 @@ GEN5_REALM_COMMON_PATH = REPO_ROOT / "tests" / "fingerprint-probe" / "fp2" / "re
 GEN5_TOP_PATH = REPO_ROOT / "tests" / "fingerprint-probe" / "fp2" / "top.js"
 EVIDENCE_ROOT = REPO_ROOT / "artifacts" / "camoufox-fp2-r1-diag"
 LEGACY_CLAIM_PATH = EVIDENCE_ROOT / "fp2-r1-diag-v1-one-shot-claim.json"
-CLAIM_PATH = EVIDENCE_ROOT / "fp2-r1-voices-phase-anchor-v1-one-shot-claim.json"
+PHASE_V1_CLAIM_PATH = (
+    EVIDENCE_ROOT / "fp2-r1-voices-phase-anchor-v1-one-shot-claim.json"
+)
+CLAIM_PATH = (
+    EVIDENCE_ROOT
+    / "fp2-r1-voices-phase-anchor-v2-executor-recovery-one-shot-claim.json"
+)
 PLAYWRIGHT_DRIVER_DIR = (
     HOST_DIR / ".venv" / "Lib" / "site-packages" / "playwright" / "driver"
 )
@@ -117,13 +125,14 @@ EXPECTED_SUPERVISOR_SIZE = 185856
 EXPECTED_PATCH_ORDER = ["0000", "0001", "0002", "0003", "0003a", "0004", "9000"]
 EXPECTED_RUNTIME_PYTHON = "3.12.13"
 EXPECTED_RUNTIME_PACKAGES = {"camoufox": "0.5.4", "playwright": "1.60.0", "browserforge": "1.2.4"}
+EXPECTED_EXECUTOR_IDENTITY = r"telecaster\qiu"
 DEFAULT_PORT = 18193
 SESSION_WATCHDOG_SECONDS = 60
 REALM_DEADLINE_SECONDS = 15
 PARENT_WATCHDOG_SECONDS = 150
 
 READINESS_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-readiness/v1"
-CLAIM_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-one-shot-claim/v1"
+CLAIM_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-executor-recovery-one-shot-claim/v2"
 CHILD_AUTH_SCHEMA = "verisilo-fp2-r1-diag-child-authorization/v1"
 REPORT_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-run/v1"
 TIMELINE_SCHEMA = "verisilo-fp2-r1-diag-timeline/v1"
@@ -131,6 +140,7 @@ DECISION_SCHEMA = "verisilo-fp2-r1-diag-v1-v4-decision/v1"
 PHASE_DECISION_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-decision/v1"
 PHASE_OBSERVATION_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-observation/v1"
 PHASE_CONTRACT = "voices-phase-anchor-v1"
+EXECUTION_LINEAGE = "voices-phase-anchor-executor-recovery-v2"
 OFFLINE_ADJUDICATION_SCHEMA = "verisilo-fp2-r1-diag-offline-readjudication/v1"
 RECOVERABLE_RUN_ID = "fp2-r1-diag-20260824T055549Z-56f7c5fced"
 RECOVERABLE_RUNNER_HEAD = "37d44dc54bd1ad91987db4c74a6cb7ecadb4d17c"
@@ -144,6 +154,17 @@ ORIGINAL_RUN_FILES = {
     "one-shot-claim.json": ("2b9151e9032ecfda4e1ea29e3dd1d38b368ab734b61239753c4a1c6ff582b34c", 3463),
     "run-report.json": ("40ed7905f3eb313452b55238b9bd515b514f7a7dd4107ac404bc765a4ac94728", 5068),
     "voice-observation.json": ("516a2118109f0d758e1402f757d69478b35211673f73b5face7e66456b9c6378", 2005),
+}
+PHASE_V1_RUN_ID = "fp2-r1-phase-anchor-20260824T102701Z-ee4a02f604"
+PHASE_V1_RUNNER_SHA256 = "ca77b906ea34d6e1f4b1f87998e6317048bd76caa341b1d54c4300d0dec96798"
+PHASE_V1_RUN_FILES = {
+    "child-authorization-consumed.json": ("f205de751a3d04d90260d164ecc2397f16b918617a8c38ea5154db9df933dd48", 250),
+    "child-authorization.json": ("c01481817ffadcbe44a9c07ff7d541b71a416b0f4bb1da5514b62ed9995fe9d7", 1395),
+    "child-result.json": ("e69ab1936f1700baeda65f9fb2e98dcf83a94d38685df499b2dc88da2c863c43", 304),
+    "child-stderr.log": ("7147755d6d774b24eb7c4379acc001a800e2d20f22bee7e3577d1e24685a5b51", 8959),
+    "child-stdout.log": ("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", 0),
+    "one-shot-claim.json": ("c384c41d57c5018297c097dcfb7da62a57505067f51a3905e9107c272aa341f4", 3482),
+    "run-report.json": ("3d6d5b3733e2730d6c41f7d5dfdb1bbff1e14bc7b1920f665bd6e01e9fe605b3", 5814),
 }
 DIAGNOSTIC_MARKER = "# VERISILO-DIAGNOSTIC-MARKER: v1"
 CHILD_TOKEN_ENV = "VERISILO_R1_DIAG_CHILD_TOKEN"
@@ -1352,6 +1373,150 @@ def git_preflight() -> dict[str, Any]:
     return {"branch": fp2.git_command("branch", "--show-current"), "head": head, "tree": tree, "upstream": upstream, "trackedWorktreeClean": True}
 
 
+def prior_phase_v1_attempt() -> dict[str, Any]:
+    require(PHASE_V1_CLAIM_PATH.is_file(), "prior_phase_v1_claim_missing")
+    run_dir = EVIDENCE_ROOT / PHASE_V1_RUN_ID
+    receipts: dict[str, Any] = {}
+    for name, (expected_sha256, expected_size) in PHASE_V1_RUN_FILES.items():
+        path = run_dir / name
+        sidecar = path.with_name(path.name + ".sha256")
+        require(path.is_file(), "prior_phase_v1_evidence_missing", name)
+        receipt = file_receipt(path)
+        require(
+            receipt["sha256"] == expected_sha256
+            and receipt["sizeBytes"] == expected_size,
+            "prior_phase_v1_evidence_mismatch",
+            name,
+        )
+        require(
+            sidecar.is_file()
+            and sidecar.read_bytes()
+            == f"{expected_sha256}  {name}\n".encode("ascii"),
+            "prior_phase_v1_sidecar_mismatch",
+            name,
+        )
+        receipts[name] = {
+            **receipt,
+            "sidecarSha256": sha256_file(sidecar),
+            "sidecarSizeBytes": sidecar.stat().st_size,
+        }
+
+    global_claim = file_receipt(PHASE_V1_CLAIM_PATH)
+    require(
+        global_claim["sha256"] == PHASE_V1_RUN_FILES["one-shot-claim.json"][0]
+        and global_claim["sizeBytes"] == PHASE_V1_RUN_FILES["one-shot-claim.json"][1]
+        and PHASE_V1_CLAIM_PATH.read_bytes()
+        == (run_dir / "one-shot-claim.json").read_bytes(),
+        "prior_phase_v1_claim_mismatch",
+    )
+
+    claim = strict_json(PHASE_V1_CLAIM_PATH)
+    child = strict_json(run_dir / "child-result.json")
+    report = strict_json(run_dir / "run-report.json")
+    consumed = strict_json(run_dir / "child-authorization-consumed.json")
+    require(
+        claim.get("schema")
+        == "verisilo-fp2-r1-voices-phase-anchor-one-shot-claim/v1"
+        and claim.get("runId") == PHASE_V1_RUN_ID
+        and claim.get("contract") == PHASE_CONTRACT
+        and claim.get("oneShot") is True
+        and claim.get("diagnosticOnly") is True
+        and claim.get("formalEligible") is False
+        and (claim.get("runner") or {}).get("sha256")
+        == PHASE_V1_RUNNER_SHA256,
+        "prior_phase_v1_claim_semantics_mismatch",
+    )
+    failure = {"code": "diagnostic_session_watchdog_timeout", "detail": "R1-DIAG"}
+    require(
+        child.get("status") == "failed"
+        and child.get("browserSpawnCalled") is True
+        and child.get("launch") is None
+        and child.get("close") is None
+        and child.get("failure") == failure,
+        "prior_phase_v1_child_semantics_mismatch",
+    )
+    require(
+        report.get("status") == "failed"
+        and report.get("conclusion") is None
+        and report.get("decision") is None
+        and report.get("browserLaunches") == 1
+        and report.get("exitCode") == 1
+        and report.get("childProcessExitConfirmed") is True
+        and report.get("processClean") is True
+        and report.get("cleanupFailure") is None
+        and report.get("failure") == failure,
+        "prior_phase_v1_report_semantics_mismatch",
+    )
+    require(
+        consumed.get("authorizationSha256")
+        == PHASE_V1_RUN_FILES["child-authorization.json"][0],
+        "prior_phase_v1_authorization_mismatch",
+    )
+    stderr = (run_dir / "child-stderr.log").read_text(
+        encoding="utf-8", errors="strict"
+    )
+    require(
+        stderr.count("Failed to launch tab subprocess @SB::LA::SpawnTarget (Error:0)")
+        == 8
+        and stderr.count("gBrowser never populated") == 2
+        and "VSIDIAG " not in stderr,
+        "prior_phase_v1_failure_seam_mismatch",
+    )
+    for name in (
+        "voice-observation.json",
+        "vsidiag-timeline.json",
+        "phase-anchor-decision.json",
+    ):
+        require(
+            not (run_dir / name).exists(),
+            "prior_phase_v1_unexpected_observation",
+            name,
+        )
+    return {
+        "runId": PHASE_V1_RUN_ID,
+        "classification": "failed-no-observation",
+        "reused": False,
+        "globalClaim": global_claim,
+        "files": receipts,
+    }
+
+
+def _sam_compatible_identity() -> str:
+    require(os.name == "nt", "native_executor_platform_mismatch", os.name)
+    try:
+        get_user_name = ctypes.WinDLL("secur32", use_last_error=True).GetUserNameExW
+        get_user_name.argtypes = [
+            wintypes.ULONG,
+            wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.ULONG),
+        ]
+        get_user_name.restype = wintypes.BOOL
+        size = wintypes.ULONG(0)
+        get_user_name(2, None, ctypes.byref(size))
+        buffer = ctypes.create_unicode_buffer(size.value)
+        ok = get_user_name(2, buffer, ctypes.byref(size))
+    except (AttributeError, OSError, ValueError) as exc:
+        raise DiagnosticError(
+            "native_executor_identity_unavailable", type(exc).__name__
+        ) from exc
+    require(bool(ok) and bool(buffer.value), "native_executor_identity_unavailable")
+    return buffer.value
+
+
+def native_executor_preflight() -> dict[str, Any]:
+    actual = _sam_compatible_identity().casefold()
+    require(
+        actual == EXPECTED_EXECUTOR_IDENTITY.casefold(),
+        "native_executor_identity_mismatch",
+        actual,
+    )
+    return {
+        "format": "windows-sam-compatible",
+        "identity": actual,
+        "expectedIdentity": EXPECTED_EXECUTOR_IDENTITY,
+    }
+
+
 def _write_exclusive_json(
     path: Path, value: object, *, exists_code: str = "one_shot_claim_already_exists"
 ) -> str:
@@ -1421,7 +1586,7 @@ def _terminate_child_bounded(process: subprocess.Popen[Any]) -> bool:
 def _consume_child_authorization(args: argparse.Namespace) -> None:
     require(
         type(args.child_run_id) is str
-        and re.fullmatch(r"fp2-r1-phase-anchor-\d{8}T\d{6}Z-[0-9a-f]{10}", args.child_run_id) is not None,
+        and re.fullmatch(r"fp2-r1-phase-anchor-recovery-v2-\d{8}T\d{6}Z-[0-9a-f]{10}", args.child_run_id) is not None,
         "child_authorization_invalid",
         "runId",
     )
@@ -1442,10 +1607,25 @@ def _consume_child_authorization(args: argparse.Namespace) -> None:
         claim.get("schema") == CLAIM_SCHEMA
         and claim.get("runId") == args.child_run_id
         and claim.get("contract") == PHASE_CONTRACT
+        and claim.get("executionLineage") == EXECUTION_LINEAGE
         and claim.get("diagnosticOnly") is True
         and claim.get("formalEligible") is False,
         "child_authorization_invalid",
         "claim-boundary",
+    )
+    prior_attempt = prior_phase_v1_attempt()
+    native_executor = native_executor_preflight()
+    require(
+        claim.get("priorAttempt") == prior_attempt
+        and authorization.get("priorAttempt") == prior_attempt,
+        "child_authorization_invalid",
+        "prior-attempt",
+    )
+    require(
+        claim.get("nativeExecutor") == native_executor
+        and authorization.get("nativeExecutor") == native_executor,
+        "child_authorization_invalid",
+        "native-executor",
     )
     require((claim.get("runner") or {}).get("sha256") == authorization.get("runnerSha256"), "child_authorization_invalid", "claim-runner")
     supervisor = native_supervisor_receipt()
@@ -1576,6 +1756,8 @@ async def run_child(args: argparse.Namespace) -> int:
 
 
 def execute_browser_diagnostic(port: int) -> int:
+    native_executor = native_executor_preflight()
+    prior_attempt = prior_phase_v1_attempt()
     readiness = verify_readiness(hash_archive=True)
     extraction = ensure_extracted_browser(readiness_verified=True)
     runtime = readiness["runtime"]
@@ -1583,7 +1765,7 @@ def execute_browser_diagnostic(port: int) -> int:
     fp2.require_no_target_processes("before R1 diagnostic claim")
     fp2.assert_port_free(port)
     require(not CLAIM_PATH.exists(), "one_shot_claim_already_exists", CLAIM_PATH.name)
-    run_id = f"fp2-r1-phase-anchor-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
+    run_id = f"fp2-r1-phase-anchor-recovery-v2-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
     run_dir = EVIDENCE_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     child_result_path = run_dir / "child-result.json"
@@ -1601,6 +1783,9 @@ def execute_browser_diagnostic(port: int) -> int:
         "oneShot": True,
         "purpose": "fp2-r1-voices-first-notification-phase-anchor",
         "contract": PHASE_CONTRACT,
+        "executionLineage": EXECUTION_LINEAGE,
+        "priorAttempt": prior_attempt,
+        "nativeExecutor": native_executor,
         "captureMode": "playwright-pw-browser-stderr-v1",
         "captureBridge": readiness["captureBridge"],
         "nativeSupervisor": readiness["nativeSupervisor"],
@@ -1654,6 +1839,8 @@ def execute_browser_diagnostic(port: int) -> int:
                     canonical_bytes(readiness["captureBridge"])
                 ),
                 "runtimeInterpreterSha256": runtime["interpreter"]["sha256"],
+                "priorAttempt": prior_attempt,
+                "nativeExecutor": native_executor,
                 "childArguments": child_arguments,
             },
             exists_code="child_authorization_already_exists",
@@ -1753,6 +1940,9 @@ def execute_browser_diagnostic(port: int) -> int:
         "readiness": readiness,
         "extraction": extraction,
         "runtime": runtime,
+        "executionLineage": EXECUTION_LINEAGE,
+        "priorAttempt": prior_attempt,
+        "nativeExecutor": native_executor,
         "exitCode": exit_code,
         "childProcessExitConfirmed": child_exit_confirmed,
         "processClean": process_clean,

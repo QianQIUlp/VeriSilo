@@ -20,7 +20,7 @@
 | 当前 FP1 任务                   | [冻结合同、执行历史与离线证据闭包](camoufox-fp1-deterministic-artifact-projection-task.md) / closure baseline `b7a615ac39606deb741b3b3ea13d3584a987a39c` / tree `9461adcc6924539dc4c2bb80963fab71a2efef49` | 原始 full runner verdict 保持 Failed；主脑基于 immutable A1/A2/B1 evidence 与 corrected contract adjudication 接受 FP1，`verified:false` |
 | 历史 FP2 generation 任务        | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 5 execution package frozen | generation 1 Blocked；generation 2 Failed on HTTP harness；generation 3 Failed / failure evidence insufficient；generation 4 formal execution Failed，root cause 确认为 probe ServiceWorker lifecycle semantic defect（semantic closure 已 Accepted）；Gen5 claim 尚未创建；FP2 capability 未裁决 |
 | FP2-R1 diagnostic readiness/run | [actual-9000 execution contract and result](camoufox-fp2-r1-diagnostic-execution-task.md) / readiness `37d44dc` / validator fix `1e889bb` / run `fp2-r1-diag-20260824T055549Z-56f7c5fced` | readiness 已关闭；一次 diagnostic run 原 verdict Failed、离线重裁决 Inconclusive；不接受 FP2-R1 |
-| FP2-R1 Voices phase-anchor readiness/run | [execution contract §9–§10](camoufox-fp2-r1-diagnostic-execution-task.md) / readiness `e942a5b9bee642da51e4041ed2ae0359e18be078` / run `fp2-r1-phase-anchor-20260824T102701Z-ee4a02f604` | readiness Accepted；v1 单次 run 在 Gecko content-process 创建时 Failed / no observation；`0005` 关闭 |
+| FP2-R1 Voices phase-anchor readiness/run | [execution contract §9–§11](camoufox-fp2-r1-diagnostic-execution-task.md) / readiness `e942a5b9bee642da51e4041ed2ae0359e18be078` / v1 run `fp2-r1-phase-anchor-20260824T102701Z-ee4a02f604` | v1 Failed / no observation；executor-recovery v2 package frozen no-browser，待 clean/pushed checkpoint 后单次 native execution；`0005` 关闭 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -163,7 +163,7 @@ regression”的 integration extraction 均冻结在
 | R1-diag diagnostic engine build / provenance     | **R1-diag diagnostic engine build/provenance closure passed；`1542z` diagnostic-only binary 已绑定；后续 run 不追改本 Gate** |
 | FP2-R1 V1–V4 diagnostic execution readiness      | **FP2-R1 V1–V4 diagnostic execution readiness closure passed；actual-9000 top-only package 已冻结，browserLaunches=0** |
 | FP2-R1 actual-9000 diagnostic run                | **Original runner Failed（post-processing validator false negative）；immutable evidence offline readjudication Inconclusive；browserLaunches=1** |
-| FP2-R1 Voices phase-anchor v1                     | **Readiness Accepted；单次 run Failed before observation；direct phase evidence 仍 unresolved；`0005` 关闭** |
+| FP2-R1 Voices phase-anchor                         | **v1 Failed before observation；v2 executor-recovery package frozen no-browser；direct phase evidence unresolved；`0005` 关闭** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -273,11 +273,12 @@ evidence。直接事实是命令运行于受限 Codex sandbox identity；executo
 因此是当前最强 bounded diagnosis 与下一判别项。raw evidence 没有形成 frozen binary、
 9000 或 Voices classifier failure evidence，但尚未因果排除这些层。
 
-下一项最短路径不是继续 source audit、改旧 T1 或修编译机，而是冻结一个独立的
-executor-recovery claim lineage：保留 v1 全部 bytes，在新的 clean/pushed checkpoint 上只从
-非 sandbox 原生 Windows identity 启动。只有该 recovery package 再通过 no-browser binding
-与 one-shot Gate 后，才可单独消费一次；不得删除、复用或改写 v1 claim。`0005`、FP1-R1、
-FP2-R1、FP3、M3-WI、UI、代理联动和 production package/signing 均保持关闭。
+独立 executor-recovery v2 package 已按最短路径冻结：完整绑定 v1 claim、7 个 primary
+evidence 与 Failed/no-observation 语义；claim 前使用真实 Windows SAM token identity
+fail-closed，只接受 `telecaster\qiu`；measurement JS/classifier bytes 不变。实现与直接回归
+形成 clean/pushed checkpoint 后，v2 自动有资格从该 native identity 消费一次。任何结果都
+返回主脑且不重试；不得删除、复用或改写 v1 claim。`0005`、FP1-R1、FP2-R1、FP3、
+M3-WI、UI、代理联动和 production package/signing 均保持关闭。
 
 ## 已知边界
 
@@ -1782,3 +1783,23 @@ VSIDIAG；不能判 supported 或 Inconclusive。child exit 已确认，最终
 `3d6d5b3733e2730d6c41f7d5dfdb1bbff1e14bc7b1920f665bd6e01e9fe605b3`。v1 不重试；
 未来若继续，只允许新 claim lineage + 非 sandbox 原生 Windows executor 的独立 Gate。
 `0005`、FP2-R1、Formal R1、FP3 与其他浏览器实验均未进入。
+
+### 2026-08-24 Voices phase-anchor executor-recovery v2 no-browser freeze
+
+v2 从 v1 failure closure checkpoint
+`4c9a9877ccac796bdd698460c7d59d8d3e988bd1` / tree
+`6f7f7fd4bd82ce4d624463833e6cd91efdbeb5d0` 开始，只修正 executor lineage。runner 在任何
+readiness、run-dir 或 claim 创建前读取 Windows primary token 的 SAM-compatible identity；
+`telecaster\codexsandboxonline` fail-closed，`telecaster\qiu` 通过。parent 与 child 都绑定
+同一 receipt，不依赖继承的 USERNAME/getpass 值。
+
+新 v2 claim namespace/schema 与 v1 分离，并完整重读 v1 global claim、run copy、7 个原始
+JSON/log、sidecar 与 Failed/no-observation 语义；任何 missing/drift 或意外 observation 都在
+新 claim 前拒绝。phase contract 仍是 `voices-phase-anchor-v1`，JS/classifier SHA-256 仍为
+`93af1e2e…7685a708` / `11286655…2112388`；binary、9000、E6/E7 规则、5/53/58 集合、
+timeout 和 product claims 均未改变。
+
+direct no-browser package tests 当前为 `36/36`；sandbox/native identity 的实际只读 A/B
+分别返回 reject/pass，未创建 v2 claim/run，未启动浏览器。只有本实现 clean commit/push、
+完整无浏览器回归与最终 preflight 通过后，才允许唯一一次 v2 native execution；随后无论
+结果如何都停止重试并交回主脑。`0005`、FP2-R1、Formal R1 与 FP3 继续关闭。

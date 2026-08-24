@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import inspect
 import json
 import sys
 import tempfile
@@ -86,6 +88,10 @@ class ReadinessTests(unittest.TestCase):
     def test_runtime_namespace_cannot_reuse_formal_fp2_claim(self) -> None:
         self.assertEqual(
             diag.CLAIM_PATH.name,
+            "fp2-r1-voices-phase-anchor-v2-executor-recovery-one-shot-claim.json",
+        )
+        self.assertEqual(
+            diag.PHASE_V1_CLAIM_PATH.name,
             "fp2-r1-voices-phase-anchor-v1-one-shot-claim.json",
         )
         self.assertEqual(
@@ -93,8 +99,14 @@ class ReadinessTests(unittest.TestCase):
             "fp2-r1-diag-v1-one-shot-claim.json",
         )
         self.assertNotEqual(diag.CLAIM_PATH, diag.LEGACY_CLAIM_PATH)
+        self.assertNotEqual(diag.CLAIM_PATH, diag.PHASE_V1_CLAIM_PATH)
         self.assertNotEqual(diag.CLAIM_PATH.parent, diag.fp2.FP2_EVIDENCE_ROOT)
         self.assertNotIn("generation", diag.CLAIM_PATH.as_posix().lower())
+        self.assertEqual(
+            diag.CLAIM_SCHEMA,
+            "verisilo-fp2-r1-voices-phase-anchor-executor-recovery-one-shot-claim/v2",
+        )
+        self.assertEqual(diag.PHASE_CONTRACT, "voices-phase-anchor-v1")
         parser = diag.build_parser()
         self.assertFalse(parser.parse_args([]).execute_browser_diagnostic)
         self.assertTrue(parser.parse_args(["--execute-browser-diagnostic"]).execute_browser_diagnostic)
@@ -102,8 +114,77 @@ class ReadinessTests(unittest.TestCase):
         self.assertTrue(offline.offline_readjudicate_failed_run)
         self.assertFalse(offline.execute_browser_diagnostic)
 
+    def test_executor_recovery_binds_exact_v1_failure(self) -> None:
+        prior = diag.prior_phase_v1_attempt()
+        self.assertEqual(prior["runId"], diag.PHASE_V1_RUN_ID)
+        self.assertEqual(prior["classification"], "failed-no-observation")
+        self.assertFalse(prior["reused"])
+        self.assertEqual(
+            prior["globalClaim"]["sha256"],
+            diag.PHASE_V1_RUN_FILES["one-shot-claim.json"][0],
+        )
+        self.assertEqual(set(prior["files"]), set(diag.PHASE_V1_RUN_FILES))
+
+        original_claim_path = diag.PHASE_V1_CLAIM_PATH
+        original_files = diag.PHASE_V1_RUN_FILES
+        try:
+            with tempfile.TemporaryDirectory() as temp_name:
+                diag.PHASE_V1_CLAIM_PATH = Path(temp_name) / "missing.json"
+                with self.assertRaisesRegex(
+                    diag.DiagnosticError, "prior_phase_v1_claim_missing"
+                ):
+                    diag.prior_phase_v1_attempt()
+            diag.PHASE_V1_CLAIM_PATH = original_claim_path
+            diag.PHASE_V1_RUN_FILES = {
+                **original_files,
+                "run-report.json": ("0" * 64, original_files["run-report.json"][1]),
+            }
+            with self.assertRaisesRegex(
+                diag.DiagnosticError, "prior_phase_v1_evidence_mismatch"
+            ):
+                diag.prior_phase_v1_attempt()
+        finally:
+            diag.PHASE_V1_CLAIM_PATH = original_claim_path
+            diag.PHASE_V1_RUN_FILES = original_files
+
+    def test_native_executor_gate_precedes_claim(self) -> None:
+        original = diag._sam_compatible_identity
+        try:
+            diag._sam_compatible_identity = lambda: r"TELECASTER\CodexSandboxOnline"
+            with self.assertRaisesRegex(
+                diag.DiagnosticError, "native_executor_identity_mismatch"
+            ):
+                diag.native_executor_preflight()
+            diag._sam_compatible_identity = lambda: r"telecaster\qiu"
+            self.assertEqual(
+                diag.native_executor_preflight()["identity"], r"telecaster\qiu"
+            )
+        finally:
+            diag._sam_compatible_identity = original
+
+        source = inspect.getsource(diag.execute_browser_diagnostic)
+        self.assertLess(
+            source.index("native_executor_preflight()"),
+            source.index("verify_readiness(hash_archive=True)"),
+        )
+        self.assertLess(
+            source.index("native_executor_preflight()"), source.index("run_dir.mkdir")
+        )
+
+    def test_executor_recovery_does_not_change_measurement(self) -> None:
+        self.assertEqual(
+            hashlib.sha256(diag.PHASE_ANCHOR_JS.encode()).hexdigest(),
+            "93af1e2e68c5fbe1c568abf7435ff8494b19eef054440c9b00b114ce7685a708",
+        )
+        self.assertEqual(
+            hashlib.sha256(
+                inspect.getsource(diag.classify_phase_anchor).encode()
+            ).hexdigest(),
+            "11286655ca82fdcd3c5f4c81bb5badbefa5796b624b3f6644b3faae702112388",
+        )
+
     def test_direct_child_requires_parent_authorization(self) -> None:
-        run_id = "fp2-r1-phase-anchor-20000101T000000Z-0000000000"
+        run_id = "fp2-r1-phase-anchor-recovery-v2-20000101T000000Z-0000000000"
         args = diag.build_parser().parse_args(
             [
                 "--child-session",
@@ -121,7 +202,7 @@ class ReadinessTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as temp_name:
                 diag.EVIDENCE_ROOT = Path(temp_name)
-                run_id = "fp2-r1-phase-anchor-20000101T000000Z-0000000000"
+                run_id = "fp2-r1-phase-anchor-recovery-v2-20000101T000000Z-0000000000"
                 authorization = diag.EVIDENCE_ROOT / run_id / "child-authorization.json"
                 diag.write_json(
                     authorization,
