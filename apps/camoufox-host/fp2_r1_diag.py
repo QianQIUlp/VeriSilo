@@ -121,6 +121,20 @@ CHILD_AUTH_SCHEMA = "verisilo-fp2-r1-diag-child-authorization/v1"
 REPORT_SCHEMA = "verisilo-fp2-r1-diag-run/v1"
 TIMELINE_SCHEMA = "verisilo-fp2-r1-diag-timeline/v1"
 DECISION_SCHEMA = "verisilo-fp2-r1-diag-v1-v4-decision/v1"
+OFFLINE_ADJUDICATION_SCHEMA = "verisilo-fp2-r1-diag-offline-readjudication/v1"
+RECOVERABLE_RUN_ID = "fp2-r1-diag-20260824T055549Z-56f7c5fced"
+RECOVERABLE_RUNNER_HEAD = "37d44dc54bd1ad91987db4c74a6cb7ecadb4d17c"
+RECOVERABLE_RUNNER_SHA256 = "44588d41ace71a8ba01c960975da1325b7a5f7fd5096d5b900839fca94b55819"
+ORIGINAL_RUN_FILES = {
+    "child-authorization-consumed.json": ("95549a2e7e5a89ca0982ea42c9f8e606bbccb6ac421b5d0c2c1cb482b5bad0ef", 242),
+    "child-authorization.json": ("669c8c8254dde0f4118b00cc4e1172615c0f835a8314e59c636106d4a1b05e21", 1371),
+    "child-result.json": ("863ad1fc81bef6e69b012247949f02c75fe7123003c6657a65bdf4c9df4040de", 521),
+    "child-stderr.log": ("a84bd414ca36ee3fab808716473f9a138f9a4fc52db23b7d114a58131ac0c6f3", 19583),
+    "child-stdout.log": ("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", 0),
+    "one-shot-claim.json": ("2b9151e9032ecfda4e1ea29e3dd1d38b368ab734b61239753c4a1c6ff582b34c", 3463),
+    "run-report.json": ("40ed7905f3eb313452b55238b9bd515b514f7a7dd4107ac404bc765a4ac94728", 5068),
+    "voice-observation.json": ("516a2118109f0d758e1402f757d69478b35211673f73b5face7e66456b9c6378", 2005),
+}
 DIAGNOSTIC_MARKER = "# VERISILO-DIAGNOSTIC-MARKER: v1"
 CHILD_TOKEN_ENV = "VERISILO_R1_DIAG_CHILD_TOKEN"
 
@@ -603,7 +617,7 @@ def _single_event(events: list[dict[str, Any]], name: str, *, required: bool = T
 def _top_observation(observation: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     configured = observation.get("configuredIdentityDigest")
     expected = observation.get("expectedConfiguredIdentityDigest")
-    require(type(configured) is str and re.fullmatch(r"[0-9a-f]{64}", configured) is not None, "config_delivery_unproven")
+    require(type(configured) is str and re.fullmatch(r"sha256:[0-9a-f]{64}", configured) is not None, "config_delivery_unproven")
     require(configured == expected, "config_delivery_unproven")
     require(observation.get("singleTopObjectSchedule") is True, "topology_schedule_unproven")
     pair = observation.get("top")
@@ -1357,11 +1371,237 @@ def execute_browser_diagnostic(port: int) -> int:
     return 0 if failure is None else 1
 
 
+def _closed_run_file(run_dir: Path, name: str) -> dict[str, Any]:
+    path = run_dir / name
+    sidecar = path.with_name(path.name + ".sha256")
+    require(path.is_file() and sidecar.is_file(), "offline_evidence_missing", name)
+    digest = sha256_file(path)
+    expected_digest, expected_size = ORIGINAL_RUN_FILES[name]
+    require(
+        digest == expected_digest and path.stat().st_size == expected_size,
+        "offline_evidence_mismatch",
+        name,
+    )
+    require(
+        sidecar.read_bytes() == f"{digest}  {name}\n".encode("ascii"),
+        "offline_evidence_sidecar_mismatch",
+        name,
+    )
+    return {
+        **file_receipt(path),
+        "sidecarSha256": sha256_file(sidecar),
+        "sidecarSizeBytes": sidecar.stat().st_size,
+    }
+
+
+def _original_runner_receipt() -> dict[str, Any]:
+    path = "apps/camoufox-host/fp2_r1_diag.py"
+    completed = subprocess.run(
+        ["git", "show", f"{RECOVERABLE_RUNNER_HEAD}:{path}"],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+    )
+    require(completed.returncode == 0, "offline_original_runner_unavailable")
+    require(sha256_bytes(completed.stdout) == RECOVERABLE_RUNNER_SHA256, "offline_original_runner_mismatch")
+    return {
+        "gitHead": RECOVERABLE_RUNNER_HEAD,
+        "path": path,
+        "sha256": RECOVERABLE_RUNNER_SHA256,
+        "sizeBytes": len(completed.stdout),
+    }
+
+
+def offline_adjudicate_run() -> int:
+    run_id = RECOVERABLE_RUN_ID
+    run_dir = EVIDENCE_ROOT / run_id
+    require(run_dir.is_dir(), "offline_run_missing", run_id)
+    output = run_dir / "final-offline-adjudication.json"
+    output_sidecar = output.with_name(output.name + ".sha256")
+    require(not output.exists() and not output_sidecar.exists(), "offline_adjudication_already_exists", run_id)
+
+    files = {name: _closed_run_file(run_dir, name) for name in ORIGINAL_RUN_FILES}
+    require(CLAIM_PATH.is_file(), "offline_evidence_missing", CLAIM_PATH.name)
+    global_claim = CLAIM_PATH.read_bytes()
+    run_claim = (run_dir / "one-shot-claim.json").read_bytes()
+    require(global_claim == run_claim, "offline_claim_mismatch")
+    claim_sha = sha256_bytes(global_claim)
+    claim = strict_json_bytes(global_claim, CLAIM_PATH.name)
+    report = strict_json(run_dir / "run-report.json")
+    child = strict_json(run_dir / "child-result.json")
+    authorization = strict_json(run_dir / "child-authorization.json")
+    consumed = strict_json(run_dir / "child-authorization-consumed.json")
+
+    require(claim.get("runId") == run_id and claim.get("oneShot") is True, "offline_claim_mismatch")
+    require((claim.get("git") or {}).get("head") == RECOVERABLE_RUNNER_HEAD, "offline_claim_mismatch", "git")
+    require((claim.get("runner") or {}).get("sha256") == RECOVERABLE_RUNNER_SHA256, "offline_claim_mismatch", "runner")
+    require(report.get("runId") == run_id and report.get("claimSha256") == claim_sha, "offline_report_mismatch")
+    require(
+        report.get("status") == "failed"
+        and report.get("conclusion") is None
+        and report.get("failure") == {"code": "config_delivery_unproven", "detail": ""},
+        "offline_report_mismatch",
+        "verdict",
+    )
+    require(
+        report.get("browserLaunches") == 1
+        and report.get("exitCode") == 0
+        and report.get("childProcessExitConfirmed") is True
+        and report.get("processClean") is True
+        and report.get("cleanupFailure") is None,
+        "offline_report_mismatch",
+        "lifecycle",
+    )
+    close = child.get("close") or {}
+    require(
+        child.get("status") == "completed"
+        and child.get("browserSpawnCalled") is True
+        and child.get("failure") is None
+        and close.get("state") == "exited"
+        and close.get("exitStatus") == 0
+        and close.get("processTreeExited") is True
+        and close.get("closeOutcome") == "success",
+        "offline_child_mismatch",
+    )
+    require(
+        authorization.get("runId") == run_id
+        and authorization.get("claimSha256") == claim_sha
+        and authorization.get("runnerSha256") == RECOVERABLE_RUNNER_SHA256,
+        "offline_authorization_mismatch",
+    )
+    require(
+        consumed.get("runId") == run_id
+        and consumed.get("authorizationSha256") == files["child-authorization.json"]["sha256"],
+        "offline_authorization_mismatch",
+        "consumed",
+    )
+
+    observation = strict_json(run_dir / "voice-observation.json")
+    timeline = parse_diagnostic_log((run_dir / "child-stderr.log").read_text(encoding="utf-8", errors="strict"))
+    references = reference_voice_hashes()
+    decision = classify_v1_v4(
+        timeline,
+        observation,
+        managed_hashes=references["managed"],
+        known_native_hashes=references["knownNative"],
+    )
+    require(
+        decision.get("conclusion") == "inconclusive"
+        and decision.get("supported") == []
+        and (decision.get("actualCompensation") or {}).get("T1_contentMirrorIncrementalDelivery", {}).get("status") == "not-observed",
+        "offline_decision_mismatch",
+    )
+    axes = decision.get("axes") or {}
+    require(
+        axes.get("V1", {}).get("status") == "source-refuted-as-written"
+        and axes.get("V2", {}).get("status") == "source-refuted-as-written"
+        and axes.get("V3", {}).get("status") == "not-observed"
+        and axes.get("V4", {}).get("status") == "not-observed"
+        and decision.get("exhaustiveExclusionClaim") is False,
+        "offline_decision_mismatch",
+        "axes",
+    )
+
+    events = timeline["events"]
+    content = sorted((item for item in events if item["proc"] == "C"), key=lambda item: item["seq"])
+    parent = sorted((item for item in events if item["proc"] == "P"), key=lambda item: item["seq"])
+    e7 = [item for item in content if item["e"] == "E7_getvoices"]
+    e6_add = [item for item in content if item["e"] == "E6_recv_add_voice"]
+    e6_initial = [item for item in content if item["e"] == "E6_recv_initial_voices"]
+    first_observed, second_observed = _top_observation(observation)
+    all_hashes = references["knownNative"] | references["managed"]
+    require(
+        len(e7) == 2
+        and e7[0]["n"] == e7[0]["cache"] == 0
+        and e7[1]["n"] == e7[1]["cache"] == 58
+        and first_observed["uriHashes"] == []
+        and set(second_observed["uriHashes"]) == all_hashes
+        and len(e6_add) == 58
+        and {item["h"] for item in e6_add} == all_hashes
+        and len(e6_initial) == 1
+        and e6_initial[0]["n"] == 58
+        and all(e7[0]["seq"] < item["seq"] < e7[1]["seq"] for item in [*e6_add, *e6_initial])
+        and _single_event(parent, "E4_sendinit_snapshot")["n"] == 58,
+        "offline_observation_mismatch",
+    )
+
+    adjudicator_git = git_preflight()
+    require(adjudicator_git["branch"] == "codex/camoufox-m3-engine-adapter", "offline_adjudicator_branch_mismatch")
+    adjudicator = {"git": adjudicator_git, "runner": file_receipt(Path(__file__))}
+    receipt = {
+        "schema": OFFLINE_ADJUDICATION_SCHEMA,
+        "runId": run_id,
+        "createdAtUtc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "status": "inconclusive",
+        "diagnosticOnly": True,
+        "formalEligible": False,
+        "verified": False,
+        "browserLaunches": 1,
+        "relaunchPerformed": False,
+        "originalBytesModified": False,
+        "originalRunnerVerdict": {
+            "status": "failed",
+            "failure": report["failure"],
+            "reportSha256": files["run-report.json"]["sha256"],
+            "reportPreserved": True,
+        },
+        "correction": "accept-canonical-sha256-prefixed-configured-identity-digest",
+        "originalRunner": _original_runner_receipt(),
+        "adjudicator": adjudicator,
+        "inputs": {
+            "globalClaim": file_receipt(CLAIM_PATH),
+            "runFiles": files,
+        },
+        "lifecycle": {
+            "childCompleted": True,
+            "browserSpawnCalled": True,
+            "exitCode": 0,
+            "processTreeExited": True,
+            "processClean": True,
+            "additionalBrowserLaunches": 0,
+        },
+        "timeline": {
+            "captureMode": timeline["captureMode"],
+            "transportPids": timeline["transportPids"],
+            "eventCount": len(events),
+            "parentSequence": [parent[0]["seq"], parent[-1]["seq"]],
+            "contentSequence": [content[0]["seq"], content[-1]["seq"]],
+        },
+        "observedFacts": {
+            "firstVoiceCount": 0,
+            "secondVoiceCount": 58,
+            "e6AddCount": 58,
+            "e6InitialCount": 58,
+            "secondInventory": "exact-5-known-native-plus-53-managed",
+            "knownNativeCount": 5,
+            "managedCount": 53,
+            "unknownCount": 0,
+            "t1FirstInventoryConditionMet": False,
+        },
+        "decision": decision,
+        "claims": {
+            "fp2R1Accepted": False,
+            "formalR1": False,
+            "voicesFixed": False,
+            "gpcRuntimeVerified": False,
+            "remediationSuccess": False,
+        },
+    }
+    receipt_sha = _write_exclusive_json(output, receipt, exists_code="offline_adjudication_already_exists")
+    with output_sidecar.open("x", encoding="ascii", newline="\n") as handle:
+        handle.write(f"{receipt_sha}  {output.name}\n")
+    print(json.dumps({"status": "inconclusive", "runId": run_id, "browserLaunches": 1, "relaunchPerformed": False, "adjudicationSha256": receipt_sha}, sort_keys=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-readiness", action="store_true")
     parser.add_argument("--materialize-browser", action="store_true")
     parser.add_argument("--execute-browser-diagnostic", action="store_true")
+    parser.add_argument("--offline-readjudicate-failed-run", action="store_true")
     parser.add_argument("--run-port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--child-session", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--child-run-id", help=argparse.SUPPRESS)
@@ -1377,7 +1617,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    modes = sum(bool(value) for value in (args.check_readiness, args.materialize_browser, args.execute_browser_diagnostic, args.child_session))
+    modes = sum(bool(value) for value in (args.check_readiness, args.materialize_browser, args.execute_browser_diagnostic, args.offline_readjudicate_failed_run, args.child_session))
     require(modes <= 1, "execution_mode_conflict")
     if args.child_session:
         for name in (
@@ -1394,6 +1634,8 @@ def main() -> int:
         return asyncio.run(run_child(args))
     if args.execute_browser_diagnostic:
         return execute_browser_diagnostic(args.run_port)
+    if args.offline_readjudicate_failed_run:
+        return offline_adjudicate_run()
     if args.materialize_browser:
         result = ensure_extracted_browser()
         print(json.dumps({"status": "execution-package-ready-no-browser", "browserLaunches": 0, "extraction": result}, sort_keys=True))

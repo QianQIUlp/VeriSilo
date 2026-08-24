@@ -34,8 +34,8 @@ def observation(
     second_count: int = 58,
 ) -> dict:
     return {
-        "configuredIdentityDigest": "a" * 64,
-        "expectedConfiguredIdentityDigest": "a" * 64,
+        "configuredIdentityDigest": "sha256:" + "a" * 64,
+        "expectedConfiguredIdentityDigest": "sha256:" + "a" * 64,
         "singleTopObjectSchedule": True,
         "top": {
             "firstAtMonotonicMs": 1.0,
@@ -90,6 +90,9 @@ class ReadinessTests(unittest.TestCase):
         parser = diag.build_parser()
         self.assertFalse(parser.parse_args([]).execute_browser_diagnostic)
         self.assertTrue(parser.parse_args(["--execute-browser-diagnostic"]).execute_browser_diagnostic)
+        offline = parser.parse_args(["--offline-readjudicate-failed-run"])
+        self.assertTrue(offline.offline_readjudicate_failed_run)
+        self.assertFalse(offline.execute_browser_diagnostic)
 
     def test_direct_child_requires_parent_authorization(self) -> None:
         run_id = "fp2-r1-diag-20000101T000000Z-0000000000"
@@ -411,6 +414,13 @@ class TimelineTests(unittest.TestCase):
                 managed_hashes=refs["managed"],
                 known_native_hashes=refs["knownNative"],
             )
+
+    def test_bare_config_digest_is_rejected(self) -> None:
+        observed = observation()
+        observed["configuredIdentityDigest"] = observed["configuredIdentityDigest"].removeprefix("sha256:")
+        observed["expectedConfiguredIdentityDigest"] = observed["expectedConfiguredIdentityDigest"].removeprefix("sha256:")
+        with self.assertRaisesRegex(diag.DiagnosticError, "config_delivery_unproven"):
+            self.classify([*self.parent_lines(), *top_lines()], observed)
 
     def test_top_content_process_reset_fails_closed(self) -> None:
         values = [
