@@ -20,7 +20,7 @@
 | 当前 FP1 任务                   | [冻结合同、执行历史与离线证据闭包](camoufox-fp1-deterministic-artifact-projection-task.md) / closure baseline `b7a615ac39606deb741b3b3ea13d3584a987a39c` / tree `9461adcc6924539dc4c2bb80963fab71a2efef49` | 原始 full runner verdict 保持 Failed；主脑基于 immutable A1/A2/B1 evidence 与 corrected contract adjudication 接受 FP1，`verified:false` |
 | 历史 FP2 generation 任务        | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 5 execution package frozen | generation 1 Blocked；generation 2 Failed on HTTP harness；generation 3 Failed / failure evidence insufficient；generation 4 formal execution Failed，root cause 确认为 probe ServiceWorker lifecycle semantic defect（semantic closure 已 Accepted）；Gen5 claim 尚未创建；FP2 capability 未裁决 |
 | FP2-R1 diagnostic readiness/run | [actual-9000 execution contract and result](camoufox-fp2-r1-diagnostic-execution-task.md) / readiness `37d44dc` / validator fix `1e889bb` / run `fp2-r1-diag-20260824T055549Z-56f7c5fced` | readiness 已关闭；一次 diagnostic run 原 verdict Failed、离线重裁决 Inconclusive；不接受 FP2-R1 |
-| FP2-R1 Voices phase-anchor readiness | [execution contract §9](camoufox-fp2-r1-diagnostic-execution-task.md) / `e942a5b9bee642da51e4041ed2ae0359e18be078` / tree `177b55fcc45d3b4bcf48d458099a7797311e28d6` | A0/A1/A2 measurement contract 已冻结并通过 no-browser readiness；未执行 phase run；`0005` 关闭 |
+| FP2-R1 Voices phase-anchor readiness/run | [execution contract §9–§10](camoufox-fp2-r1-diagnostic-execution-task.md) / readiness `e942a5b9bee642da51e4041ed2ae0359e18be078` / run `fp2-r1-phase-anchor-20260824T102701Z-ee4a02f604` | readiness Accepted；v1 单次 run 在 Gecko content-process 创建时 Failed / no observation；`0005` 关闭 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -163,7 +163,7 @@ regression”的 integration extraction 均冻结在
 | R1-diag diagnostic engine build / provenance     | **R1-diag diagnostic engine build/provenance closure passed；`1542z` diagnostic-only binary 已绑定；后续 run 不追改本 Gate** |
 | FP2-R1 V1–V4 diagnostic execution readiness      | **FP2-R1 V1–V4 diagnostic execution readiness closure passed；actual-9000 top-only package 已冻结，browserLaunches=0** |
 | FP2-R1 actual-9000 diagnostic run                | **Original runner Failed（post-processing validator false negative）；immutable evidence offline readjudication Inconclusive；browserLaunches=1** |
-| FP2-R1 Voices phase-anchor readiness             | **Accepted no-browser at `e942a5b`；direct phase run 尚未执行；`0005` 关闭** |
+| FP2-R1 Voices phase-anchor v1                     | **Readiness Accepted；单次 run Failed before observation；direct phase evidence 仍 unresolved；`0005` 关闭** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -257,7 +257,7 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 ## 下一阶段
 
 `1542z` diagnostic engine build/provenance 与 actual-9000 execution-readiness 已分别
-关闭；唯一授权的 bounded top-only run 也已执行并干净退出。原 runner 因 configured
+关闭；actual-9000 当时唯一授权的 bounded top-only run 已执行并干净退出。原 runner 因 configured
 digest validator false negative 保持 Failed；修正版 classifier 对 immutable evidence 的
 离线结论为 Inconclusive，没有第二次浏览器启动。
 
@@ -266,12 +266,18 @@ V1/V2 仍为 `source-refuted-as-written`。本次同一 content context 实际�
 `not-observed`。该模式支持“content mirror 存在初始化时序”的后续假设，但不能据此
 重写 T1 或称 FP2-R1 Accepted、Voices fixed、GPC runtime verified、remediation success。
 
-主脑已完成“历史 top=5 如何被 phase-anchor 捕获”的 no-browser 合同冻结。下一项不再是
-继续 source audit 或调整旧 T1，而是一个独立、单次、top-only 的
-`voices-phase-anchor-v1` diagnostic execution Gate；执行前仍须使用新 claim，且不得复用
-旧 run。无论未来结果 supported 或 Inconclusive，classifier 都不自动开放 `0005`；证据
-必须回到主脑另行裁决。`0005`、FP1-R1、FP2-R1、FP3、M3-WI、UI、代理联动和
-production package/signing 均保持关闭。
+`voices-phase-anchor-v1` 的唯一 run 已消费，但在 Gecko content/tab subprocess 创建时
+失败，未产生任何 S0/S1/S2、E6/E7 或 VSIDIAG observation。该 run 必须保持
+Failed / no observation，不能裁决 temporal phase model，也不能称 Inconclusive runtime
+evidence。直接事实是命令运行于受限 Codex sandbox identity；executor-context mismatch
+因此是当前最强 bounded diagnosis 与下一判别项。raw evidence 没有形成 frozen binary、
+9000 或 Voices classifier failure evidence，但尚未因果排除这些层。
+
+下一项最短路径不是继续 source audit、改旧 T1 或修编译机，而是冻结一个独立的
+executor-recovery claim lineage：保留 v1 全部 bytes，在新的 clean/pushed checkpoint 上只从
+非 sandbox 原生 Windows identity 启动。只有该 recovery package 再通过 no-browser binding
+与 one-shot Gate 后，才可单独消费一次；不得删除、复用或改写 v1 claim。`0005`、FP1-R1、
+FP2-R1、FP3、M3-WI、UI、代理联动和 production package/signing 均保持关闭。
 
 ## 已知边界
 
@@ -1751,3 +1757,28 @@ ultratone 重启只清除了可再生 scratch 与 Docker image store，不改变
 
 这些材料继续位于既有 gitignored `artifacts/`，没有新增 storage schema 或通用持久化框架。
 下一 Gate 是一份新的、单次 phase-anchor diagnostic claim/run；本阶段未执行它。
+
+### 2026-08-24 FP2-R1 Voices phase-anchor v1 execution failure closure
+
+唯一 v1 run `fp2-r1-phase-anchor-20260824T102701Z-ee4a02f604` 在 clean/pushed
+`2db42c00f296006210daaca69ff21a17ec9546e5` / tree
+`ff7684d07d85898d592e661a64311e9314db8607` 上消费 one-shot claim；claim SHA-256
+`c384c41d57c5018297c097dcfb7da62a57505067f51a3905e9107c272aa341f4`，3482 bytes。
+浏览器启动计数为 1；supervisor 与 parent/Juggler 已启动，但 8 次 Gecko
+`SpawnTarget (Error:0)` 阻止 tab/content subprocess 建立，随后 2 次
+`gBrowser never populated`，60 秒 launch watchdog 终止本次执行。
+
+执行命令实际身份为 `telecaster\codexsandboxonline`；同 checkpoint 的外部只读身份对照为
+`telecaster\qiu`。因此受限 executor-context mismatch 是当前最强 bounded diagnosis 与
+下一判别项；raw evidence 没有形成 diagnostic binary、9000 或 Voices classifier failure
+evidence，但尚未完成因果排除。没有 `voice-observation.json`、timeline、decision 或
+VSIDIAG；不能判 supported 或 Inconclusive。child exit 已确认，最终
+`processClean=true`、无目标进程与 18193 listener，但没有 clean launch/close receipt，run
+保持 **Failed / no observation**。
+
+原 claim/run 与全部 sidecar 已重算匹配并保留。关键 SHA-256：stderr
+`7147755d6d774b24eb7c4379acc001a800e2d20f22bee7e3577d1e24685a5b51`，child result
+`e69ab1936f1700baeda65f9fb2e98dcf83a94d38685df499b2dc88da2c863c43`，run report
+`3d6d5b3733e2730d6c41f7d5dfdb1bbff1e14bc7b1920f665bd6e01e9fe605b3`。v1 不重试；
+未来若继续，只允许新 claim lineage + 非 sandbox 原生 Windows executor 的独立 Gate。
+`0005`、FP2-R1、Formal R1、FP3 与其他浏览器实验均未进入。

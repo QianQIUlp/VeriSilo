@@ -3,7 +3,7 @@
 - 状态：**Accepted：execution-package-ready-no-browser**
 - 日期：2026-08-24
 - 起始代码 checkpoint：`0efe8aa57bf2e83fc5f3552c1ecb0d1f8e645b72`
-- Browser Gate：**CLOSED**
+- Browser Gate：**CONSUMED：v1 run Failed before observation**
 
 ## 1. 目标与边界
 
@@ -207,3 +207,41 @@ namespace；旧 claim 与原 run bytes 只读保留供离线重裁决。classifi
 `supported` 也保持 `0005-remains-closed`，只把证据交回主脑另行裁决，更不表示 FP2-R1、
 Voices remediation、GPC runtime 或 Formal R1 通过。本 amendment 与 runner 回归本身均为
 no-browser readiness；浏览器执行仍需单独 Gate。
+
+## 10. Voices phase-anchor v1 单次执行失败闭包
+
+主脑授权的唯一 v1 run 为
+`fp2-r1-phase-anchor-20260824T102701Z-ee4a02f604`，绑定 clean/pushed HEAD
+`2db42c00f296006210daaca69ff21a17ec9546e5` / tree
+`ff7684d07d85898d592e661a64311e9314db8607`。one-shot claim SHA-256 为
+`c384c41d57c5018297c097dcfb7da62a57505067f51a3905e9107c272aa341f4`，size
+`3482` bytes；global claim 与 run copy 逐字节相同。
+
+该 run 启动浏览器一次，但在首个 realm observation 前失败。supervisor 与 Camoufox
+parent/Juggler 已启动，随后日志连续记录 8 次
+`Failed to launch tab subprocess @SB::LA::SpawnTarget (Error:0)` 与 2 次
+`gBrowser never populated`；`host.launch()` 没有返回 launch receipt，60 秒 watchdog
+最终输出 `diagnostic_session_watchdog_timeout`。失败命令实际运行身份为
+`telecaster\codexsandboxonline`；主脑在同一 checkpoint 的只读对照确认原生非 sandbox
+执行身份为 `telecaster\qiu`。因此 **executor-context mismatch at Gecko content-process
+creation 是当前最强 bounded diagnosis 与下一判别项**。raw evidence 本身
+没有形成 engine/9000、Voices observation 或 classifier failure evidence；是否由 executor
+identity 因果触发，仍须未来在冻结的新 lineage 中用非 sandbox 原生执行作直接判别。
+
+本 run 没有 `voice-observation.json`、`vsidiag-timeline.json` 或
+`phase-anchor-decision.json`，stderr 中 VSIDIAG 数量为 0；所以它既不是 supported，也不是
+valid-but-Inconclusive。child exit 已确认，parent 最终复核 `processClean=true`，当前无目标
+进程或 18193 listener，但缺少 clean launch/close receipt，execution verdict 保持
+**Failed / no observation**。关键 raw SHA-256：
+
+- `child-stderr.log`：`7147755d6d774b24eb7c4379acc001a800e2d20f22bee7e3577d1e24685a5b51`
+  / 8959 bytes；
+- `child-result.json`：`e69ab1936f1700baeda65f9fb2e98dcf83a94d38685df499b2dc88da2c863c43`
+  / 304 bytes；
+- `run-report.json`：`3d6d5b3733e2730d6c41f7d5dfdb1bbff1e14bc7b1920f665bd6e01e9fe605b3`
+  / 5814 bytes。
+
+全部现存 JSON/log sidecar 已独立重算匹配，原 claim/run bytes 保持不变。v1 不重试；
+`0005`、FP2-R1、Formal R1、FP3 与其他浏览器实验继续关闭。若继续，只能先以新的 clean
+checkpoint 冻结独立 executor-recovery claim lineage，并从非 sandbox 原生身份执行；不得
+删除或复用本次 v1 claim。
