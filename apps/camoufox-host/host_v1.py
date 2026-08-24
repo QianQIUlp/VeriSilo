@@ -674,25 +674,8 @@ class CamoufoxHost:
             "evidenceClass": "observed-on-this-host",
         }
 
-    # -- launch ------------------------------------------------------------
-
-    async def launch(
-        self, artifact_id: str, profile_id: str, expected_sha: str
-    ) -> dict:
-        if self.session is not None and self.session["state"] in (
-            "starting",
-            "running",
-            "closing",
-        ):
-            raise ProtocolError(
-                "session_busy", f"session {self.session['sessionId']} is active"
-            )
-        artifact_path = self.artifact_root / f"{artifact_id}.json"
-        if not artifact_path.is_file():
-            raise ProtocolError("artifact_not_found", f"artifact {artifact_id} not found")
-        artifact, file_sha = verify_artifact_raw(
-            artifact_path, expected_file_sha=expected_sha
-        )
+    def _verify_browser_binding_for_launch(self, artifact: dict) -> None:
+        """Recheck the selected browser bytes immediately before launch."""
         verify_browser_binding(
             artifact, self.lock, self.executable, installed_versions()
         )
@@ -715,6 +698,27 @@ class CamoufoxHost:
                 )
         else:
             verify_tree(self.executable.parent, load_tree_manifest(self.tree_manifest))
+
+    # -- launch ------------------------------------------------------------
+
+    async def launch(
+        self, artifact_id: str, profile_id: str, expected_sha: str
+    ) -> dict:
+        if self.session is not None and self.session["state"] in (
+            "starting",
+            "running",
+            "closing",
+        ):
+            raise ProtocolError(
+                "session_busy", f"session {self.session['sessionId']} is active"
+            )
+        artifact_path = self.artifact_root / f"{artifact_id}.json"
+        if not artifact_path.is_file():
+            raise ProtocolError("artifact_not_found", f"artifact {artifact_id} not found")
+        artifact, file_sha = verify_artifact_raw(
+            artifact_path, expected_file_sha=expected_sha
+        )
+        self._verify_browser_binding_for_launch(artifact)
 
         profile_dir = self.profile_root / profile_id
         profile_dir.mkdir(parents=True, exist_ok=True)

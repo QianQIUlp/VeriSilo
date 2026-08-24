@@ -1,7 +1,7 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**可变项目状态页**
-- 更新日期：2026-08-23
+- 更新日期：2026-08-24
 
 本文只记录当前执行阶段、证据 checkpoint 和下一项任务。长期产品意图见[身份平台北极星](identity-platform-north-star.md)，路线原因见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。每次 Gate 变化后更新本文，不用本文反向改写长期决策。
 
@@ -18,7 +18,8 @@
 | R2 tracked 候选 evidence        | `ecafca9` / `evidence-manifest-m3-wi-r2-windows.json`                                                            | 执行 Agent 候选；主脑未接受，不是 M3-WI Accepted evidence                               |
 | R2H 研究基础                    | `186484f`                                                                                                        | 只有 runner/freezer/schema 与 Host test 变更；无 tracked result/manifest                |
 | 当前 FP1 任务                   | [冻结合同、执行历史与离线证据闭包](camoufox-fp1-deterministic-artifact-projection-task.md) / closure baseline `b7a615ac39606deb741b3b3ea13d3584a987a39c` / tree `9461adcc6924539dc4c2bb80963fab71a2efef49` | 原始 full runner verdict 保持 Failed；主脑基于 immutable A1/A2/B1 evidence 与 corrected contract adjudication 接受 FP1，`verified:false` |
-| 当前 FP2 任务                   | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 5 execution package frozen | generation 1 Blocked；generation 2 Failed on HTTP harness；generation 3 Failed / failure evidence insufficient；generation 4 formal execution Failed，root cause 确认为 probe ServiceWorker lifecycle semantic defect（semantic closure 已 Accepted）；Gen5 claim 尚未创建；FP2 capability 未裁决 |
+| 历史 FP2 generation 任务        | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 5 execution package frozen | generation 1 Blocked；generation 2 Failed on HTTP harness；generation 3 Failed / failure evidence insufficient；generation 4 formal execution Failed，root cause 确认为 probe ServiceWorker lifecycle semantic defect（semantic closure 已 Accepted）；Gen5 claim 尚未创建；FP2 capability 未裁决 |
+| FP2-R1 diagnostic readiness     | [actual-9000 execution contract](camoufox-fp2-r1-diagnostic-execution-task.md) / start `0efe8aa57bf2e83fc5f3552c1ecb0d1f8e645b72` | `1542z` diagnostic-only binary；只关闭无浏览器 execution-readiness，不执行或接受 FP2-R1 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -159,6 +160,7 @@ regression”的 integration extraction 均冻结在
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
 | R1-diag diagnostic engine build / provenance     | **R1-diag diagnostic engine build/provenance closure passed；`1542z` diagnostic-only binary 已绑定，尚未执行 V1–V4** |
+| FP2-R1 V1–V4 diagnostic execution readiness      | **FP2-R1 V1–V4 diagnostic execution readiness closure passed；actual-9000 top-only package 已冻结，browserLaunches=0** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -251,21 +253,18 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 
 ## 下一阶段
 
-FP1 已在 2026-08-20 完成 offline evidence closure。原始 runner report、failure code、
-one-shot claim、Artifact、probe 和所有 A1/A2/B1 referenced evidence 均保持原字节；
-corrected comparator 恢复冻结合同并由无浏览器回归覆盖。主脑 FP1 Gate 为
-**Accepted based on immutable original A1/A2/B1 evidence plus corrected contract
-adjudication**，但 `verified:false`，且不追改原始 runner 的 Failed verdict。
+`1542z` diagnostic engine build/provenance 与 actual-9000 execution-readiness 已分别
+关闭。下一步只允许在新的明确主脑授权下执行一次 bounded、top-only browser diagnostic
+run；它使用独立 diagnostic claim/evidence namespace，结果允许 inconclusive。
 
-下一阶段只允许把 FP2 定义为一项新的、单独冻结的任务：先写明合同、基线、禁止范围和
-独立 Gate，再决定是否执行。当前没有进入 FP2，不得把本次 offline adjudication 写成新的
-runner report、浏览器重跑或产品 verified 能力；M3-WI、UI、代理联动、生产签名/打包状态
-均不因 FP1 Gate 改变。
+V1/V2 的旧正向签名已被固定源码裁决为 `source-refuted-as-written`；实际补偿签名 T1
+判别同一 content mirror 的 incremental delivery。V3 不能从无 E6 的计数变化推出 cache
+causal，V4 只能形成 source-seam suspicion。当前仍未执行 V1–V4，不得写成 FP2-R1
+Accepted、Voices fixed、GPC runtime verified、remediation success 或 Formal R1。
 
-后续顺序固定为 FP2 跨 realm 一致性 → FP3 网络/地区/WebRTC 协调 → FP4 实站
-兼容性 → 使用届时最终 Managed Engine 冻结新的 clean M3-WI 合同。旧 M3-WI
-合同不复活。UI、安装器、代理、production package/signing、Controlled Chromium 和虚拟化
-后端均不进入 FP1。
+诊断后仍须由主脑单独裁决是否有足够因果证据；只有裁决收敛后，才可能另行审批
+`0005`。FP1-R1、FP2-R1、FP3、M3-WI、UI、代理联动和 production package/signing
+均不因 readiness closure 自动开放。
 
 ## 已知边界
 
@@ -1633,3 +1632,34 @@ policy `7/7`、FP2 static `63/63`；其中 formal gate rejection regression 明�
 本闭包没有启动 Camoufox，`windowsRuntimeObserved = false`；它不是 FP2-R1 pass、GPC
 runtime verification、Voices fixed/remediation success 或 V1–V4 pass，也没有创建 Formal R1
 candidate 或作者化 0005。该 diagnostic binary 仅达到未来 V1–V4 判别“可用但尚未执行”的状态。
+
+### 2026-08-24 FP2-R1 actual-9000 diagnostic execution readiness closure
+
+主脑按冻结 9000 bytes 与固定 FF152 source 裁决：历史理想 E1–E8 表不能原样用于
+`1542z`；V1/V2 是 `source-refuted-as-written`。冻结的
+[`actual-9000-amendment-v1`](camoufox-fp2-r1-diagnostic-execution-task.md) 只在同一 top
+object 出现精确 `5 native → E6 → 5 native + 53 managed` 且 E4=58 时支持 T1；V3 只可
+inconclusive，V4 只可 suspicion，一次 run 可以不收敛。
+
+新增最小 execution package `apps/camoufox-host/fp2_r1_diag.py` 与无浏览器回归。它重读
+精确 closure/ZIP/exe/tree、Artifact/native reference、固定 runtime 与 Playwright stderr
+bridge；安全物化并在 launch 前重验完整树。唯一浏览器入口是显式
+`--execute-browser-diagnostic`，由独立 one-shot claim、child authorization、watchdog、
+bounded-close、退出确认和 process cleanup fail-closed 收口。
+
+完整 readiness 已重算 493,471,385-byte ZIP、closure evidence、CPython 3.12.13、
+Playwright 1.60.0 与 capture bridge，结果为 `execution-package-ready-no-browser`。ZIP 已安全
+物化为 503 files / `982403785` bytes，随后从 existing-tree 路径再次全量重读通过。
+targeted package tests `24/24` 通过。物化前后均无
+Camoufox/Firefox/supervisor 进程，one-shot claim 与 run evidence 均未创建。
+
+最终 no-browser regression：R1 related `95/95`、engine remediation `10/10`、GPC
+policy `7/7`、FP2 static `63/63`、本轮 diagnostic package `24/24`、受 Host launch hook
+影响的 Artifact/Host static suite `49/49`；相关 Python `py_compile` 与
+`git diff --check` 通过。
+
+Gate：**FP2-R1 V1–V4 diagnostic execution readiness closure passed**。
+`diagnosticOnly=true`、`formalEligible=false`、`verified=false`、`browserLaunches=0`。
+本 checkpoint 未启动 Camoufox、未创建 diagnostic claim/run evidence、未修改 source lock
+或任何 patch bytes，也未进入 V1–V4、FP1-R1、FP2-R1、FP3、Formal R1 或 `0005`。
+下一步仍需一次新的明确浏览器授权。

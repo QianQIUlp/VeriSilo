@@ -372,3 +372,46 @@ hardwareConcurrency override）需要则保留，以"文件内 MaskConfig GPC �
 `functionality_enabled && (enabled || (pbmode_enabled && 私有浏览))` ⇒
 `SetHeader(nsHttp::GlobalPrivacyControl, "1")`。与 Window/Worker 判定式同构，
 证明 §1.1 单点投影足以驱动三暴露面。
+
+---
+
+## 7. 2026-08-24 actual-9000 discriminator amendment
+
+本节是对 `r1diag-engine-20260823t1542z` 及其冻结 9000 的执行解释修正；它
+supersede §2.2/§2.4 的理想 E1–E8 表作为该 binary 的运行判据，但不追改历史文本。
+
+冻结 9000 实际只有 E1–E7、`proc=P|C` 和每进程 `seq`；没有 timestamp/tid、E4
+actorTag/inventory hash 或 E8。固定源码同时证明：E4 在打点前调用 `GetInstance()`，
+managed batch 在其返回前完成；SAPI 初始化则同步枚举/注册并在 E1/E3 前返回。因此：
+
+- V1 的 `E4 < E3b` 与 V2 的异步交错签名均为
+  `source-refuted-as-written`，不得用不可达签名解释未来 null result；
+- 新增独立 T1：同一 top object 的 C 序列出现精确
+  `E7(5 known native) → E6 delivery → E7(5 native + 53 managed)`，并且 E4 parent
+  snapshot 为 58，才支持 `content-mirror incremental delivery`；T1 不重命名成 V1；
+- V3 因无 E8 且返回值在 cache rebuild 前形成，无 E6 的计数变化只能是
+  `inconclusive / unexplained content-local transition`，不得称 cache causal；
+- V4 的 null/缺失 E1/E3 在 config delivery 已证明时仅为
+  `source-seam suspicion`，不得称 hunk drift 已证实。
+
+P/C 序列不可跨进程比较，日志行也不提供可依赖的跨 producer 总序。执行合同因此限定
+top-only、单一 content producer，并只使用 C 内部
+连续 seq/ctx/first 判定 T1。一次 run 可以保持 inconclusive，不产生 exhaustive exclusion。
+
+完整输入、stderr capture、claim/lifecycle 和禁止措辞见
+[FP2-R1 Voices Diagnostic Execution Readiness Contract](camoufox-fp2-r1-diagnostic-execution-task.md)。
+9000 SHA-256 仍为
+`1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8`，
+`diagnosticOnly=true`、`formalCarryForward=never`；patch、source lock 与 `1542z`
+build/provenance closure 均未改变。
+
+Gate 序列修正为：
+
+```text
+R1-diag build/provenance closure（passed）
+  → actual-9000 execution readiness（no browser）
+  → 单独授权的一次 bounded top-only diagnostic run
+  → 主脑因果裁决（允许 inconclusive）
+```
+
+本 amendment 不创建 Formal R1 candidate、不作者化 `0005`，也不接受 FP2-R1。
