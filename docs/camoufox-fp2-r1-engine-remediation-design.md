@@ -270,3 +270,22 @@ native          ⇔ 键缺失 ⇒ 无 pref 写入，观测仅诊断
 
 历史 v3 BOOL 必填与 Gen5 判定不变。fakeCompletion 同步冻结为
 policy-derived 语义，不得成为独立随机 fingerprint dimension。
+
+## 2026-08-24 Voices publication-phase amendment
+
+新证据不重审本设计的 Managed Identity 目标，只收窄 Voices 根因与下一 Gate。immutable
+Gen5 的 `top=5 / iframe=58 / iframe=58`、actual-9000 的 exact native5 prefix 与完整
+58 delivery、以及固定 FF152 source 顺序共同支持：历史差异最可能是
+`A0 empty → A1 native-only first notification → A2 settled managed+native` 的 temporal
+publication race，不是持久 realm filter 或 `mVoiceCache` 清单分叉。
+
+Gen5 本身没有同 run E6/E7/event anchor，因此当前证据仍不足以作者化 `0005`。先冻结并
+通过 `voices-phase-anchor-v1`：listener-before-query、首个 trusted event callback 内同步
+查询、3 秒 final、top-only、同一 synth object，并以 C 内连续 seq 精确锚定 native5 与
+managed1 之间的 E7。未命中窗口只能 Inconclusive，不得反证 race 或自动重跑。
+
+只有主脑在新的 direct phase evidence 上另行开放 remediation design Gate 后，未来最小
+source seam 才可限定为“在首个对内容可见的 readiness notification 前形成 canonical
+managed inventory 并应用 policy-derived native suppression”。不得转向 realm 特判、
+cache workaround、probe 延迟掩盖或通用初始化框架。本 amendment 不修改 frozen patch
+bytes、不创建 `0005`、不接受 FP2-R1 或 Formal R1。

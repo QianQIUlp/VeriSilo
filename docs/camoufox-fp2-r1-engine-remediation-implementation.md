@@ -418,3 +418,43 @@ R1-diag build/provenance closure（passed）
 实际 run 的原 report 保持 `Failed / config_delivery_unproven`；修复后的离线裁决不覆盖原
 bytes，也没有重跑浏览器。完整 hashes 与 0→58 观测见 execution contract §8。本 amendment
 不创建 Formal R1 candidate、不作者化 `0005`，也不接受 FP2-R1。
+
+## 8. 2026-08-24 Voices phase-anchor implementation freeze
+
+主脑将历史 `top=5 / iframe=58` 裁决为 temporal publication-phase 的高置信解释，不是
+稳定 realm split：Gen5 top 5 hash 是 actual-9000 C 侧 58-item delivery 的 exact native
+prefix；固定 source 又精确执行 SAPI native register/notify，再加入 managed 53，最后发送
+58 snapshot。由于 Gen5 缺少同 run event/sequence anchor，该结论尚不是直接 runtime proof，
+`0005` 保持关闭。
+
+`apps/camoufox-host/fp2_r1_diag.py` 复用现有 binary、9000 stderr transport、native
+supervisor、bounded lifecycle 与 strict JSON，不增加 instrumentation 或通用框架。新的
+`voices-phase-anchor-v1` 只做以下最小变化：
+
+- listener 在 initial query 前注册；每次 event 只递增计数，仅首个 callback 内同步调用
+  `getVoices()`，其 evidence 随后必须证明 trusted 且 target-matched；固定 3 秒后 final
+  query；同一 top JS 持有同一个 synth object；
+- 新 claim 与 report schema/namespace 与已经消费的 actual-9000 claim 隔离；旧
+  offline readjudication 显式读取 legacy claim，不覆盖历史 bytes；
+- classifier 要求 P 侧 exact `5 native → 53 managed → E4(58)`、C 侧 exact
+  `5 native E6 → 53 managed E6 → initial(58)`、每次 observer query 与 E7 一一映射；
+- phase positive 只在 initial=0、首 event=exact native5 且对应 E7 位于 native5 与
+  managed1 之间、final=exact 58 时成立；后续 event 不再查询；首 event 已 settled 或无
+  event 都只输出 `not-observed / Inconclusive`，不反证历史 race；结构、trust、object 或
+  证据错位 fail-closed；
+- positive 也固定输出 `0005-remains-closed` 与 `mainBrainAdjudicationRequired=true`，所有
+  product/Formal/remediation claims 继续为 false。
+
+Gen5 `raw-realms.json`、probe bundle manifest、`realm-common.js` 与 `top.js` 的精确 SHA
+进入 readiness 重读；测试同时锁住历史 probe 的 first-event wait 与 top→iframe 串行语义。
+本节只冻结 no-browser measurement readiness，不启动 Camoufox、不修改 frozen patch bytes、
+不接受 FP2-R1，也不作者化 `0005`。
+
+Gate 序列更新为：
+
+```text
+immutable Gen5 + actual-9000 + fixed source causal alignment
+  → voices-phase-anchor-v1 readiness（本节；no browser）
+  → 单独授权的一次 phase-anchor run（尚未执行）
+  → supported 证据回到主脑，0005 仍须独立 design Gate 裁决
+```

@@ -84,7 +84,15 @@ class ReadinessTests(unittest.TestCase):
         )
 
     def test_runtime_namespace_cannot_reuse_formal_fp2_claim(self) -> None:
-        self.assertEqual(diag.CLAIM_PATH.name, "fp2-r1-diag-v1-one-shot-claim.json")
+        self.assertEqual(
+            diag.CLAIM_PATH.name,
+            "fp2-r1-voices-phase-anchor-v1-one-shot-claim.json",
+        )
+        self.assertEqual(
+            diag.LEGACY_CLAIM_PATH.name,
+            "fp2-r1-diag-v1-one-shot-claim.json",
+        )
+        self.assertNotEqual(diag.CLAIM_PATH, diag.LEGACY_CLAIM_PATH)
         self.assertNotEqual(diag.CLAIM_PATH.parent, diag.fp2.FP2_EVIDENCE_ROOT)
         self.assertNotIn("generation", diag.CLAIM_PATH.as_posix().lower())
         parser = diag.build_parser()
@@ -95,7 +103,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertFalse(offline.execute_browser_diagnostic)
 
     def test_direct_child_requires_parent_authorization(self) -> None:
-        run_id = "fp2-r1-diag-20000101T000000Z-0000000000"
+        run_id = "fp2-r1-phase-anchor-20000101T000000Z-0000000000"
         args = diag.build_parser().parse_args(
             [
                 "--child-session",
@@ -113,7 +121,7 @@ class ReadinessTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as temp_name:
                 diag.EVIDENCE_ROOT = Path(temp_name)
-                run_id = "fp2-r1-diag-20000101T000000Z-0000000000"
+                run_id = "fp2-r1-phase-anchor-20000101T000000Z-0000000000"
                 authorization = diag.EVIDENCE_ROOT / run_id / "child-authorization.json"
                 diag.write_json(
                     authorization,
@@ -247,6 +255,48 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(len(values["managed"]), 53)
         self.assertEqual(len(values["knownNative"]), 5)
         self.assertTrue(values["managed"].isdisjoint(values["knownNative"]))
+        self.assertEqual(
+            self.readiness["historicalProbeManifest"]["sha256"],
+            diag.EXPECTED_GEN5_PROBE_MANIFEST_SHA256,
+        )
+
+    def test_historical_probe_phase_semantics_are_byte_bound(self) -> None:
+        realm_common = diag.GEN5_REALM_COMMON_PATH.read_text(encoding="utf-8")
+        voice_snapshot = realm_common[
+            realm_common.index("async function voiceSnapshot()") : realm_common.index(
+                "async function mediaSnapshot()"
+            )
+        ]
+        self.assertLess(
+            voice_snapshot.index("speechSynthesis.addEventListener"),
+            voice_snapshot.rindex("speechSynthesis.getVoices"),
+        )
+        self.assertIn('3000,\n        "voices_ready"', voice_snapshot)
+
+        top = diag.GEN5_TOP_PATH.read_text(encoding="utf-8")
+        collect = top[top.index("async function collect()") :]
+        self.assertLess(
+            collect.index('"top-window"'),
+            collect.index('collectFrame("same-origin-iframe"'),
+        )
+        self.assertLess(
+            collect.index('collectFrame("same-origin-iframe"'),
+            collect.index('collectFrame("cross-origin-iframe"'),
+        )
+
+    def test_phase_listener_precedes_initial_query(self) -> None:
+        self.assertLess(
+            diag.PHASE_ANCHOR_JS.index('addEventListener("voiceschanged"'),
+            diag.PHASE_ANCHOR_JS.index("const initial = snapshot()"),
+        )
+        handler = diag.PHASE_ANCHOR_JS[
+            diag.PHASE_ANCHOR_JS.index("const onChange =") : diag.PHASE_ANCHOR_JS.index(
+                'synth.addEventListener("voiceschanged"'
+            )
+        ]
+        self.assertIn("const onChange = (event) =>", handler)
+        self.assertIn("voices: snapshot()", handler)
+        self.assertNotIn("async", handler)
 
     def test_pinned_source_model_is_bound(self) -> None:
         lock = json.loads(diag.SOURCE_LOCK_PATH.read_text(encoding="utf-8"))
@@ -458,6 +508,197 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(result["conclusion"], "temporal-incremental-delivery-supported")
         with self.assertRaisesRegex(diag.DiagnosticError, "vsidiag_transport_invalid"):
             diag.parse_diagnostic_log(line({"e": "E2a_sapi_init_begin", "proc": "P", "seq": 0}))
+
+
+class PhaseAnchorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        references = diag.reference_voice_hashes()
+        self.native = sorted(references["knownNative"])
+        self.managed = sorted(references["managed"])
+        self.full = sorted(references["knownNative"] | references["managed"])
+
+    @staticmethod
+    def event(name: str, proc: str, sequence: int, **fields: object) -> dict:
+        return {"e": name, "proc": proc, "seq": sequence, **fields}
+
+    def case(self, mode: str) -> tuple[dict, dict]:
+        parent = [self.event("E2a_sapi_init_begin", "P", 0)]
+        parent += [
+            self.event("E5_send_voice_added", "P", index, h=value)
+            for index, value in enumerate(self.native, 1)
+        ]
+        parent += [
+            self.event("E2b_sapi_init_end", "P", 6),
+            self.event("E1_mvoices_parsed", "P", 7, n=53),
+            self.event("E3a_managed_batch_begin", "P", 8, n=53),
+        ]
+        parent += [
+            self.event("E5_send_voice_added", "P", index, h=value)
+            for index, value in enumerate(self.managed, 9)
+        ]
+        parent += [
+            self.event("E3b_managed_batch_end", "P", 62),
+            self.event("E4_sendinit_snapshot", "P", 63, n=58),
+        ]
+
+        content = [self.event("E7_getvoices", "C", 0, ctx=0, n=0, cache=0, first=1)]
+        content += [
+            self.event("E6_recv_add_voice", "C", index, h=value)
+            for index, value in enumerate(self.native, 1)
+        ]
+        sequence = 6
+        first_event: list[str] | None = None
+        if mode == "supported":
+            content.append(self.event("E7_getvoices", "C", sequence, ctx=0, n=5, cache=5, first=0))
+            first_event = self.native
+            sequence += 1
+        content += [
+            self.event("E6_recv_add_voice", "C", sequence + index, h=value)
+            for index, value in enumerate(self.managed)
+        ]
+        sequence += 53
+        content.append(self.event("E6_recv_initial_voices", "C", sequence, n=58))
+        sequence += 1
+        if mode == "settled-first":
+            content.append(self.event("E7_getvoices", "C", sequence, ctx=0, n=58, cache=58, first=0))
+            first_event = self.full
+            sequence += 1
+        content.append(self.event("E7_getvoices", "C", sequence, ctx=0, n=58, cache=58, first=0))
+        observation = {
+            "schema": diag.PHASE_OBSERVATION_SCHEMA,
+            "diagnosticOnly": True,
+            "formalEligible": False,
+            "configuredIdentityDigest": "sha256:" + "a" * 64,
+            "expectedConfiguredIdentityDigest": "sha256:" + "a" * 64,
+            "singleTopObjectSchedule": True,
+            "top": {
+                "initialAtMonotonicMs": 1.0,
+                "finalAtMonotonicMs": 3005.0,
+                "delayMs": 3000,
+                "listenerRegisteredBeforeInitialQuery": True,
+                "sameSpeechSynthesisObject": True,
+                "initial": {"count": 0, "uriHashes": []},
+                "firstVoicesChanged": (
+                    None
+                    if first_event is None
+                    else {
+                        "atMonotonicMs": 10.0,
+                        "isTrusted": True,
+                        "targetIsSynth": True,
+                        "inventory": {
+                            "count": len(first_event),
+                            "uriHashes": first_event,
+                        },
+                    }
+                ),
+                "eventCountAtFinal": 0 if first_event is None else 2,
+                "final": {"count": 58, "uriHashes": self.full},
+            },
+        }
+        return {"events": [*parent, *content]}, observation
+
+    def classify(self, mode: str) -> dict:
+        timeline, observed = self.case(mode)
+        return diag.classify_phase_anchor(
+            timeline,
+            observed,
+            managed_hashes=set(self.managed),
+            known_native_hashes=set(self.native),
+        )
+
+    def test_exact_zero_native_settled_phase_is_supported(self) -> None:
+        result = self.classify("supported")
+        self.assertEqual(result["status"], "supported")
+        self.assertEqual(result["supported"], ["A1_native_only_first_notification"])
+        self.assertEqual(result["nextGate"], "0005-remains-closed")
+        self.assertTrue(result["mainBrainAdjudicationRequired"])
+        self.assertFalse(result["claims"]["voicesFixed"])
+
+    def test_first_notification_after_settling_is_inconclusive(self) -> None:
+        result = self.classify("settled-first")
+        self.assertEqual(result["status"], "not-observed")
+        self.assertEqual(result["supported"], [])
+        self.assertEqual(result["nextGate"], "0005-remains-closed")
+
+    def test_no_notification_is_inconclusive(self) -> None:
+        result = self.classify("not-observed")
+        self.assertEqual(result["status"], "not-observed")
+        self.assertEqual(result["conclusion"], "inconclusive-phase-not-observed")
+
+    def test_event_trust_target_and_object_fail_closed(self) -> None:
+        timeline, base = self.case("supported")
+        for path, error in (
+            (("firstVoicesChanged", "isTrusted"), "phase_event_untrusted"),
+            (("firstVoicesChanged", "targetIsSynth"), "phase_event_untrusted"),
+            ((None, "sameSpeechSynthesisObject"), "phase_observation_invalid"),
+        ):
+            with self.subTest(path=path):
+                observed = json.loads(json.dumps(base))
+                if path[0] is None:
+                    observed["top"][path[1]] = False
+                else:
+                    observed["top"][path[0]][path[1]] = False
+                with self.assertRaisesRegex(diag.DiagnosticError, error):
+                    diag.classify_phase_anchor(
+                        timeline,
+                        observed,
+                        managed_hashes=set(self.managed),
+                        known_native_hashes=set(self.native),
+                    )
+        for field, value in (("diagnosticOnly", False), ("formalEligible", True)):
+            with self.subTest(field=field):
+                observed = json.loads(json.dumps(base))
+                observed[field] = value
+                with self.assertRaisesRegex(
+                    diag.DiagnosticError, "phase_observation_invalid"
+                ):
+                    diag.classify_phase_anchor(
+                        timeline,
+                        observed,
+                        managed_hashes=set(self.managed),
+                        known_native_hashes=set(self.native),
+                    )
+
+    def test_unmapped_extra_e7_fails_closed(self) -> None:
+        timeline, observed = self.case("not-observed")
+        sequence = max(
+            item["seq"] for item in timeline["events"] if item["proc"] == "C"
+        )
+        timeline["events"].append(
+            self.event("E7_getvoices", "C", sequence + 1, ctx=0, n=58, cache=58, first=0)
+        )
+        with self.assertRaisesRegex(
+            diag.DiagnosticError, "phase_e7_cardinality_mismatch"
+        ):
+            diag.classify_phase_anchor(
+                timeline,
+                observed,
+                managed_hashes=set(self.managed),
+                known_native_hashes=set(self.native),
+            )
+
+    def test_phase_sequence_inventory_and_snapshot_mismatch_fail_closed(self) -> None:
+        for defect, error in (
+            ("e4", "phase_parent_sequence_mismatch"),
+            ("content", "phase_content_delivery_mismatch"),
+            ("e7", "phase_e7_observation_mismatch"),
+        ):
+            with self.subTest(defect=defect):
+                timeline, observed = self.case("supported")
+                events = timeline["events"]
+                if defect == "e4":
+                    next(item for item in events if item["e"] == "E4_sendinit_snapshot")["n"] = 57
+                elif defect == "content":
+                    next(item for item in events if item["e"] == "E6_recv_initial_voices")["n"] = 57
+                else:
+                    [item for item in events if item["e"] == "E7_getvoices"][1]["n"] = 4
+                with self.assertRaisesRegex(diag.DiagnosticError, error):
+                    diag.classify_phase_anchor(
+                        timeline,
+                        observed,
+                        managed_hashes=set(self.managed),
+                        known_native_hashes=set(self.native),
+                    )
 
 
 if __name__ == "__main__":

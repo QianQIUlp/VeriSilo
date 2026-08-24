@@ -165,3 +165,45 @@ sidecar raw SHA-256 为
 first=5 条件，因此离线结论是 `inconclusive`，`supported=[]`，T1/V3/V4 均
 `not-observed`；V1/V2 仍为 `source-refuted-as-written`。该 0→58 模式可以作为新的
 观测事实，但不得事后扩写 T1、冒充 FP2-R1/Voices remediation 成功或据此作者化 `0005`。
+
+## 9. Voices phase-anchor readiness amendment
+
+Gen5 immutable raw evidence 是 `top=5 / same-origin iframe=58 / cross-origin iframe=58`；
+top 的 5 个 URI hash 与 actual-9000 C 序列最前面的 5 个 native E6 完全相同，两个
+iframe 的 58 个 hash 则与完整 `5 native + 53 managed` 集合完全相同。Gen5 冻结 probe
+又按 top → same-origin iframe → cross-origin iframe 串行执行；其 `voiceSnapshot()` 在
+初始为空时等待第一次 `voiceschanged`，随后只重查一次。
+
+固定 FF152 source 与 actual-9000 连续序列共同支持以下三相解释：
+
+```text
+A0  content registry 已创建、inventory 尚未到达：0
+A1  SAPI native 5 已增量到达，首个 voiceschanged 已发布：5
+A2  managed 53 与 initial snapshot 已到达：58
+```
+
+该解释排除了稳定 realm inventory 与持久 stale cache 作为首选根因，但 Gen5 没有同次
+run 的 E6/E7、单调时间或 object anchor；跨 run hash 前缀对齐只能形成高置信 source-
+supported inference，不能追认旧 T1，也不能直接作者化 `0005`。因此下一 Gate 收缩为
+`voices-phase-anchor-v1`，不修改 9000、不重编 binary：
+
+1. top-only JS 持有一个 `speechSynthesis` object；在首次 `getVoices()` 前注册
+   `voiceschanged` listener；
+2. 记录 S0 initial；event handler 只递增计数，并仅在首个 event callback 内同步记录 S1；
+   固定 3 秒后记录 S2 final；不得 resolve 后再查询、不得轮询、不得创建 iframe/Worker；
+3. observer inventory 与每个 E7 一一对应；只使用同一 C 连续 seq，不把 P/C seq 或
+   stderr 行序拼成总时序；`ctx` 只作单 producer 一致性约束，不冒充 object ID；
+4. exact positive signature 为
+   `E7(0) → native E6×5 → event 内 E7(exact native 5) → managed E6×53 →
+   initial(58) → final E7(58)`，且 P 侧保持
+   `SAPI native 5 → managed 53 → E4(58)`；后续 notification 只计数，不再制造 E7；
+5. 首个 event 已在 settled 后触发或没有 event 时都只裁决
+   `not-observed / Inconclusive`，不得反证历史 race；event 非 trusted/target 不匹配、未知
+   voice、E7 无法映射、序列/transport/config/lifecycle 不闭合则 `Failed`。
+
+新 claim 使用独立
+`artifacts/camoufox-fp2-r1-diag/fp2-r1-voices-phase-anchor-v1-one-shot-claim.json`
+namespace；旧 claim 与原 run bytes 只读保留供离线重裁决。classifier 即使输出
+`supported` 也保持 `0005-remains-closed`，只把证据交回主脑另行裁决，更不表示 FP2-R1、
+Voices remediation、GPC runtime 或 Formal R1 通过。本 amendment 与 runner 回归本身均为
+no-browser readiness；浏览器执行仍需单独 Gate。

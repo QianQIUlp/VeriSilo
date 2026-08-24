@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FP2-R1 Voices V1-V4 diagnostic-only execution package.
+"""FP2-R1 Voices phase-anchor diagnostic-only execution package.
 
 The default command performs no browser launch.  Browser execution is behind
 the explicit ``--execute-browser-diagnostic`` switch and writes to a separate
@@ -76,8 +76,12 @@ GEN5_RAW_REALMS_PATH = (
     / "A1"
     / "raw-realms.json"
 )
+GEN5_PROBE_MANIFEST_PATH = GEN5_RAW_REALMS_PATH.parents[1] / "probe-bundle-manifest.json"
+GEN5_REALM_COMMON_PATH = REPO_ROOT / "tests" / "fingerprint-probe" / "fp2" / "realm-common.js"
+GEN5_TOP_PATH = REPO_ROOT / "tests" / "fingerprint-probe" / "fp2" / "top.js"
 EVIDENCE_ROOT = REPO_ROOT / "artifacts" / "camoufox-fp2-r1-diag"
-CLAIM_PATH = EVIDENCE_ROOT / "fp2-r1-diag-v1-one-shot-claim.json"
+LEGACY_CLAIM_PATH = EVIDENCE_ROOT / "fp2-r1-diag-v1-one-shot-claim.json"
+CLAIM_PATH = EVIDENCE_ROOT / "fp2-r1-voices-phase-anchor-v1-one-shot-claim.json"
 PLAYWRIGHT_DRIVER_DIR = (
     HOST_DIR / ".venv" / "Lib" / "site-packages" / "playwright" / "driver"
 )
@@ -104,6 +108,9 @@ EXPECTED_TREE_SHA256 = "d65b168849b4df8f1fde52e8627e834e3d0b85b4c4e7befb5b179a84
 EXPECTED_TREE_SIZE = 95902
 EXPECTED_BASE_ARTIFACT_SHA256 = "e273ca6376c9f4984a3bd7d78885771d3d5c712881da49691f67c2a44a8684bb"
 EXPECTED_GEN5_RAW_REALMS_SHA256 = "ebf10af98b0074b1a48ba0da1bc45788e7cb410bbf9e94714529c84cfc13d9c8"
+EXPECTED_GEN5_PROBE_MANIFEST_SHA256 = "d69e61c4da482c8cebaed912a6c24b57b73ac0c465a9fafd6a0be8dc974cfb37"
+EXPECTED_GEN5_REALM_COMMON_SHA256 = "f7ef72152aa0e1c0b6d31a67042c152ad99fe6169dd0d9e439e70bb1d4376c22"
+EXPECTED_GEN5_TOP_SHA256 = "67eb9a43e52e58159a00a6b30d582a1ae65c4d1522dee361209d983f973189dc"
 EXPECTED_PATCH_9000_SHA256 = "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8"
 EXPECTED_SUPERVISOR_SHA256 = "d12204d76ecebed681f601a95e47f29a75bc67a879b6106fb3c1f38579054a98"
 EXPECTED_SUPERVISOR_SIZE = 185856
@@ -115,12 +122,15 @@ SESSION_WATCHDOG_SECONDS = 60
 REALM_DEADLINE_SECONDS = 15
 PARENT_WATCHDOG_SECONDS = 150
 
-READINESS_SCHEMA = "verisilo-fp2-r1-diag-readiness/v1"
-CLAIM_SCHEMA = "verisilo-fp2-r1-diag-one-shot-claim/v1"
+READINESS_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-readiness/v1"
+CLAIM_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-one-shot-claim/v1"
 CHILD_AUTH_SCHEMA = "verisilo-fp2-r1-diag-child-authorization/v1"
-REPORT_SCHEMA = "verisilo-fp2-r1-diag-run/v1"
+REPORT_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-run/v1"
 TIMELINE_SCHEMA = "verisilo-fp2-r1-diag-timeline/v1"
 DECISION_SCHEMA = "verisilo-fp2-r1-diag-v1-v4-decision/v1"
+PHASE_DECISION_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-decision/v1"
+PHASE_OBSERVATION_SCHEMA = "verisilo-fp2-r1-voices-phase-anchor-observation/v1"
+PHASE_CONTRACT = "voices-phase-anchor-v1"
 OFFLINE_ADJUDICATION_SCHEMA = "verisilo-fp2-r1-diag-offline-readjudication/v1"
 RECOVERABLE_RUN_ID = "fp2-r1-diag-20260824T055549Z-56f7c5fced"
 RECOVERABLE_RUNNER_HEAD = "37d44dc54bd1ad91987db4c74a6cb7ecadb4d17c"
@@ -293,11 +303,49 @@ def reference_voice_hashes() -> dict[str, set[str]]:
     require(len(managed) == 53, "managed_voice_hash_collision")
 
     require(sha256_file(GEN5_RAW_REALMS_PATH) == EXPECTED_GEN5_RAW_REALMS_SHA256, "gen5_voice_reference_hash_mismatch")
+    require(
+        sha256_file(GEN5_PROBE_MANIFEST_PATH) == EXPECTED_GEN5_PROBE_MANIFEST_SHA256,
+        "gen5_probe_manifest_hash_mismatch",
+    )
+    probe_manifest = strict_json(GEN5_PROBE_MANIFEST_PATH)
+    probe_files = {
+        item.get("path"): item
+        for item in probe_manifest.get("files", [])
+        if type(item) is dict
+    }
+    for path, expected_hash, expected_size in (
+        (GEN5_REALM_COMMON_PATH, EXPECTED_GEN5_REALM_COMMON_SHA256, 33911),
+        (GEN5_TOP_PATH, EXPECTED_GEN5_TOP_SHA256, 15944),
+    ):
+        entry = probe_files.get(path.name)
+        require(
+            entry
+            == {
+                "path": path.name,
+                "sha256": expected_hash,
+                "size": expected_size,
+            }
+            and file_receipt(path)
+            == {"name": path.name, "sha256": expected_hash, "sizeBytes": expected_size},
+            "gen5_probe_binding_mismatch",
+            path.name,
+        )
     raw = strict_json(GEN5_RAW_REALMS_PATH)
-    native_voices = raw.get("realms", {}).get("top-window", {}).get("voices", {}).get("voices")
+    realms = raw.get("realms", {})
+    native_voices = realms.get("top-window", {}).get("voices", {}).get("voices")
     require(type(native_voices) is list and len(native_voices) == 5, "native_voice_reference_invalid")
     native = {_voice_hash12(item["voiceURI"]) for item in native_voices}
     require(len(native) == 5 and managed.isdisjoint(native), "voice_reference_hash_collision")
+    full = native | managed
+    for realm in ("same-origin-iframe", "cross-origin-iframe"):
+        voices = realms.get(realm, {}).get("voices", {}).get("voices")
+        require(
+            type(voices) is list
+            and len(voices) == 58
+            and {_voice_hash12(item["voiceURI"]) for item in voices} == full,
+            "gen5_settled_voice_reference_invalid",
+            realm,
+        )
     return {"managed": managed, "knownNative": native}
 
 
@@ -432,7 +480,7 @@ def verify_readiness(*, hash_archive: bool = True) -> dict[str, Any]:
         "schema": READINESS_SCHEMA,
         "status": "execution-package-ready-no-browser",
         "buildProvenanceStatus": "passed",
-        "discriminatorContract": "actual-9000-amendment-v1",
+        "discriminatorContract": PHASE_CONTRACT,
         "diagnosticOnly": True,
         "formalEligible": False,
         "browserLaunches": 0,
@@ -445,6 +493,11 @@ def verify_readiness(*, hash_archive: bool = True) -> dict[str, Any]:
         "treeManifest": file_receipt(EXTRACTION_MANIFEST_PATH),
         "baseArtifact": file_receipt(BASE_ARTIFACT_PATH),
         "historicalNativeReference": file_receipt(GEN5_RAW_REALMS_PATH),
+        "historicalProbeManifest": file_receipt(GEN5_PROBE_MANIFEST_PATH),
+        "historicalProbeFiles": [
+            file_receipt(GEN5_REALM_COMMON_PATH),
+            file_receipt(GEN5_TOP_PATH),
+        ],
         "managedVoiceHashCount": len(hashes["managed"]),
         "knownNativeVoiceHashCount": len(hashes["knownNative"]),
         "captureBridge": capture_bridge,
@@ -454,9 +507,12 @@ def verify_readiness(*, hash_archive: bool = True) -> dict[str, Any]:
         "sourceAdjudication": {
             "V1": "source-refuted-as-written",
             "V2": "source-refuted-as-written",
-            "T1": "content-mirror-incremental-delivery-positive-signature",
+            "T1": "not-observed-in-original-run",
             "V3": "unexplained-content-local-transition-only",
             "V4": "source-seam-suspicion-only",
+            "phaseModel": "A0-empty-A1-native-only-A2-settled-supported-inference",
+            "directRuntimePhaseAnchor": "not-yet-observed",
+            "patch0005": "not-authorized",
         },
         "nextActionRequiresBrowserAuthorization": True,
         "claims": {
@@ -745,6 +801,252 @@ def classify_v1_v4(
     }
 
 
+def _top_phase_observation(
+    observation: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None, int, dict[str, Any]]:
+    configured = observation.get("configuredIdentityDigest")
+    expected = observation.get("expectedConfiguredIdentityDigest")
+    require(
+        type(configured) is str
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", configured) is not None
+        and configured == expected,
+        "config_delivery_unproven",
+    )
+    require(
+        set(observation)
+        == {
+            "schema",
+            "diagnosticOnly",
+            "formalEligible",
+            "configuredIdentityDigest",
+            "expectedConfiguredIdentityDigest",
+            "singleTopObjectSchedule",
+            "top",
+        }
+        and observation.get("schema") == PHASE_OBSERVATION_SCHEMA
+        and observation.get("diagnosticOnly") is True
+        and observation.get("formalEligible") is False
+        and observation.get("singleTopObjectSchedule") is True,
+        "phase_observation_invalid",
+    )
+    top = observation.get("top")
+    require(
+        type(top) is dict
+        and set(top)
+        == {
+            "initialAtMonotonicMs",
+            "finalAtMonotonicMs",
+            "delayMs",
+            "listenerRegisteredBeforeInitialQuery",
+            "sameSpeechSynthesisObject",
+            "initial",
+            "firstVoicesChanged",
+            "eventCountAtFinal",
+            "final",
+        }
+        and top["delayMs"] == 3000
+        and top["listenerRegisteredBeforeInitialQuery"] is True,
+        "phase_observation_invalid",
+    )
+    initial_at = top["initialAtMonotonicMs"]
+    final_at = top["finalAtMonotonicMs"]
+    require(
+        type(initial_at) in {int, float}
+        and type(final_at) in {int, float}
+        and final_at - initial_at >= 3000
+        and top["sameSpeechSynthesisObject"] is True
+        and type(top["eventCountAtFinal"]) is int
+        and 0 <= top["eventCountAtFinal"] <= 2,
+        "phase_observation_invalid",
+    )
+
+    def checked_inventory(value: object, label: str) -> dict[str, Any]:
+        require(
+            type(value) is dict and set(value) == {"count", "uriHashes"},
+            "phase_observation_invalid",
+            label,
+        )
+        count = value["count"]
+        hashes = value["uriHashes"]
+        require(
+            type(count) is int
+            and count >= 0
+            and type(hashes) is list
+            and len(hashes) == count
+            and len(set(hashes)) == count
+            and all(
+                type(item) is str
+                and re.fullmatch(r"[0-9a-f]{12}", item) is not None
+                for item in hashes
+            ),
+            "phase_observation_invalid",
+            label,
+        )
+        return value
+
+    initial = checked_inventory(top["initial"], "initial")
+    final = checked_inventory(top["final"], "final")
+    first_event = top["firstVoicesChanged"]
+    if first_event is not None:
+        require(
+            type(first_event) is dict
+            and set(first_event)
+            == {"atMonotonicMs", "isTrusted", "targetIsSynth", "inventory"},
+            "phase_observation_invalid",
+            "firstVoicesChanged",
+        )
+        at = first_event["atMonotonicMs"]
+        require(
+            type(at) in {int, float}
+            and initial_at <= at <= final_at
+            and type(first_event["isTrusted"]) is bool
+            and type(first_event["targetIsSynth"]) is bool
+            and top["eventCountAtFinal"] >= 1,
+            "phase_observation_invalid",
+            "firstVoicesChanged",
+        )
+        first_event = {
+            **first_event,
+            "inventory": checked_inventory(
+                first_event["inventory"], "firstVoicesChanged"
+            ),
+        }
+    else:
+        require(
+            top["eventCountAtFinal"] == 0,
+            "phase_observation_invalid",
+            "firstVoicesChanged",
+        )
+    return initial, first_event, top["eventCountAtFinal"], final
+
+
+def classify_phase_anchor(
+    timeline: dict[str, Any],
+    observation: dict[str, Any],
+    *,
+    managed_hashes: set[str],
+    known_native_hashes: set[str],
+) -> dict[str, Any]:
+    events = timeline.get("events")
+    require(type(events) is list, "timeline_invalid")
+    initial, first_event, event_count, final = _top_phase_observation(observation)
+    full_inventory = known_native_hashes | managed_hashes
+    first_inventory = None if first_event is None else first_event["inventory"]
+    inventories = [initial, *([] if first_inventory is None else [first_inventory]), final]
+    require(
+        all(set(item["uriHashes"]) <= full_inventory for item in inventories),
+        "phase_unknown_voice",
+    )
+    if first_event is not None:
+        require(
+            first_event["isTrusted"] is True
+            and first_event["targetIsSynth"] is True,
+            "phase_event_untrusted",
+        )
+
+    parent = sorted(
+        (item for item in events if item.get("proc") == "P"),
+        key=lambda item: item["seq"],
+    )
+    e2a = _single_event(parent, "E2a_sapi_init_begin")
+    e2b = _single_event(parent, "E2b_sapi_init_end")
+    e1 = _single_event(parent, "E1_mvoices_parsed")
+    e3a = _single_event(parent, "E3a_managed_batch_begin")
+    e3b = _single_event(parent, "E3b_managed_batch_end")
+    e4 = _single_event(parent, "E4_sendinit_snapshot")
+    parent_adds = [item for item in parent if item["e"] == "E5_send_voice_added"]
+    require(
+        e1["n"] == e3a["n"] == len(managed_hashes) == 53
+        and e4["n"] == len(full_inventory) == 58
+        and len(parent_adds) == 58
+        and {item["h"] for item in parent_adds[:5]} == known_native_hashes
+        and {item["h"] for item in parent_adds[5:]} == managed_hashes
+        and e2a["seq"] < parent_adds[0]["seq"]
+        and parent_adds[4]["seq"] < e2b["seq"] < e1["seq"] < e3a["seq"]
+        and e3a["seq"] < parent_adds[5]["seq"]
+        and parent_adds[-1]["seq"] < e3b["seq"] < e4["seq"],
+        "phase_parent_sequence_mismatch",
+    )
+
+    content = sorted(
+        (item for item in events if item.get("proc") == "C"),
+        key=lambda item: item["seq"],
+    )
+    content_adds = [item for item in content if item["e"] == "E6_recv_add_voice"]
+    initial_events = [item for item in content if item["e"] == "E6_recv_initial_voices"]
+    e7 = [item for item in content if item["e"] == "E7_getvoices"]
+    require(
+        len(content_adds) == 58
+        and {item["h"] for item in content_adds[:5]} == known_native_hashes
+        and {item["h"] for item in content_adds[5:]} == managed_hashes
+        and len(initial_events) == 1
+        and initial_events[0]["n"] == 58
+        and content_adds[-1]["seq"] < initial_events[0]["seq"],
+        "phase_content_delivery_mismatch",
+    )
+    require(len(e7) == len(inventories), "phase_e7_cardinality_mismatch")
+    context = e7[0]["ctx"]
+    for index, (event, inventory) in enumerate(zip(e7, inventories, strict=True)):
+        require(
+            event["ctx"] == context
+            and event["first"] == int(index == 0)
+            and event["n"] == event["cache"] == inventory["count"],
+            "phase_e7_observation_mismatch",
+            str(index),
+        )
+    require(
+        set(final["uriHashes"]) == full_inventory
+        and initial_events[0]["seq"] < e7[-1]["seq"],
+        "phase_settled_inventory_mismatch",
+    )
+
+    supported = first_inventory is not None and (
+        not initial["uriHashes"]
+        and set(first_inventory["uriHashes"]) == known_native_hashes
+        and e7[0]["seq"] < content_adds[0]["seq"]
+        and content_adds[4]["seq"] < e7[1]["seq"] < content_adds[5]["seq"]
+    )
+    status = "supported" if supported else "not-observed"
+    conclusion = (
+        "native-only-first-notification-phase-supported"
+        if supported
+        else "inconclusive-phase-not-observed"
+    )
+    return {
+        "schema": PHASE_DECISION_SCHEMA,
+        "status": status,
+        "conclusion": conclusion,
+        "diagnosticOnly": True,
+        "formalEligible": False,
+        "supported": ["A1_native_only_first_notification"] if supported else [],
+        "phaseModel": {
+            "A0": "content-registry-empty",
+            "A1": "first-voiceschanged-exact-known-native-5",
+            "A2": "exact-known-native-5-plus-managed-53",
+        },
+        "observed": {
+            "initialCount": initial["count"],
+            "firstVoicesChangedCount": (
+                None if first_inventory is None else first_inventory["count"]
+            ),
+            "eventCountAtFinal": event_count,
+            "finalCount": final["count"],
+            "contentAddCount": len(content_adds),
+            "parentSnapshotCount": e4["n"],
+        },
+        "nextGate": "0005-remains-closed",
+        "mainBrainAdjudicationRequired": supported,
+        "exhaustiveExclusionClaim": False,
+        "claims": {
+            "fp2R1Accepted": False,
+            "formalR1": False,
+            "voicesFixed": False,
+            "gpcRuntimeVerified": False,
+            "remediationSuccess": False,
+        },
+    }
+
+
 DIAG_HTML = b"<!doctype html><meta charset=utf-8><title>VeriSilo FP2-R1 diagnostic</title><body></body>\n"
 
 
@@ -779,15 +1081,42 @@ class DiagnosticServer:
         require(not self.thread.is_alive(), "diagnostic_server_unclean")
 
 
-VOICE_PAIR_JS = r"""
+PHASE_ANCHOR_JS = r"""
 async () => {
-  const snapshot = () => speechSynthesis.getVoices().map((voice) => voice.voiceURI);
-  const firstAt = performance.now();
-  const first = snapshot();
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-  const secondAt = performance.now();
-  const second = snapshot();
-  return {firstAt, secondAt, waitReason: "bounded-delay", first, second};
+  const synth = speechSynthesis;
+  const snapshot = () => synth.getVoices().map((voice) => voice.voiceURI);
+  let eventCount = 0;
+  let firstEvent = null;
+  const onChange = (event) => {
+    eventCount += 1;
+    if (eventCount !== 1) return;
+    firstEvent = {
+      at: performance.now(),
+      isTrusted: event.isTrusted,
+      targetIsSynth: event.target === synth,
+      voices: snapshot(),
+    };
+  };
+  synth.addEventListener("voiceschanged", onChange);
+  try {
+    const initialAt = performance.now();
+    const initial = snapshot();
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const finalAt = performance.now();
+    const final = snapshot();
+    return {
+      initialAt,
+      finalAt,
+      delayMs: 3000,
+      sameObject: synth === speechSynthesis,
+      initial,
+      firstEvent,
+      eventCount,
+      final,
+    };
+  } finally {
+    synth.removeEventListener("voiceschanged", onChange);
+  }
 }
 """
 
@@ -800,14 +1129,65 @@ def _voice_inventory_summary(value: object) -> dict[str, Any]:
     return {"count": len(value), "uriHashes": sorted(hashes)}
 
 
-def _voice_pair_summary(value: object) -> dict[str, Any]:
-    require(type(value) is dict, "voice_observation_invalid")
+def _voice_phase_summary(value: object) -> dict[str, Any]:
+    require(
+        type(value) is dict
+        and set(value)
+        == {
+            "initialAt",
+            "finalAt",
+            "delayMs",
+            "sameObject",
+            "initial",
+            "firstEvent",
+            "eventCount",
+            "final",
+        },
+        "voice_observation_invalid",
+    )
+    initial_at = value["initialAt"]
+    final_at = value["finalAt"]
+    require(
+        type(initial_at) in {int, float}
+        and type(final_at) in {int, float}
+        and final_at - initial_at >= 3000
+        and value["delayMs"] == 3000
+        and value["sameObject"] is True
+        and type(value["eventCount"]) is int
+        and 0 <= value["eventCount"] <= 2,
+        "voice_observation_invalid",
+    )
+    first_event = value["firstEvent"]
+    if first_event is not None:
+        require(
+            type(first_event) is dict
+            and set(first_event) == {"at", "isTrusted", "targetIsSynth", "voices"}
+            and type(first_event["at"]) in {int, float}
+            and initial_at <= first_event["at"] <= final_at
+            and type(first_event["isTrusted"]) is bool
+            and type(first_event["targetIsSynth"]) is bool
+            and value["eventCount"] >= 1,
+            "voice_observation_invalid",
+            "firstEvent",
+        )
+        first_event = {
+            "atMonotonicMs": first_event["at"],
+            "isTrusted": first_event["isTrusted"],
+            "targetIsSynth": first_event["targetIsSynth"],
+            "inventory": _voice_inventory_summary(first_event["voices"]),
+        }
+    else:
+        require(value["eventCount"] == 0, "voice_observation_invalid", "firstEvent")
     return {
-        "firstAtMonotonicMs": value.get("firstAt"),
-        "secondAtMonotonicMs": value.get("secondAt"),
-        "waitReason": value.get("waitReason"),
-        "first": _voice_inventory_summary(value.get("first")),
-        "second": _voice_inventory_summary(value.get("second")),
+        "initialAtMonotonicMs": initial_at,
+        "finalAtMonotonicMs": final_at,
+        "delayMs": value["delayMs"],
+        "listenerRegisteredBeforeInitialQuery": True,
+        "sameSpeechSynthesisObject": value["sameObject"],
+        "initial": _voice_inventory_summary(value["initial"]),
+        "firstVoicesChanged": first_event,
+        "eventCountAtFinal": value["eventCount"],
+        "final": _voice_inventory_summary(value["final"]),
     }
 
 
@@ -908,15 +1288,17 @@ class R1DiagnosticHost(fp2.FP2ManagedHost):
         page = await ctx.new_page()
         session["page"] = page
         await page.goto(f"{self.fp2_primary_origin}/diag.html", wait_until="domcontentloaded", timeout=REALM_DEADLINE_SECONDS * 1000)
-        top_raw = await asyncio.wait_for(page.evaluate(VOICE_PAIR_JS), timeout=REALM_DEADLINE_SECONDS)
+        top_raw = await asyncio.wait_for(
+            page.evaluate(PHASE_ANCHOR_JS), timeout=REALM_DEADLINE_SECONDS
+        )
         result = {
-            "schema": "verisilo-fp2-r1-diag-browser-observation/v1",
+            "schema": PHASE_OBSERVATION_SCHEMA,
             "diagnosticOnly": True,
             "formalEligible": False,
             "configuredIdentityDigest": disk_digest,
             "expectedConfiguredIdentityDigest": artifact["configuredIdentityDigest"],
             "singleTopObjectSchedule": True,
-            "top": _voice_pair_summary(top_raw),
+            "top": _voice_phase_summary(top_raw),
         }
         self.diag_result = result
         session["configuredIdentityDigest"] = disk_digest
@@ -1039,7 +1421,7 @@ def _terminate_child_bounded(process: subprocess.Popen[Any]) -> bool:
 def _consume_child_authorization(args: argparse.Namespace) -> None:
     require(
         type(args.child_run_id) is str
-        and re.fullmatch(r"fp2-r1-diag-\d{8}T\d{6}Z-[0-9a-f]{10}", args.child_run_id) is not None,
+        and re.fullmatch(r"fp2-r1-phase-anchor-\d{8}T\d{6}Z-[0-9a-f]{10}", args.child_run_id) is not None,
         "child_authorization_invalid",
         "runId",
     )
@@ -1056,7 +1438,15 @@ def _consume_child_authorization(args: argparse.Namespace) -> None:
     claim_copy = (run_dir / "one-shot-claim.json").read_bytes()
     require(global_claim == claim_copy and sha256_bytes(global_claim) == authorization.get("claimSha256"), "child_authorization_invalid", "claim")
     claim = strict_json_bytes(global_claim, CLAIM_PATH.name)
-    require(claim.get("runId") == args.child_run_id and claim.get("diagnosticOnly") is True and claim.get("formalEligible") is False, "child_authorization_invalid", "claim-boundary")
+    require(
+        claim.get("schema") == CLAIM_SCHEMA
+        and claim.get("runId") == args.child_run_id
+        and claim.get("contract") == PHASE_CONTRACT
+        and claim.get("diagnosticOnly") is True
+        and claim.get("formalEligible") is False,
+        "child_authorization_invalid",
+        "claim-boundary",
+    )
     require((claim.get("runner") or {}).get("sha256") == authorization.get("runnerSha256"), "child_authorization_invalid", "claim-runner")
     supervisor = native_supervisor_receipt()
     require(
@@ -1144,7 +1534,11 @@ async def run_child(args: argparse.Namespace) -> int:
         async with async_playwright() as playwright:
             host.set_playwright(playwright)
             launch = await asyncio.wait_for(
-                host.launch("identity-win-canvas-v1-a", "fp2-r1-diag-v1", EXPECTED_BASE_ARTIFACT_SHA256),
+                host.launch(
+                    "identity-win-canvas-v1-a",
+                    "fp2-r1-phase-anchor-v1",
+                    EXPECTED_BASE_ARTIFACT_SHA256,
+                ),
                 timeout=SESSION_WATCHDOG_SECONDS,
             )
             require(launch.get("state") == "running" and host.diag_result is not None, "diagnostic_launch_failed")
@@ -1189,7 +1583,7 @@ def execute_browser_diagnostic(port: int) -> int:
     fp2.require_no_target_processes("before R1 diagnostic claim")
     fp2.assert_port_free(port)
     require(not CLAIM_PATH.exists(), "one_shot_claim_already_exists", CLAIM_PATH.name)
-    run_id = f"fp2-r1-diag-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
+    run_id = f"fp2-r1-phase-anchor-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
     run_dir = EVIDENCE_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     child_result_path = run_dir / "child-result.json"
@@ -1205,8 +1599,8 @@ def execute_browser_diagnostic(port: int) -> int:
         "verified": False,
         "browserLaunches": 0,
         "oneShot": True,
-        "purpose": "fp2-r1-voices-actual-9000-causal-discrimination",
-        "contract": "actual-9000-amendment-v1",
+        "purpose": "fp2-r1-voices-first-notification-phase-anchor",
+        "contract": PHASE_CONTRACT,
         "captureMode": "playwright-pw-browser-stderr-v1",
         "captureBridge": readiness["captureBridge"],
         "nativeSupervisor": readiness["nativeSupervisor"],
@@ -1312,9 +1706,14 @@ def execute_browser_diagnostic(port: int) -> int:
                 stderr_path.read_text(encoding="utf-8", errors="strict")
             )
             refs = reference_voice_hashes()
-            decision = classify_v1_v4(timeline, observation, managed_hashes=refs["managed"], known_native_hashes=refs["knownNative"])
+            decision = classify_phase_anchor(
+                timeline,
+                observation,
+                managed_hashes=refs["managed"],
+                known_native_hashes=refs["knownNative"],
+            )
             write_json(run_dir / "vsidiag-timeline.json", timeline)
-            write_json(run_dir / "v1-v4-decision.json", decision)
+            write_json(run_dir / "phase-anchor-decision.json", decision)
     except DiagnosticError as exc:
         failure = {"code": exc.code, "detail": exc.detail}
     except Exception as exc:  # noqa: BLE001 - parent report is fail closed
@@ -1367,7 +1766,11 @@ def execute_browser_diagnostic(port: int) -> int:
     for path in run_dir.iterdir():
         if path.is_file() and path.suffix in {".json", ".log"}:
             (path.with_name(path.name + ".sha256")).write_text(f"{sha256_file(path)}  {path.name}\n", encoding="ascii", newline="\n")
-    print("diagnostic-evidence-captured-awaiting-main-brain-gate" if failure is None else "diagnostic-run-failed")
+    print(
+        "phase-anchor-evidence-captured-awaiting-main-brain-gate"
+        if failure is None
+        else "phase-anchor-run-failed"
+    )
     return 0 if failure is None else 1
 
 
@@ -1423,12 +1826,16 @@ def offline_adjudicate_run() -> int:
     require(not output.exists() and not output_sidecar.exists(), "offline_adjudication_already_exists", run_id)
 
     files = {name: _closed_run_file(run_dir, name) for name in ORIGINAL_RUN_FILES}
-    require(CLAIM_PATH.is_file(), "offline_evidence_missing", CLAIM_PATH.name)
-    global_claim = CLAIM_PATH.read_bytes()
+    require(
+        LEGACY_CLAIM_PATH.is_file(),
+        "offline_evidence_missing",
+        LEGACY_CLAIM_PATH.name,
+    )
+    global_claim = LEGACY_CLAIM_PATH.read_bytes()
     run_claim = (run_dir / "one-shot-claim.json").read_bytes()
     require(global_claim == run_claim, "offline_claim_mismatch")
     claim_sha = sha256_bytes(global_claim)
-    claim = strict_json_bytes(global_claim, CLAIM_PATH.name)
+    claim = strict_json_bytes(global_claim, LEGACY_CLAIM_PATH.name)
     report = strict_json(run_dir / "run-report.json")
     child = strict_json(run_dir / "child-result.json")
     authorization = strict_json(run_dir / "child-authorization.json")
@@ -1551,7 +1958,7 @@ def offline_adjudicate_run() -> int:
         "originalRunner": _original_runner_receipt(),
         "adjudicator": adjudicator,
         "inputs": {
-            "globalClaim": file_receipt(CLAIM_PATH),
+            "globalClaim": file_receipt(LEGACY_CLAIM_PATH),
             "runFiles": files,
         },
         "lifecycle": {
