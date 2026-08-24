@@ -20,6 +20,7 @@
 | 当前 FP1 任务                   | [冻结合同、执行历史与离线证据闭包](camoufox-fp1-deterministic-artifact-projection-task.md) / closure baseline `b7a615ac39606deb741b3b3ea13d3584a987a39c` / tree `9461adcc6924539dc4c2bb80963fab71a2efef49` | 原始 full runner verdict 保持 Failed；主脑基于 immutable A1/A2/B1 evidence 与 corrected contract adjudication 接受 FP1，`verified:false` |
 | 历史 FP2 generation 任务        | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 5 execution package frozen | generation 1 Blocked；generation 2 Failed on HTTP harness；generation 3 Failed / failure evidence insufficient；generation 4 formal execution Failed，root cause 确认为 probe ServiceWorker lifecycle semantic defect（semantic closure 已 Accepted）；Gen5 claim 尚未创建；FP2 capability 未裁决 |
 | FP2-R1 diagnostic readiness/run | [actual-9000 execution contract and result](camoufox-fp2-r1-diagnostic-execution-task.md) / readiness `37d44dc` / validator fix `1e889bb` / run `fp2-r1-diag-20260824T055549Z-56f7c5fced` | readiness 已关闭；一次 diagnostic run 原 verdict Failed、离线重裁决 Inconclusive；不接受 FP2-R1 |
+| FP2-R1 Voices phase-anchor readiness | [execution contract §9](camoufox-fp2-r1-diagnostic-execution-task.md) / `e942a5b9bee642da51e4041ed2ae0359e18be078` / tree `177b55fcc45d3b4bcf48d458099a7797311e28d6` | A0/A1/A2 measurement contract 已冻结并通过 no-browser readiness；未执行 phase run；`0005` 关闭 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -162,6 +163,7 @@ regression”的 integration extraction 均冻结在
 | R1-diag diagnostic engine build / provenance     | **R1-diag diagnostic engine build/provenance closure passed；`1542z` diagnostic-only binary 已绑定；后续 run 不追改本 Gate** |
 | FP2-R1 V1–V4 diagnostic execution readiness      | **FP2-R1 V1–V4 diagnostic execution readiness closure passed；actual-9000 top-only package 已冻结，browserLaunches=0** |
 | FP2-R1 actual-9000 diagnostic run                | **Original runner Failed（post-processing validator false negative）；immutable evidence offline readjudication Inconclusive；browserLaunches=1** |
+| FP2-R1 Voices phase-anchor readiness             | **Accepted no-browser at `e942a5b`；direct phase run 尚未执行；`0005` 关闭** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -264,10 +266,12 @@ V1/V2 仍为 `source-refuted-as-written`。本次同一 content context 实际�
 `not-observed`。该模式支持“content mirror 存在初始化时序”的后续假设，但不能据此
 重写 T1 或称 FP2-R1 Accepted、Voices fixed、GPC runtime verified、remediation success。
 
-主脑当前裁决是停止自动重跑：若继续，下一项必须先单独冻结“历史 top=5 阶段如何被
-phase-anchor 捕获”或等价 source-level 问题，再另行授权；不能事后调整本次判据求阳性。
-`0005`、FP1-R1、FP2-R1、FP3、M3-WI、UI、代理联动和 production package/signing
-均保持关闭。
+主脑已完成“历史 top=5 如何被 phase-anchor 捕获”的 no-browser 合同冻结。下一项不再是
+继续 source audit 或调整旧 T1，而是一个独立、单次、top-only 的
+`voices-phase-anchor-v1` diagnostic execution Gate；执行前仍须使用新 claim，且不得复用
+旧 run。无论未来结果 supported 或 Inconclusive，classifier 都不自动开放 `0005`；证据
+必须回到主脑另行裁决。`0005`、FP1-R1、FP2-R1、FP3、M3-WI、UI、代理联动和
+production package/signing 均保持关闭。
 
 ## 已知边界
 
@@ -1698,5 +1702,52 @@ receipt SHA-256 为 `2ffe6b55952c1d27704044f384ce6d09dc7663e96a86f6e6e53e8a0178a
 FP2 static `63/63`、diagnostic package `25/25`、Artifact/Host `49/49`；`py_compile`、
 source-lock JSON parse 与 `git diff --check` 均通过。
 
-下一步不自动重跑。若继续，必须先另行冻结对“历史 top=5 阶段”的 phase-anchor 或等价
-source-level 问题，再由新的明确授权决定是否需要另一次 diagnostic execution。
+该 checkpoint 当时停止自动重跑；若继续，必须先另行冻结对“历史 top=5 阶段”的
+phase-anchor 或等价 source-level 问题。下一节记录该后续 no-browser 冻结结果。
+
+### 2026-08-24 FP2-R1 Voices phase-anchor no-browser readiness
+
+主脑逐字节对齐 immutable Gen5 probe/raw、actual-9000 timeline 与固定 FF152 source：Gen5
+top 的 5 个 URI hash 精确等于 actual C delivery 的 native prefix；两个 iframe 的 58 个
+hash 精确等于 `5 native + 53 managed`；历史 probe 先采 top，再串行创建 iframe，并在
+初始为空时只等待首个 `voiceschanged`。固定 source 则先注册/通知 native 5，再加入
+managed 53，最后发送 58 snapshot。当前最强解释因此是 temporal publication phase
+`A0=0 → A1=native5 → A2=58`，不是稳定 realm split 或 persistent stale cache。
+
+Gen5 缺少同 run E6/E7/event anchor，所以该结论仍是 high-confidence source-supported
+inference，不追认旧 T1、不作者化 `0005`。checkpoint
+`e942a5b9bee642da51e4041ed2ae0359e18be078` / tree
+`177b55fcc45d3b4bcf48d458099a7797311e28d6` 冻结
+`voices-phase-anchor-v1`：listener-before-S0、首 event callback 内同步 S1、trusted/target
+与同一 synth object 证明、固定 3 秒 S2、top-only、observer/E7 一一映射，以及 P/C 各自
+连续序列的 exact native/managed bracket。未命中窗口只可 Inconclusive；invalid evidence
+fail-closed；即使 supported，classifier 也保持 `0005-remains-closed` 并交回主脑裁决。
+
+clean/pushed checkpoint 上的最终 no-browser regression 为：R1 related `95/95`、engine
+remediation `10/10`、GPC policy `7/7`、FP2 static `63/63`、diagnostic package `33/33`、
+Artifact/Host static `49/49`，合计 `257/257`。full readiness 重算 493,471,385-byte ZIP、
+tree、source lock、Gen5 probe bytes、CPython/Playwright capture bridge，返回
+`execution-package-ready-no-browser`、`browserLaunches=0`。`py_compile`、source-lock JSON
+parse 与 `git diff --check` 通过。本 checkpoint 没有启动 Camoufox、创建 claim/run、修改
+9000/任何 frozen patch bytes 或进入 FP2-R1/Formal/FP3。
+
+ultratone 重启只清除了可再生 scratch 与 Docker image store，不改变已关闭 Gate。为使一次性
+编译机不再成为复核依赖，本机现已保留并重验：
+
+- accepted builder bundle
+  `artifacts/camoufox-r1-diag-builder/r1diag-builder-20260823t1521z/` 的 8 个 manifest
+  payload；image tar SHA-256
+  `ad48844404013c97acf162d4dd2502007636e30070ae31bb1573387eb99137b2`、
+  `1471564288` bytes；manifest/receipt raw SHA-256 分别为
+  `ee46c04e52a1f6deedbd9e01c2a50a750d4d9bfca358e21f8ccc8b8a5ec73000` 与
+  `4f633d82dc532aa52bef229f60c0949f935edbba3d6e0be710ba42861532002e`；
+- qualification bundle
+  `artifacts/camoufox-r1-diag-builder/r1diag-durable-qual-20260823t084001z/` 的 request、
+  sentinel、result，SHA-256 分别为 `aa9d79c5ff93ac2b1adf8f716eba407150911886be84372b5f51c13e6d8366a2`、
+  `089250ce8ae6c8e9cc13bd49555acf8d7dba05d9d73d4c9f4d23eeb38c17ed14`、
+  `00386123d60810d044b9eb2b247b3fc5c7ebd5602dfa3f117dee622564571522`；
+- 本机既有 `1542z` build/result/log/provenance/ZIP、Firefox source archive、精确 upstream
+  checkout、Gen5 byte closure 与 actual-9000 original evidence 均再次核验无 mismatch。
+
+这些材料继续位于既有 gitignored `artifacts/`，没有新增 storage schema 或通用持久化框架。
+下一 Gate 是一份新的、单次 phase-anchor diagnostic claim/run；本阶段未执行它。
