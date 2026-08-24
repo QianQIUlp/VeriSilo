@@ -45,6 +45,8 @@ FROZEN_PATCH_SHA256 = {
     "0004": "5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185",
     "9000": "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8",
 }
+CLOSED_STATUS = "diagnostic-engine-build-provenance-closed"
+ENGINE_RUN_ID = "r1diag-engine-20260823t1542z"
 
 
 class R1DiagBuildRecipeTests(unittest.TestCase):
@@ -53,34 +55,205 @@ class R1DiagBuildRecipeTests(unittest.TestCase):
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
         cls.v1_lock = json.loads(V1_LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_v2_is_bound_to_phase_c8_builder(self) -> None:
+    def test_v2_diagnostic_engine_build_provenance_is_closed(self) -> None:
         self.assertEqual(self.lock["schema"], "verisilo-r1-diag-source-binding/v2")
         self.assertEqual(
             self.lock["engineRevision"],
             "verisilo-camoufox-152.0.4-beta.28-r1-diag-v2",
         )
-        self.assertEqual(
-            self.lock["status"],
-            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
-        )
-        self.assertEqual(
-            self.lock["buildBinding"]["status"],
-            "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
-        )
+        self.assertEqual(self.lock["status"], CLOSED_STATUS)
+        self.assertEqual(self.lock["buildBinding"]["status"], CLOSED_STATUS)
         self.assertIsInstance(
             self.lock["buildBinding"]["builderImageBinding"], dict
         )
+        self.assertIsInstance(self.lock["buildBinding"]["binaryBinding"], dict)
+        self.assertEqual(self.lock["pendingAtBuildHost"], [])
         self.assertTrue(self.lock["builderImagePreparationEvidence"]["retained"])
         self.assertTrue(self.lock["builderImagePreparationEvidence"]["reReadable"])
         self.assertNotIn("builderImageBinding", self.lock)
         self.assertTrue(self.lock["diagnosticOnly"])
         self.assertFalse(self.lock["formalEligible"])
         self.assertEqual(self.lock["browserLaunches"], 0)
+        self.assertFalse(self.lock["verified"])
         self.assertEqual(
             self.lock["buildBinding"]["recipe"]["fixedEnvironment"],
             strict_build.EXPECTED_FIXED_ENVIRONMENT,
         )
         self.assertNotEqual(self.lock["engineRevision"], self.v1_lock["engineRevision"])
+
+    def test_binary_binding_matches_1542z_raw_evidence(self) -> None:
+        binding = self.lock["buildBinding"]["binaryBinding"]
+        self.assertEqual(
+            set(binding),
+            {
+                "archive",
+                "browserLaunches",
+                "buildEngineStart",
+                "buildInput",
+                "buildLog",
+                "buildMode",
+                "buildResult",
+                "claims",
+                "completeAppliedPatchOrder",
+                "completedAtUtc",
+                "containerLog",
+                "diagnosticGateResult",
+                "diagnosticOnly",
+                "engineRevision",
+                "formalEligible",
+                "hostProvenance",
+                "preparedBuilderBinding",
+                "runId",
+                "rustToolchain",
+                "startedAtUtc",
+                "upstreamPatchCount",
+            },
+        )
+        self.assertEqual(binding["runId"], ENGINE_RUN_ID)
+        self.assertEqual(binding["buildMode"], "diagnostic")
+        self.assertEqual(
+            binding["engineRevision"],
+            "verisilo-camoufox-152.0.4-beta.28-r1-diag-v2",
+        )
+        self.assertEqual(binding["startedAtUtc"], "2026-08-23T15:42:42.577552Z")
+        self.assertEqual(binding["completedAtUtc"], "2026-08-23T18:50:42.250030Z")
+        self.assertEqual(
+            binding["buildInput"],
+            {
+                "sourceLockSha256": "02b7de1a0e6d87cd4a08be1c7bffe3b5979be3f4f9ffcf85c951ca80720441a7",
+                "verisiloCommit": "6bc297de827055f7591b6e17e8098142df70d67a",
+                "verisiloTree": "3fb8a83a1f8beb49d784b2e8e76c33785276d3a9",
+            },
+        )
+        self.assertEqual(
+            binding["buildResult"],
+            {
+                "name": "build-result.json",
+                "recordType": "verisilo-camoufox-r1-diag-build-run/v2",
+                "sha256": "d24a4e65ae106316afe51b15703171067e6dfd085a5e8cc828d18f2276ea03b4",
+                "sizeBytes": 3169,
+            },
+        )
+        self.assertEqual(
+            binding["hostProvenance"],
+            {
+                "containerExitCode": 0,
+                "name": "host-provenance.json",
+                "recordType": "verisilo-r1-diag-build-host-provenance/v2",
+                "sha256": "b636420433d3aa77ef2f5b830868e3f1ad5cf62d0c9b7f61a744efb0bf9561fb",
+                "sizeBytes": 4616,
+                "status": "container-passed",
+            },
+        )
+        self.assertEqual(
+            binding["diagnosticGateResult"],
+            {
+                "diagnosticOnly": True,
+                "formalEligible": False,
+                "name": "diagnostic-gate-result.json",
+                "ok": True,
+                "purpose": "fp2-r1-voices-v1-v4-discrimination",
+                "schema": "verisilo-r1-diag-build-gate/v1",
+                "sha256": "bfdf87133f7f8e481585f286cf0f986726aea83ab742ea38bdbc7843258034fd",
+                "sizeBytes": 606,
+            },
+        )
+        self.assertEqual(
+            binding["buildLog"],
+            {
+                "name": "build.log",
+                "sha256": "16923e9353f27dcf89e03b1a99c43ab4a14c6b1f90d33d41dd122f791750d99d",
+                "sizeBytes": 1502394,
+            },
+        )
+        self.assertEqual(
+            binding["containerLog"],
+            {
+                "name": "container.log",
+                "sha256": "0347b545cb1ee6e1cbafef868e2fae10cd52c8ee34e1546ba8058aeb659f7df2",
+                "sizeBytes": 1503990,
+            },
+        )
+        self.assertEqual(
+            binding["buildEngineStart"],
+            {
+                "name": "build-engine-start.json",
+                "recordType": "verisilo-r1-diag-build-engine-start/v2",
+                "sha256": "dda9adffe7008da13bf1a4c014209f9d79aa69298c1e5b501d1b421111724166",
+                "sizeBytes": 1764,
+            },
+        )
+        self.assertEqual(
+            binding["preparedBuilderBinding"],
+            {
+                "name": "builder-image-result.json",
+                "recordType": "verisilo-r1-diag-bound-image-preparation/v3",
+                "sha256": "6b7293148ced32081937423b2a846bdc580f157c60bcc3f13be55082c647b503",
+                "sizeBytes": 3464,
+                "sourceRunId": "r1diag-builder-20260823t1521z",
+                "status": "prepared-from-durable-builder-binding",
+            },
+        )
+        archive = binding["archive"]
+        self.assertEqual(
+            {
+                "name": archive["name"],
+                "sha256": archive["sha256"],
+                "sizeBytes": archive["sizeBytes"],
+                "camoufoxExeSha256": archive["camoufoxExeSha256"],
+                "buildId": archive["buildId"],
+                "sourceStamp": archive["sourceStamp"],
+                "entryCount": archive["entryCount"],
+                "fileCount": archive["fileCount"],
+                "totalUncompressedFileBytes": archive["totalUncompressedFileBytes"],
+            },
+            {
+                "name": "camoufox-152.0.4-beta.28-win.x86_64.zip",
+                "sha256": "241b656945260963ff66b4fcff8ded313bd1b45f066b000b726f950b08a8ae3d",
+                "sizeBytes": 493471385,
+                "camoufoxExeSha256": "9fef022fea062f22e4916e4c125c913931eefe8afe522d3930089ed3393dbfd5",
+                "buildId": "20260811045234",
+                "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+                "entryCount": 514,
+                "fileCount": 503,
+                "totalUncompressedFileBytes": 982403785,
+            },
+        )
+        self.assertEqual(
+            archive["treeManifest"],
+            {
+                "entryCount": 514,
+                "name": "windows-extraction-tree.json",
+                "sha256": "d65b168849b4df8f1fde52e8627e834e3d0b85b4c4e7befb5b179a8440211e06",
+                "sizeBytes": 95902,
+            },
+        )
+        self.assertEqual(
+            archive["requiredMemberSha256"],
+            {
+                "application.ini": "845ed353879066ca8777f35f178753071c4385f1f75b09246655e1385ff5b7d0",
+                "camoufox.cfg": "2d4e2d1ebca1a7103b03477d7d11dc056ae0f53ab12ef63e55d8bf2ff4b5722a",
+                "camoufox.exe": "9fef022fea062f22e4916e4c125c913931eefe8afe522d3930089ed3393dbfd5",
+                "platform.ini": "8013f4616ee061708899403ea066c77bcf05358b29c8cbd98fb78a9f02bbbb21",
+                "properties.json": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+            },
+        )
+        self.assertEqual(binding["upstreamPatchCount"], 50)
+        self.assertEqual(binding["completeAppliedPatchOrder"], COMPLETE_ORDER)
+        self.assertEqual(binding["rustToolchain"], "1.90.0")
+        self.assertEqual(binding["browserLaunches"], 0)
+        self.assertTrue(binding["diagnosticOnly"])
+        self.assertFalse(binding["formalEligible"])
+        self.assertEqual(
+            binding["claims"],
+            {
+                "compiled": True,
+                "diagnosticOnly": True,
+                "formalEligible": False,
+                "verified": False,
+                "windowsRuntimeObserved": False,
+            },
+        )
 
     def test_durable_evidence_contract_and_superseded_lineage_are_explicit(self) -> None:
         contract = self.lock["durableBuilderEvidenceContract"]

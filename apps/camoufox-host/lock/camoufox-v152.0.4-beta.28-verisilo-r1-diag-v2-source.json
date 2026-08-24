@@ -121,7 +121,111 @@
     }
   },
   "buildBinding": {
-    "binaryBinding": null,
+    "binaryBinding": {
+      "archive": {
+        "buildId": "20260811045234",
+        "camoufoxExeSha256": "9fef022fea062f22e4916e4c125c913931eefe8afe522d3930089ed3393dbfd5",
+        "entryCount": 514,
+        "fileCount": 503,
+        "name": "camoufox-152.0.4-beta.28-win.x86_64.zip",
+        "requiredMemberSha256": {
+          "application.ini": "845ed353879066ca8777f35f178753071c4385f1f75b09246655e1385ff5b7d0",
+          "camoufox.cfg": "2d4e2d1ebca1a7103b03477d7d11dc056ae0f53ab12ef63e55d8bf2ff4b5722a",
+          "camoufox.exe": "9fef022fea062f22e4916e4c125c913931eefe8afe522d3930089ed3393dbfd5",
+          "platform.ini": "8013f4616ee061708899403ea066c77bcf05358b29c8cbd98fb78a9f02bbbb21",
+          "properties.json": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018"
+        },
+        "sha256": "241b656945260963ff66b4fcff8ded313bd1b45f066b000b726f950b08a8ae3d",
+        "sizeBytes": 493471385,
+        "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+        "totalUncompressedFileBytes": 982403785,
+        "treeManifest": {
+          "entryCount": 514,
+          "name": "windows-extraction-tree.json",
+          "sha256": "d65b168849b4df8f1fde52e8627e834e3d0b85b4c4e7befb5b179a8440211e06",
+          "sizeBytes": 95902
+        }
+      },
+      "browserLaunches": 0,
+      "buildEngineStart": {
+        "name": "build-engine-start.json",
+        "recordType": "verisilo-r1-diag-build-engine-start/v2",
+        "sha256": "dda9adffe7008da13bf1a4c014209f9d79aa69298c1e5b501d1b421111724166",
+        "sizeBytes": 1764
+      },
+      "buildInput": {
+        "sourceLockSha256": "02b7de1a0e6d87cd4a08be1c7bffe3b5979be3f4f9ffcf85c951ca80720441a7",
+        "verisiloCommit": "6bc297de827055f7591b6e17e8098142df70d67a",
+        "verisiloTree": "3fb8a83a1f8beb49d784b2e8e76c33785276d3a9"
+      },
+      "buildLog": {
+        "name": "build.log",
+        "sha256": "16923e9353f27dcf89e03b1a99c43ab4a14c6b1f90d33d41dd122f791750d99d",
+        "sizeBytes": 1502394
+      },
+      "buildMode": "diagnostic",
+      "buildResult": {
+        "name": "build-result.json",
+        "recordType": "verisilo-camoufox-r1-diag-build-run/v2",
+        "sha256": "d24a4e65ae106316afe51b15703171067e6dfd085a5e8cc828d18f2276ea03b4",
+        "sizeBytes": 3169
+      },
+      "claims": {
+        "compiled": true,
+        "diagnosticOnly": true,
+        "formalEligible": false,
+        "verified": false,
+        "windowsRuntimeObserved": false
+      },
+      "completeAppliedPatchOrder": [
+        "0000",
+        "0001",
+        "0002",
+        "0003",
+        "0003a",
+        "0004",
+        "9000"
+      ],
+      "completedAtUtc": "2026-08-23T18:50:42.250030Z",
+      "containerLog": {
+        "name": "container.log",
+        "sha256": "0347b545cb1ee6e1cbafef868e2fae10cd52c8ee34e1546ba8058aeb659f7df2",
+        "sizeBytes": 1503990
+      },
+      "diagnosticGateResult": {
+        "diagnosticOnly": true,
+        "formalEligible": false,
+        "name": "diagnostic-gate-result.json",
+        "ok": true,
+        "purpose": "fp2-r1-voices-v1-v4-discrimination",
+        "schema": "verisilo-r1-diag-build-gate/v1",
+        "sha256": "bfdf87133f7f8e481585f286cf0f986726aea83ab742ea38bdbc7843258034fd",
+        "sizeBytes": 606
+      },
+      "diagnosticOnly": true,
+      "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-diag-v2",
+      "formalEligible": false,
+      "hostProvenance": {
+        "containerExitCode": 0,
+        "name": "host-provenance.json",
+        "recordType": "verisilo-r1-diag-build-host-provenance/v2",
+        "sha256": "b636420433d3aa77ef2f5b830868e3f1ad5cf62d0c9b7f61a744efb0bf9561fb",
+        "sizeBytes": 4616,
+        "status": "container-passed"
+      },
+      "preparedBuilderBinding": {
+        "name": "builder-image-result.json",
+        "recordType": "verisilo-r1-diag-bound-image-preparation/v3",
+        "sha256": "6b7293148ced32081937423b2a846bdc580f157c60bcc3f13be55082c647b503",
+        "sizeBytes": 3464,
+        "sourceRunId": "r1diag-builder-20260823t1521z",
+        "status": "prepared-from-durable-builder-binding"
+      },
+      "runId": "r1diag-engine-20260823t1542z",
+      "rustToolchain": "1.90.0",
+      "startedAtUtc": "2026-08-23T15:42:42.577552Z",
+      "upstreamPatchCount": 50
+    },
     "builderImageBinding": {
       "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
       "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
@@ -294,7 +398,7 @@
         "policy": "closed"
       }
     },
-    "status": "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+    "status": "diagnostic-engine-build-provenance-closed",
     "supportedBuildExecutionEnvironment": "linux",
     "supportedPhysicalHostWrapper": "upstream Linux Docker container supports all physical host platforms",
     "target": "x86_64-pc-windows-msvc",
@@ -633,15 +737,7 @@
       "preSha256": "54611fee854db93922b3c36ad6ff014d07eaa3ea68abb49bc1bbd9392a7ce75f"
     }
   ],
-  "pendingAtBuildHost": [
-    "prepare-bound-image exact-ID rehydration closure",
-    "build log and complete patch application closure",
-    "Windows archive SHA-256 and size",
-    "camoufox.exe SHA-256, BuildID, SourceStamp",
-    "extraction tree manifest SHA-256",
-    "diagnosticOnly=true / formalEligible=false proof artifacts",
-    "GPC startup-order and diagnostic seam proof capture"
-  ],
+  "pendingAtBuildHost": [],
   "r1IncrementalPatches": [
     {
       "applyAfterUpstream": true,
@@ -1152,7 +1248,7 @@
     "supersededLockSha256": "3248dd1da1c06e115b9b8f40a5e17d6012bc2521c627304e814735b0d54fbbd2",
     "supersedes": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-diag-v1-source.json"
   },
-  "status": "builder-bound-durable-evidence-awaiting-diagnostic-engine-build",
+  "status": "diagnostic-engine-build-provenance-closed",
   "upstream": {
     "commit": "0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d",
     "repository": "https://github.com/daijro/camoufox",

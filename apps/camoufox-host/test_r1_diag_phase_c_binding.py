@@ -58,6 +58,8 @@ CURRENT_IMAGE_ID = (
 CURRENT_PROPOSAL_SHA256 = (
     "fbe82a129e247646d74fd36b808ffb76cc22a7334a271b959379fa6700566e46"
 )
+CLOSED_STATUS = "diagnostic-engine-build-provenance-closed"
+ENGINE_RUN_ID = "r1diag-engine-20260823t1542z"
 
 
 def _proposal() -> dict:
@@ -134,6 +136,7 @@ def _bound_preparation(run_id: str, proposal: dict, evidence: dict) -> dict:
 
 def _bound_lock(base: dict, proposal: dict, evidence: dict) -> dict:
     lock = copy.deepcopy(base)
+    lock["buildBinding"]["binaryBinding"] = None
     lock["buildBinding"]["builderImageBinding"] = proposal
     lock["builderImagePreparationEvidence"] = evidence
     lock["status"] = build_host.BOUND_LOCK_STATUS
@@ -144,19 +147,29 @@ def _bound_lock(base: dict, proposal: dict, evidence: dict) -> dict:
     return lock
 
 
+def _preclosure_lock(base: dict) -> dict:
+    lock = copy.deepcopy(base)
+    lock["buildBinding"]["binaryBinding"] = None
+    lock["status"] = build_host.BOUND_LOCK_STATUS
+    lock["buildBinding"]["status"] = build_host.BOUND_LOCK_STATUS
+    return lock
+
+
 class R1DiagPhaseCBindingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
 
-    def test_current_lock_is_bound_to_phase_c8_builder(
+    def test_closed_lock_retains_phase_c8_builder_binding(
         self,
     ) -> None:
         binding = self.lock["buildBinding"]["builderImageBinding"]
         evidence = self.lock["builderImagePreparationEvidence"]
-        self.assertEqual(self.lock["status"], build_host.BOUND_LOCK_STATUS)
+        self.assertEqual(self.lock["status"], CLOSED_STATUS)
+        self.assertEqual(self.lock["buildBinding"]["status"], CLOSED_STATUS)
         self.assertEqual(
-            self.lock["buildBinding"]["status"], build_host.BOUND_LOCK_STATUS
+            self.lock["buildBinding"]["binaryBinding"]["runId"],
+            ENGINE_RUN_ID,
         )
         self.assertEqual(binding["imageId"], CURRENT_IMAGE_ID)
         self.assertEqual(
@@ -233,13 +246,14 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
             HISTORICAL_IMAGE_ID,
         )
 
-    def test_current_bound_lock_is_eligible_for_bound_consumption(self) -> None:
+    def test_preclosure_phase_c8_shape_is_eligible_for_bound_consumption(self) -> None:
+        lock = _preclosure_lock(self.lock)
         git_values = iter(["", "1" * 40, "2" * 40])
         with (
             mock.patch.object(
                 build_host, "_git", side_effect=lambda *_: next(git_values)
             ),
-            mock.patch.object(build_host, "_strict_json", return_value=self.lock),
+            mock.patch.object(build_host, "_strict_json", return_value=lock),
             mock.patch.object(build_host, "_sha", return_value="3" * 64),
             mock.patch.object(build_host, "_validate_recipe", return_value={}),
             mock.patch.object(build_host, "_validate_patch_contract"),
@@ -249,7 +263,7 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
             )
         self.assertEqual(source["commit"], "1" * 40)
 
-    def test_current_bound_lock_rejects_prepare_image(self) -> None:
+    def test_closed_lock_rejects_prepare_image(self) -> None:
         git_values = iter(["", "1" * 40, "2" * 40])
         with (
             mock.patch.object(
@@ -268,11 +282,37 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
                 Path("unused-checkout"), binding_state="unbound"
             )
 
-    def test_current_bound_lock_still_requires_prepared_record(self) -> None:
+    def test_preclosure_bound_lock_still_requires_prepared_record(self) -> None:
         with self.assertRaises(build_host.HostBuildFailure):
             build_host._validate_bound_binding(
-                self.lock, {}, "r1diag-engine-future0001"
+                _preclosure_lock(self.lock), {}, "r1diag-engine-future0001"
             )
+
+    def test_closed_lock_rejects_repeat_bound_consumption(self) -> None:
+        git_values = iter(["", "1" * 40, "2" * 40])
+        with (
+            mock.patch.object(
+                build_host, "_git", side_effect=lambda *_: next(git_values)
+            ),
+            mock.patch.object(build_host, "_strict_json", return_value=self.lock),
+            mock.patch.object(build_host, "_sha", return_value="3" * 64),
+            mock.patch.object(build_host, "_validate_recipe", return_value={}),
+            mock.patch.object(build_host, "_validate_patch_contract"),
+            self.assertRaisesRegex(
+                build_host.HostBuildFailure,
+                "operational status is not exact",
+            ),
+        ):
+            build_host._validate_verisilo(
+                Path("unused-checkout"), binding_state="bound"
+            )
+
+    def test_closed_binary_binding_is_not_a_build_input(self) -> None:
+        with self.assertRaisesRegex(
+            build_host.HostBuildFailure,
+            "diagnostic binary binding must remain null",
+        ):
+            build_host._validate_durable_contract(self.lock)
 
     def test_historical_raw_phase_b_result_is_not_durably_acceptable(self) -> None:
         historical = {
@@ -345,6 +385,7 @@ class R1DiagPhaseCBindingTests(unittest.TestCase):
 
     def test_historical_builder_run_ids_cannot_be_reused(self) -> None:
         unbound = copy.deepcopy(self.lock)
+        unbound["buildBinding"]["binaryBinding"] = None
         unbound["buildBinding"]["builderImageBinding"] = None
         unbound["builderImagePreparationEvidence"] = None
         unbound["status"] = build_host.UNBOUND_LOCK_STATUS

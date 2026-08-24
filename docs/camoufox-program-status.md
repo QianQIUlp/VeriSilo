@@ -158,7 +158,7 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag diagnostic engine build / provenance     | **`1206z` compile failure retained；Phase B-8 Accepted / C-8 exact bound；scratch 已扩容；`1542z` diagnostic build 正常运行中** |
+| R1-diag diagnostic engine build / provenance     | **R1-diag diagnostic engine build/provenance closure passed；`1542z` diagnostic-only binary 已绑定，尚未执行 V1–V4** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -1543,3 +1543,93 @@ source extraction；当时 `build-result.json`、`build-failure.json` 与
 `host-provenance.json` 均尚未出现。该状态不是 build/provenance closure，更不是 FP2-R1
 pass、GPC runtime verification 或 voices remediation success。`browserLaunches = 0`；
 停止高频轮询，等待下一次明确继续通知。
+
+### 2026-08-24 `1542z` diagnostic engine build / provenance closure
+
+主脑从原始 run、实际 ZIP、durable 副本和本地副本独立重算并交叉验证后裁决：
+**R1-diag diagnostic engine build/provenance closure passed**。
+
+`host-provenance.json` 为 `container-passed`，container exit code 为 `0`；唯一 strict
+result 是当前 run 的 `build-result.json`，不存在 `build-failure.json`。diagnostic gate 为
+`ok = true`、`diagnosticOnly = true`、`formalEligible = false`，purpose 保持
+`fp2-r1-voices-v1-v4-discrimination`。构建输入精确为 C-8 checkpoint
+`6bc297de827055f7591b6e17e8098142df70d67a` / tree
+`3fb8a83a1f8beb49d784b2e8e76c33785276d3a9` / source-lock SHA-256
+`02b7de1a0e6d87cd4a08be1c7bffe3b5979be3f4f9ffcf85c951ca80720441a7`；upstream
+仍为 tag `v152.0.4-beta.28` / commit
+`0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d` / tree
+`1435d544d9b61dee7fcf74cf92462952ca43d38e`，Firefox source archive SHA-512 与
+`799102676` bytes 均匹配冻结 lock。builder exact image ID 仍为
+`sha256:2742be96b8160fc9206585c8af6abcc95a9bc73d13a39fc2faa1c18c0bb2ea92`，saved
+archive SHA-256 `ad48844404013c97acf162d4dd2502007636e30070ae31bb1573387eb99137b2`；
+Rust 为冻结的 `1.90.0`。
+
+build log 证明 50 个 upstream patches 与完整下游顺序
+`0000 → 0001 → 0002 → 0003 → 0003a → 0004 → 9000`；七个下游 patch 均以
+`--fuzz=0` 应用。全部 final post-seam SHA 与 lock 匹配，包括 GPC startup projection、
+`GpcProjection.h` namespace repair、原生 Worker GPC 恢复及五个 9000 seams。0003 source
+仍证明 canonical GPC projection 位于 `XREMain::XRE_mainRun` 的 parent-only startup
+seam；0004 后 Worker getter 仍是 Firefox native StaticPrefs 路径。9000 首行仍是
+`# VERISILO-DIAGNOSTIC-MARKER: v1`，patch SHA-256 仍为
+`1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8`，
+`diagnosticOnly = true`、`formalCarryForward = never`。
+
+Windows diagnostic archive 逐项闭包：
+
+- name `camoufox-152.0.4-beta.28-win.x86_64.zip`；size `493471385` bytes；SHA-256
+  `241b656945260963ff66b4fcff8ded313bd1b45f066b000b726f950b08a8ae3d`；
+- `camoufox.exe` SHA-256
+  `9fef022fea062f22e4916e4c125c913931eefe8afe522d3930089ed3393dbfd5`；
+- BuildID `20260811045234`；SourceStamp
+  `e39c605adc0fc049a165d7fe4a3f6517b761edf7`；
+- `application.ini` SHA-256
+  `845ed353879066ca8777f35f178753071c4385f1f75b09246655e1385ff5b7d0`；
+  `platform.ini` SHA-256
+  `8013f4616ee061708899403ea066c77bcf05358b29c8cbd98fb78a9f02bbbb21`；
+- extraction tree 为 514 entries / 503 files / `982403785` uncompressed file bytes；
+  manifest SHA-256
+  `d65b168849b4df8f1fde52e8627e834e3d0b85b4c4e7befb5b179a8440211e06`，size
+  `95902` bytes。主脑从实际 ZIP 逐成员重建 tree，逐字段等于原始 manifest，ZIP CRC
+  检查无坏 member。
+
+成功 evidence 已按既有 engine-run 惯例复制并重读于：
+
+```text
+/var/lib/verisilo/camoufox-build-evidence/r1diag-engine-20260823t1542z
+```
+
+| Artifact | SHA-256 | Size (bytes) |
+| --- | --- | ---: |
+| `run-owner.json` | `377869c39577b6082f36eba7789a8509b0e3646279c025a65dc2ab3812bf80bc` | 163 |
+| `build-engine-start.json` | `dda9adffe7008da13bf1a4c014209f9d79aa69298c1e5b501d1b421111724166` | 1,764 |
+| `builder-image-result.json` | `6b7293148ced32081937423b2a846bdc580f157c60bcc3f13be55082c647b503` | 3,464 |
+| `build-result.json` | `d24a4e65ae106316afe51b15703171067e6dfd085a5e8cc828d18f2276ea03b4` | 3,169 |
+| `diagnostic-gate-result.json` | `bfdf87133f7f8e481585f286cf0f986726aea83ab742ea38bdbc7843258034fd` | 606 |
+| `windows-extraction-tree.json` | `d65b168849b4df8f1fde52e8627e834e3d0b85b4c4e7befb5b179a8440211e06` | 95,902 |
+| `build.log` | `16923e9353f27dcf89e03b1a99c43ab4a14c6b1f90d33d41dd122f791750d99d` | 1,502,394 |
+| `container.log` | `0347b545cb1ee6e1cbafef868e2fae10cd52c8ee34e1546ba8058aeb659f7df2` | 1,503,990 |
+| `host-provenance.json` | `b636420433d3aa77ef2f5b830868e3f1ad5cf62d0c9b7f61a744efb0bf9561fb` | 4,616 |
+| `camoufox-152.0.4-beta.28-win.x86_64.zip` | `241b656945260963ff66b4fcff8ded313bd1b45f066b000b726f950b08a8ae3d` | 493,471,385 |
+
+同一 10-file evidence bytes 另存于 Git 已忽略的本地
+`artifacts/camoufox-r1-diag-build/r1diag-engine-20260823t1542z/`；本地 owner 保留原始文件名
+`.verisilo-r1-diag-build-owner.json`，其余文件名不变。全部 SHA/size 与 raw run 和 durable
+副本一致，不进入提交。
+
+v2 source lock 只从上述 raw evidence 写入 non-null `buildBinding.binaryBinding`，top-level
+与 `buildBinding.status` 均为 `diagnostic-engine-build-provenance-closed`，
+`pendingAtBuildHost = []`。closure lock SHA-256 为
+`6b93a2425cbf8c54c542a8d134a051d51be39f32239150d2f7ae515b2f00186b`，size
+`50158` bytes；`diagnosticOnly = true`、`formalEligible = false`、
+`browserLaunches = 0`、`verified = false` 保持不变。frozen build host 会因 closure status
+及 non-null binary binding 拒绝重复消费该 lock；未修改任何 recipe、driver、gate 或 patch
+bytes。
+
+最终无浏览器回归全部通过：R1 related `95/95`、engine remediation `10/10`、GPC
+policy `7/7`、FP2 static `63/63`；其中 formal gate rejection regression 明确证明含 9000
+的 diagnostic series 仍被 Formal driver HARD FAIL。相关 Python `py_compile`、source-lock
+严格 JSON parse 与 `git diff --check` 同样通过。
+
+本闭包没有启动 Camoufox，`windowsRuntimeObserved = false`；它不是 FP2-R1 pass、GPC
+runtime verification、Voices fixed/remediation success 或 V1–V4 pass，也没有创建 Formal R1
+candidate 或作者化 0005。该 diagnostic binary 仅达到未来 V1–V4 判别“可用但尚未执行”的状态。
