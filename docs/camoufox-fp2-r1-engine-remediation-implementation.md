@@ -410,8 +410,11 @@ Gate 序列修正为：
 ```text
 R1-diag build/provenance closure（passed）
   → actual-9000 execution readiness（no browser）
-  → 单独授权的一次 bounded top-only diagnostic run
-  → 主脑因果裁决（允许 inconclusive）
+  → 单独授权的一次 bounded top-only diagnostic run（已执行一次）
+  → immutable evidence offline readjudication（Inconclusive）
+  → phase-anchor/source-level 后续问题尚未冻结
 ```
 
-本 amendment 不创建 Formal R1 candidate、不作者化 `0005`，也不接受 FP2-R1。
+实际 run 的原 report 保持 `Failed / config_delivery_unproven`；修复后的离线裁决不覆盖原
+bytes，也没有重跑浏览器。完整 hashes 与 0→58 观测见 execution contract §8。本 amendment
+不创建 Formal R1 candidate、不作者化 `0005`，也不接受 FP2-R1。

@@ -135,6 +135,33 @@ readiness closure 只接受：精确输入/树/运行时/log bridge 可重读；
 
 > FP2-R1 V1–V4 diagnostic execution readiness closure passed.
 
-它不表示 FP2-R1、V1–V4、Voices remediation、GPC runtime 或 Formal R1 通过。下一步只
-能是另一次明确授权的一次 bounded top-only browser diagnostic run；运行结果仍可为
-inconclusive。
+它不表示 FP2-R1、V1–V4、Voices remediation、GPC runtime 或 Formal R1 通过。该授权
+运行及其结果现记录于下一节；本 readiness Gate 本身不被运行结果追改。
+
+## 8. 2026-08-24 唯一授权运行与离线重裁决
+
+唯一授权 run 为 `fp2-r1-diag-20260824T055549Z-56f7c5fced`，浏览器只启动一次。
+child completed、browser/child exit 0、clean close、process tree exited、parent
+`processClean=true`；单 transport PID 捕获 125 个事件，P seq `0..63`、C seq `0..60`
+连续且无 OVERFLOW。原 claim SHA-256 为
+`2b9151e9032ecfda4e1ea29e3dd1d38b368ab734b61239753c4a1c6ff582b34c`。
+
+原 runner report 必须保持 `Failed / config_delivery_unproven`，SHA-256
+`40ed7905f3eb313452b55238b9bd515b514f7a7dd4107ac404bc765a4ac94728`。失败发生在
+post-processing：runner 错把规范的 `sha256:<64hex>` configured digest 当成裸 64 hex；
+browser、9000、config delivery 与 lifecycle 均没有失败。最小修复 commit 为
+`1e889bb8aed23852fbe8582462edf38e59e862b6`，tree
+`9cb1265f8f4fd69e89a01ca6b63955ccb906a20a`；回归改为接受规范前缀并拒绝裸值。
+
+没有启动第二次浏览器。修复后的 clean/pushed classifier 重读 8 个固定原始 evidence
+receipt 与 sidecar，并另写不覆盖原文件的
+`verisilo-fp2-r1-diag-offline-readjudication/v1`。receipt SHA-256 为
+`2ffe6b55952c1d27704044f384ce6d09dc7663e96a86f6e6e53e8a0178a390ef`，size `6435`；
+sidecar raw SHA-256 为
+`f734d03e21082b3d741d3cbc2be0edf964efddb1fac7e44864612fbd5c0e0f73`，size `98`。
+
+实际观测为同一 C context 的 `E7(0) → 58 个精确 E6 add + E6 initial(58) → E7(58)`；
+第二次 inventory 精确为 5 known native + 53 managed，E4=58。它不满足冻结 T1 的
+first=5 条件，因此离线结论是 `inconclusive`，`supported=[]`，T1/V3/V4 均
+`not-observed`；V1/V2 仍为 `source-refuted-as-written`。该 0→58 模式可以作为新的
+观测事实，但不得事后扩写 T1、冒充 FP2-R1/Voices remediation 成功或据此作者化 `0005`。

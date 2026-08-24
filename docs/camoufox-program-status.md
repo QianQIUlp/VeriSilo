@@ -19,7 +19,7 @@
 | R2H 研究基础                    | `186484f`                                                                                                        | 只有 runner/freezer/schema 与 Host test 变更；无 tracked result/manifest                |
 | 当前 FP1 任务                   | [冻结合同、执行历史与离线证据闭包](camoufox-fp1-deterministic-artifact-projection-task.md) / closure baseline `b7a615ac39606deb741b3b3ea13d3584a987a39c` / tree `9461adcc6924539dc4c2bb80963fab71a2efef49` | 原始 full runner verdict 保持 Failed；主脑基于 immutable A1/A2/B1 evidence 与 corrected contract adjudication 接受 FP1，`verified:false` |
 | 历史 FP2 generation 任务        | [Cross-Realm Consistency 合同](camoufox-fp2-cross-realm-consistency-task.md) / generation 5 execution package frozen | generation 1 Blocked；generation 2 Failed on HTTP harness；generation 3 Failed / failure evidence insufficient；generation 4 formal execution Failed，root cause 确认为 probe ServiceWorker lifecycle semantic defect（semantic closure 已 Accepted）；Gen5 claim 尚未创建；FP2 capability 未裁决 |
-| FP2-R1 diagnostic readiness     | [actual-9000 execution contract](camoufox-fp2-r1-diagnostic-execution-task.md) / start `0efe8aa57bf2e83fc5f3552c1ecb0d1f8e645b72` | `1542z` diagnostic-only binary；只关闭无浏览器 execution-readiness，不执行或接受 FP2-R1 |
+| FP2-R1 diagnostic readiness/run | [actual-9000 execution contract and result](camoufox-fp2-r1-diagnostic-execution-task.md) / readiness `37d44dc` / validator fix `1e889bb` / run `fp2-r1-diag-20260824T055549Z-56f7c5fced` | readiness 已关闭；一次 diagnostic run 原 verdict Failed、离线重裁决 Inconclusive；不接受 FP2-R1 |
 | M2.0.3 代码 checkpoint          | `3b53830`                                                                                                        | 严格进程树、quarantine、JSON 和 RFC3339 收口                                            |
 | Linux accepted checkpoint       | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                       | evidence manifest 冻结提交；保持不变                                                    |
 | Windows accepted checkpoint     | `1bf0854e4fac7142baef9792967851593b804912`                                                                       | M2-W evidence 冻结提交；主脑 Gate 已接受                                                |
@@ -159,8 +159,9 @@ regression”的 integration extraction 均冻结在
 | M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；fake Host Gate 关闭**                           |
 | 原生 Windows M3-WI 桌面/真实 Host 集成          | **Failed；investigation inconclusive；experimental；未修复、未 shipped** |
 | FP1 Deterministic Artifact Projection           | **Accepted based on immutable original A1/A2/B1 evidence plus corrected contract adjudication；原始 runner verdict 保持 Failed；`verified:false`** |
-| R1-diag diagnostic engine build / provenance     | **R1-diag diagnostic engine build/provenance closure passed；`1542z` diagnostic-only binary 已绑定，尚未执行 V1–V4** |
+| R1-diag diagnostic engine build / provenance     | **R1-diag diagnostic engine build/provenance closure passed；`1542z` diagnostic-only binary 已绑定；后续 run 不追改本 Gate** |
 | FP2-R1 V1–V4 diagnostic execution readiness      | **FP2-R1 V1–V4 diagnostic execution readiness closure passed；actual-9000 top-only package 已冻结，browserLaunches=0** |
+| FP2-R1 actual-9000 diagnostic run                | **Original runner Failed（post-processing validator false negative）；immutable evidence offline readjudication Inconclusive；browserLaunches=1** |
 | Managed Identity UI、代理联动、生产打包         | **后续阶段；本阶段不开放**                                               |
 
 ## Git 集成历史
@@ -254,17 +255,19 @@ M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证�
 ## 下一阶段
 
 `1542z` diagnostic engine build/provenance 与 actual-9000 execution-readiness 已分别
-关闭。下一步只允许在新的明确主脑授权下执行一次 bounded、top-only browser diagnostic
-run；它使用独立 diagnostic claim/evidence namespace，结果允许 inconclusive。
+关闭；唯一授权的 bounded top-only run 也已执行并干净退出。原 runner 因 configured
+digest validator false negative 保持 Failed；修正版 classifier 对 immutable evidence 的
+离线结论为 Inconclusive，没有第二次浏览器启动。
 
-V1/V2 的旧正向签名已被固定源码裁决为 `source-refuted-as-written`；实际补偿签名 T1
-判别同一 content mirror 的 incremental delivery。V3 不能从无 E6 的计数变化推出 cache
-causal，V4 只能形成 source-seam suspicion。当前仍未执行 V1–V4，不得写成 FP2-R1
-Accepted、Voices fixed、GPC runtime verified、remediation success 或 Formal R1。
+V1/V2 仍为 `source-refuted-as-written`。本次同一 content context 实际观测
+`0 → E6 全量投递 → 58`，但不满足预注册 T1 的 first=5 条件；T1/V3/V4 均
+`not-observed`。该模式支持“content mirror 存在初始化时序”的后续假设，但不能据此
+重写 T1 或称 FP2-R1 Accepted、Voices fixed、GPC runtime verified、remediation success。
 
-诊断后仍须由主脑单独裁决是否有足够因果证据；只有裁决收敛后，才可能另行审批
-`0005`。FP1-R1、FP2-R1、FP3、M3-WI、UI、代理联动和 production package/signing
-均不因 readiness closure 自动开放。
+主脑当前裁决是停止自动重跑：若继续，下一项必须先单独冻结“历史 top=5 阶段如何被
+phase-anchor 捕获”或等价 source-level 问题，再另行授权；不能事后调整本次判据求阳性。
+`0005`、FP1-R1、FP2-R1、FP3、M3-WI、UI、代理联动和 production package/signing
+均保持关闭。
 
 ## 已知边界
 
@@ -1662,4 +1665,38 @@ Gate：**FP2-R1 V1–V4 diagnostic execution readiness closure passed**。
 `diagnosticOnly=true`、`formalEligible=false`、`verified=false`、`browserLaunches=0`。
 本 checkpoint 未启动 Camoufox、未创建 diagnostic claim/run evidence、未修改 source lock
 或任何 patch bytes，也未进入 V1–V4、FP1-R1、FP2-R1、FP3、Formal R1 或 `0005`。
-下一步仍需一次新的明确浏览器授权。
+该 Browser Gate 随后由下一 checkpoint 的唯一一次授权消费。
+
+### 2026-08-24 FP2-R1 actual-9000 单次 diagnostic run 与离线重裁决
+
+唯一授权 run `fp2-r1-diag-20260824T055549Z-56f7c5fced` 启动浏览器一次。child completed、
+browser/child exit 0、clean close、process tree exited、parent `processClean=true`；125 个
+VSIDIAG 事件来自单一 transport PID，P seq `0..63`、C seq `0..60` 连续且无 OVERFLOW。
+claim SHA-256 为 `2b9151e9032ecfda4e1ea29e3dd1d38b368ab734b61239753c4a1c6ff582b34c`。
+
+原 report 保持 `Failed / config_delivery_unproven`，SHA-256
+`40ed7905f3eb313452b55238b9bd515b514f7a7dd4107ac404bc765a4ac94728`。根因是 runner
+post-processing 只接受裸 64-hex digest，而 Artifact/Host 的规范值为
+`sha256:<64hex>`；不是 binary、9000、config delivery、Playwright capture 或 lifecycle
+失败。最小修复 commit `1e889bb8aed23852fbe8582462edf38e59e862b6` / tree
+`9cb1265f8f4fd69e89a01ca6b63955ccb906a20a` 接受规范前缀并拒绝裸值；package tests
+`25/25` 通过。
+
+没有第二次浏览器启动。clean/pushed 修正版 classifier 重读并重哈希 8 个固定原始文件及
+sidecar，另写 exclusive offline readjudication；原 claim/report/log bytes 保持不变。
+receipt SHA-256 为 `2ffe6b55952c1d27704044f384ce6d09dc7663e96a86f6e6e53e8a0178a390ef`
+（6435 bytes），sidecar raw SHA-256 为
+`f734d03e21082b3d741d3cbc2be0edf964efddb1fac7e44864612fbd5c0e0f73`（98 bytes）。
+
+实际同一 C context 为 `E7(0) → 58 exact E6 add + initial(58) → E7(58)`，第二次 inventory
+精确包含 5 known native + 53 managed，E4=58。该事实与 content mirror 初始化时序一致，
+但不满足冻结 T1 的 first=5 条件；主脑裁决保持 `Inconclusive`、`supported=[]`，T1/V3/V4
+均 `not-observed`，V1/V2 仍 `source-refuted-as-written`。不得事后放宽 T1 求阳性，也不得
+描述为 FP2-R1、Voices remediation、GPC runtime、Formal R1 或 `0005` 通过。
+
+最终无浏览器回归：R1 related `95/95`、engine remediation `10/10`、GPC policy `7/7`、
+FP2 static `63/63`、diagnostic package `25/25`、Artifact/Host `49/49`；`py_compile`、
+source-lock JSON parse 与 `git diff --check` 均通过。
+
+下一步不自动重跑。若继续，必须先另行冻结对“历史 top=5 阶段”的 phase-anchor 或等价
+source-level 问题，再由新的明确授权决定是否需要另一次 diagnostic execution。
