@@ -104,7 +104,19 @@ SAPI 先同步注册/通知 native voices，随后才注入 managed voices。根
 
 下一 Gate 只绑定冻结 source/patch inputs、完整 Formal 顺序、`0005` pre/post 与 builder
 provenance，然后执行一次 clean build。它不启动浏览器，不进入 FP1-R1/FP2-R1，不产生
-原生 Windows runtime 或产品发布 claim。该任务涉及 engine build，等待下一次明确授权后执行。
+原生 Windows runtime 或产品发布 claim。
+
+当前 source/recipe 子边界已静态闭合：独立 Formal v1 lock 精确绑定
+`0000 → 0001 → 0002 → 0003 → 0003a → 0004 → 0005`、全部 patch bytes、`0005`
+pre/post、no-cache one-shot Windows-target recipe、固定 MSVC/SDK/CRT 检查与一次性 host
+provenance 工具；focused tests 证明
+9000、diagnostic marker、缺少 0005、patch/seam drift 均 fail closed。source lock 在此
+checkpoint 后不再为 builder/result 自修改；未来 build result 单独回指 exact commit/tree/lock。
+
+clean build 尚未开始。当前本机没有 Docker/WSL；可达的 `potbelly` 低于冻结磁盘/swap
+resource gate；历史 build host `ultratone` 当前不可达。下一动作仍是让一个满足现有 resource
+gate 的 Linux Docker host 可用，然后只执行一次 Formal Windows-target build 并保存直接
+provenance。此处没有 build、runtime、Formal R1 passed 或 Voices fixed claim。
 
 ## 后续 Gate 顺序
 
@@ -128,6 +140,7 @@ Formal 路线，除非实际 build evidence 证明某个 owning recipe seam 必�
 | diagnostic ZIP | SHA-256 `241b656945260963ff66b4fcff8ded313bd1b45f066b000b726f950b08a8ae3d`; diagnostic only |
 | frozen 9000 | SHA-256 `1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8`; `formalCarryForward=never` |
 | Formal `0005` static candidate | patch SHA-256 `998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec`；parent pre/post `c6171e…` / `c43447…` |
+| Formal R1 source/recipe lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-source.json`；SHA-256 `a614f58d32adf7e8c5e787478aa4fbbfd8d28caa97dd151571df8e3b2819455c`；awaiting clean build |
 | final Voices design checkpoint | `594d16700c7d8f5d169eaac6cf6fd62d5a12df49` |
 
 原始 machine evidence 保留在既有本地 `artifacts/`、source locks、results 和 Git 历史中；
