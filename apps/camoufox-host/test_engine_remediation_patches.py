@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static no-browser regressions for the authored R1-diag patches.
+"""Static no-browser regressions for the authored R1 patches.
 
 Locks (contract docs/camoufox-fp2-r1-engine-remediation-implementation.md):
 - T1 golden native restore (0004 pure removal, exact override lines)
@@ -27,6 +27,7 @@ SECTIONS_DIR = HOST_DIR / "build" / "r1-diag-v1" / "upstream-sections"
 P_0003 = "0003-verisilo-gpc-canonical-pref-projection.patch"
 P_0003A = "0003a-verisilo-gpc-preferences-namespace-compile-repair.patch"
 P_0004 = "0004-verisilo-remove-worker-gpc-mask-override.patch"
+P_0005 = "0005-verisilo-voices-final.patch"
 P_9000 = "9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch"
 
 PINNED_PATCHES = {
@@ -35,6 +36,10 @@ PINNED_PATCHES = {
     P_0004: "5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185",
     P_9000: "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8",
 }
+PINNED_FORMAL_PATCHES = {
+    P_0005: "998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec",
+}
+FORMAL_ORDER = ["0000", "0001", "0002", "0003", "0003a", "0004", "0005"]
 
 PINNED_SECTIONS = {
     "fpin-worker.patch": "87af0307e7476758ff88588da5031edbe65a7737bdfd3ab5dc23dbe40faf98b5",
@@ -99,6 +104,10 @@ class EngineRemediationPatchTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.patches = {name: (PATCH_DIR / name).read_text(encoding="utf-8")
                        for name in PINNED_PATCHES}
+        cls.formal_patches = {
+            name: (FORMAL_DIR / name).read_text(encoding="utf-8")
+            for name in PINNED_FORMAL_PATCHES
+        }
 
     def test_patch_blobs_pinned(self) -> None:
         for name, digest in PINNED_PATCHES.items():
@@ -110,6 +119,11 @@ class EngineRemediationPatchTests(unittest.TestCase):
             path = SECTIONS_DIR / name
             self.assertTrue(path.is_file(), name)
             self.assertEqual(sha256_text(path.read_text(encoding="utf-8")), digest, name)
+
+    def test_formal_patch_blobs_pinned(self) -> None:
+        for name, digest in PINNED_FORMAL_PATCHES.items():
+            self.assertTrue((FORMAL_DIR / name).is_file(), name)
+            self.assertEqual(sha256_text(self.formal_patches[name]), digest, name)
 
     # ---------------- 0003 ----------------
 
@@ -169,6 +183,50 @@ class EngineRemediationPatchTests(unittest.TestCase):
             ctx)
         self.assertIn("     JSObject* jso = GetWrapper();", ctx)
         self.assertEqual(text.count("@@"), 2)
+
+    # ---------------- 0005 ----------------
+
+    def test_0005_is_the_frozen_single_file_constructor_guard(self) -> None:
+        text = self.formal_patches[P_0005]
+        target = "dom/media/webspeech/synth/ipc/SpeechSynthesisParent.cpp"
+        self.assertEqual(
+            re.findall(r"^(?:---|\+\+\+) ([^\n]+)$", text, re.MULTILINE),
+            [f"a/{target}", f"b/{target}"],
+        )
+        plus = plus_lines(text)
+        self.assertEqual(
+            plus,
+            [
+                '+#include "MaskConfig.hpp"',
+                "+  if (MaskConfig::MVoices() &&",
+                '+      MaskConfig::GetBool("voices:blockIfNotDefined").value_or(false) == true) {',
+                "+    nsSynthVoiceRegistry::GetInstance();",
+                "+  }",
+            ],
+        )
+        for untouched in ("SendInit", "Recv", "SpeakImpl", "SapiService", "cache"):
+            self.assertNotIn(untouched, text)
+        self.assertEqual(text.count("@@"), 4)
+
+    def test_formal_series_is_exact_and_rejects_9000(self) -> None:
+        base_dir = HOST_DIR / "patches" / "camoufox" / "v152.0.4-beta.28"
+        ids = [path.name.split("-", 1)[0] for path in sorted(base_dir.glob("*.patch"))]
+        ids += [
+            path.name.split("-", 1)[0]
+            for path in sorted(PATCH_DIR.glob("000[34]*.patch"))
+        ]
+        ids += [
+            path.name.split("-", 1)[0]
+            for path in sorted(FORMAL_DIR.glob("*.patch"))
+        ]
+        self.assertEqual(ids, FORMAL_ORDER)
+        self.assertEqual(
+            sorted(path.name for path in FORMAL_DIR.glob("*.patch")), [P_0005]
+        )
+        self.assertNotIn("9000", ids)
+        self.assertNotIn(
+            "VERISILO-DIAGNOSTIC-MARKER", self.formal_patches[P_0005]
+        )
 
     # ---------------- 9000 ----------------
 

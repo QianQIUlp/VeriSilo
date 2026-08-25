@@ -35,6 +35,9 @@ import numpy as np
 
 from identity_policy import (
     ARTIFACT_SCHEMA,
+    VOICES_MODE_MANAGED,
+    VOICES_MODE_NATIVE,
+    apply_voices_policy,
     assert_artifact_clean,
     compute_artifact_digest,
     configured_identity_digest,
@@ -214,7 +217,7 @@ def declared_stable_signals(config: dict, locale: str) -> dict:
         "colorDepth": config["screen.colorDepth"],
         "pixelDepth": config["screen.pixelDepth"],
     }
-    return {
+    declared = {
         "userAgent": config["navigator.userAgent"],
         "language": language or locale,
         "screen": screen,
@@ -226,8 +229,10 @@ def declared_stable_signals(config: dict, locale: str) -> dict:
         "webglVendor": config["webGl:vendor"],
         "webglRenderer": config["webGl:renderer"],
         "fonts": list(config["fonts"]),
-        "voices": list(config["voices"]),
     }
+    if "voices" in config:
+        declared["voices"] = list(config["voices"])
+    return declared
 
 
 def rebind_identity_artifact(
@@ -262,6 +267,7 @@ def rebind_identity_artifact(
         ff_version=source_policy["ffVersion"],
         timezone_mode=source_policy["timezoneMode"],
         browser_binding=binding,
+        voices_mode=source_policy.get("voicesMode"),
     )
     if canvas_seed is not None:
         artifact["resolvedConfig"]["canvas:seed"] = canvas_seed
@@ -290,6 +296,11 @@ def main() -> int:
             "ObservedWebsiteDigest; managed: font widths enter the digest and "
             "Host must prove host negative controls are all unavailable"
         ),
+    )
+    parser.add_argument(
+        "--voices-mode",
+        default=VOICES_MODE_MANAGED,
+        choices=(VOICES_MODE_MANAGED, VOICES_MODE_NATIVE),
     )
     parser.add_argument("--window", default="1280x800", help="Outer window size WxH")
     parser.add_argument("--locale", default="en-US")
@@ -329,6 +340,7 @@ def main() -> int:
     )
     if DownloadGuard.tripped:
         raise SystemExit("unpinned download attempted during generation; aborting")
+    apply_voices_policy(config, args.voices_mode)
 
     binding = browser_binding(lock, executable)
     policy = identity_policy(
@@ -339,6 +351,7 @@ def main() -> int:
         ff_version=args.ff_version,
         timezone_mode=TIMEZONE_MODE,
         browser_binding=binding,
+        voices_mode=args.voices_mode,
     )
     artifact = {
         "schema": ARTIFACT_SCHEMA,
@@ -346,7 +359,7 @@ def main() -> int:
         "policy": policy,
         "browserRelease": RELEASE,
         "browserBinding": binding,
-        "generatedBy": "VeriSilo generate_identity.py (M2.0.2)",
+        "generatedBy": "VeriSilo generate_identity.py (Artifact v4)",
         "generatedAtUtc": datetime.now(timezone.utc)
         .isoformat()
         .replace("+00:00", "Z"),

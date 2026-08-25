@@ -1,0 +1,9 @@
+--- a/dom/media/webspeech/synth/ipc/SpeechSynthesisParent.cpp
++++ b/dom/media/webspeech/synth/ipc/SpeechSynthesisParent.cpp
+@@ -6,0 +7 @@
++#include "MaskConfig.hpp"
+@@ -11,0 +13,4 @@
++  if (MaskConfig::MVoices() &&
++      MaskConfig::GetBool("voices:blockIfNotDefined").value_or(false) == true) {
++    nsSynthVoiceRegistry::GetInstance();
++  }

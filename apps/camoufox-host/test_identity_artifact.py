@@ -26,6 +26,7 @@ import host_v1
 import run_spike as run_spike_module
 from identity_policy import (
     ARTIFACT_SCHEMA,
+    ARTIFACT_SCHEMA_V3,
     CANVAS_CLASSIFICATION,
     DETERMINISTIC_CANVAS_BROWSER_BINDING,
     DETERMINISTIC_CANVAS_CLASSIFICATION,
@@ -35,6 +36,9 @@ from identity_policy import (
     OBSERVED_DIGEST_SCHEMA,
     SESSION_VARIABLE_SIGNAL_KEYS,
     STABLE_WEBSITE_SIGNAL_KEYS,
+    VOICE_DERIVED_CONFIG,
+    VOICES_MODE_MANAGED,
+    VOICES_MODE_NATIVE,
     ArtifactIntegrityError,
     UnsupportedSchemaVersionError,
     canonical_digest,
@@ -43,6 +47,8 @@ from identity_policy import (
     compute_artifact_digest,
     configured_identity_digest,
     diff_configs,
+    apply_voices_policy,
+    identity_policy,
     observed_website_digest,
     read_bundle_metadata,
     validate_artifact_strict,
@@ -74,6 +80,7 @@ from run_spike import (
 )
 from generate_identity import (
     complete_resolved_config,
+    declared_stable_signals,
     rebind_identity_artifact,
     write_artifact_with_sidecar,
 )
@@ -132,7 +139,7 @@ def test_windows_fixtures_pass_strict_validation() -> None:
     for name in ("identity-win-a", "identity-win-b", "identity-win-c"):
         path = FIXTURES / f"{name}.json"
         artifact = verify_artifact(path)
-        assert artifact["schema"] == ARTIFACT_SCHEMA
+        assert artifact["schema"] == ARTIFACT_SCHEMA_V3
         assert artifact["policy"]["schema"] == "verisilo-camoufox-identity-policy/v3"
         assert artifact["policy"]["targetOs"] == "windows"
         assert artifact["policy"]["fontMode"] == "inherit"
@@ -392,7 +399,7 @@ def test_deterministic_canvas_fixtures_are_exact_rebinds() -> None:
             canvas_seed=canvas_seed,
         )
         assert artifact == expected
-        assert artifact["schema"] == ARTIFACT_SCHEMA
+        assert artifact["schema"] == ARTIFACT_SCHEMA_V3
         assert len(artifact["resolvedConfig"]) == 47
         assert artifact["browserBinding"] == DETERMINISTIC_CANVAS_BROWSER_BINDING
         assert (
@@ -1507,7 +1514,7 @@ def test_diff_configs() -> None:
 def test_fixtures_pass_strict_validation() -> None:
     for name in ("identity-a", "identity-b", "identity-c"):
         artifact = verify_artifact(FIXTURES / f"{name}.json")
-        assert artifact["schema"] == ARTIFACT_SCHEMA
+        assert artifact["schema"] == ARTIFACT_SCHEMA_V3
         assert artifact["configuredIdentityDigest"] == configured_identity_digest(
             artifact["resolvedConfig"]
         )
@@ -1539,6 +1546,106 @@ def _recompute_digests(artifact: dict) -> None:
         artifact["resolvedConfig"]
     )
     artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+
+
+def _v4_voice_artifact(voices_mode: str) -> dict:
+    artifact = copy.deepcopy(load_fixture("identity-win-a"))
+    source_policy = artifact["policy"]
+    artifact["schema"] = ARTIFACT_SCHEMA
+    artifact["policy"] = identity_policy(
+        target_os=source_policy["targetOs"],
+        font_mode=source_policy["fontMode"],
+        window=tuple(source_policy["window"]),
+        locale=source_policy["locale"],
+        ff_version=source_policy["ffVersion"],
+        timezone_mode=source_policy["timezoneMode"],
+        browser_binding=artifact["browserBinding"],
+        voices_mode=voices_mode,
+    )
+    apply_voices_policy(artifact["resolvedConfig"], voices_mode)
+    artifact["stableSignalsDeclared"] = declared_stable_signals(
+        artifact["resolvedConfig"], source_policy["locale"]
+    )
+    _recompute_digests(artifact)
+    return artifact
+
+
+def _assert_strict_rejected(artifact: dict, label: str) -> None:
+    _recompute_digests(artifact)
+    try:
+        validate_artifact_strict(artifact)
+    except ArtifactIntegrityError:
+        return
+    raise AssertionError(f"strict validator accepted invalid v4 voices shape: {label}")
+
+
+def test_v4_managed_voices_policy_is_deterministic_and_fail_closed() -> None:
+    artifact = _v4_voice_artifact(VOICES_MODE_MANAGED)
+    config = artifact["resolvedConfig"]
+    assert artifact["policy"]["voicesMode"] == VOICES_MODE_MANAGED
+    assert config["voices"]
+    assert sum(voice["isDefault"] is True for voice in config["voices"]) == 1
+    assert {key: config[key] for key in VOICE_DERIVED_CONFIG} == VOICE_DERIVED_CONFIG
+    validate_artifact_strict(artifact)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "identity-v4-managed.json"
+        write_artifact_with_sidecar(path, artifact)
+        assert verify_artifact(path) == artifact
+
+    replay = copy.deepcopy(config)
+    assert apply_voices_policy(replay, VOICES_MODE_MANAGED) == config
+
+    mutations = {
+        "empty": lambda a: a["resolvedConfig"]["voices"].clear(),
+        "malformed": lambda a: a["resolvedConfig"]["voices"][0].pop("lang"),
+        "no-default": lambda a: [
+            voice.__setitem__("isDefault", False)
+            for voice in a["resolvedConfig"]["voices"]
+        ],
+        "two-defaults": lambda a: a["resolvedConfig"]["voices"][1].__setitem__(
+            "isDefault", True
+        ),
+        "false-suppression": lambda a: a["resolvedConfig"].__setitem__(
+            "voices:blockIfNotDefined", False
+        ),
+        "false-completion": lambda a: a["resolvedConfig"].__setitem__(
+            "voices:fakeCompletion", False
+        ),
+        "wrong-rate": lambda a: a["resolvedConfig"].__setitem__(
+            "voices:fakeCompletion:charsPerSecond", 10.0
+        ),
+    }
+    for key in VOICE_DERIVED_CONFIG:
+        mutations[f"missing-{key}"] = lambda a, key=key: a["resolvedConfig"].pop(key)
+    for label, mutate in mutations.items():
+        candidate = copy.deepcopy(artifact)
+        mutate(candidate)
+        _assert_strict_rejected(candidate, label)
+
+    empty = {"voices": []}
+    try:
+        apply_voices_policy(empty, VOICES_MODE_MANAGED)
+    except ArtifactIntegrityError:
+        pass
+    else:
+        raise AssertionError("generator policy accepted empty managed voices")
+
+
+def test_v4_native_voices_policy_omits_all_voice_config() -> None:
+    artifact = _v4_voice_artifact(VOICES_MODE_NATIVE)
+    forbidden = ("voices", *VOICE_DERIVED_CONFIG)
+    assert artifact["policy"]["voicesMode"] == VOICES_MODE_NATIVE
+    assert "voices" not in artifact["policy"]["stableWebsiteFields"]
+    assert "voices" not in artifact["stableSignalsDeclared"]
+    assert all(key not in artifact["resolvedConfig"] for key in forbidden)
+    assert all(key not in artifact["policy"]["requiredConfigKeys"] for key in forbidden)
+    validate_artifact_strict(artifact)
+
+    managed = _v4_voice_artifact(VOICES_MODE_MANAGED)["resolvedConfig"]
+    for key in forbidden:
+        candidate = copy.deepcopy(artifact)
+        candidate["resolvedConfig"][key] = copy.deepcopy(managed[key])
+        _assert_strict_rejected(candidate, f"native-{key}")
 
 
 def test_tamper_modes_rejected() -> None:

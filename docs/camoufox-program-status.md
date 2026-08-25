@@ -1,9 +1,9 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**当前路由页**
-- 更新日期：2026-08-24
+- 更新日期：2026-08-25
 - 当前分支：`codex/camoufox-m3-engine-adapter`
-- 最近产品 checkpoint：`594d16700c7d8f5d169eaac6cf6fd62d5a12df49`
+- 本轮基线 checkpoint：`51cfd790e1edd7a0bb549077892ed3c0d02305ee`
 
 本文只保留当前事实、下一任务和关键证据索引。旧 checkpoint、失败 run、完整 hash 表与历史
 措辞由 Git、lock/result、evidence 和对应历史合同保存，不再永久追加到默认必读页。
@@ -42,7 +42,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | R1-diag Windows build/provenance | **Passed diagnostic-only closure**；不是 Formal 或 runtime pass |
 | actual-9000 diagnostic run | 原 runner Failed，离线裁决 Inconclusive |
 | Voices phase-anchor | v1 Failed/no observation；唯一 v2 run 直接支持 A0→A1→A2 |
-| Voices final remediation design | **Accepted design-only**；`0005` 尚不存在 |
+| Voices `0005` + Artifact v4 policy | **Static authoring closed**；仅为 Formal source candidate 输入，不是 runtime pass |
 | Formal R1 / FP1-R1 / FP2-R1 / FP3 | **未执行** |
 | production package/signing/UI | **未开放** |
 
@@ -77,53 +77,39 @@ phase，不是 exhaustive exclusion，也不是 Voices fixed、FP2-R1 或 Formal
 SAPI 先同步注册/通知 native voices，随后才注入 managed voices。根因冻结为：
 **actor 已可接收增量时，parent canonical managed state 尚未形成。**
 
+## 最近关闭的静态 Gate
+
+`0005-verisilo-voices-final.patch` 是单文件 constructor guard；Formal series 精确为
+`0000 → 0001 → 0002 → 0003 → 0003a → 0004 → 0005`，Formal 路径拒绝 9000。
+
+- patch SHA-256：`998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec`；
+- `SpeechSynthesisParent.cpp` preimage：
+  `c6171e3689fab1789c459b924c7420786d2efed0caf2741747b910e0a3dcd61f`；
+- postimage：`c43447ff66ad5b03b21a9c76d0202c23a699904868a282f2d53e63e01227093e`；
+- fresh exact tree 已完成 `--fuzz=0` apply/reverse/apply；
+- Artifact v4 managed/native 闭合 schema、确定性派生与 pre-launch strict rejection 已实现；
+  历史 v3 Artifact 仍按 v3 schema 读取，不作为 v4 Formal 输入。
+
+该 closure 只证明 source candidate/policy 静态 authoring；未启动浏览器、未构建 engine，
+不表示 Voices fixed、FP2-R1、Formal R1 或 runtime verified。
+
 ## 当前下一任务
 
-### FP2-R1 Voices `0005` authoring + Artifact v4 policy static implementation
+### Formal R1 source lock + Windows build/provenance closure
 
 要回答的唯一问题：
 
-> 冻结的最小 source seam 与严格 policy 能否形成可复现、可静态验证的 Formal R1 source
-> candidate 输入，而不重新引入 native/partial inventory？
+> 当前静态 candidate 能否绑定为唯一、可复现且排除 9000 的 Formal source revision，
+> 并取得 clean Windows-target engine build/provenance？
 
-本节就是当前短合同。以下文档只提供设计推理与历史 authoring 约束，不属于默认必读：
-
-- [final design rationale](camoufox-fp2-r1-engine-remediation-design.md#2026-08-24-voices-final-remediation-design-freeze)
-- [historical authoring detail §9](camoufox-fp2-r1-engine-remediation-implementation.md#9-2026-08-24-voices-final-remediation-authoring-contract)
-
-允许的最小实现：
-
-1. 新建 `0005-verisilo-voices-final.patch`，只修改
-   `dom/media/webspeech/synth/ipc/SpeechSynthesisParent.cpp`；
-2. 在 actor 注册前，仅当 `MaskConfig::MVoices()` 存在且
-   `voices:blockIfNotDefined` 精确为 `true` 时初始化现有 registry；
-3. 保持 registry、SAPI、`SendInit/Recv*`、cache、default 与 `SpeakImpl` 逻辑不变；
-4. 在现有 `identity_policy.py` / `generate_identity.py` / strict Artifact tests 中实现
-   v4 policy，不新增 policy framework；
-5. managed voices 非空且字段完整，唯一 default，并确定性派生：
-   `voices:blockIfNotDefined=true`、
-   `voices:fakeCompletion=true`、
-   `voices:fakeCompletion:charsPerSecond=12.5`；
-6. native mode 缺少 voices 与全部派生键；空/畸形/false/缺键形状启动前拒绝。
-
-本任务的最低充分验收：
-
-- exact preimage
-  `c6171e3689fab1789c459b924c7420786d2efed0caf2741747b910e0a3dcd61f`；
-- 单文件 patch，fresh exact tree `--fuzz=0` apply/reverse/apply 与实际 postimage/hash；
-- Formal series 固定为
-  `0000 → 0001 → 0002 → 0003 → 0003a → 0004 → 0005`，拒绝 9000；
-- focused patch/policy/Artifact tests 与 `git diff --check`；
-- 不启动浏览器、不构建 engine、不创建 runtime claim。
-
-当前不允许：修改 0000–0004/9000 bytes、ready flag、延迟/retry、cache/realm workaround、
-通用初始化平台、diagnostic 重跑、FP1-R1、FP2-R1、FP3 或 product release。
+下一 Gate 只绑定冻结 source/patch inputs、完整 Formal 顺序、`0005` pre/post 与 builder
+provenance，然后执行一次 clean build。它不启动浏览器，不进入 FP1-R1/FP2-R1，不产生
+原生 Windows runtime 或产品发布 claim。该任务涉及 engine build，等待下一次明确授权后执行。
 
 ## 后续 Gate 顺序
 
 ```text
-0005 authoring + v4 policy static closure
-→ Formal source lock + Windows build/provenance
+Formal source lock + Windows build/provenance（当前）
 → FP1-R1 rebuilt-engine carry-forward
 → 一次 fresh FP2-R1 phase/cross-realm/replay qualification
 → FP3
@@ -141,6 +127,7 @@ Formal 路线，除非实际 build evidence 证明某个 owning recipe seam 必�
 | R1-diag closure lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-diag-v2-source.json`；SHA-256 `6b93a2425cbf8c54c542a8d134a051d51be39f32239150d2f7ae515b2f00186b` |
 | diagnostic ZIP | SHA-256 `241b656945260963ff66b4fcff8ded313bd1b45f066b000b726f950b08a8ae3d`; diagnostic only |
 | frozen 9000 | SHA-256 `1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8`; `formalCarryForward=never` |
+| Formal `0005` static candidate | patch SHA-256 `998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec`；parent pre/post `c6171e…` / `c43447…` |
 | final Voices design checkpoint | `594d16700c7d8f5d169eaac6cf6fd62d5a12df49` |
 
 原始 machine evidence 保留在既有本地 `artifacts/`、source locks、results 和 Git 历史中；

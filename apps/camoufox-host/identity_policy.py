@@ -17,7 +17,9 @@ Schema families:
 
 Version contract (M2.0.2):
 
-- Artifact/Policy are v3; ObservedWebsiteDigest is v2. Old v2 artifacts are
+- Artifact/Policy v4 adds an explicit managed/native voices mode while v3
+  remains readable for historical artifacts; ObservedWebsiteDigest is v2.
+  Old v2 artifacts are
   rejected with UnsupportedSchemaVersionError (protocol code
   unsupported_schema_version), never as a plain missing-field error.
 - generatedBy must be a non-empty string; generatedAtUtc must be strict
@@ -52,8 +54,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-POLICY_SCHEMA = "verisilo-camoufox-identity-policy/v3"
-ARTIFACT_SCHEMA = "verisilo-camoufox-resolved-identity/v3"
+POLICY_SCHEMA_V3 = "verisilo-camoufox-identity-policy/v3"
+ARTIFACT_SCHEMA_V3 = "verisilo-camoufox-resolved-identity/v3"
+POLICY_SCHEMA = "verisilo-camoufox-identity-policy/v4"
+ARTIFACT_SCHEMA = "verisilo-camoufox-resolved-identity/v4"
 PROJECTION_SCHEMA = "verisilo-camoufox-stable-signal-projection/v3"
 CONFIG_DIGEST_SCHEMA = "verisilo-camoufox-configured-identity/v1"
 OBSERVED_DIGEST_SCHEMA = "verisilo-camoufox-observed-website/v2"
@@ -263,6 +267,14 @@ VOICE = {
 FONTS = {"items": STR, "min": 1}
 VOICES = {"items": VOICE, "min": 1}
 
+VOICES_MODE_MANAGED = "managed"
+VOICES_MODE_NATIVE = "native"
+VOICE_DERIVED_CONFIG = {
+    "voices:blockIfNotDefined": True,
+    "voices:fakeCompletion": True,
+    "voices:fakeCompletion:charsPerSecond": 12.5,
+}
+
 REQUIRED_CONFIG_KEYS: dict[str, Any] = {
     "navigator.userAgent": STR,
     "navigator.platform": STR,
@@ -312,6 +324,15 @@ REQUIRED_CONFIG_KEYS: dict[str, Any] = {
     "webGl2:shaderPrecisionFormats": WEBGL_PRECISION_MAP,
     "webGl2:supportedExtensions": SUPPORTED_EXTENSIONS,
 }
+V4_MANAGED_CONFIG_KEYS = {
+    **REQUIRED_CONFIG_KEYS,
+    "voices:blockIfNotDefined": BOOL,
+    "voices:fakeCompletion": BOOL,
+    "voices:fakeCompletion:charsPerSecond": FLOAT,
+}
+V4_NATIVE_CONFIG_KEYS = {
+    key: spec for key, spec in REQUIRED_CONFIG_KEYS.items() if key != "voices"
+}
 POLICY_SPEC = {
     "keys": {
         "schema": STR,
@@ -328,6 +349,12 @@ POLICY_SPEC = {
         "canvasClassification": {"valueType": STR},
         "requiredConfigKeys": {"items": STR},
         "canonicalJsonRule": STR,
+    }
+}
+V4_POLICY_SPEC = {
+    "keys": {
+        **POLICY_SPEC["keys"],
+        "voicesMode": STR,
     }
 }
 
@@ -387,6 +414,11 @@ DECLARED_SPEC = {
         "voices": VOICES,
     }
 }
+V4_NATIVE_DECLARED_SPEC = {
+    "keys": {
+        key: spec for key, spec in DECLARED_SPEC["keys"].items() if key != "voices"
+    }
+}
 
 REQUIRED_ARTIFACT_KEYS = {
     "schema",
@@ -426,6 +458,24 @@ TOP_LEVEL_SPEC = {
         "canonicalDigest": STR,
     }
 }
+V4_MANAGED_TOP_LEVEL_SPEC = {
+    "keys": {
+        **TOP_LEVEL_SPEC["keys"],
+        "policy": V4_POLICY_SPEC,
+        "resolvedConfig": {"keys": V4_MANAGED_CONFIG_KEYS},
+    }
+}
+V4_NATIVE_TOP_LEVEL_SPEC = {
+    "keys": {
+        **V4_MANAGED_TOP_LEVEL_SPEC["keys"],
+        "resolvedConfig": {"keys": V4_NATIVE_CONFIG_KEYS},
+        "stableSignalsDeclared": V4_NATIVE_DECLARED_SPEC,
+    }
+}
+
+V4_NATIVE_STABLE_WEBSITE_SIGNAL_KEYS = [
+    key for key in STABLE_WEBSITE_SIGNAL_KEYS if key != "voices"
+]
 
 
 class ArtifactIntegrityError(Exception):
@@ -557,6 +607,37 @@ def build_projection(
     }
 
 
+def _managed_voice_errors(voices: Any) -> list[str]:
+    errors: list[str] = []
+    _check_value(voices, VOICES, "resolvedConfig.voices", errors)
+    if type(voices) is list:
+        defaults = sum(
+            type(voice) is dict and voice.get("isDefault") is True
+            for voice in voices
+        )
+        if defaults != 1:
+            errors.append(
+                f"resolvedConfig.voices must contain exactly one default, got {defaults}"
+            )
+    return errors
+
+
+def apply_voices_policy(config: dict, voices_mode: str) -> dict:
+    """Apply the closed Artifact v4 voices policy to a resolved config."""
+
+    if voices_mode == VOICES_MODE_MANAGED:
+        errors = _managed_voice_errors(config.get("voices"))
+        if errors:
+            raise ArtifactIntegrityError("invalid managed voices: " + "; ".join(errors))
+        config.update(VOICE_DERIVED_CONFIG)
+    elif voices_mode == VOICES_MODE_NATIVE:
+        for key in ("voices", *VOICE_DERIVED_CONFIG):
+            config.pop(key, None)
+    else:
+        raise ValueError(f"unknown voices mode: {voices_mode!r}")
+    return config
+
+
 def identity_policy(
     target_os: str = "linux",
     font_mode: str = "inherit",
@@ -565,7 +646,10 @@ def identity_policy(
     ff_version: int = 152,
     timezone_mode: str = "fixed",
     browser_binding: dict | None = None,
+    voices_mode: str | None = VOICES_MODE_MANAGED,
 ) -> dict:
+    if voices_mode not in (None, VOICES_MODE_MANAGED, VOICES_MODE_NATIVE):
+        raise ValueError(f"unknown voices mode: {voices_mode!r}")
     if browser_binding is None:
         # Preserve the legacy default for existing callers and fixtures. New
         # artifact generation always supplies its resolved browser binding.
@@ -575,22 +659,34 @@ def identity_policy(
         session_variable_fields, canvas_classification = (
             _canvas_policy_fields_for_browser_binding(browser_binding)
         )
-    return {
-        "schema": POLICY_SCHEMA,
-        "version": 3,
+    if voices_mode == VOICES_MODE_NATIVE:
+        stable_website_fields = list(V4_NATIVE_STABLE_WEBSITE_SIGNAL_KEYS)
+        required_config_keys = sorted(V4_NATIVE_CONFIG_KEYS)
+    elif voices_mode == VOICES_MODE_MANAGED:
+        stable_website_fields = list(STABLE_WEBSITE_SIGNAL_KEYS)
+        required_config_keys = sorted(V4_MANAGED_CONFIG_KEYS)
+    else:
+        stable_website_fields = list(STABLE_WEBSITE_SIGNAL_KEYS)
+        required_config_keys = sorted(REQUIRED_CONFIG_KEYS)
+    policy = {
+        "schema": POLICY_SCHEMA if voices_mode is not None else POLICY_SCHEMA_V3,
+        "version": 4 if voices_mode is not None else 3,
         "targetOs": target_os,
         "fontMode": font_mode,
         "window": list(window),
         "locale": locale,
         "ffVersion": ff_version,
         "timezoneMode": timezone_mode,
-        "stableWebsiteFields": list(STABLE_WEBSITE_SIGNAL_KEYS),
+        "stableWebsiteFields": stable_website_fields,
         "sessionVariableFields": session_variable_fields,
         "unavailableFields": dict(UNAVAILABLE_SIGNALS),
         "canvasClassification": canvas_classification,
-        "requiredConfigKeys": sorted(REQUIRED_CONFIG_KEYS),
+        "requiredConfigKeys": required_config_keys,
         "canonicalJsonRule": CANONICAL_JSON_RULE,
     }
+    if voices_mode is not None:
+        policy["voicesMode"] = voices_mode
+    return policy
 
 
 def _is_rfc3339_utc_z(value: Any) -> bool:
@@ -615,14 +711,22 @@ def _is_rfc3339_utc_z(value: Any) -> bool:
 
 def validate_artifact_strict(artifact: dict) -> None:
     errors: list[str] = []
+    artifact_schema = artifact.get("schema")
+    policy = artifact.get("policy")
+    voices_mode = policy.get("voicesMode") if isinstance(policy, dict) else None
 
-    # Unified closed schema: every top-level field (including resolvedConfig's
-    # full 47-key closure) must exist with the exact type; unknown fields and
-    # missing required fields are rejected recursively.
-    _check_value(artifact, TOP_LEVEL_SPEC, "artifact", errors)
+    if artifact_schema == ARTIFACT_SCHEMA and voices_mode == VOICES_MODE_NATIVE:
+        artifact_spec = V4_NATIVE_TOP_LEVEL_SPEC
+    elif artifact_schema == ARTIFACT_SCHEMA:
+        artifact_spec = V4_MANAGED_TOP_LEVEL_SPEC
+    else:
+        artifact_spec = TOP_LEVEL_SPEC
+    _check_value(artifact, artifact_spec, "artifact", errors)
 
-    if artifact.get("schema") != ARTIFACT_SCHEMA:
-        errors.append(f"schema must be {ARTIFACT_SCHEMA!r}")
+    if artifact_schema not in (ARTIFACT_SCHEMA_V3, ARTIFACT_SCHEMA):
+        errors.append(
+            f"schema must be {ARTIFACT_SCHEMA_V3!r} or {ARTIFACT_SCHEMA!r}"
+        )
     artifact_id = artifact.get("artifactId")
     if not isinstance(artifact_id, str) or not ARTIFACT_ID_RE.match(artifact_id):
         errors.append(f"artifactId {artifact_id!r} does not match {ARTIFACT_ID_RE.pattern}")
@@ -654,19 +758,33 @@ def validate_artifact_strict(artifact: dict) -> None:
     except ArtifactIntegrityError as exc:
         errors.append(str(exc))
 
-    policy = artifact.get("policy")
     if isinstance(policy, dict):
-        if policy.get("schema") != POLICY_SCHEMA:
-            errors.append(f"policy.schema must be {POLICY_SCHEMA!r}")
-        if policy.get("version") != 3:
-            errors.append("policy.version must be 3")
+        expected_policy_schema = (
+            POLICY_SCHEMA if artifact_schema == ARTIFACT_SCHEMA else POLICY_SCHEMA_V3
+        )
+        expected_policy_version = 4 if artifact_schema == ARTIFACT_SCHEMA else 3
+        if policy.get("schema") != expected_policy_schema:
+            errors.append(f"policy.schema must be {expected_policy_schema!r}")
+        if policy.get("version") != expected_policy_version:
+            errors.append(f"policy.version must be {expected_policy_version}")
+        if artifact_schema == ARTIFACT_SCHEMA and voices_mode not in (
+            VOICES_MODE_MANAGED,
+            VOICES_MODE_NATIVE,
+        ):
+            errors.append("policy.voicesMode must be managed or native")
         if policy.get("targetOs") not in ("linux", "macos", "windows"):
             errors.append("policy.targetOs unsupported")
         if policy.get("fontMode") not in ("inherit", "managed"):
             errors.append("policy.fontMode must be inherit or managed")
         if policy.get("timezoneMode") not in ("fixed", "network-bound"):
             errors.append("policy.timezoneMode must be fixed or network-bound")
-        if policy.get("stableWebsiteFields") != STABLE_WEBSITE_SIGNAL_KEYS:
+        expected_stable_fields = (
+            V4_NATIVE_STABLE_WEBSITE_SIGNAL_KEYS
+            if artifact_schema == ARTIFACT_SCHEMA
+            and voices_mode == VOICES_MODE_NATIVE
+            else STABLE_WEBSITE_SIGNAL_KEYS
+        )
+        if policy.get("stableWebsiteFields") != expected_stable_fields:
             errors.append("policy.stableWebsiteFields does not match the canonical list")
         if (
             expected_session_variable_fields is not None
@@ -682,11 +800,39 @@ def validate_artifact_strict(artifact: dict) -> None:
             != expected_canvas_classification
         ):
             errors.append("policy.canvasClassification does not match the canonical map")
-        if policy.get("requiredConfigKeys") != sorted(REQUIRED_CONFIG_KEYS):
+        if (
+            artifact_schema == ARTIFACT_SCHEMA
+            and voices_mode == VOICES_MODE_NATIVE
+        ):
+            expected_config_keys = sorted(V4_NATIVE_CONFIG_KEYS)
+        elif artifact_schema == ARTIFACT_SCHEMA:
+            expected_config_keys = sorted(V4_MANAGED_CONFIG_KEYS)
+        else:
+            expected_config_keys = sorted(REQUIRED_CONFIG_KEYS)
+        if policy.get("requiredConfigKeys") != expected_config_keys:
             errors.append("policy.requiredConfigKeys does not match the canonical key set")
 
     config = artifact.get("resolvedConfig")
     if isinstance(config, dict):
+        if (
+            artifact_schema == ARTIFACT_SCHEMA
+            and voices_mode == VOICES_MODE_MANAGED
+        ):
+            errors.extend(_managed_voice_errors(config.get("voices")))
+            for key, expected in VOICE_DERIVED_CONFIG.items():
+                if (
+                    key not in config
+                    or type(config[key]) is not type(expected)
+                    or config[key] != expected
+                ):
+                    errors.append(f"resolvedConfig.{key} must be exactly {expected!r}")
+        elif (
+            artifact_schema == ARTIFACT_SCHEMA
+            and voices_mode == VOICES_MODE_NATIVE
+        ):
+            for key in ("voices", *VOICE_DERIVED_CONFIG):
+                if key in config:
+                    errors.append(f"native voices mode forbids resolvedConfig.{key}")
         canvas_seed = config.get("canvas:seed")
         if type(canvas_seed) is int and not 0 <= canvas_seed <= 0xFFFFFFFF:
             errors.append(
@@ -885,13 +1031,13 @@ def verify_artifact_raw(
             f"artifact must be a JSON object, got {type(artifact).__name__}"
         )
     schema = artifact.get("schema")
-    if schema != ARTIFACT_SCHEMA:
+    if schema not in (ARTIFACT_SCHEMA_V3, ARTIFACT_SCHEMA):
         if isinstance(schema, str) and schema.startswith(
             "verisilo-camoufox-resolved-identity/"
         ):
             raise UnsupportedSchemaVersionError(
                 f"unsupported artifact schema version: {schema!r}; "
-                f"expected {ARTIFACT_SCHEMA!r}"
+                f"expected {ARTIFACT_SCHEMA_V3!r} or {ARTIFACT_SCHEMA!r}"
             )
         raise ArtifactIntegrityError(f"artifact schema mismatch: {schema!r}")
     validate_artifact_strict(artifact)
