@@ -44,7 +44,8 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Voices phase-anchor | v1 Failed/no observation；唯一 v2 run 直接支持 A0→A1→A2 |
 | Voices `0005` + Artifact v4 policy | **Static authoring closed**；仅为 Formal source candidate 输入，不是 runtime pass |
 | Formal source + Windows-target build/provenance | **Passed build closure**；`compiled-not-runtime-verified` |
-| Formal R1 runtime / FP1-R1 / FP2-R1 / FP3 | **未执行** |
+| Formal R1 runtime / FP1-R1 | **FP1-R1 Passed on this native Windows host**；`verified:false`，不是 Formal R1 pass |
+| FP2-R1 / FP3 | **未执行** |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -96,33 +97,26 @@ compiled/provenance evidence，仍不表示 Voices fixed、FP2-R1、Formal R1 �
 
 ## 当前下一任务
 
-### FP1-R1 rebuilt-engine carry-forward
+### FP2-R1 fresh phase/cross-realm/replay qualification
 
 要回答的唯一问题：
 
-> exact rebuilt engine 在原生 Windows runtime 中能否继续满足已接受的 FP1 deterministic
-> Artifact projection 行为？
+> exact Formal R1 candidate 能否在一次 fresh 原生 Windows run 中关闭 Voices phase、
+> cross-realm consistency 与 replay qualification？
 
-前置 Gate 已闭合：run `r1formal-engine-20260825t060544z` 从 commit
-`6acae1eca3c8b5ff2126da2d0f63ef003173487f` / tree
-`a5720e135d35fd1129a226c2856683963dc436ae` 与不可变 source lock
-`a614f58d32adf7e8c5e787478aa4fbbfd8d28caa97dd151571df8e3b2819455c` 完成一次
-no-cache Windows x86_64 build。strict result SHA-256 为
-`7a3abf00be871131a7df1b77e8a14ef83c7cae54cd87dac2f5c8ff5892a91ba5`，host provenance
-SHA-256 为 `675db0869b59a096009e846f74772dbb6693b3f76b96ff2d031cd3bd21174a65`，候选 ZIP
-SHA-256 为 `a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc`。
+上一 Gate 已闭合：one-shot run `fp1-full-20260825T130612233176Z` 在这台原生 Windows
+interactive desktop 上，以 exact Formal archive 和冻结 A/B Artifact 执行 A1→A2→B1。直接
+report/claim、12 个引用原始文件与离线复算一致，支持 **FP1-R1 Passed on this native Windows
+host**；结果仍为 `verified:false`，不支持 cross-host replay、Voices fixed 或 Formal R1 pass。
 
-companion result 单独回指 exact source commit/tree/lock；冻结 source lock 与 0000–0005 bytes
-未修改。此次仅证明编译与 provenance：`browserLaunches=0`、`formalR1Passed=false`、
-`windowsRuntimeObserved=false`、`runtimeVerified=false`。下一 Gate 涉及原生 Windows 浏览器
-启动与 runtime evidence，当前只记录目标，不在本轮跨入。
+下一 Gate 会启动浏览器并产生新的 runtime evidence；当前只记录目标，不在本轮跨入。
 
 ## 后续 Gate 顺序
 
 ```text
 Formal source lock + Windows build/provenance（已闭合）
-→ FP1-R1 rebuilt-engine carry-forward（当前）
-→ 一次 fresh FP2-R1 phase/cross-realm/replay qualification
+→ FP1-R1 rebuilt-engine carry-forward（已闭合）
+→ 一次 fresh FP2-R1 phase/cross-realm/replay qualification（当前）
 → FP3
 ```
 
@@ -141,6 +135,7 @@ Formal 路线，除非实际 build evidence 证明某个 owning recipe seam 必�
 | Formal `0005` static candidate | patch SHA-256 `998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec`；parent pre/post `c6171e…` / `c43447…` |
 | Formal R1 source/recipe lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-source.json`；SHA-256 `a614f58d32adf7e8c5e787478aa4fbbfd8d28caa97dd151571df8e3b2819455c`；frozen build input |
 | Formal Windows-target build result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-build-result.json`；run `r1formal-engine-20260825t060544z`；ZIP SHA-256 `a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc`；compiled only |
+| FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | final Voices design checkpoint | `594d16700c7d8f5d169eaac6cf6fd62d5a12df49` |
 
 原始 machine evidence 保留在既有本地 `artifacts/`、source locks、results 和 Git 历史中；
