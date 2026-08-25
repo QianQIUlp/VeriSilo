@@ -147,6 +147,14 @@ DETERMINISTIC_CANVAS_BROWSER_BINDING = {
     "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
 }
 
+FORMAL_R1_CANVAS_BROWSER_BINDING = {
+    "archiveSha256": "a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc",
+    "archiveSizeBytes": 493497411,
+    "buildId": "20260811045234",
+    "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+    "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+}
+
 DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS = [
     key for key in SESSION_VARIABLE_SIGNAL_KEYS if key != "canvasExportHash"
 ]
@@ -514,7 +522,13 @@ def canvas_policy_variant_for_browser_binding(binding: Any) -> str:
         for expected in LEGACY_BROWSER_BINDINGS
     ):
         matches.append(LEGACY_CANVAS_POLICY_VARIANT)
-    if _browser_binding_matches_exact(binding, DETERMINISTIC_CANVAS_BROWSER_BINDING):
+    if any(
+        _browser_binding_matches_exact(binding, expected)
+        for expected in (
+            DETERMINISTIC_CANVAS_BROWSER_BINDING,
+            FORMAL_R1_CANVAS_BROWSER_BINDING,
+        )
+    ):
         matches.append(DETERMINISTIC_CANVAS_POLICY_VARIANT)
     if len(matches) != 1:
         raise ArtifactIntegrityError(

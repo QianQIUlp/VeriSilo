@@ -32,6 +32,7 @@ from identity_policy import (
     DETERMINISTIC_CANVAS_CLASSIFICATION,
     DETERMINISTIC_CANVAS_POLICY_VARIANT,
     DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS,
+    FORMAL_R1_CANVAS_BROWSER_BINDING,
     LEGACY_CANVAS_POLICY_VARIANT,
     OBSERVED_DIGEST_SCHEMA,
     SESSION_VARIABLE_SIGNAL_KEYS,
@@ -456,6 +457,19 @@ def test_deterministic_canvas_fixtures_are_exact_rebinds() -> None:
 def test_canvas_policy_binding_selection_fails_closed() -> None:
     deterministic = load_fixture("identity-win-canvas-v1-a")
     legacy = load_fixture("identity-win-a")
+
+    assert (
+        canvas_policy_variant_for_browser_binding(FORMAL_R1_CANVAS_BROWSER_BINDING)
+        == DETERMINISTIC_CANVAS_POLICY_VARIANT
+    )
+    formal_drift = copy.deepcopy(FORMAL_R1_CANVAS_BROWSER_BINDING)
+    formal_drift["archiveSizeBytes"] += 1
+    try:
+        canvas_policy_variant_for_browser_binding(formal_drift)
+    except ArtifactIntegrityError:
+        pass
+    else:
+        raise AssertionError("Formal R1 binding drift accepted")
 
     def assert_binding_rejected(binding: dict, label: str) -> None:
         artifact = copy.deepcopy(deterministic)
