@@ -21,6 +21,11 @@ LOCK_PATH = (
     / "lock"
     / "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-source.json"
 )
+RESULT_PATH = (
+    HOST_DIR
+    / "lock"
+    / "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-build-result.json"
+)
 SHARED_LOCK_PATH = (
     HOST_DIR
     / "lock"
@@ -54,6 +59,7 @@ class R1FormalSourceLockTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+        cls.result = json.loads(RESULT_PATH.read_text(encoding="utf-8"))
 
     def validate(self, lock: dict) -> None:
         with mock.patch.object(strict_build, "VERISILO_ROOT", REPO_ROOT):
@@ -112,6 +118,104 @@ class R1FormalSourceLockTests(unittest.TestCase):
                 path.read_bytes().splitlines()[0],
                 b"# VERISILO-DIAGNOSTIC-MARKER: v1",
             )
+
+    def test_clean_build_result_binds_exact_non_runtime_evidence(self) -> None:
+        result = self.result
+        self.assertEqual(
+            RESULT_PATH,
+            REPO_ROOT / self.lock["buildResultBinding"]["path"],
+        )
+        self.assertEqual(result["schema"], "verisilo-r1-formal-build-result/v1")
+        self.assertEqual(result["status"], "compiled-not-runtime-verified")
+        self.assertEqual(result["evidenceClass"], "compiled-not-runtime-verified")
+        self.assertFalse(result["verified"])
+        self.assertTrue(result["formalSource"])
+        self.assertFalse(result["diagnosticOnly"])
+        self.assertEqual(
+            result["claims"],
+            {
+                "compiled": True,
+                "formalSource": True,
+                "browserLaunches": 0,
+                "formalR1Passed": False,
+                "windowsRuntimeObserved": False,
+                "runtimeVerified": False,
+            },
+        )
+
+        source = result["sourceBinding"]
+        self.assertEqual(
+            (source["commit"], source["tree"]),
+            (
+                "6acae1eca3c8b5ff2126da2d0f63ef003173487f",
+                "a5720e135d35fd1129a226c2856683963dc436ae",
+            ),
+        )
+        self.assertEqual(source["completeAppliedPatchOrder"], ORDER)
+        self.assertNotIn("9000", json.dumps(source, sort_keys=True))
+        self.assertEqual(
+            source["sourceLock"],
+            {
+                "path": str(LOCK_PATH.relative_to(REPO_ROOT)).replace("\\", "/"),
+                "sha256": "a614f58d32adf7e8c5e787478aa4fbbfd8d28caa97dd151571df8e3b2819455c",
+                "sizeBytes": 30791,
+            },
+        )
+        self.assertEqual(sha256(LOCK_PATH), source["sourceLock"]["sha256"])
+        self.assertEqual(LOCK_PATH.stat().st_size, source["sourceLock"]["sizeBytes"])
+
+        build = result["build"]
+        self.assertEqual(
+            build["buildResult"]["sha256"],
+            "7a3abf00be871131a7df1b77e8a14ef83c7cae54cd87dac2f5c8ff5892a91ba5",
+        )
+        self.assertEqual(build["hostProvenance"]["status"], "container-passed")
+        self.assertEqual(
+            build["hostProvenance"]["sha256"],
+            "675db0869b59a096009e846f74772dbb6693b3f76b96ff2d031cd3bd21174a65",
+        )
+        self.assertEqual(build["toolchain"]["compilerVersion"], "14.50.35717")
+        self.assertEqual(build["toolchain"]["windowsSdkVersion"], "10.0.26100.0")
+
+        archive = result["archive"]
+        self.assertEqual(
+            archive["sha256"],
+            "a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc",
+        )
+        self.assertEqual(archive["sizeBytes"], 493497411)
+        self.assertEqual(
+            archive["camoufoxExeSha256"],
+            "7f2e3f26b4c722cefea2d6304ac436406e2d18e7ac831a0f8cd8ae4cb80307c6",
+        )
+        self.assertEqual(
+            archive["treeManifest"]["sha256"],
+            "9937f65aa538424cf585c87d82294d40914bc5c2dda0a888e662b779fd4af604",
+        )
+
+        evidence = result["rawEvidence"]
+        rows = {row["path"]: row for row in evidence["files"]}
+        self.assertEqual(
+            set(rows),
+            {
+                "out/build-result.json",
+                "out/build.log",
+                "out/camoufox-152.0.4-beta.28-win.x86_64.zip",
+                "out/windows-extraction-tree.json",
+                "provenance/builder-context.tar",
+                "provenance/builder-image-inspect.json",
+                "provenance/buildx-metadata.json",
+                "provenance/buildx.log",
+                "provenance/container.log",
+                "provenance/host-provenance.json",
+            },
+        )
+        evidence_root = REPO_ROOT / evidence["root"]
+        if evidence_root.is_dir():
+            for relative, row in rows.items():
+                path = evidence_root / relative
+                self.assertTrue(path.is_file(), relative)
+                self.assertEqual((sha256(path), path.stat().st_size),
+                                 (row["sha256"], row["sizeBytes"]))
 
     def test_0005_seam_and_shared_input_evidence_are_exact(self) -> None:
         voice = [row for row in self.lock["patchSeams"] if row["id"] == "0005"]
