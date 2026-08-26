@@ -1,0 +1,194 @@
+{
+  "schema": "verisilo-camoufox-fp2-result/v1",
+  "status": "failed",
+  "gate": "FP2 Formal R1 capability qualification",
+  "generatedAtUtc": "2026-08-26T08:28:39.5057630Z",
+  "evidenceClass": "observed-on-this-native-windows-host-plus-offline-source-adjudication",
+  "verified": false,
+  "formalCandidate": {
+    "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-formal-v1",
+    "sourceCommit": "6acae1eca3c8b5ff2126da2d0f63ef003173487f",
+    "sourceTree": "a5720e135d35fd1129a226c2856683963dc436ae",
+    "archiveSha256": "a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc",
+    "executableSha256": "7f2e3f26b4c722cefea2d6304ac436406e2d18e7ac831a0f8cd8ae4cb80307c6"
+  },
+  "attemptLineage": {
+    "attempt1": {
+      "status": "inconclusive",
+      "runId": "fp2-20260826T065125Z-4cb2847540",
+      "result": {
+        "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json",
+        "sha256": "bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24"
+      },
+      "reason": "A1 timed out in downstream MediaDevices collection before a complete realm result or independently retained Voices phase was committed."
+    },
+    "attempt2": {
+      "status": "failed",
+      "runId": "fp2-20260826T081104Z-63d295cec5",
+      "policy": "one-evidence-attempt-no-retry-no-sample-selection",
+      "gitHead": "c562565c4734e928469142631133f421a1d638bc",
+      "gitTree": "a1da4e9f9f04faadcbc59f654ec2c824039ad156",
+      "nativeWindows": true,
+      "inputDesktopAccessible": true,
+      "sequenceRequested": [
+        "A1",
+        "A2",
+        "B1"
+      ],
+      "sequenceEntered": [
+        "A1"
+      ],
+      "claim": {
+        "path": "artifacts/camoufox-fp2-formal-r1-attempt-2/attempts/fp2-attempt-2-a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc.json",
+        "sha256": "4f3e376fd53dbe4cb12f78eeeae82b539d536fe6a0eb2cb66e616063ed1c8f81",
+        "sizeBytes": 7999
+      },
+      "report": {
+        "path": "artifacts/camoufox-fp2-formal-r1-attempt-2/runs/fp2-20260826T081104Z-63d295cec5/run-report.json",
+        "sha256": "274cdf142294365dbda7e10e4a740adee0f0ec7f1d657bb07e3b27a69b947b02",
+        "sizeBytes": 28866,
+        "sidecarMatches": true
+      },
+      "offlineAdjudication": {
+        "path": "artifacts/camoufox-fp2-formal-r1-attempt-2/runs/fp2-20260826T081104Z-63d295cec5/final-offline-adjudication.json",
+        "sha256": "3fd8a7123208af20b778d155041e06f9ad0fae5850f739d97984302b8b45b10b",
+        "sizeBytes": 616,
+        "sidecarMatches": true
+      },
+      "byteClosure": {
+        "path": "artifacts/camoufox-fp2-formal-r1-attempt-2/runs/fp2-20260826T081104Z-63d295cec5/byte-closure-receipt.json",
+        "sha256": "cea62c25f1ec27a9abebbe18d2127664b35a4c115c6ae4df8752b2a34dbb3b7e",
+        "sizeBytes": 3219,
+        "entryCount": 20,
+        "allEntriesRecomputed": true,
+        "sidecarMatches": true
+      },
+      "rawEvidence": {
+        "realms": {
+          "path": "artifacts/camoufox-fp2-formal-r1-attempt-2/runs/fp2-20260826T081104Z-63d295cec5/A1/raw-realms.json",
+          "sha256": "c7cd7f04e13f7d16ea7cd212d36e1717b25cdffe414cf8980e3bebd42cb92010",
+          "sizeBytes": 175480
+        },
+        "voicePhase": {
+          "path": "artifacts/camoufox-fp2-formal-r1-attempt-2/runs/fp2-20260826T081104Z-63d295cec5/A1/raw-voice-phase.json",
+          "sha256": "2083405daeaca4df221d9d5cc4ff810da6fc8a0eee45afd1ef96d9ddce68fdc7",
+          "sizeBytes": 54598
+        },
+        "requestHeaders": {
+          "path": "artifacts/camoufox-fp2-formal-r1-attempt-2/runs/fp2-20260826T081104Z-63d295cec5/A1/request-header-captures.json",
+          "sha256": "2eb581f8e8cb0ad38ea469e3b40ce083c928629c4b5e90b41a626f4658b50c2a",
+          "sizeBytes": 8523
+        }
+      }
+    }
+  },
+  "directRuntimeObservations": {
+    "mediaDevicesReadiness": {
+      "status": "passed",
+      "expectedCounts": {
+        "audioinput": 1,
+        "videoinput": 1,
+        "audiooutput": 0
+      },
+      "observedCounts": {
+        "audioinput": 1,
+        "videoinput": 1,
+        "audiooutput": 0
+      },
+      "attemptCount": 1,
+      "waitSeconds": 0.235
+    },
+    "a1Collection": {
+      "realmMatrixStageCompleted": true,
+      "realmCount": 6,
+      "headerCaptureCount": 6
+    },
+    "a1VoicePublicationPhase": {
+      "accepted": true,
+      "sameSpeechSynthesisObject": true,
+      "traceWindowMs": 3000,
+      "initialVoiceCount": 0,
+      "firstTrustedTargetEventAtMs": 20,
+      "firstTrustedTargetEventVoiceCount": 53,
+      "settledVoiceCount": 53,
+      "immediateReplayVoiceCount": 53,
+      "trajectory": "empty* -> exact*",
+      "allNonemptyObservationsExact": true,
+      "boundedNoForbiddenInventoryObserved": true,
+      "evidenceBoundary": "this A1 top-window three-second trace"
+    },
+    "identityMismatches": {
+      "dnt": {
+        "artifactConfigured": "1",
+        "windowNavigatorObserved": "unspecified",
+        "allSixRequestHeadersObserved": null
+      },
+      "gpc": {
+        "artifactConfigured": true,
+        "allSixRealmNavigatorObserved": false,
+        "allSixRequestHeadersObserved": null
+      },
+      "devicePixelRatio": {
+        "artifactDeclared": 1,
+        "allThreeWindowRealmsObserved": 1.5
+      }
+    }
+  },
+  "failure": {
+    "classification": "qualification-failed-observed-identity-contract-mismatch",
+    "firstRunnerCode": "dnt_mapping_mismatch",
+    "firstRunnerDetail": "A1.top-window.navigator",
+    "a2Entered": false,
+    "b1Entered": false,
+    "reason": "A1 produced complete observations that directly contradict the bound Artifact, so this attempt is Failed rather than Inconclusive."
+  },
+  "causalAdjudication": {
+    "attempt1RetentionAndReadinessRemediation": "effective: MediaDevices readiness passed and the bounded Voices phase survived through downstream validation",
+    "gpc": {
+      "directFacts": "The bound 0003 patch calls ProjectGpcPolicyFromMaskConfig before profile preference initialization; later InitializeUserPrefs resets pre-profile user prefs. The bound 0004 patch removes the Worker MaskConfig fallback, and all Window/Worker/Sec-GPC observations are native false/absent.",
+      "supportedInference": "The early managed-opt-out projection was erased by user-pref initialization.",
+      "minimumOwningFix": "Move the sole projection call immediately after FinishInitializingUserPrefs, before app startup, windows, and network channels."
+    },
+    "dnt": {
+      "directFacts": "The current v4 Artifact still requires navigator.doNotTrack=1 even though the accepted FF>=135 policy defines DNT as native/unavailable.",
+      "minimumOwningFix": "Create fresh versioned DNT-native Artifacts and policy validation; preserve historical Artifacts and do not add a Gecko DNT patch."
+    },
+    "devicePixelRatio": {
+      "directFacts": "The current Artifact hardcodes a managed stable declaration of 1 while the existing product contract describes DPR as host-bound and all A1 windows observed 1.5.",
+      "minimumOwningFix": "Classify DPR as native/host-bound in the fresh policy unless a real engine control seam is explicitly proven."
+    },
+    "postRunComparatorCorrections": {
+      "privacyCapabilityUsesAnyPresentSignal": true,
+      "presentPrivacySignalValueCheckedAgainstNavigatorAndConfig": true,
+      "crossRealmPrivacyComparesSharedPresentSignals": true,
+      "windowDprCheckedAgainstArtifactDeclaration": true,
+      "focusedNoBrowserTestsPassed": 69
+    }
+  },
+  "lifecycle": {
+    "evidenceClass": "failure-path-teardown",
+    "pageClose": "success",
+    "contextClose": "TargetClosedError",
+    "forcedJobCleanup": "not_needed",
+    "exitStatus": 0,
+    "processTreeExited": true,
+    "jobActiveProcessCount": 0,
+    "adjudication": "No product or clean-path close defect is established; investigate only if this recurs on a non-failure path."
+  },
+  "claims": {
+    "windowsRuntimeObserved": true,
+    "fp2Passed": false,
+    "formalR1Passed": false,
+    "voicesFixed": false,
+    "runtimeVerified": false,
+    "crossHostReplay": false,
+    "fp3Entered": false,
+    "productReleased": false
+  },
+  "limitations": [
+    "The result is bounded to this native Windows host and the exact candidate and Artifact inputs above.",
+    "The accepted Voices observation is only the bounded A1 top-window phase; A2/B1 replay and full FP2 remain unqualified.",
+    "Attempt 1 and attempt 2 remain immutable and are not retried or sample-selected."
+  ],
+  "nextGate": "FP2 product remediation: correct GPC projection timing, implement fresh DNT-native and DPR host-bound policy Artifacts, then rebuild and execute the minimum carry-forward plus fresh FP2 qualification"
+}

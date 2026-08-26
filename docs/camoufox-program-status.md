@@ -45,7 +45,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Voices `0005` + Artifact v4 policy | **Static authoring closed**；仅为 Formal source candidate 输入，不是 runtime pass |
 | Formal source + Windows-target build/provenance | **Passed build closure**；`compiled-not-runtime-verified` |
 | Formal R1 runtime / FP1-R1 | **FP1-R1 Passed on this native Windows host**；`verified:false`，不是 Formal R1 pass |
-| FP2 / FP3 | **FP2 Active**；attempt 1 在 A1 downstream MediaDevices probe timeout，保留为 Inconclusive；FP3 未开放 |
+| FP2 / FP3 | **FP2 Active**；attempt 1 永久 Inconclusive；attempt 2 在完整 A1 observation 上 Failed，直接暴露 DNT/GPC/DPR 合同不一致；FP3 未开放 |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -53,7 +53,8 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 - 当前 Artifact 的 `fontMode=inherit`；宿主字体可见，不声明字体隔离；
 - TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
 - 没有受信 signer、签名 Host package、installer 或 production runtime；
-- GPC/Voices 尚无可裁决的 Formal R1 runtime 结果，desktop Managed Identity 尚未 shipped。
+- GPC 已被 A1 runtime 直接判为不匹配；Voices 仅有 A1 bounded phase accepted，A2/B1 replay
+  尚未执行；desktop Managed Identity 尚未 shipped。
 
 ## 已关闭的当前诊断结论
 
@@ -97,31 +98,40 @@ compiled/provenance evidence，仍不表示 Voices fixed、FP2-R1、Formal R1 �
 
 ## 当前下一任务
 
-### FP2 Formal R1 capability qualification
+### FP2 product remediation
 
 要回答的唯一问题：
 
-> exact Formal R1 candidate 能否在本原生 Windows host 上完成 Voices phase、六 realm
-> identity、A1→A2 replay 与 A/B isolation 的完整 FP2 资格判定？
+> FF152 可控边界、Artifact policy 与 runtime 投影能否重新对齐，使 fresh candidate/Artifacts
+> 可以进入一次完整的 A1→A2→B1 FP2 资格判定？
 
-唯一已执行 attempt `fp2-20260826T065125Z-4cb2847540` 已消费。exact candidate、A/B、runtime
-preflight 与 private top-only phase bundle 均通过启动前锁定；A1 在 `collectWindowRealm` 的
-downstream `mediaSnapshot` 以 `media_devices_timeout` 失败，A2/B1 未进入。失败发生在普通
-voices stage 之后，但 `voicePhase` 只有在整个 `collectWindowRealm` 返回后才附加，因此没有
-提交可裁决的 phase 或 realm observation；成功 stage 标签也不能证明 voice inventory。
+attempt 1 永久保留为 **Inconclusive**。其最小 remediation 已证明有效：attempt 2 的
+MediaDevices readiness 首次即得到 `1/1/0`，完整六 realm/六 header A1 observation 已形成，
+且 A1 top-window Voices 三秒 phase 为 `empty* → exact managed53*`、即时 replay 仍 exact53。
 
-attempt 1 永久保留为 **Inconclusive**，但 FP2 继续。当前最小修复只有两个 seam：
-Voices phase 在 downstream failure 前独立写入 evidence；FP2 Host 在 authoritative realm
-matrix 前复用已有 bounded Windows MediaDevices readiness helper。不改 candidate、完整
-matrix 验收或 `mediaSnapshot` timeout。focused validation 后只执行一次清晰版本化的
-attempt 2，然后直接裁决 FP2；attempt 2 是 evidence lineage，不是新工程 Gate。
+attempt 2 因完整 observation 与绑定 Artifact 冲突而永久判为 **Failed**，不是新的 recovery
+Gate：DNT 配置 `"1"` 而 Window 为 `"unspecified"`、六请求无 DNT；GPC 配置 `true` 而六
+realm 均为 `false`、六请求无 Sec-GPC；Artifact DPR 声明 `1` 而三个 Window 均为 `1.5`。
+后续离线审查同时关闭了会隐藏 Worker GPC、raw privacy value 与 DPR mismatch 的三个
+comparator 缺口，69 个 focused no-browser tests 通过。
+
+当前最短完整修复只有三个 owning seam：
+
+1. 将唯一 GPC projection 从 profile prefs 初始化前移到 `FinishInitializingUserPrefs()` 后、
+   首个 window/network channel 前；不增加新 pref 或 fallback；
+2. 按已接受 FF>=135 合同生成 fresh versioned DNT-native Artifacts，并补齐
+   `gpcPolicy ∈ {native, managed-opt-out}` strict validation；历史 A/B 不重写，也不加 Gecko DNT patch；
+3. DPR 按既有 host-bound 边界从 managed stable 声明移出，除非先直接证明真实 engine control。
+
+完成 focused source/policy validation 后只 rebuild 一次，并把必要 carry-forward 与 fresh FP2
+attempt 作为本 Gate 内部工作连续完成；attempt 编号只属于 evidence lineage。
 
 ## 后续 Gate 顺序
 
 ```text
 Formal source lock + Windows build/provenance（已闭合）
 → FP1-R1 rebuilt-engine carry-forward（已闭合）
-→ FP2 Formal R1 capability qualification（当前；attempt 1 Inconclusive）
+→ FP2 product remediation + fresh qualification（当前；attempt 1 Inconclusive，attempt 2 Failed）
 → FP3
 ```
 
@@ -141,7 +151,8 @@ Formal 路线，除非实际 build evidence 证明某个 owning recipe seam 必�
 | Formal R1 source/recipe lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-source.json`；SHA-256 `a614f58d32adf7e8c5e787478aa4fbbfd8d28caa97dd151571df8e3b2819455c`；frozen build input |
 | Formal Windows-target build result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-build-result.json`；run `r1formal-engine-20260825t060544z`；ZIP SHA-256 `a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc`；compiled only |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
-| FP2-R1 qualification result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；Inconclusive；report `19aa1a0d…`；claim `3217284d…`；this native Windows host only |
+| FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
+| FP2 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 Failed；report `274cdf14…`；claim `4f3e376f…`；this native Windows host only |
 | final Voices design checkpoint | `594d16700c7d8f5d169eaac6cf6fd62d5a12df49` |
 
 原始 machine evidence 保留在既有本地 `artifacts/`、source locks、results 和 Git 历史中；

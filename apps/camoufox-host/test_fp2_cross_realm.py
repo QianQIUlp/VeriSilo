@@ -343,6 +343,46 @@ class FP2NoBrowserTests(unittest.TestCase):
         realm["requestHeaders"]["identityHeaders"]["sec-gpc"] = "0"
         self.assertCode("gpc_mapping_mismatch", fp2.validate_header_coherence, "A1", "top-window", realm, self.artifact_a)
 
+    def test_window_device_pixel_ratio_must_match_artifact(self) -> None:
+        realm = self.make_realm(self.artifact_a, "top-window", artifact_label="A")
+        realm["devicePixelRatio"] = 1.5
+        self.assertCode("device_pixel_ratio_mismatch", fp2.validate_realm_result, "A1", "top-window", realm, self.artifact_a, self.ledger)
+
+    def test_privacy_signal_value_must_match_navigator(self) -> None:
+        realm = self.make_realm(self.artifact_a, "top-window", artifact_label="A")
+        realm["privacySignals"]["globalPrivacyControl"]["value"] = False
+        self.assertCode("privacy_signal_mismatch", fp2.validate_realm_result, "A1", "top-window", realm, self.artifact_a, self.ledger)
+
+    def test_worker_gpc_is_checked_when_dnt_is_absent(self) -> None:
+        realm = self.make_realm(self.artifact_a, "dedicated-worker", artifact_label="A")
+        realm["capabilities"]["privacySignals"]["globalPrivacyControl"] = {"apiPresent": True}
+        realm["privacySignals"]["globalPrivacyControl"] = {"apiPresent": True, "value": False}
+        realm["navigator"]["globalPrivacyControl"] = False
+        self.assertCode("gpc_mapping_mismatch", fp2.validate_realm_result, "A1", "dedicated-worker", realm, self.artifact_a, self.ledger)
+
+    def test_cross_realm_privacy_compares_shared_present_signals(self) -> None:
+        realms = {realm: self.make_realm(self.artifact_a, realm, artifact_label="A") for realm in fp2.CANONICAL_REALMS}
+        for realm in fp2.WORKER_REALMS:
+            realms[realm]["navigator"].pop("doNotTrack")
+            realms[realm]["privacySignals"]["doNotTrack"] = {"apiPresent": False, "value": None}
+            realms[realm]["capabilities"]["privacySignals"]["globalPrivacyControl"] = {"apiPresent": True}
+        raw = {
+            "realmOrder": list(fp2.CANONICAL_REALMS),
+            "realms": realms,
+            "bundleManifestSha256": self.manifest_sha256,
+            "bundleFiles": self.manifest["files"],
+            "serviceWorker": {
+                "scriptURLPath": "/fp2/service-worker.js",
+                "scriptSha256": f"sha256:{fp2.sha256_file(fp2.BUNDLE_DIR / 'service-worker.js')}",
+                "scopePath": "/fp2/",
+                "activeState": "activated",
+            },
+            "storage": {"cookie": {}, "localStorage": {}},
+        }
+        captures = [{"realm": realm, "identityHeaders": realms[realm]["requestHeaders"]["identityHeaders"]} for realm in fp2.CANONICAL_REALMS]
+        validated = fp2.validate_session_result("A1", raw, self.artifact_a, self.ledger, captures, self.manifest, self.manifest_sha256)
+        self.assertEqual(validated["realmCount"], 6)
+
     def test_cross_origin_nonce_is_fail_closed(self) -> None:
         owner = object.__new__(fp2.FP2HTTPServer)
         owner._lock = fp2.Lock()

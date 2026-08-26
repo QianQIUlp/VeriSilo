@@ -749,7 +749,7 @@ def surface_capability(result: dict[str, Any], surface: str) -> tuple[bool, str]
         gpc = capability.get("globalPrivacyControl") or {}
         if not isinstance(dnt, dict) or not isinstance(gpc, dict):
             return False, "privacy_capability_shape_invalid"
-        return bool(dnt.get("apiPresent") and gpc.get("apiPresent")), "privacy_api_missing"
+        return bool(dnt.get("apiPresent") or gpc.get("apiPresent")), "privacy_api_missing"
     if surface == "maxTouchPoints":
         if not isinstance(capability, dict):
             return False, "max_touch_capability_shape_missing"
@@ -912,16 +912,31 @@ def validate_realm_result(label: str, realm: str, result: dict[str, Any], artifa
     require(str(navigator_value.get("language", "")).casefold() == str(expected_locale).casefold(), "locale_mismatch", f"{label}.{realm}.language")
     require((result.get("locale") or {}).get("timeZone") == config["timezone"], "timezone_mismatch", f"{label}.{realm}")
     require(isinstance((result.get("locale") or {}).get("utcOffsetMinutes"), int), "utc_offset_missing", f"{label}.{realm}")
-    dnt = config.get("navigator.doNotTrack")
-    if dnt is not None and surface_status(ledger, realm, "privacySignals") == "required":
-        require(navigator_value.get("doNotTrack") == dnt, "dnt_mapping_mismatch", f"{label}.{realm}.navigator")
-    gpc = config.get("navigator.globalPrivacyControl")
-    if gpc is not None and surface_status(ledger, realm, "privacySignals") == "required":
-        require(navigator_value.get("globalPrivacyControl") is gpc, "gpc_mapping_mismatch", f"{label}.{realm}.navigator")
+    privacy_status = surface_status(ledger, realm, "privacySignals")
+    privacy = result.get("privacySignals") or {}
+    privacy_capability = ((result.get("capabilities") or {}).get("privacySignals") or {})
+    for field, config_key, mismatch_code in (
+        ("doNotTrack", "navigator.doNotTrack", "dnt_mapping_mismatch"),
+        ("globalPrivacyControl", "navigator.globalPrivacyControl", "gpc_mapping_mismatch"),
+    ):
+        capability = privacy_capability.get(field) or {}
+        signal = privacy.get(field) or {}
+        if privacy_status == "required":
+            require(capability.get("apiPresent") is True and signal.get("apiPresent") is True, "realm_capability_missing", f"{label}.{realm}.privacySignals.{field}")
+        if capability.get("apiPresent") is not True:
+            continue
+        require(signal.get("apiPresent") is True, "conditional_surface_uncompared", f"{label}.{realm}.privacySignals.{field}")
+        require(signal.get("value") == navigator_value.get(field), "privacy_signal_mismatch", f"{label}.{realm}.{field}")
+        configured = config.get(config_key)
+        if configured is not None:
+            require(navigator_value.get(field) == configured, mismatch_code, f"{label}.{realm}.navigator")
     if kind == "window":
         screen_value = result.get("screen") or {}
         for field in ("width", "height", "availWidth", "availHeight", "availTop", "availLeft", "colorDepth", "pixelDepth"):
             require(screen_value.get(field) == config[f"screen.{field}"], "screen_config_mismatch", f"{label}.{realm}.screen.{field}")
+        declared_dpr = (artifact.get("stableSignalsDeclared") or {}).get("devicePixelRatio")
+        if declared_dpr is not None:
+            require(result.get("devicePixelRatio") == declared_dpr, "device_pixel_ratio_mismatch", f"{label}.{realm}")
         if realm == "top-window":
             geometry = result.get("geometry") or {}
             for field in ("outerWidth", "outerHeight", "screenX", "screenY"):
@@ -1035,16 +1050,22 @@ def compare_projection(label: str, left: dict[str, Any], right: dict[str, Any], 
 
 def cross_realm_identity_projection(result: dict[str, Any], realm: str, other_realm: str, ledger: dict[str, Any]) -> dict[str, Any]:
     projection = identity_projection(result, realm, ledger)
+    privacy = projection.pop("privacySignals", None)
+    privacy_capability = ((result.get("capabilities") or {}).get("privacySignals") or {})
+    if isinstance(privacy, dict):
+        for field in ("doNotTrack", "globalPrivacyControl"):
+            if (privacy_capability.get(field) or {}).get("apiPresent") is True:
+                projection[f"privacySignals.{field}"] = (privacy.get(field) or {}).get("value")
     if (realm in WINDOW_REALMS) == (other_realm in WINDOW_REALMS):
         return projection
     # Window-only rendering surfaces and Worker-only conditional surfaces are
     # not implicitly comparable across execution families. The shared subset
-    # is the hard navigator/locale/header relationship plus privacy signals
-    # and touch points when the Worker API is present.
+    # is the hard navigator/locale/header relationship plus each privacy
+    # signal and touch points when the Worker API is present.
     return {
         key: projection[key]
-        for key in ("navigator", "localeTimezone", "privacySignals", "maxTouchPoints", "httpHeaders")
-        if key in projection
+        for key in projection
+        if key in {"navigator", "localeTimezone", "maxTouchPoints", "httpHeaders"} or key.startswith("privacySignals.")
     }
 
 
