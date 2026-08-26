@@ -2917,7 +2917,7 @@ def run_one_phase(
             env=env,
         )
         try:
-            exit_code = process.wait(timeout=SESSION_WATCHDOG_SECONDS)
+            exit_code = process.wait(timeout=PARENT_WATCHDOG_SECONDS)
         except subprocess.TimeoutExpired:
             terminate_child_process(process)
             exit_code = process.returncode if process.returncode is not None else -1

@@ -645,6 +645,11 @@ class FP2NoBrowserTests(unittest.TestCase):
             source.index('self._stage_start("realm_matrix")'),
         )
 
+    def test_parent_watchdog_outlives_child_session_cleanup(self) -> None:
+        source = inspect.getsource(fp2.run_one_phase)
+        self.assertLess(fp2.SESSION_WATCHDOG_SECONDS, fp2.PARENT_WATCHDOG_SECONDS)
+        self.assertIn("process.wait(timeout=PARENT_WATCHDOG_SECONDS)", source)
+
     def test_protocol_error_mapping_does_not_require_detail_attribute(self) -> None:
         error = fp2.host_module.ProtocolError(
             "realm_probe_failed",
