@@ -891,9 +891,11 @@ class _FakeMediaPage:
     def __init__(self, *responses: object) -> None:
         self.responses = list(responses)
         self.calls = 0
+        self.arguments: list[dict] = []
 
     async def evaluate(self, _script: str, _argument: dict) -> object:
         self.calls += 1
+        self.arguments.append(_argument)
         if not self.responses:
             raise AssertionError("unexpected media evaluate call")
         response = self.responses.pop(0)
@@ -934,12 +936,13 @@ def test_media_readiness_matching_enumeration_succeeds() -> None:
 
     async def run_case() -> tuple[dict, object]:
         result = await wait_for_configured_media_devices(
-            page, _media_config(), timeout_seconds=0.02, poll_interval_ms=1
+            page, _media_config(), clock=lambda: 0.0
         )
         return result, await page.evaluate("continued", {})
 
     result, continued = asyncio.run(run_case())
     assert page.calls == 2
+    assert page.arguments[0] == {"timeoutMs": 7_500}
     assert continued == {"continued": True}
     assert result["reason"] == "success"
     assert result["matched"] is True

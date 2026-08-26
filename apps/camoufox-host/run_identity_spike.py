@@ -185,9 +185,6 @@ def observed_media_device_counts(devices: list[dict]) -> dict[str, int]:
     return counts
 
 
-# Keep the browser-side bound aligned with the full probe's existing
-# identityMediaDevices() timeout instead of inventing a second budget.
-MEDIA_ENUMERATE_TIMEOUT_MS = 3_000
 MEDIA_READINESS_TIMEOUT_SECONDS = 8.0
 MEDIA_READINESS_POLL_MS = 250
 MEDIA_READINESS_REASONS = frozenset(
@@ -401,11 +398,7 @@ async def wait_for_configured_media_devices(
             break
         channel_timeout = remaining - margin_seconds
         enumerate_timeout_ms = max(
-            1,
-            min(
-                MEDIA_ENUMERATE_TIMEOUT_MS,
-                int((channel_timeout - margin_seconds) * 1_000),
-            ),
+            1, int((channel_timeout - margin_seconds) * 1_000)
         )
         value = await _bounded_media_rpc(
             page.evaluate(
