@@ -28,6 +28,7 @@ P_0003 = "0003-verisilo-gpc-canonical-pref-projection.patch"
 P_0003A = "0003a-verisilo-gpc-preferences-namespace-compile-repair.patch"
 P_0004 = "0004-verisilo-remove-worker-gpc-mask-override.patch"
 P_0005 = "0005-verisilo-voices-final.patch"
+P_0006 = "0006-verisilo-gpc-projection-after-user-prefs.patch"
 P_9000 = "9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch"
 
 PINNED_PATCHES = {
@@ -38,8 +39,9 @@ PINNED_PATCHES = {
 }
 PINNED_FORMAL_PATCHES = {
     P_0005: "998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec",
+    P_0006: "bafc1e422049866bb2d053bc90bb8c70f01860cfa9d9f8c474277e1ff5c0ca7c",
 }
-FORMAL_ORDER = ["0000", "0001", "0002", "0003", "0003a", "0004", "0005"]
+FORMAL_ORDER = ["0000", "0001", "0002", "0003", "0003a", "0004", "0005", "0006"]
 
 PINNED_SECTIONS = {
     "fpin-worker.patch": "87af0307e7476758ff88588da5031edbe65a7737bdfd3ab5dc23dbe40faf98b5",
@@ -51,6 +53,7 @@ PINNED_SECTIONS = {
 PINNED_SEAMS = {
     "toolkit-xre-nsAppRunner-pre": "f9c0dfb11cf20ab1864f3d5c791f88ec26e24b154474e93c0d8898f712099d11",
     "toolkit-xre-nsAppRunner-post": "7847e88093beeff74aa8a7e89f5e5f1e3ea0d6b1f9dece21f97387940fbe8b94",
+    "toolkit-xre-nsAppRunner-post-0006": "51252fbfa75731f63a5b5a3f1134a252b370c151aaaa1135a6df930ff9ba23b3",
     "xre-mozbuild-pre": "03442255ef528f22927c17f5769b089e37a79c79c9a9bec0004b2139dba4a3ba",
     "xre-mozbuild-post": "831f388c8b16c162f21d5ab034329dd837f5e542b85fed1b8c277cbce3233131",
     "GpcProjection-compile-repair-pre": "ab0b4c26e628a74d0ef4bac66d35bc6b0e9aee45cd67ad6bd5e5da91b609cf3f",
@@ -208,6 +211,23 @@ class EngineRemediationPatchTests(unittest.TestCase):
             self.assertNotIn(untouched, text)
         self.assertEqual(text.count("@@"), 4)
 
+    def test_0006_only_moves_the_single_gpc_projection_after_user_prefs(self) -> None:
+        text = self.formal_patches[P_0006]
+        target = "toolkit/xre/nsAppRunner.cpp"
+        self.assertEqual(
+            re.findall(r"^(?:---|\+\+\+) ([^\n]+)$", text, re.MULTILINE),
+            [f"a/{target}", f"b/{target}"],
+        )
+        self.assertEqual(text.count("ProjectGpcPolicyFromMaskConfig();"), 2)
+        plus = plus_lines(text)
+        self.assertEqual(plus.count("+    camoucfg::ProjectGpcPolicyFromMaskConfig();"), 1)
+        self.assertLess(
+            text.index("mDirProvider.FinishInitializingUserPrefs();"),
+            text.index("+    camoucfg::ProjectGpcPolicyFromMaskConfig();"),
+        )
+        self.assertNotIn("Preferences::Set", text)
+        self.assertEqual(text.count("@@"), 4)
+
     def test_formal_series_is_exact_and_rejects_9000(self) -> None:
         base_dir = HOST_DIR / "patches" / "camoufox" / "v152.0.4-beta.28"
         ids = [path.name.split("-", 1)[0] for path in sorted(base_dir.glob("*.patch"))]
@@ -221,12 +241,12 @@ class EngineRemediationPatchTests(unittest.TestCase):
         ]
         self.assertEqual(ids, FORMAL_ORDER)
         self.assertEqual(
-            sorted(path.name for path in FORMAL_DIR.glob("*.patch")), [P_0005]
+            sorted(path.name for path in FORMAL_DIR.glob("*.patch")),
+            [P_0005, P_0006],
         )
         self.assertNotIn("9000", ids)
-        self.assertNotIn(
-            "VERISILO-DIAGNOSTIC-MARKER", self.formal_patches[P_0005]
-        )
+        for text in self.formal_patches.values():
+            self.assertNotIn("VERISILO-DIAGNOSTIC-MARKER", text)
 
     # ---------------- 9000 ----------------
 
@@ -284,6 +304,8 @@ class EngineRemediationPatchTests(unittest.TestCase):
                          "19ccd59ce3f0601ebaf0fdf5b05e4a4c6192a03540d9cd962a8baf2999f91864")
         self.assertEqual(PINNED_SEAMS["toolkit-xre-nsAppRunner-post"],
                          "7847e88093beeff74aa8a7e89f5e5f1e3ea0d6b1f9dece21f97387940fbe8b94")
+        self.assertEqual(PINNED_SEAMS["toolkit-xre-nsAppRunner-post-0006"],
+                         "51252fbfa75731f63a5b5a3f1134a252b370c151aaaa1135a6df930ff9ba23b3")
         self.assertEqual(PINNED_SEAMS["GpcProjection-compile-repair-pre"],
                          "ab0b4c26e628a74d0ef4bac66d35bc6b0e9aee45cd67ad6bd5e5da91b609cf3f")
         self.assertEqual(PINNED_SEAMS["GpcProjection-compile-repair-post"],

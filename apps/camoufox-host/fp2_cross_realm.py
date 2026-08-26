@@ -205,6 +205,7 @@ if str(HOST_DIR) not in sys.path:
     sys.path.insert(0, str(HOST_DIR))
 
 import host_v1 as host_module
+import identity_policy as identity_policy_module
 
 
 class FP2Failure(RuntimeError):
@@ -532,6 +533,16 @@ def load_applicability(path: Path = APPLICABILITY_PATH) -> dict[str, Any]:
 
 def load_relation_matrix(path: Path = RELATION_PATH) -> dict[str, Any]:
     matrix = load_strict(path, "verisilo-camoufox-fp2-relations/v1")
+    require(
+        matrix.get("fieldClassifications")
+        == {
+            "navigator.doNotTrack": "native-observed",
+            "devicePixelRatio": "host-bound",
+            "navigator.globalPrivacyControl": "policy-conditional",
+        },
+        "relation_matrix_invalid",
+        "fieldClassifications",
+    )
     mapping = matrix.get("artifactDiffMapping")
     require(type(mapping) is dict and set(mapping) == set(EXPECTED_STATIC_DIFF), "relation_matrix_invalid", "artifact diff mapping")
     for key in EXPECTED_STATIC_DIFF:
@@ -578,16 +589,11 @@ def load_probe_manifest(path: Path = PROBE_MANIFEST_PATH) -> tuple[dict[str, Any
 
 
 def load_artifact(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    raw = path.read_bytes()
-    digest = sha256_bytes(raw)
-    sidecar_path = path.with_name(path.name + ".sha256")
-    require(sidecar_path.is_file(), "artifact_sidecar_missing", path.as_posix())
-    sidecar = sidecar_path.read_text(encoding="utf-8")
-    require(sidecar == f"{digest}  {path.name}\n", "artifact_sidecar_mismatch", path.as_posix())
-    artifact = strict_json_bytes(raw, path.as_posix())
-    require(type(artifact) is dict and type(artifact.get("resolvedConfig")) is dict, "artifact_invalid", path.as_posix())
-    require(len(artifact["resolvedConfig"]) == 47, "artifact_invalid", f"{path.name}: resolvedConfig key count")
-    return artifact, {"path": relative_repo_path(path), "size": len(raw), "sha256": digest}
+    try:
+        artifact, digest = identity_policy_module.verify_artifact_raw(path)
+    except identity_policy_module.ArtifactIntegrityError as exc:
+        fail("artifact_invalid", f"{path.as_posix()}: {exc}")
+    return artifact, {"path": relative_repo_path(path), "size": path.stat().st_size, "sha256": digest}
 
 
 def config_diff(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
@@ -739,6 +745,16 @@ def surface_status(ledger: dict[str, Any], realm: str, surface: str) -> str:
     return ledger["realms"][realm]["surfaceStatus"][surface]
 
 
+PRIVACY_CONFIG_KEYS = {
+    "doNotTrack": "navigator.doNotTrack",
+    "globalPrivacyControl": "navigator.globalPrivacyControl",
+}
+
+
+def _privacy_configured(config: dict[str, Any], field: str) -> bool:
+    return PRIVACY_CONFIG_KEYS[field] in config
+
+
 def surface_capability(result: dict[str, Any], surface: str) -> tuple[bool, str]:
     capabilities = result.get("capabilities") or {}
     capability = capabilities.get(surface)
@@ -857,7 +873,7 @@ def validate_header_coherence(label: str, realm: str, result: dict[str, Any], ar
     require(isinstance(headers, dict), "header_observation_missing", f"{label}.{realm}")
     identity = headers.get("identityHeaders")
     require(isinstance(identity, dict), "header_observation_missing", f"{label}.{realm}.identityHeaders")
-    for key in ("user-agent", "accept-language", "accept-encoding", "dnt", "sec-gpc"):
+    for key in ("user-agent", "accept-language", "accept-encoding"):
         require(key in identity, "header_observation_missing", f"{label}.{realm}.{key}")
     require(identity["user-agent"] == navigator_value.get("userAgent"), "header_js_mismatch", f"{label}.{realm}.User-Agent")
     language = str(navigator_value.get("language") or "")
@@ -868,11 +884,18 @@ def validate_header_coherence(label: str, realm: str, result: dict[str, Any], ar
     config = artifact["resolvedConfig"]
     require(identity["accept-encoding"] == config["headers.Accept-Encoding"], "accept_encoding_mismatch", f"{label}.{realm}")
     configured_dnt = config.get("navigator.doNotTrack")
-    if configured_dnt is not None:
+    if "navigator.doNotTrack" in config:
+        require("dnt" in identity, "header_observation_missing", f"{label}.{realm}.dnt")
         require(identity["dnt"] == str(configured_dnt), "dnt_mapping_mismatch", f"{label}.{realm}")
+    elif "dnt" in identity:
+        require(identity["dnt"] == str(navigator_value.get("doNotTrack")), "dnt_mapping_mismatch", f"{label}.{realm}")
     configured_gpc = config.get("navigator.globalPrivacyControl")
-    if configured_gpc is not None:
+    if "navigator.globalPrivacyControl" in config:
+        require("sec-gpc" in identity, "header_observation_missing", f"{label}.{realm}.sec-gpc")
         expected = "1" if configured_gpc is True else "0"
+        require(identity["sec-gpc"] == expected, "gpc_mapping_mismatch", f"{label}.{realm}")
+    elif "sec-gpc" in identity:
+        expected = "1" if navigator_value.get("globalPrivacyControl") is True else "0"
         require(identity["sec-gpc"] == expected, "gpc_mapping_mismatch", f"{label}.{realm}")
     policy = headers.get("requestPolicy")
     require(
@@ -891,6 +914,8 @@ def validate_realm_result(label: str, realm: str, result: dict[str, Any], artifa
     require(isinstance(result.get("locale"), dict), "realm_result_missing", f"{label}.{realm}.locale")
     for surface in ledger["surfaceOrder"]:
         if surface in {"registrationState", "storage"}:
+            continue
+        if surface == "privacySignals":
             continue
         status = surface_status(ledger, realm, surface)
         if status == "not-applicable":
@@ -921,15 +946,24 @@ def validate_realm_result(label: str, realm: str, result: dict[str, Any], artifa
     ):
         capability = privacy_capability.get(field) or {}
         signal = privacy.get(field) or {}
-        if privacy_status == "required":
+        configured = _privacy_configured(config, field)
+        strict_managed = configured and (
+            privacy_status == "required"
+            or (
+                artifact.get("schema") == "verisilo-camoufox-resolved-identity/v5"
+                and field == "globalPrivacyControl"
+                and config[config_key] is True
+            )
+        )
+        if strict_managed:
             require(capability.get("apiPresent") is True and signal.get("apiPresent") is True, "realm_capability_missing", f"{label}.{realm}.privacySignals.{field}")
-        if capability.get("apiPresent") is not True:
+        api_present = capability.get("apiPresent") is True or signal.get("apiPresent") is True
+        if not api_present:
             continue
         require(signal.get("apiPresent") is True, "conditional_surface_uncompared", f"{label}.{realm}.privacySignals.{field}")
         require(signal.get("value") == navigator_value.get(field), "privacy_signal_mismatch", f"{label}.{realm}.{field}")
-        configured = config.get(config_key)
-        if configured is not None:
-            require(navigator_value.get(field) == configured, mismatch_code, f"{label}.{realm}.navigator")
+        if configured:
+            require(navigator_value.get(field) == config[config_key], mismatch_code, f"{label}.{realm}.navigator")
     if kind == "window":
         screen_value = result.get("screen") or {}
         for field in ("width", "height", "availWidth", "availHeight", "availTop", "availLeft", "colorDepth", "pixelDepth"):
@@ -989,8 +1023,14 @@ def capability_shape(result: dict[str, Any], realm: str, ledger: dict[str, Any])
     return shape
 
 
-def identity_projection(result: dict[str, Any], realm: str, ledger: dict[str, Any]) -> dict[str, Any]:
+def identity_projection(
+    result: dict[str, Any],
+    realm: str,
+    ledger: dict[str, Any],
+    artifact: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     projection: dict[str, Any] = {}
+    config = artifact.get("resolvedConfig", {}) if isinstance(artifact, dict) else None
     for surface in ("navigator", "localeTimezone", "screenDpr", "canvas", "audio", "webgl", "webgl2", "fonts", "voices", "mediaDevices", "privacySignals", "maxTouchPoints", "httpHeaders", "workerCanvas"):
         status = surface_status(ledger, realm, surface)
         if status == "not-applicable":
@@ -1000,6 +1040,14 @@ def identity_projection(result: dict[str, Any], realm: str, ledger: dict[str, An
             continue
         value = surface_value(result, surface)
         if value is not None:
+            if surface == "privacySignals" and config is not None:
+                value = {
+                    field: value[field]
+                    for field, config_key in PRIVACY_CONFIG_KEYS.items()
+                    if config_key in config and field in value
+                }
+                if not value:
+                    continue
             if surface == "navigator":
                 # Navigator is a cross-realm hard-field surface. Privacy
                 # signals are tracked separately because Worker exposure is
@@ -1022,8 +1070,17 @@ def identity_projection(result: dict[str, Any], realm: str, ledger: dict[str, An
                 # and must not participate in cross-realm identity equality.
                 # Only the frozen identity header mapping and request policy
                 # are identity-comparable.
+                identity_headers = value.get("identityHeaders")
+                if isinstance(identity_headers, dict) and config is not None:
+                    identity_headers = {
+                        key: header_value
+                        for key, header_value in identity_headers.items()
+                        if key not in {"dnt", "sec-gpc"}
+                        or (key == "dnt" and "navigator.doNotTrack" in config)
+                        or (key == "sec-gpc" and "navigator.globalPrivacyControl" in config)
+                    }
                 value = {
-                    "identityHeaders": value.get("identityHeaders"),
+                    "identityHeaders": identity_headers,
                     "requestPolicy": value.get("requestPolicy"),
                 }
             projection[surface] = value
@@ -1048,12 +1105,21 @@ def compare_projection(label: str, left: dict[str, Any], right: dict[str, Any], 
         fail(code, f"{label}.{first}")
 
 
-def cross_realm_identity_projection(result: dict[str, Any], realm: str, other_realm: str, ledger: dict[str, Any]) -> dict[str, Any]:
-    projection = identity_projection(result, realm, ledger)
+def cross_realm_identity_projection(
+    result: dict[str, Any],
+    realm: str,
+    other_realm: str,
+    ledger: dict[str, Any],
+    artifact: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    projection = identity_projection(result, realm, ledger, artifact)
     privacy = projection.pop("privacySignals", None)
     privacy_capability = ((result.get("capabilities") or {}).get("privacySignals") or {})
+    config = artifact.get("resolvedConfig", {}) if isinstance(artifact, dict) else None
     if isinstance(privacy, dict):
-        for field in ("doNotTrack", "globalPrivacyControl"):
+        for field, config_key in PRIVACY_CONFIG_KEYS.items():
+            if config is not None and config_key not in config:
+                continue
             if (privacy_capability.get(field) or {}).get("apiPresent") is True:
                 projection[f"privacySignals.{field}"] = (privacy.get(field) or {}).get("value")
     if (realm in WINDOW_REALMS) == (other_realm in WINDOW_REALMS):
@@ -1091,8 +1157,8 @@ def validate_session_result(
         for second in CANONICAL_REALMS:
             if first >= second:
                 continue
-            left = cross_realm_identity_projection(realms[first], first, second, ledger)
-            right = cross_realm_identity_projection(realms[second], second, first, ledger)
+            left = cross_realm_identity_projection(realms[first], first, second, ledger, artifact)
+            right = cross_realm_identity_projection(realms[second], second, first, ledger, artifact)
             shared = {key for key in left if key in right}
             compare_projection(f"{label}:{first}:{second}", {key: left[key] for key in shared}, {key: right[key] for key in shared}, "cross_realm_identity_mismatch")
     labels = [capture.get("realm") for capture in captures]
@@ -1114,7 +1180,7 @@ def validate_session_result(
         "realmCount": len(realms),
         "realmOrder": list(CANONICAL_REALMS),
         "capabilityShape": shapes,
-        "identityProjection": {realm: identity_projection(realms[realm], realm, ledger) for realm in CANONICAL_REALMS},
+        "identityProjection": {realm: identity_projection(realms[realm], realm, ledger, artifact) for realm in CANONICAL_REALMS},
         "contextProjection": {realm: context_projection(realms[realm], realm, ledger) for realm in CANONICAL_REALMS},
         "serviceWorker": {
             "existedBefore": service_worker.get("existedBefore"),

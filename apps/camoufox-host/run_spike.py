@@ -99,11 +99,11 @@ EXPECTED_SELF_BUILT_ASSET_LOCK_SHA256 = (
 COOKIE_NAME = "verisilo_probe_cookie"
 CYCLES = 3
 SAMPLE_INTERVAL_SECONDS = 0.25
-# BrowserForge may add browser-visible candidate fields that Artifact v3 does
+# BrowserForge may add browser-visible candidate fields that fresh Artifacts do
 # not own.  This policy is deliberately closed: an unknown candidate field is
 # a projection failure, not another key to silently discard.  The pinned
 # engine's native value remains visible when the candidate value is omitted,
-# so maxTouchPoints is host-bound and Artifact control is unavailable.
+# so these fields are host-bound and Artifact control is unavailable.
 CANDIDATE_EXTRA_IDENTITY_FIELDS = {
     "navigator.maxTouchPoints": {
         "finalSource": (
@@ -114,11 +114,29 @@ CANDIDATE_EXTRA_IDENTITY_FIELDS = {
         "artifactControl": "unavailable",
         "acceptedCandidateType": "non-negative-int",
     },
+    "navigator.doNotTrack": {
+        "finalSource": (
+            "pinned Camoufox/Firefox native navigator value after the "
+            "BrowserForge candidate is omitted from final CAMOU_CONFIG"
+        ),
+        "status": "native/unavailable",
+        "artifactControl": "unavailable",
+        "acceptedCandidateType": "str:0|1|unspecified",
+    },
+    "navigator.globalPrivacyControl": {
+        "finalSource": (
+            "pinned Camoufox/Firefox native navigator value after the "
+            "BrowserForge candidate is omitted from final CAMOU_CONFIG"
+        ),
+        "status": "native/unavailable",
+        "artifactControl": "unavailable",
+        "acceptedCandidateType": "exact-bool",
+    },
 }
 
 
 class UnclassifiedCandidateIdentityFieldError(RuntimeError):
-    """A browser-visible candidate field is outside the frozen v3 policy."""
+    """A browser-visible candidate field is outside the closed policy."""
 
 
 def classify_candidate_extra_identity_fields(
@@ -152,9 +170,14 @@ def classify_candidate_identity_fields(
     result: dict[str, dict[str, str]] = {}
     for key in field_names:
         value = candidate_config[key]
-        if key == "navigator.maxTouchPoints" and (
-            type(value) is not int or value < 0
-        ):
+        valid = True
+        if key == "navigator.maxTouchPoints":
+            valid = type(value) is int and value >= 0
+        elif key == "navigator.doNotTrack":
+            valid = type(value) is str and value in ("0", "1", "unspecified")
+        elif key == "navigator.globalPrivacyControl":
+            valid = type(value) is bool
+        if not valid:
             raise UnclassifiedCandidateIdentityFieldError(
                 "candidate identity field has invalid type: " + key
             )
@@ -447,10 +470,10 @@ def normalize_camou_config_env(env: dict, disk_config: dict) -> tuple[dict, dict
     """Audit candidate-only fields and restore the exact Artifact config.
 
     Camoufox 0.5.4 can emit ``navigator.maxTouchPoints`` from its randomly
-    generated BrowserForge candidate.  Artifact v3 does not own that field.
-    The closed policy above classifies it as host-bound/unavailable before it
-    is removed.  Every other extra browser-visible key fails closed; no field
-    is silently promoted into the long-term identity.
+    generated BrowserForge candidate.  Fresh v5 Artifacts also omit native
+    DNT/GPC fields.  The closed policy above classifies these fields as
+    host-bound/unavailable before removal. Every other extra browser-visible
+    key fails closed; no field is silently promoted into the long-term identity.
     """
     chunks = sorted(
         (int(key.rsplit("_", 1)[1]), value)

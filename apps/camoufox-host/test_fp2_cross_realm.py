@@ -19,10 +19,41 @@ from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 import fp2_cross_realm as fp2
+import identity_policy
 
 
 def marker_hash(value: str) -> str:
     return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+def v5_artifact(source: dict, *, gpc_policy: str) -> dict:
+    artifact = copy.deepcopy(source)
+    artifact["schema"] = identity_policy.ARTIFACT_SCHEMA_V5
+    config = artifact["resolvedConfig"]
+    config.pop(identity_policy.DNT_CONFIG_KEY, None)
+    if gpc_policy == identity_policy.GPC_POLICY_NATIVE:
+        config.pop(identity_policy.GPC_CONFIG_KEY, None)
+    else:
+        config[identity_policy.GPC_CONFIG_KEY] = True
+    identity_policy.apply_voices_policy(config, identity_policy.VOICES_MODE_MANAGED)
+    source_policy = source["policy"]
+    artifact["policy"] = identity_policy.identity_policy(
+        target_os=source_policy["targetOs"],
+        font_mode=source_policy["fontMode"],
+        window=tuple(source_policy["window"]),
+        locale=source_policy["locale"],
+        ff_version=source_policy["ffVersion"],
+        timezone_mode=source_policy["timezoneMode"],
+        browser_binding=artifact["browserBinding"],
+        voices_mode=identity_policy.VOICES_MODE_MANAGED,
+        gpc_policy=gpc_policy,
+        schema_version=5,
+    )
+    artifact["stableSignalsDeclared"].pop("devicePixelRatio", None)
+    artifact["configuredIdentityDigest"] = identity_policy.configured_identity_digest(config)
+    artifact["canonicalDigest"] = identity_policy.compute_artifact_digest(artifact)
+    identity_policy.validate_artifact_strict(artifact)
+    return artifact
 
 
 class _OkContext:
@@ -60,21 +91,23 @@ class FP2NoBrowserTests(unittest.TestCase):
         config = artifact["resolvedConfig"]
         kind = self.ledger["realms"][realm]["kind"]
         languages = ["en-US", "en"]
+        dnt = config.get("navigator.doNotTrack", "1")
+        gpc = config.get("navigator.globalPrivacyControl", False)
         navigator = {
             "userAgent": config["navigator.userAgent"],
             "platform": config["navigator.platform"],
             "hardwareConcurrency": config["navigator.hardwareConcurrency"],
             "language": "en-US",
             "languages": languages,
-            "doNotTrack": config["navigator.doNotTrack"],
-            "globalPrivacyControl": config["navigator.globalPrivacyControl"],
+            "doNotTrack": dnt,
+            "globalPrivacyControl": gpc,
         }
         identity_headers = {
             "user-agent": config["navigator.userAgent"],
             "accept-language": "en-US,en",
             "accept-encoding": config["headers.Accept-Encoding"],
-            "dnt": str(config["navigator.doNotTrack"]),
-            "sec-gpc": "1" if config["navigator.globalPrivacyControl"] else "0",
+            "dnt": str(dnt),
+            "sec-gpc": "1" if gpc else "0",
         }
         request_headers = {
             "identityHeaders": identity_headers,
@@ -212,8 +245,10 @@ class FP2NoBrowserTests(unittest.TestCase):
             common["fonts"] = {"apiPresent": False, "unavailableReason": "test_not_applicable"}
         return common
 
-    def make_session(self, artifact: dict, artifact_info: dict, label: str, artifact_label: str, *, nonce: str = "test-nonce") -> dict:
+    def make_session(self, artifact: dict, artifact_info: dict, label: str, artifact_label: str, *, nonce: str = "test-nonce", dpr: float = 1) -> dict:
         realms = {realm: self.make_realm(artifact, realm, artifact_label=artifact_label) for realm in fp2.CANONICAL_REALMS}
+        for realm in fp2.WINDOW_REALMS:
+            realms[realm]["devicePixelRatio"] = dpr
         realms["service-worker"] = copy.deepcopy(realms["service-worker"])
         raw = {
             "realmOrder": list(fp2.CANONICAL_REALMS),
@@ -343,10 +378,43 @@ class FP2NoBrowserTests(unittest.TestCase):
         realm["requestHeaders"]["identityHeaders"]["sec-gpc"] = "0"
         self.assertCode("gpc_mapping_mismatch", fp2.validate_header_coherence, "A1", "top-window", realm, self.artifact_a)
 
+    def test_v5_native_privacy_observation_and_headers_are_unmanaged(self) -> None:
+        artifact = v5_artifact(self.artifact_a, gpc_policy=identity_policy.GPC_POLICY_NATIVE)
+        realm = self.make_realm(artifact, "top-window", artifact_label="A")
+        fp2.validate_realm_result("A1", "top-window", realm, artifact, self.ledger)
+        projection = fp2.identity_projection(realm, "top-window", self.ledger, artifact)
+        self.assertNotIn("privacySignals", projection)
+        self.assertNotIn("dnt", projection["httpHeaders"]["identityHeaders"])
+        self.assertNotIn("sec-gpc", projection["httpHeaders"]["identityHeaders"])
+        realm["requestHeaders"]["identityHeaders"]["dnt"] = "arbitrary"
+        self.assertCode("dnt_mapping_mismatch", fp2.validate_header_coherence, "A1", "top-window", realm, artifact)
+        realm = self.make_realm(artifact, "top-window", artifact_label="A")
+        realm["requestHeaders"]["identityHeaders"]["sec-gpc"] = "arbitrary"
+        self.assertCode("gpc_mapping_mismatch", fp2.validate_header_coherence, "A1", "top-window", realm, artifact)
+
+    def test_v5_managed_gpc_requires_realm_and_header_observations(self) -> None:
+        artifact = v5_artifact(self.artifact_a, gpc_policy=identity_policy.GPC_POLICY_MANAGED_OPT_OUT)
+        worker = self.make_realm(artifact, "dedicated-worker", artifact_label="A")
+        worker["capabilities"]["privacySignals"]["globalPrivacyControl"] = {"apiPresent": False}
+        worker["privacySignals"]["globalPrivacyControl"] = {"apiPresent": False, "value": None}
+        self.assertCode("realm_capability_missing", fp2.validate_realm_result, "A1", "dedicated-worker", worker, artifact, self.ledger)
+        realm = self.make_realm(artifact, "top-window", artifact_label="A")
+        realm["requestHeaders"]["identityHeaders"]["sec-gpc"] = "0"
+        self.assertCode("gpc_mapping_mismatch", fp2.validate_header_coherence, "A1", "top-window", realm, artifact)
+
     def test_window_device_pixel_ratio_must_match_artifact(self) -> None:
         realm = self.make_realm(self.artifact_a, "top-window", artifact_label="A")
         realm["devicePixelRatio"] = 1.5
         self.assertCode("device_pixel_ratio_mismatch", fp2.validate_realm_result, "A1", "top-window", realm, self.artifact_a, self.ledger)
+
+    def test_v5_host_bound_dpr_is_observed_and_same_artifact_drift_fails(self) -> None:
+        artifact = v5_artifact(self.artifact_a, gpc_policy=identity_policy.GPC_POLICY_NATIVE)
+        info = {"sha256": "v5-artifact"}
+        a1 = self.make_session(artifact, info, "A1", "A", dpr=1.5)
+        a2 = self.make_session(artifact, info, "A2", "A", dpr=1.5)
+        self.assertTrue(fp2.compare_session_pair("A1/A2", a1, a2)["identityStable"])
+        drifted = self.make_session(artifact, info, "A2", "A", dpr=1.25)
+        self.assertCode("a1_a2_identity_mismatch", fp2.compare_session_pair, "A1/A2", a1, drifted, True)
 
     def test_privacy_signal_value_must_match_navigator(self) -> None:
         realm = self.make_realm(self.artifact_a, "top-window", artifact_label="A")
@@ -919,8 +987,23 @@ async function capture(factory) {
         )
         self.assertEqual(
             fp2.sha256_file(fp2.RELATION_PATH),
-            "4741c0c443c4ac3032e634a3e4b7892820843c19b5b6574dbe2973dfb79e9342",
+            "c6a919f6a792bcf9781195d049f47960c68d1903c5ebc69f7cecfe837978e191",
         )
+
+    def test_load_artifact_accepts_strict_v5_without_legacy_key_count(self) -> None:
+        artifact = v5_artifact(self.artifact_a, gpc_policy=identity_policy.GPC_POLICY_NATIVE)
+        with tempfile.TemporaryDirectory(dir=fp2.ARTIFACT_DIR) as folder:
+            path = Path(folder) / "identity-v5.json"
+            raw = (json.dumps(artifact, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+            path.write_bytes(raw)
+            path.with_name(path.name + ".sha256").write_text(
+                f"{hashlib.sha256(raw).hexdigest()}  {path.name}\n",
+                encoding="ascii",
+            )
+            loaded, info = fp2.load_artifact(path)
+        self.assertEqual(loaded["schema"], identity_policy.ARTIFACT_SCHEMA_V5)
+        self.assertNotEqual(len(loaded["resolvedConfig"]), 47)
+        self.assertEqual(info["size"], len(raw))
 
     def test_service_worker_semantic_closure_bindings_validate(self) -> None:
         bindings = fp2.service_worker_semantic_closure_bindings()

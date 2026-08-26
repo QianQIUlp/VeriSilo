@@ -1,0 +1,22 @@
+--- a/toolkit/xre/nsAppRunner.cpp
++++ b/toolkit/xre/nsAppRunner.cpp
+@@ -5538,8 +5538,3 @@ nsresult XREMain::XRE_mainRun() {
+   NS_ASSERTION(mScopedXPCOM, "Scoped xpcom not initialized.");
+-
+-  // VeriSilo GPC policy-state projection (model B): parent-only, once,
+-  // managed-opt-out only; native writes nothing. Runs before any window
+-  // or network channel exists.
+-  camoucfg::ProjectGpcPolicyFromMaskConfig();
+-
++
+ #if defined(XP_WIN)
+@@ -5746,3 +5741,8 @@ nsresult XREMain::XRE_mainRun() {
+     mDirProvider.FinishInitializingUserPrefs();
+-
++
++    // VeriSilo GPC policy-state projection (model B): parent-only, once,
++    // managed-opt-out only; native writes nothing. Runs before any window
++    // or network channel exists.
++    camoucfg::ProjectGpcPolicyFromMaskConfig();
++
+     // Now that the profiler, directory services, and prefs have been

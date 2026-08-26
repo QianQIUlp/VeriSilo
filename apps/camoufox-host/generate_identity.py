@@ -35,6 +35,8 @@ import numpy as np
 
 from identity_policy import (
     ARTIFACT_SCHEMA,
+    GPC_POLICY_MANAGED_OPT_OUT,
+    GPC_POLICY_NATIVE,
     VOICES_MODE_MANAGED,
     VOICES_MODE_NATIVE,
     apply_voices_policy,
@@ -43,6 +45,7 @@ from identity_policy import (
     configured_identity_digest,
     diff_configs,
     identity_policy,
+    _canvas_policy_fields_for_browser_binding,
     read_bundle_metadata,
     sha256_hex,
     verify_artifact,
@@ -202,7 +205,9 @@ def browser_binding(lock: dict, executable: Path) -> dict:
     }
 
 
-def declared_stable_signals(config: dict, locale: str) -> dict:
+def declared_stable_signals(
+    config: dict, locale: str, *, include_device_pixel_ratio: bool = True
+) -> dict:
     language = (
         config.get("navigator.language")
         or f"{config['locale:language']}-{config['locale:region']}"
@@ -221,7 +226,6 @@ def declared_stable_signals(config: dict, locale: str) -> dict:
         "userAgent": config["navigator.userAgent"],
         "language": language or locale,
         "screen": screen,
-        "devicePixelRatio": 1,
         "hardwareConcurrency": config["navigator.hardwareConcurrency"],
         "canvasSeed": config["canvas:seed"],
         "audioSeed": config["audio:seed"],
@@ -230,6 +234,8 @@ def declared_stable_signals(config: dict, locale: str) -> dict:
         "webglRenderer": config["webGl:renderer"],
         "fonts": list(config["fonts"]),
     }
+    if include_device_pixel_ratio:
+        declared["devicePixelRatio"] = 1
     if "voices" in config:
         declared["voices"] = list(config["voices"])
     return declared
@@ -259,16 +265,12 @@ def rebind_identity_artifact(
     source_policy = source["policy"]
     artifact["artifactId"] = artifact_id
     artifact["browserBinding"] = copy.deepcopy(binding)
-    artifact["policy"] = identity_policy(
-        target_os=source_policy["targetOs"],
-        font_mode=source_policy["fontMode"],
-        window=tuple(source_policy["window"]),
-        locale=source_policy["locale"],
-        ff_version=source_policy["ffVersion"],
-        timezone_mode=source_policy["timezoneMode"],
-        browser_binding=binding,
-        voices_mode=source_policy.get("voicesMode"),
+    artifact["policy"] = copy.deepcopy(source_policy)
+    session_variable_fields, canvas_classification = (
+        _canvas_policy_fields_for_browser_binding(binding)
     )
+    artifact["policy"]["sessionVariableFields"] = session_variable_fields
+    artifact["policy"]["canvasClassification"] = canvas_classification
     if canvas_seed is not None:
         artifact["resolvedConfig"]["canvas:seed"] = canvas_seed
         artifact["stableSignalsDeclared"]["canvasSeed"] = canvas_seed
@@ -301,6 +303,11 @@ def main() -> int:
         "--voices-mode",
         default=VOICES_MODE_MANAGED,
         choices=(VOICES_MODE_MANAGED, VOICES_MODE_NATIVE),
+    )
+    parser.add_argument(
+        "--gpc-policy",
+        default=GPC_POLICY_MANAGED_OPT_OUT,
+        choices=(GPC_POLICY_NATIVE, GPC_POLICY_MANAGED_OPT_OUT),
     )
     parser.add_argument("--window", default="1280x800", help="Outer window size WxH")
     parser.add_argument("--locale", default="en-US")
@@ -341,6 +348,11 @@ def main() -> int:
     if DownloadGuard.tripped:
         raise SystemExit("unpinned download attempted during generation; aborting")
     apply_voices_policy(config, args.voices_mode)
+    config.pop("navigator.doNotTrack", None)
+    if args.gpc_policy == GPC_POLICY_MANAGED_OPT_OUT:
+        config["navigator.globalPrivacyControl"] = True
+    else:
+        config.pop("navigator.globalPrivacyControl", None)
 
     binding = browser_binding(lock, executable)
     policy = identity_policy(
@@ -352,6 +364,7 @@ def main() -> int:
         timezone_mode=TIMEZONE_MODE,
         browser_binding=binding,
         voices_mode=args.voices_mode,
+        gpc_policy=args.gpc_policy,
     )
     artifact = {
         "schema": ARTIFACT_SCHEMA,
@@ -359,7 +372,7 @@ def main() -> int:
         "policy": policy,
         "browserRelease": RELEASE,
         "browserBinding": binding,
-        "generatedBy": "VeriSilo generate_identity.py (Artifact v4)",
+        "generatedBy": "VeriSilo generate_identity.py (Artifact v5)",
         "generatedAtUtc": datetime.now(timezone.utc)
         .isoformat()
         .replace("+00:00", "Z"),
@@ -369,7 +382,9 @@ def main() -> int:
             "browserforge": dist_version("browserforge"),
         },
         "resolvedConfig": config,
-        "stableSignalsDeclared": declared_stable_signals(config, args.locale),
+        "stableSignalsDeclared": declared_stable_signals(
+            config, args.locale, include_device_pixel_ratio=False
+        ),
         "configuredIdentityDigest": configured_identity_digest(config),
         "exclusions": {
             "profilePath": "not recorded",

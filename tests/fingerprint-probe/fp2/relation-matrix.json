@@ -3,13 +3,17 @@
   "taskVersion": "fp2-v1",
   "windowFamily": ["top-window", "same-origin-iframe", "cross-origin-iframe"],
   "workerFamily": ["dedicated-worker", "shared-worker", "service-worker"],
+  "fieldClassifications": {
+    "navigator.doNotTrack": "native-observed",
+    "devicePixelRatio": "host-bound",
+    "navigator.globalPrivacyControl": "policy-conditional"
+  },
   "identityOwnedWindowFields": [
     "navigator.userAgent",
     "navigator.platform",
     "navigator.hardwareConcurrency",
     "navigator.language",
     "navigator.languages",
-    "navigator.doNotTrack",
     "navigator.globalPrivacyControl",
     "locale.timeZone",
     "locale.utcOffsetMinutes",
@@ -21,7 +25,6 @@
     "screen.availLeft",
     "screen.colorDepth",
     "screen.pixelDepth",
-    "devicePixelRatio",
     "canvas.rawHash",
     "canvas.rawRgbaHash",
     "canvas.decodedPngPixelsHash",

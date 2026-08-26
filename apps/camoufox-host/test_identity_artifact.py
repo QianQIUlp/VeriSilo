@@ -26,6 +26,7 @@ import host_v1
 import run_spike as run_spike_module
 from identity_policy import (
     ARTIFACT_SCHEMA,
+    ARTIFACT_SCHEMA_V4,
     ARTIFACT_SCHEMA_V3,
     CANVAS_CLASSIFICATION,
     DETERMINISTIC_CANVAS_BROWSER_BINDING,
@@ -33,10 +34,16 @@ from identity_policy import (
     DETERMINISTIC_CANVAS_POLICY_VARIANT,
     DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS,
     FORMAL_R1_CANVAS_BROWSER_BINDING,
+    GPC_POLICY_MANAGED_OPT_OUT,
+    GPC_POLICY_NATIVE,
+    GPC_CONFIG_KEY,
+    DNT_CONFIG_KEY,
     LEGACY_CANVAS_POLICY_VARIANT,
     OBSERVED_DIGEST_SCHEMA,
     SESSION_VARIABLE_SIGNAL_KEYS,
     STABLE_WEBSITE_SIGNAL_KEYS,
+    V5_STABLE_WEBSITE_SIGNAL_KEYS,
+    V5_NATIVE_STABLE_WEBSITE_SIGNAL_KEYS,
     VOICE_DERIVED_CONFIG,
     VOICES_MODE_MANAGED,
     VOICES_MODE_NATIVE,
@@ -122,7 +129,7 @@ def _camou_env(config: dict) -> dict[str, str]:
 
 
 def _assert_config_per_key(actual: dict, expected: dict) -> None:
-    assert len(expected) == 47
+    assert len(actual) == len(expected)
     assert set(actual) == set(expected)
     for key in sorted(expected):
         assert type(actual[key]) is type(expected[key]), key
@@ -613,7 +620,9 @@ def test_windows_media_device_policy_is_deterministic() -> None:
 
 def test_candidate_extra_identity_policy_is_closed_and_fail_closed() -> None:
     assert set(CANDIDATE_EXTRA_IDENTITY_FIELDS) == {
-        "navigator.maxTouchPoints"
+        "navigator.maxTouchPoints",
+        "navigator.doNotTrack",
+        "navigator.globalPrivacyControl",
     }
     rule = CANDIDATE_EXTRA_IDENTITY_FIELDS["navigator.maxTouchPoints"]
     assert rule["status"] == "host-bound"
@@ -633,6 +642,40 @@ def test_candidate_extra_identity_policy_is_closed_and_fail_closed() -> None:
     _assert_config_per_key(normalized, disk)
     _assert_config_per_key(_camou_config_from_env(rewritten), disk)
     assert diff == {"added": [], "removed": [], "changed": []}
+
+    v5_disk = copy.deepcopy(disk)
+    v5_disk.pop(DNT_CONFIG_KEY)
+    v5_disk.pop(GPC_CONFIG_KEY)
+    v5_candidate = copy.deepcopy(v5_disk)
+    v5_candidate[DNT_CONFIG_KEY] = "1"
+    v5_candidate[GPC_CONFIG_KEY] = True
+    audit = classify_candidate_extra_identity_fields(v5_candidate, v5_disk)
+    assert set(audit) == {DNT_CONFIG_KEY, GPC_CONFIG_KEY}
+    normalized, diff, rewritten = normalize_camou_config_env(
+        _camou_env(v5_candidate), v5_disk
+    )
+    _assert_config_per_key(normalized, v5_disk)
+    _assert_config_per_key(_camou_config_from_env(rewritten), v5_disk)
+    assert diff == {"added": [], "removed": [], "changed": []}
+
+    for invalid in (0, True, "2"):
+        candidate = copy.deepcopy(v5_disk)
+        candidate[DNT_CONFIG_KEY] = invalid
+        try:
+            normalize_camou_config_env(_camou_env(candidate), v5_disk)
+        except UnclassifiedCandidateIdentityFieldError:
+            pass
+        else:
+            raise AssertionError("invalid candidate DNT must fail closed")
+    for invalid in (0, 1, "true", None):
+        candidate = copy.deepcopy(v5_disk)
+        candidate[GPC_CONFIG_KEY] = invalid
+        try:
+            normalize_camou_config_env(_camou_env(candidate), v5_disk)
+        except UnclassifiedCandidateIdentityFieldError:
+            pass
+        else:
+            raise AssertionError("invalid candidate GPC must fail closed")
 
     unknown = copy.deepcopy(disk)
     unknown["window.innerWidth"] = 987654321
@@ -1565,6 +1608,29 @@ def _recompute_digests(artifact: dict) -> None:
 def _v4_voice_artifact(voices_mode: str) -> dict:
     artifact = copy.deepcopy(load_fixture("identity-win-a"))
     source_policy = artifact["policy"]
+    artifact["schema"] = ARTIFACT_SCHEMA_V4
+    artifact["policy"] = identity_policy(
+        target_os=source_policy["targetOs"],
+        font_mode=source_policy["fontMode"],
+        window=tuple(source_policy["window"]),
+        locale=source_policy["locale"],
+        ff_version=source_policy["ffVersion"],
+        timezone_mode=source_policy["timezoneMode"],
+        browser_binding=artifact["browserBinding"],
+        voices_mode=voices_mode,
+        schema_version=4,
+    )
+    apply_voices_policy(artifact["resolvedConfig"], voices_mode)
+    artifact["stableSignalsDeclared"] = declared_stable_signals(
+        artifact["resolvedConfig"], source_policy["locale"]
+    )
+    _recompute_digests(artifact)
+    return artifact
+
+
+def _v5_artifact(voices_mode: str, gpc_policy: str) -> dict:
+    artifact = copy.deepcopy(load_fixture("identity-win-a"))
+    source_policy = artifact["policy"]
     artifact["schema"] = ARTIFACT_SCHEMA
     artifact["policy"] = identity_policy(
         target_os=source_policy["targetOs"],
@@ -1575,13 +1641,79 @@ def _v4_voice_artifact(voices_mode: str) -> dict:
         timezone_mode=source_policy["timezoneMode"],
         browser_binding=artifact["browserBinding"],
         voices_mode=voices_mode,
+        gpc_policy=gpc_policy,
     )
     apply_voices_policy(artifact["resolvedConfig"], voices_mode)
+    artifact["resolvedConfig"].pop(DNT_CONFIG_KEY, None)
+    if gpc_policy == GPC_POLICY_MANAGED_OPT_OUT:
+        artifact["resolvedConfig"][GPC_CONFIG_KEY] = True
+    else:
+        artifact["resolvedConfig"].pop(GPC_CONFIG_KEY, None)
     artifact["stableSignalsDeclared"] = declared_stable_signals(
-        artifact["resolvedConfig"], source_policy["locale"]
+        artifact["resolvedConfig"], source_policy["locale"], include_device_pixel_ratio=False
     )
     _recompute_digests(artifact)
     return artifact
+
+
+def test_v5_gpc_dnt_dpr_policy_is_closed_and_ff_bound() -> None:
+    for voices_mode in (VOICES_MODE_MANAGED, VOICES_MODE_NATIVE):
+        for gpc_policy in (GPC_POLICY_MANAGED_OPT_OUT, GPC_POLICY_NATIVE):
+            artifact = _v5_artifact(voices_mode, gpc_policy)
+            validate_artifact_strict(artifact)
+            assert artifact["policy"]["version"] == 5
+            assert "doNotTrack" not in artifact["policy"]["stableWebsiteFields"]
+            assert "devicePixelRatio" not in artifact["policy"]["stableWebsiteFields"]
+            assert DNT_CONFIG_KEY not in artifact["resolvedConfig"]
+            assert DNT_CONFIG_KEY not in artifact["policy"]["requiredConfigKeys"]
+            assert "devicePixelRatio" not in artifact["stableSignalsDeclared"]
+            if gpc_policy == GPC_POLICY_MANAGED_OPT_OUT:
+                assert artifact["resolvedConfig"][GPC_CONFIG_KEY] is True
+                assert "globalPrivacyControl" in artifact["policy"]["stableWebsiteFields"]
+            else:
+                assert GPC_CONFIG_KEY not in artifact["resolvedConfig"]
+                assert "globalPrivacyControl" not in artifact["policy"]["stableWebsiteFields"]
+
+    for label, mutate in (
+        ("managed-false", lambda a: a["resolvedConfig"].__setitem__(GPC_CONFIG_KEY, False)),
+        ("managed-missing", lambda a: a["resolvedConfig"].pop(GPC_CONFIG_KEY)),
+        ("native-true", lambda a: a["resolvedConfig"].__setitem__(GPC_CONFIG_KEY, True)),
+        ("native-false", lambda a: a["resolvedConfig"].__setitem__(GPC_CONFIG_KEY, False)),
+        ("missing-policy", lambda a: a["policy"].pop("navigator.gpcPolicy")),
+        ("unknown-policy", lambda a: a["policy"].__setitem__("navigator.gpcPolicy", "bool")),
+    ):
+        artifact = _v5_artifact(
+            VOICES_MODE_NATIVE if label.startswith("native") else VOICES_MODE_MANAGED,
+            GPC_POLICY_NATIVE if label.startswith("native") else GPC_POLICY_MANAGED_OPT_OUT,
+        )
+        mutate(artifact)
+        _assert_strict_rejected(artifact, f"v5-{label}")
+
+    artifact = _v5_artifact(VOICES_MODE_MANAGED, GPC_POLICY_MANAGED_OPT_OUT)
+    artifact["resolvedConfig"][DNT_CONFIG_KEY] = "1"
+    _assert_strict_rejected(artifact, "v5-dnt-config")
+    artifact = _v5_artifact(VOICES_MODE_MANAGED, GPC_POLICY_MANAGED_OPT_OUT)
+    artifact["policy"]["stableWebsiteFields"].append("doNotTrack")
+    _assert_strict_rejected(artifact, "v5-dnt-stable")
+    artifact = _v5_artifact(VOICES_MODE_MANAGED, GPC_POLICY_MANAGED_OPT_OUT)
+    artifact["stableSignalsDeclared"]["devicePixelRatio"] = 1
+    _assert_strict_rejected(artifact, "v5-dpr-declared")
+
+    artifact = _v5_artifact(VOICES_MODE_MANAGED, GPC_POLICY_MANAGED_OPT_OUT)
+    artifact["policy"]["ffVersion"] = 134
+    artifact["resolvedConfig"]["navigator.userAgent"] = artifact["resolvedConfig"][
+        "navigator.userAgent"
+    ].replace("Firefox/152.0", "Firefox/134.0")
+    artifact["stableSignalsDeclared"]["userAgent"] = artifact["resolvedConfig"][
+        "navigator.userAgent"
+    ]
+    _assert_strict_rejected(artifact, "v5-ff-134")
+    try:
+        identity_policy(ff_version=134)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("v5 writer must reject FF < 135")
 
 
 def _assert_strict_rejected(artifact: dict, label: str) -> None:
@@ -1590,7 +1722,7 @@ def _assert_strict_rejected(artifact: dict, label: str) -> None:
         validate_artifact_strict(artifact)
     except ArtifactIntegrityError:
         return
-    raise AssertionError(f"strict validator accepted invalid v4 voices shape: {label}")
+    raise AssertionError(f"strict validator accepted invalid artifact shape: {label}")
 
 
 def test_v4_managed_voices_policy_is_deterministic_and_fail_closed() -> None:
