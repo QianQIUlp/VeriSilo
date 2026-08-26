@@ -45,7 +45,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Voices `0005` + Artifact v4 policy | **Static authoring closed**；仅为 Formal source candidate 输入，不是 runtime pass |
 | Formal source + Windows-target build/provenance | **Passed build closure**；`compiled-not-runtime-verified` |
 | Formal R1 runtime / FP1-R1 | **FP1-R1 Passed on this native Windows host**；`verified:false`，不是 Formal R1 pass |
-| FP2-R1 / FP3 | **FP2-R1 Inconclusive**；唯一 attempt 在 A1 downstream MediaDevices probe timeout，phase/cross-realm/replay 均不可裁决；FP3 未开放 |
+| FP2 / FP3 | **FP2 Active**；attempt 1 在 A1 downstream MediaDevices probe timeout，保留为 Inconclusive；FP3 未开放 |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -97,31 +97,31 @@ compiled/provenance evidence，仍不表示 Voices fixed、FP2-R1、Formal R1 �
 
 ## 当前下一任务
 
-### FP2-R1 recovery decision
+### FP2 Formal R1 capability qualification
 
 要回答的唯一问题：
 
-> 是否冻结一个新的 evidence generation，使 Voices phase evidence 在无关 downstream surface
-> 失败前独立落盘，同时不弱化完整 cross-realm/replay Gate；若是，是否授权新的 one-shot？
+> exact Formal R1 candidate 能否在本原生 Windows host 上完成 Voices phase、六 realm
+> identity、A1→A2 replay 与 A/B isolation 的完整 FP2 资格判定？
 
-唯一 FP2-R1 attempt `fp2-20260826T065125Z-4cb2847540` 已消费。exact candidate、A/B、runtime
+唯一已执行 attempt `fp2-20260826T065125Z-4cb2847540` 已消费。exact candidate、A/B、runtime
 preflight 与 private top-only phase bundle 均通过启动前锁定；A1 在 `collectWindowRealm` 的
 downstream `mediaSnapshot` 以 `media_devices_timeout` 失败，A2/B1 未进入。失败发生在普通
 voices stage 之后，但 `voicePhase` 只有在整个 `collectWindowRealm` 返回后才附加，因此没有
 提交可裁决的 phase 或 realm observation；成功 stage 标签也不能证明 voice inventory。
 
-run lifecycle clean，16 项 byte closure、report/adjudication sidecar 与 terminal process/port/lock
-已直接复算。结论仅为 **FP2-R1 Inconclusive**：没有证明 candidate Voices defect，也没有证明
-harness defect；不重试、不选样本。下一步会改变 evidence generation，并可能授权新浏览器
-attempt；当前只记录决策 Gate，不跨入执行。
+attempt 1 永久保留为 **Inconclusive**，但 FP2 继续。当前最小修复只有两个 seam：
+Voices phase 在 downstream failure 前独立写入 evidence；FP2 Host 在 authoritative realm
+matrix 前复用已有 bounded Windows MediaDevices readiness helper。不改 candidate、完整
+matrix 验收或 `mediaSnapshot` timeout。focused validation 后只执行一次清晰版本化的
+attempt 2，然后直接裁决 FP2；attempt 2 是 evidence lineage，不是新工程 Gate。
 
 ## 后续 Gate 顺序
 
 ```text
 Formal source lock + Windows build/provenance（已闭合）
 → FP1-R1 rebuilt-engine carry-forward（已闭合）
-→ FP2-R1 one-shot qualification（Inconclusive；attempt 已消费）
-→ FP2-R1 recovery decision（当前）
+→ FP2 Formal R1 capability qualification（当前；attempt 1 Inconclusive）
 → FP3
 ```
 

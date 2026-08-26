@@ -96,6 +96,10 @@ L0/L1 默认不写独立任务合同。L2/L3、多人交接或不可重复的一
 Gate 只用于阶段能力、L2/L3 执行或多人交接，不用于每个 commit。允许的结论是
 `passed`、`failed`、`blocked` 或 `inconclusive`，并严格限定到实际证据层。
 
+Immutable evidence attempt 与所属工程 Gate 分层管理：保留每次 `failed` 或
+`inconclusive` 结果，但不因此自动结束原 Gate 或创建 recovery Gate；在原授权和风险
+范围内关闭证据支持的因果 blocker，局部验证后再生成新 attempt，不重试未变输入或选样本。
+
 满足以下条件即停止：目标完成、关键路径已直接验证、没有证据支持的当前阻断，且继续检查
 的预期收益低于时间、token、复杂度或维护成本。不能因为还能想象更多检查就继续。
 

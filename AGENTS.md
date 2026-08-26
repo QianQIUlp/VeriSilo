@@ -35,6 +35,11 @@ checkpoint 不属于默认上下文；仅在调查对应事实时按状态页链
 这些保证的新任务。稳定且相关状态未变化时复用既有证据；只有矛盾、新失败或关键输入变化
 才扩大检查。详细分级见 Agent 协作协议。
 
+Immutable/one-shot 只约束已冻结的 attempt 及其 evidence。`failed` 或 `inconclusive`
+必须保留且不得重试未变输入或选样本，但它不自动结束所属工程 Gate，也不自动创建
+recovery Gate。在原授权和风险范围内，修复已确认或证据支持的因果 blocker，完成最低
+充分验证后再生成清晰版本化的新 attempt。
+
 ## 不可弱化的产品边界
 
 - Standard Silo 长期保留；近期优先关闭 Camoufox Managed Engine 的真实执行风险；

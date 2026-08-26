@@ -1599,6 +1599,7 @@ class FP2ManagedHost(host_module.CamoufoxHost):
         self.fp2_ledger = ledger
         self.fp2_expected_boot = expected_boot
         self.fp2_result: Optional[dict[str, Any]] = None
+        self.fp2_partial_result: Optional[dict[str, Any]] = None
         self.fp2_stages: list[dict[str, Any]] = []
         self.fp2_failure: Optional[dict[str, Any]] = None
         super().__init__(
@@ -1745,6 +1746,15 @@ class FP2ManagedHost(host_module.CamoufoxHost):
         await page.goto(top_url, wait_until="domcontentloaded", timeout=REALM_STAGE_DEADLINE_SECONDS * 1000)
         self._stage_finish("goto", stage, "success")
 
+        stage = self._stage_start("media_readiness")
+        try:
+            media_readiness = await host_module.wait_for_configured_media_devices(page, disk_config)
+        except (host_module.MediaDeviceReadinessTimeout, host_module.MediaDeviceReadinessError) as exc:
+            self._stage_finish("media_readiness", stage, "error")
+            raise host_module.ProtocolError("media_readiness_failed", exc.reason) from exc
+        session["mediaDeviceReadiness"] = media_readiness
+        self._stage_finish("media_readiness", stage, "success")
+
         fonts = artifact["resolvedConfig"]["fonts"]
         input_payload = {
             "fonts": fonts,
@@ -1762,6 +1772,11 @@ class FP2ManagedHost(host_module.CamoufoxHost):
             "window.__fp2Result !== undefined || window.__fp2Error !== undefined",
             timeout=REALM_STAGE_DEADLINE_SECONDS * 1000,
         )
+        partial_result = await page.evaluate(
+            "typeof window.__fp2GetPartialResult === 'function' ? window.__fp2GetPartialResult() : null"
+        )
+        require(partial_result is None or isinstance(partial_result, dict), "partial_result_invalid")
+        self.fp2_partial_result = partial_result
         probe_error = await page.evaluate("window.__fp2Error")
         if probe_error is not None:
             self._stage_finish("realm_matrix", stage, "error")
@@ -1922,7 +1937,11 @@ def child_result_summary(
         "probePort": None if launch is None else launch.get("probePort"),
         "bundleManifestSha256": None if host is None else host.fp2_bundle_manifest_sha256,
         "nonceSha256": None if host is None else safe_nonce_hash(host.fp2_nonce),
+        "mediaDeviceReadiness": None if session is None else session.get("mediaDeviceReadiness"),
         "rawResultPath": raw_result_path.name,
+        "voicePhasePath": raw_result_path.with_name("raw-voice-phase.json").name
+        if raw_result_path.with_name("raw-voice-phase.json").is_file()
+        else None,
         "stageTrace": [] if host is None else safe_stage_trace(host.fp2_stages),
         "lifecycle": teardown
         if close is None and teardown is not None
@@ -1944,9 +1963,19 @@ def child_result_summary(
     }
 
 
+def persist_voice_phase_evidence(host: Optional[FP2ManagedHost], voice_phase_path: Path) -> bool:
+    partial = None if host is None else host.fp2_partial_result
+    if not isinstance(partial, dict) or not isinstance(partial.get("voicePhase"), dict):
+        return False
+    require(not voice_phase_path.exists(), "voice_phase_already_exists", voice_phase_path.name)
+    write_json(voice_phase_path, {"voicePhase": partial["voicePhase"]})
+    return True
+
+
 async def run_child_session(args: argparse.Namespace) -> int:
     label = args.label
     raw_result_path = Path(args.raw_result).resolve()
+    voice_phase_path = raw_result_path.with_name("raw-voice-phase.json")
     child_result_path = Path(args.child_result).resolve()
     ledger = load_applicability(APPLICABILITY_PATH)
     host: Optional[FP2ManagedHost] = None
@@ -2006,6 +2035,7 @@ async def run_child_session(args: argparse.Namespace) -> int:
     except (Exception, SystemExit) as exc:  # noqa: BLE001 - child report is fail-closed
         failure = {"code": "child_session_failed", "detail": type(exc).__name__}
     finally:
+        persist_voice_phase_evidence(host, voice_phase_path)
         if host is not None and host.session is not None and host.session.get("state") in {"starting", "running", "closing"}:
             try:
                 await asyncio.wait_for(host.close(host.session["sessionId"]), timeout=SESSION_WATCHDOG_SECONDS)
@@ -2766,6 +2796,7 @@ def run_one_phase(
     state_root = runtime_state_root / label
     child_result_path = phase_dir / "child-result.json"
     raw_result_path = phase_dir / "raw-realms.json"
+    raw_voice_phase_path = phase_dir / "raw-voice-phase.json"
     stdout_path = phase_dir / "child-stdout.log"
     stderr_path = phase_dir / "child-stderr.log"
     nonce = secrets.token_urlsafe(24)
@@ -2815,6 +2846,7 @@ def run_one_phase(
         child["status"] = "failed"
         child["failure"] = child_timeout
     raw_result = strict_json(raw_result_path, f"{label}.raw-realms") if raw_result_path.is_file() else None
+    raw_voice_phase = strict_json(raw_voice_phase_path, f"{label}.raw-voice-phase") if raw_voice_phase_path.is_file() else None
     phase_failure: Optional[dict[str, Any]] = None
     validated: Optional[dict[str, Any]] = None
     comparison: Optional[dict[str, Any]] = None
@@ -2851,10 +2883,13 @@ def run_one_phase(
         lock_receipt = child.get("profileLease")
         require(isinstance(lock_receipt, dict) and lock_receipt.get("profileByteAvailable") is True and lock_receipt.get("supervisorByteAvailable") is True, "profile_lock_unavailable", label)
     sanitized_result_path = phase_dir / "realm-observations.json"
+    sanitized_voice_phase_path = phase_dir / "voice-phase.json"
     header_path = phase_dir / "request-header-captures.json"
     lifecycle_path = phase_dir / "lifecycle-receipt.json"
     if isinstance(raw_result, dict):
         write_json(sanitized_result_path, sanitize_browser_result(raw_result))
+    if isinstance(raw_voice_phase, dict):
+        write_json(sanitized_voice_phase_path, sanitize_browser_result(raw_voice_phase))
     write_json(header_path, captures)
     write_json(lifecycle_path, child)
     record: dict[str, Any] = {
@@ -2870,6 +2905,7 @@ def run_one_phase(
         "probePort": port,
         "nonceSha256": child.get("nonceSha256"),
         "bundleManifestSha256": child.get("bundleManifestSha256"),
+        "mediaDeviceReadiness": child.get("mediaDeviceReadiness"),
         "headerCaptureCount": len(captures),
         "lifecycle": child.get("lifecycle"),
         "validation": {
@@ -2883,6 +2919,8 @@ def run_one_phase(
             "childResult": phase_file_entry(child_result_path, run_dir, "raw-child-summary") if child_result_path.is_file() else None,
             "rawRealms": phase_file_entry(raw_result_path, run_dir, "raw-realm-observation") if raw_result_path.is_file() else None,
             "realmObservations": phase_file_entry(sanitized_result_path, run_dir, "sanitized-realm-observation") if sanitized_result_path.is_file() else None,
+            "rawVoicePhase": phase_file_entry(raw_voice_phase_path, run_dir, "raw-voice-phase") if raw_voice_phase_path.is_file() else None,
+            "voicePhase": phase_file_entry(sanitized_voice_phase_path, run_dir, "sanitized-voice-phase") if sanitized_voice_phase_path.is_file() else None,
             "requestHeaders": phase_file_entry(header_path, run_dir, "sanitized-header-capture"),
             "lifecycle": phase_file_entry(lifecycle_path, run_dir, "sanitized-lifecycle"),
             "childStdout": phase_file_entry(stdout_path, run_dir, "raw-child-protocol"),
@@ -2892,7 +2930,13 @@ def run_one_phase(
     }
     ensure_sanitized(record["files"], f"{label}.report.files")
     record["comparison"] = {"validated": phase_failure is None}
-    return {"record": record, "comparison": comparison, "rawResult": raw_result, "captures": captures}
+    return {
+        "record": record,
+        "comparison": comparison,
+        "rawResult": raw_result,
+        "rawVoicePhase": raw_voice_phase,
+        "captures": captures,
+    }
 
 
 def public_phase_file_entries(run_dir: Path) -> list[dict[str, Any]]:
@@ -2901,7 +2945,7 @@ def public_phase_file_entries(run_dir: Path) -> list[dict[str, Any]]:
         if path.name in {"run-report.json", "run-report.sha256", "final-offline-adjudication.json", "byte-closure-receipt.json", "byte-closure-receipt.sha256"}:
             continue
         rel = path.relative_to(run_dir).as_posix()
-        evidence_class = "sanitized" if path.name in {"realm-observations.json", "request-header-captures.json", "lifecycle-receipt.json", "no-browser-tests.json"} else "raw"
+        evidence_class = "sanitized" if path.name in {"realm-observations.json", "voice-phase.json", "request-header-captures.json", "lifecycle-receipt.json", "no-browser-tests.json"} else "raw"
         entries.append({"path": rel, "size": path.stat().st_size, "sha256": sha256_file(path), "evidenceClass": evidence_class})
     return entries
 

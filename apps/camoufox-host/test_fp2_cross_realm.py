@@ -522,6 +522,21 @@ class FP2NoBrowserTests(unittest.TestCase):
         self.assertEqual(summary["failure"]["operation"], "identityCanvas")
         self.assertEqual(summary["stageTrace"][-1]["status"], "error")
 
+    def test_voice_phase_is_persisted_independently_of_full_realm_result(self) -> None:
+        host = object.__new__(fp2.FP2ManagedHost)
+        host.fp2_partial_result = {"voicePhase": {"apiPresent": True}}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "raw-voice-phase.json"
+            self.assertTrue(fp2.persist_voice_phase_evidence(host, path))
+            self.assertEqual(fp2.strict_json(path), host.fp2_partial_result)
+
+    def test_media_readiness_precedes_authoritative_realm_matrix(self) -> None:
+        source = inspect.getsource(fp2.FP2ManagedHost._launch_browser)
+        self.assertLess(
+            source.index("wait_for_configured_media_devices"),
+            source.index('self._stage_start("realm_matrix")'),
+        )
+
     def test_protocol_error_mapping_does_not_require_detail_attribute(self) -> None:
         error = fp2.host_module.ProtocolError(
             "realm_probe_failed",
