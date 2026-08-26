@@ -1,0 +1,130 @@
+{
+  "schema": "verisilo-camoufox-fp2-r1-result/v1",
+  "status": "inconclusive",
+  "gate": "FP2-R1 fresh phase/cross-realm/replay qualification",
+  "generatedAtUtc": "2026-08-26T06:54:56.9918181Z",
+  "evidenceClass": "observed-on-this-native-windows-host",
+  "verified": false,
+  "formalCandidate": {
+    "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-formal-v1",
+    "sourceCommit": "6acae1eca3c8b5ff2126da2d0f63ef003173487f",
+    "sourceTree": "a5720e135d35fd1129a226c2856683963dc436ae",
+    "archiveSha256": "a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc",
+    "archiveSizeBytes": 493497411,
+    "executableSha256": "7f2e3f26b4c722cefea2d6304ac436406e2d18e7ac831a0f8cd8ae4cb80307c6",
+    "runtimeAssetLockSha256": "3a8cfb690d1aa1d77ba3956bdacb48a32e90981ef4f2ec2537c2c320e708dcc5",
+    "runtimeTreeManifestRawSha256": "bb15971961fbac71e72be665af2937604ab0d22c59ee29c6a61dba6bde1c0d5c",
+    "runtimeTreeManifestCanonicalSha256": "6622f25821d90415da5bcd9b53d8caac171440d44cdccaf8c23495098631cdde"
+  },
+  "artifacts": {
+    "A": {
+      "path": "artifacts/camoufox-fp1-r1/inputs/identity-fp1-r1-a.json",
+      "rawSha256": "c5a24cfa67c8d19aaacf8f1d0359d60422e2c1348c701794e607de6d2cb0b4d3"
+    },
+    "B": {
+      "path": "artifacts/camoufox-fp1-r1/inputs/identity-fp1-r1-b.json",
+      "rawSha256": "00b5ac31cf4dcfcc1fd9bd11f5acb3ecae8138ce3bf314f99246d6c0139380dc"
+    }
+  },
+  "execution": {
+    "runId": "fp2-20260826T065125Z-4cb2847540",
+    "nativeWindows": true,
+    "inputDesktopAccessible": true,
+    "sequenceRequested": [
+      "A1",
+      "A2",
+      "B1"
+    ],
+    "sequenceCompleted": [],
+    "attemptPolicy": "one-candidate-one-attempt-no-retry-no-sample-selection",
+    "probeBundleManifestSha256": "51cd6eb150bd81658235d323ae920ee486d93e16b0eb2b41551d1880fbc5d046",
+    "runtimePreflight": {
+      "status": "passed",
+      "receipt": {
+        "path": "artifacts/camoufox-fp2-r1/runs/fp2-runtime-preflight-20260826T065116Z-642814c7b8/runtime-preflight-receipt.json",
+        "sha256": "dff4920cc36ac9bea495deee37cf294e4063cbee5388cf26672097b6c96fd5f6",
+        "sizeBytes": 6398
+      },
+      "byteClosure": {
+        "path": "artifacts/camoufox-fp2-r1/runs/fp2-runtime-preflight-20260826T065116Z-642814c7b8/byte-closure-receipt.json",
+        "sha256": "db0cf5d4d3d44bd41d91ddd58301ed87a17f49e5e067e9a6f8653c207d136e7b",
+        "sizeBytes": 879
+      }
+    },
+    "claim": {
+      "path": "artifacts/camoufox-fp2-r1/attempts/fp2-r1-a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc.json",
+      "sha256": "3217284d0aa149efa72b277f7fe26536ce6d1624428577229321c8f8a7f54117",
+      "sizeBytes": 7097
+    },
+    "report": {
+      "path": "artifacts/camoufox-fp2-r1/runs/fp2-20260826T065125Z-4cb2847540/run-report.json",
+      "sha256": "19aa1a0d47a981cc3030dd31720f4da75d7c77823ab9dbd7d389cb4da252ef49",
+      "sizeBytes": 21770,
+      "sidecarSha256": "e024ec8bf1f7e96fcf9148dd0a8fd9d0620f612ab2c3ca96f8fd45049b94a860"
+    },
+    "offlineAdjudication": {
+      "path": "artifacts/camoufox-fp2-r1/runs/fp2-20260826T065125Z-4cb2847540/final-offline-adjudication.json",
+      "sha256": "4536e85ff722d29ea65056b82dff8ab7d492648e9bf19be5074e1da78f949f78",
+      "sizeBytes": 908
+    },
+    "byteClosure": {
+      "path": "artifacts/camoufox-fp2-r1/runs/fp2-20260826T065125Z-4cb2847540/byte-closure-receipt.json",
+      "sha256": "deda3bf879b81e2ca7af13bcbcadb15cf0259b5827270304fc78f484e045a5c5",
+      "sizeBytes": 2587,
+      "entryCount": 16,
+      "allEntriesRecomputed": true
+    }
+  },
+  "failure": {
+    "classification": "qualification-inconclusive-downstream-probe-timeout",
+    "code": "realm_probe_failed",
+    "realm": "top-window",
+    "stage": "media",
+    "operation": "mediaSnapshot",
+    "errorName": "Error",
+    "errorMessage": "media_devices_timeout",
+    "lastSuccessfulStage": "voices",
+    "probeCompleted": false,
+    "failedPhase": "A1",
+    "a2Entered": false,
+    "b1Entered": false
+  },
+  "adjudication": {
+    "rawRunnerStatus": "failed",
+    "fp2R1Accepted": false,
+    "voicePhaseAdjudicable": false,
+    "crossRealmAdjudicable": false,
+    "replayAdjudicable": false,
+    "candidateVoicesDefectEstablished": false,
+    "harnessDefectEstablished": false,
+    "reason": "A1 collectWindowRealm timed out in the downstream MediaDevices probe after the ordinary voices stage. The top-level probe attaches voicePhase only after collectWindowRealm returns, so no raw or sanitized realm observation containing the three-second phase trace was committed. A successful stage label does not prove the observed voice inventory."
+  },
+  "lifecycle": {
+    "pageClose": "success",
+    "contextClose": "success",
+    "forcedJobCleanup": "not_needed",
+    "exitStatus": 0,
+    "exitFileObserved": true,
+    "processTreeExited": true,
+    "jobActiveProcessCount": 0,
+    "terminalTargetProcessCount": 0,
+    "terminalProbePortBindFree": true,
+    "terminalSharedBrowserLockAcquirable": true
+  },
+  "claims": {
+    "windowsRuntimeObserved": true,
+    "fp2R1Passed": false,
+    "formalR1Passed": false,
+    "voicesFixed": false,
+    "runtimeVerified": false,
+    "crossHostReplay": false,
+    "fp3Entered": false,
+    "productReleased": false
+  },
+  "limitations": [
+    "The result is bounded to this native Windows host and the exact candidate/Artifact inputs above.",
+    "No phase, cross-realm, or replay verdict can be derived from the failed A1 probe.",
+    "The consumed attempt is not retried or sample-selected."
+  ],
+  "nextGate": "FP2-R1 recovery decision: freeze whether a new evidence generation may persist Voices phase evidence before unrelated downstream surfaces and authorize any new browser attempt"
+}

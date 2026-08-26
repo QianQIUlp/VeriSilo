@@ -1,7 +1,7 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**当前路由页**
-- 更新日期：2026-08-25
+- 更新日期：2026-08-26
 - 当前分支：`codex/camoufox-m3-engine-adapter`
 - Formal build 输入 checkpoint：`6acae1eca3c8b5ff2126da2d0f63ef003173487f`
 
@@ -45,7 +45,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Voices `0005` + Artifact v4 policy | **Static authoring closed**；仅为 Formal source candidate 输入，不是 runtime pass |
 | Formal source + Windows-target build/provenance | **Passed build closure**；`compiled-not-runtime-verified` |
 | Formal R1 runtime / FP1-R1 | **FP1-R1 Passed on this native Windows host**；`verified:false`，不是 Formal R1 pass |
-| FP2-R1 / FP3 | **未执行** |
+| FP2-R1 / FP3 | **FP2-R1 Inconclusive**；唯一 attempt 在 A1 downstream MediaDevices probe timeout，phase/cross-realm/replay 均不可裁决；FP3 未开放 |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -53,7 +53,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 - 当前 Artifact 的 `fontMode=inherit`；宿主字体可见，不声明字体隔离；
 - TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
 - 没有受信 signer、签名 Host package、installer 或 production runtime；
-- GPC/Voices 尚无 Formal R1 runtime 结果，desktop Managed Identity 尚未 shipped。
+- GPC/Voices 尚无可裁决的 Formal R1 runtime 结果，desktop Managed Identity 尚未 shipped。
 
 ## 已关闭的当前诊断结论
 
@@ -97,26 +97,31 @@ compiled/provenance evidence，仍不表示 Voices fixed、FP2-R1、Formal R1 �
 
 ## 当前下一任务
 
-### FP2-R1 fresh phase/cross-realm/replay qualification
+### FP2-R1 recovery decision
 
 要回答的唯一问题：
 
-> exact Formal R1 candidate 能否在一次 fresh 原生 Windows run 中关闭 Voices phase、
-> cross-realm consistency 与 replay qualification？
+> 是否冻结一个新的 evidence generation，使 Voices phase evidence 在无关 downstream surface
+> 失败前独立落盘，同时不弱化完整 cross-realm/replay Gate；若是，是否授权新的 one-shot？
 
-上一 Gate 已闭合：one-shot run `fp1-full-20260825T130612233176Z` 在这台原生 Windows
-interactive desktop 上，以 exact Formal archive 和冻结 A/B Artifact 执行 A1→A2→B1。直接
-report/claim、12 个引用原始文件与离线复算一致，支持 **FP1-R1 Passed on this native Windows
-host**；结果仍为 `verified:false`，不支持 cross-host replay、Voices fixed 或 Formal R1 pass。
+唯一 FP2-R1 attempt `fp2-20260826T065125Z-4cb2847540` 已消费。exact candidate、A/B、runtime
+preflight 与 private top-only phase bundle 均通过启动前锁定；A1 在 `collectWindowRealm` 的
+downstream `mediaSnapshot` 以 `media_devices_timeout` 失败，A2/B1 未进入。失败发生在普通
+voices stage 之后，但 `voicePhase` 只有在整个 `collectWindowRealm` 返回后才附加，因此没有
+提交可裁决的 phase 或 realm observation；成功 stage 标签也不能证明 voice inventory。
 
-下一 Gate 会启动浏览器并产生新的 runtime evidence；当前只记录目标，不在本轮跨入。
+run lifecycle clean，16 项 byte closure、report/adjudication sidecar 与 terminal process/port/lock
+已直接复算。结论仅为 **FP2-R1 Inconclusive**：没有证明 candidate Voices defect，也没有证明
+harness defect；不重试、不选样本。下一步会改变 evidence generation，并可能授权新浏览器
+attempt；当前只记录决策 Gate，不跨入执行。
 
 ## 后续 Gate 顺序
 
 ```text
 Formal source lock + Windows build/provenance（已闭合）
 → FP1-R1 rebuilt-engine carry-forward（已闭合）
-→ 一次 fresh FP2-R1 phase/cross-realm/replay qualification（当前）
+→ FP2-R1 one-shot qualification（Inconclusive；attempt 已消费）
+→ FP2-R1 recovery decision（当前）
 → FP3
 ```
 
@@ -136,6 +141,7 @@ Formal 路线，除非实际 build evidence 证明某个 owning recipe seam 必�
 | Formal R1 source/recipe lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-source.json`；SHA-256 `a614f58d32adf7e8c5e787478aa4fbbfd8d28caa97dd151571df8e3b2819455c`；frozen build input |
 | Formal Windows-target build result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-build-result.json`；run `r1formal-engine-20260825t060544z`；ZIP SHA-256 `a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc`；compiled only |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
+| FP2-R1 qualification result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；Inconclusive；report `19aa1a0d…`；claim `3217284d…`；this native Windows host only |
 | final Voices design checkpoint | `594d16700c7d8f5d169eaac6cf6fd62d5a12df49` |
 
 原始 machine evidence 保留在既有本地 `artifacts/`、source locks、results 和 Git 历史中；
