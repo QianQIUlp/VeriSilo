@@ -34,6 +34,7 @@ from identity_policy import (
     DETERMINISTIC_CANVAS_POLICY_VARIANT,
     DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS,
     FORMAL_R1_CANVAS_BROWSER_BINDING,
+    FORMAL_R1_V2_CANVAS_BROWSER_BINDING,
     GPC_POLICY_MANAGED_OPT_OUT,
     GPC_POLICY_NATIVE,
     GPC_CONFIG_KEY,
@@ -477,6 +478,19 @@ def test_canvas_policy_binding_selection_fails_closed() -> None:
         pass
     else:
         raise AssertionError("Formal R1 binding drift accepted")
+
+    assert (
+        canvas_policy_variant_for_browser_binding(FORMAL_R1_V2_CANVAS_BROWSER_BINDING)
+        == DETERMINISTIC_CANVAS_POLICY_VARIANT
+    )
+    formal_v2_drift = copy.deepcopy(FORMAL_R1_V2_CANVAS_BROWSER_BINDING)
+    formal_v2_drift["archiveSha256"] = "0" * 64
+    try:
+        canvas_policy_variant_for_browser_binding(formal_v2_drift)
+    except ArtifactIntegrityError:
+        pass
+    else:
+        raise AssertionError("Formal R1 v2 binding drift accepted")
 
     def assert_binding_rejected(binding: dict, label: str) -> None:
         artifact = copy.deepcopy(deterministic)
