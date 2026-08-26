@@ -29,6 +29,7 @@ P_0003A = "0003a-verisilo-gpc-preferences-namespace-compile-repair.patch"
 P_0004 = "0004-verisilo-remove-worker-gpc-mask-override.patch"
 P_0005 = "0005-verisilo-voices-final.patch"
 P_0006 = "0006-verisilo-gpc-projection-after-user-prefs.patch"
+P_0007 = "0007-verisilo-ff152-search-schema-repair.patch"
 P_9000 = "9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch"
 
 PINNED_PATCHES = {
@@ -40,8 +41,9 @@ PINNED_PATCHES = {
 PINNED_FORMAL_PATCHES = {
     P_0005: "998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec",
     P_0006: "bafc1e422049866bb2d053bc90bb8c70f01860cfa9d9f8c474277e1ff5c0ca7c",
+    P_0007: "3902cc7187362a306954eb7b18cedb06f74c454d26cc543c28c1fef069a054bb",
 }
-FORMAL_ORDER = ["0000", "0001", "0002", "0003", "0003a", "0004", "0005", "0006"]
+FORMAL_ORDER = ["0000", "0001", "0002", "0003", "0003a", "0004", "0005", "0006", "0007"]
 
 PINNED_SECTIONS = {
     "fpin-worker.patch": "87af0307e7476758ff88588da5031edbe65a7737bdfd3ab5dc23dbe40faf98b5",
@@ -228,6 +230,38 @@ class EngineRemediationPatchTests(unittest.TestCase):
         self.assertNotIn("Preferences::Set", text)
         self.assertEqual(text.count("@@"), 4)
 
+    def test_0007_only_removes_the_obsolete_search_schema(self) -> None:
+        text = self.formal_patches[P_0007]
+        target = "toolkit/components/search/SearchEngineSelector.sys.mjs"
+        self.assertEqual(
+            re.findall(r"^(?:---|\+\+\+) ([^\n]+)$", text, re.MULTILINE),
+            [f"a/{target}", f"b/{target}"],
+        )
+        self.assertEqual(plus_lines(text), [])
+        self.assertEqual(
+            minus_lines(text),
+            [
+                "-    if (true) {",
+                "-      return [",
+                "-        {",
+                '-          "appliesTo": [{',
+                '-            "default": "yes",',
+                '-            "included": {',
+                '-              "everywhere": true',
+                "-            },",
+                '-            "webExtension": {',
+                '-              "id": "none@mozilla.org"',
+                "-            }",
+                "-          }],",
+                "-        },",
+                "-      ];",
+                "-    }",
+            ],
+        )
+        self.assertIn("async #getConfiguration(firstTime = true)", text)
+        self.assertIn("let result = [];", text)
+        self.assertEqual(text.count("@@"), 2)
+
     def test_formal_series_is_exact_and_rejects_9000(self) -> None:
         base_dir = HOST_DIR / "patches" / "camoufox" / "v152.0.4-beta.28"
         ids = [path.name.split("-", 1)[0] for path in sorted(base_dir.glob("*.patch"))]
@@ -242,7 +276,7 @@ class EngineRemediationPatchTests(unittest.TestCase):
         self.assertEqual(ids, FORMAL_ORDER)
         self.assertEqual(
             sorted(path.name for path in FORMAL_DIR.glob("*.patch")),
-            [P_0005, P_0006],
+            [P_0005, P_0006, P_0007],
         )
         self.assertNotIn("9000", ids)
         for text in self.formal_patches.values():

@@ -3,7 +3,7 @@
 - 状态：**当前路由页**
 - 更新日期：2026-08-26
 - 当前分支：`codex/camoufox-m3-engine-adapter`
-- Formal build 输入 checkpoint：`6acae1eca3c8b5ff2126da2d0f63ef003173487f`
+- 当前 source candidate：Formal-v3（`0000 → … → 0007`）
 
 本文只保留当前事实、下一任务和关键证据索引。旧 checkpoint、失败 run、完整 hash 表与历史
 措辞由 Git、lock/result、evidence 和对应历史合同保存，不再永久追加到默认必读页。
@@ -43,9 +43,9 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | actual-9000 diagnostic run | 原 runner Failed，离线裁决 Inconclusive |
 | Voices phase-anchor | v1 Failed/no observation；唯一 v2 run 直接支持 A0→A1→A2 |
 | Voices `0005` + Artifact v4 policy | **Static authoring closed**；仅为 Formal source candidate 输入，不是 runtime pass |
-| Formal source + Windows-target build/provenance | **Passed build closure**；`compiled-not-runtime-verified` |
+| Formal source + Windows-target build/provenance | Formal-v2 **Passed build closure**，但其 native launch qualification 未形成 context；Formal-v3 static source candidate 已闭合、待 build |
 | Formal R1 runtime / FP1-R1 | **FP1-R1 Passed on this native Windows host**；`verified:false`，不是 Formal R1 pass |
-| FP2 / FP3 | **FP2 Active**；attempt 1 永久 Inconclusive；attempt 2 在完整 A1 observation 上 Failed，直接暴露 DNT/GPC/DPR 合同不一致；FP3 未开放 |
+| FP2 / FP3 | **FP2 Active**；既有 attempts 保持不可变；Artifact v5/GPC/DNT/DPR remediation 已静态闭合，当前只关闭 Formal-v3 build→native qualification；FP3 未开放 |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -53,8 +53,9 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 - 当前 Artifact 的 `fontMode=inherit`；宿主字体可见，不声明字体隔离；
 - TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
 - 没有受信 signer、签名 Host package、installer 或 production runtime；
-- GPC 已被 A1 runtime 直接判为不匹配；Voices 仅有 A1 bounded phase accepted，A2/B1 replay
-  尚未执行；desktop Managed Identity 尚未 shipped。
+- Artifact v5 与 GPC/DNT/DPR seam 仅有静态证据；Formal-v3 尚未 build 或 runtime observed；
+  Voices 只有既有 A1 bounded phase accepted，完整 A1→A2→B1 尚未通过；desktop Managed
+  Identity 尚未 shipped。
 
 ## 已关闭的当前诊断结论
 
@@ -82,61 +83,55 @@ SAPI 先同步注册/通知 native voices，随后才注入 managed voices。根
 
 ## 最近关闭的静态 Gate
 
-`0005-verisilo-voices-final.patch` 是单文件 constructor guard；Formal series 精确为
-`0000 → 0001 → 0002 → 0003 → 0003a → 0004 → 0005`，Formal 路径拒绝 9000。
+Formal-v3 只在冻结 Formal-v2 后追加单文件、纯删除的
+`0007-verisilo-ff152-search-schema-repair.patch`，移除 FF152 Rust selector 不接受的旧 Search
+schema injection，恢复 Firefox 既有 Remote Settings→packaged local dump 路径；不接管 Search
+schema/default-engine 语义。Formal series 精确为
+`0000 → 0001 → 0002 → 0003 → 0003a → 0004 → 0005 → 0006 → 0007`，拒绝 9000。
 
-- patch SHA-256：`998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec`；
-- `SpeechSynthesisParent.cpp` preimage：
-  `c6171e3689fab1789c459b924c7420786d2efed0caf2741747b910e0a3dcd61f`；
-- postimage：`c43447ff66ad5b03b21a9c76d0202c23a699904868a282f2d53e63e01227093e`；
-- fresh exact tree 已完成 `--fuzz=0` apply/reverse/apply；
-- Artifact v4 managed/native 闭合 schema、确定性派生与 pre-launch strict rejection 已实现；
-  历史 v3 Artifact 仍按 v3 schema 读取，不作为 v4 Formal 输入。
+- `0007` SHA-256：`3902cc7187362a306954eb7b18cedb06f74c454d26cc543c28c1fef069a054bb`；
+- Search seam pre/post：`ca843d9379f8cf4b5ed04e3da35fa7ace2cbbe6f2ec5a652afea09f8642ffff3`
+  / `e3d5351945fc5f4f0866c55021d969f358dc9c59ee405751a308b6ffd10430d9`；
+- fresh exact preimage 已完成 GNU patch `--fuzz=0` apply/reverse/apply；focused v3、remediation
+  与 frozen v2 tests 通过。
 
-该 authoring closure 只证明 source candidate/policy；后续 Windows-target build 只增加
-compiled/provenance evidence，仍不表示 Voices fixed、FP2-R1、Formal R1 或 runtime verified。
+这只关闭 source candidate authoring。Search source defect 已直接证明；它是否造成 launch hang 仍须
+由新 build 的 native Windows discriminator 判定。
 
 ## 当前下一任务
 
-### FP2 product remediation
+### FP2 Formal-v3 build + qualification
 
 要回答的唯一问题：
 
-> FF152 可控边界、Artifact policy 与 runtime 投影能否重新对齐，使 fresh candidate/Artifacts
-> 可以进入一次完整的 A1→A2→B1 FP2 资格判定？
+> 删除已证明 malformed 的旧 Search schema 后，fresh Formal-v3 是否能稳定返回默认 context，
+> 并继续完成一次 A1→A2→B1 FP2 资格判定？
 
-attempt 1 永久保留为 **Inconclusive**。其最小 remediation 已证明有效：attempt 2 的
-MediaDevices readiness 首次即得到 `1/1/0`，完整六 realm/六 header A1 observation 已形成，
-且 A1 top-window Voices 三秒 phase 为 `empty* → exact managed53*`、即时 replay 仍 exact53。
+Formal-v2 的 direct/supervised native Windows evidence 已证明 Juggler 启动，同时出现确定性的
+`missing field recordType` / no-engine Search 错误；context 未返回。但更早同一 Formal-v2 曾成功
+launch，因此 Search defect 是高价值候选 blocker，不是已证明的唯一 launch 根因。
 
-attempt 2 因完整 observation 与绑定 Artifact 冲突而永久判为 **Failed**，不是新的 recovery
-Gate：DNT 配置 `"1"` 而 Window 为 `"unspecified"`、六请求无 DNT；GPC 配置 `true` 而六
-realm 均为 `false`、六请求无 Sec-GPC；Artifact DPR 声明 `1` 而三个 Window 均为 `1.5`。
-后续离线审查同时关闭了会隐藏 Worker GPC、raw privacy value 与 DPR mismatch 的三个
-comparator 缺口，69 个 focused no-browser tests 通过。
+当前最短完整路径：
 
-当前最短完整修复只有三个 owning seam：
+1. 从已绑定 Formal-v3 source lock 在 ultratone 做一次 fresh Windows-target build；
+2. 在本机用既有 supervisor/deadline 做 launch discriminator：pipe handles valid、默认 context 在
+   60 秒内返回，stderr 不再出现旧 schema/no-engine 错误；
+3. discriminator 通过后，在同一 FP2 Gate 内直接完成 A1→A2→B1；若 Search 错误消失但仍 hang，
+   只根据新 evidence 继续定位，不扩大 timeout、retry 或另造 recovery Gate。
 
-1. 将唯一 GPC projection 从 profile prefs 初始化前移到 `FinishInitializingUserPrefs()` 后、
-   首个 window/network channel 前；不增加新 pref 或 fallback；
-2. 按已接受 FF>=135 合同生成 fresh versioned DNT-native Artifacts，并补齐
-   `gpcPolicy ∈ {native, managed-opt-out}` strict validation；历史 A/B 不重写，也不加 Gecko DNT patch；
-3. DPR 按既有 host-bound 边界从 managed stable 声明移出，除非先直接证明真实 engine control。
-
-完成 focused source/policy validation 后只 rebuild 一次，并把必要 carry-forward 与 fresh FP2
-attempt 作为本 Gate 内部工作连续完成；attempt 编号只属于 evidence lineage。
+attempt 编号只属于 immutable evidence lineage，不是工程 Gate。
 
 ## 后续 Gate 顺序
 
 ```text
-Formal source lock + Windows build/provenance（已闭合）
-→ FP1-R1 rebuilt-engine carry-forward（已闭合）
-→ FP2 product remediation + fresh qualification（当前；attempt 1 Inconclusive，attempt 2 Failed）
+Formal-v3 static source candidate（已闭合）
+→ fresh Windows build/provenance（当前）
+→ native launch discriminator + FP2 A1→A2→B1 qualification
 → FP3
 ```
 
-每一步只验证新增不确定性。历史 diagnostic builder、9000 和 ultratone scratch 流程不复制到
-Formal 路线，除非实际 build evidence 证明某个 owning recipe seam 必须复用。
+每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
+框架。
 
 ## 关键证据索引
 
@@ -148,8 +143,8 @@ Formal 路线，除非实际 build evidence 证明某个 owning recipe seam 必�
 | diagnostic ZIP | SHA-256 `241b656945260963ff66b4fcff8ded313bd1b45f066b000b726f950b08a8ae3d`; diagnostic only |
 | frozen 9000 | SHA-256 `1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8`; `formalCarryForward=never` |
 | Formal `0005` static candidate | patch SHA-256 `998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec`；parent pre/post `c6171e…` / `c43447…` |
-| Formal R1 source/recipe lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-source.json`；SHA-256 `a614f58d32adf7e8c5e787478aa4fbbfd8d28caa97dd151571df8e3b2819455c`；frozen build input |
-| Formal Windows-target build result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-build-result.json`；run `r1formal-engine-20260825t060544z`；ZIP SHA-256 `a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc`；compiled only |
+| Formal-v3 source/recipe lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json`；SHA-256 `a32cf21852909be6ed4a3a4b10dec9310533908996dd73e465535e262f61bc53`；static candidate，awaiting build |
+| 最近 Windows-target build result | Formal-v2 result lock SHA-256 `25f760c549096349310dbb587fab068a2adfac6eb8dbc7160f3072d16ea7fc5e`；ZIP SHA-256 `bea161d2e61a8cd4ac91f60b2247d419f48df0228919fac23d6d3fd94434ae00`；compiled only，已退出 runtime candidate |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | FP2 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 Failed；report `274cdf14…`；claim `4f3e376f…`；this native Windows host only |
