@@ -1,7 +1,7 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**当前路由页**
-- 更新日期：2026-08-26
+- 更新日期：2026-08-27
 - 当前分支：`codex/camoufox-m3-engine-adapter`
 - 当前 source candidate：Formal-v3（`0000 → … → 0007`）
 
@@ -43,9 +43,9 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | actual-9000 diagnostic run | 原 runner Failed，离线裁决 Inconclusive |
 | Voices phase-anchor | v1 Failed/no observation；唯一 v2 run 直接支持 A0→A1→A2 |
 | Voices `0005` + Artifact v4 policy | **Static authoring closed**；仅为 Formal source candidate 输入，不是 runtime pass |
-| Formal source + Windows-target build/provenance | Formal-v2 **Passed build closure**，但其 native launch qualification 未形成 context；Formal-v3 static source candidate 已闭合、待 build |
-| Formal R1 runtime / FP1-R1 | **FP1-R1 Passed on this native Windows host**；`verified:false`，不是 Formal R1 pass |
-| FP2 / FP3 | **FP2 Active**；既有 attempts 保持不可变；Artifact v5/GPC/DNT/DPR remediation 已静态闭合，当前只关闭 Formal-v3 build→native qualification；FP3 未开放 |
+| Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
+| Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
+| FP2 / FP3 | **FP2 Passed on this native Windows host**；Attempt 10 的 A1→A2→B1 aggregate result 已裁决；FP3 是下一 Gate，尚未进入 |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -53,9 +53,8 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 - 当前 Artifact 的 `fontMode=inherit`；宿主字体可见，不声明字体隔离；
 - TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
 - 没有受信 signer、签名 Host package、installer 或 production runtime；
-- Artifact v5 与 GPC/DNT/DPR seam 仅有静态证据；Formal-v3 尚未 build 或 runtime observed；
-  Voices 只有既有 A1 bounded phase accepted，完整 A1→A2→B1 尚未通过；desktop Managed
-  Identity 尚未 shipped。
+- Formal-v3 runtime observation 只覆盖本机绑定 candidate/Artifacts；Voices 只覆盖 A1、A2、B1
+  各自三秒 top-window trace，不是 exhaustive exclusion；desktop Managed Identity 尚未 shipped。
 
 ## 已关闭的当前诊断结论
 
@@ -100,48 +99,22 @@ schema/default-engine 语义。Formal series 精确为
 
 ## 当前下一任务
 
-### FP2 Formal-v3 native qualification
+### FP3 network identity / Geo / WebRTC
 
-要回答的唯一问题：
+FP2 已由 Formal-v3 Attempt 10 的完整 A1→A2→B1 evidence 关闭；Attempt 8、9 的 Failed 结果保持
+不可变，只作为 lineage，不再形成 recovery Gate。
 
-> 删除已证明 malformed 的旧 Search schema 后，fresh Formal-v3 是否能稳定返回默认 context，
-> 并继续完成一次 A1→A2→B1 FP2 资格判定？
-
-Formal-v2 的 direct/supervised native Windows evidence 已证明 Juggler 启动，同时出现确定性的
-`missing field recordType` / no-engine Search 错误；context 未返回。但更早同一 Formal-v2 曾成功
-launch，因此 Search defect 是高价值候选 blocker，不是已证明的唯一 launch 根因。
-
-Formal-v3 Attempt 8 已直接证明默认 context 返回，旧 Search 错误消失，MediaDevices readiness 与
-Voices phase 均通过；A1 随后因 validator 将 native DNT 的 absent header (`null`) 与 Firefox
-`navigator.doNotTrack="unspecified"` 强制字符串相等而 Failed。该 attempt 保持不可变；这是已定位的
-harness mapping defect，不是新的 recovery Gate。
-
-Attempt 9 的 A1、A2、B1 六 realm、headers、ServiceWorker、MediaDevices、Voices 与 lifecycle 均
-逐 phase 通过，最终仅在 post-sequence storage comparator Failed：probe 写入 session cookie 却要求
-重启后存在，并错误要求两个隔离 profile 写入的同一 sentinel hash 不同。A2 boot、LocalStorage 与
-ServiceWorker 延续、B1 freshness 已直接观察。冻结 evidence 的完整离线比较还确认 full-B Worker
-Canvas raw family 随已声明 font/spacing 输入变化，不应进入 A/B common projection；relation/comparator
-修正后全量离线比较通过。Attempt 9 仍不构成 FP2 Passed，fresh runtime 只剩 persistent-cookie evidence。
-
-当前最短完整路径：
-
-1. Formal-v3 fresh Windows-target build 已完成并绑定为 compiled-only candidate：ZIP
-   `032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5`；
-2. Attempt 8 已通过 launch discriminator；native DNT 映射按既有 Artifact v5 contract 做最小修复，
-   focused frozen-evidence replay 已通过；
-3. storage probe 改用 bounded persistent cookie；storage/Canvas relation focused regression 与冻结
-   evidence 全量离线比较已通过；用新 attempt 关闭同一 A1→A2→B1 Gate，不扩大 timeout、retry 或
-   另造 recovery Gate。
-
-attempt 编号只属于 immutable evidence lineage，不是工程 Gate。
+下一项最高价值问题是：Network Policy、Geo 与 WebRTC 的 configured/applied/observed 边界能否在不
+吞并 Profile、Artifact 或 Engine 生命周期的前提下形成可判定的 FP3 输入。FP3 涉及新的产品语义和
+原生 runtime Gate，本轮只记录目标，不进入实现、启动或证据生成。
 
 ## 后续 Gate 顺序
 
 ```text
 Formal-v3 static source candidate（已闭合）
-→ fresh Windows build/provenance（已闭合，compiled only）
-→ native launch discriminator + FP2 A1→A2→B1 qualification（当前）
-→ FP3
+→ fresh Windows build/provenance（已闭合）
+→ native launch discriminator + FP2 A1→A2→B1 qualification（已闭合）
+→ FP3 network identity / Geo / WebRTC（下一 Gate，未进入）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
@@ -158,12 +131,14 @@ Formal-v3 static source candidate（已闭合）
 | frozen 9000 | SHA-256 `1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8`; `formalCarryForward=never` |
 | Formal `0005` static candidate | patch SHA-256 `998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec`；parent pre/post `c6171e…` / `c43447…` |
 | Formal-v3 source/recipe lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json`；SHA-256 `a32cf21852909be6ed4a3a4b10dec9310533908996dd73e465535e262f61bc53`；static candidate |
-| 最近 Windows-target build result | Formal-v3 result lock SHA-256 `4eeffbf1dc505c743871a90510f81854243f48fc9abffc4fd1459079cab3b631`；ZIP SHA-256 `032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5`；compiled only，等待 native qualification |
+| 最近 Windows-target build result | Formal-v3 result lock SHA-256 `4eeffbf1dc505c743871a90510f81854243f48fc9abffc4fd1459079cab3b631`；ZIP SHA-256 `032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5`；已绑定到 FP2 runtime evidence |
 | FP2 Attempt 8 | run `fp2-20260827T082048Z-9a7821e264`；report SHA-256 `86f0ae525925809757456c11fec33b5c7a20a4d6fa00d686bda903f75ca1cc53`；immutable Failed at native-DNT harness mapping；launch/Search/MediaDevices/Voices discriminator passed |
 | FP2 Attempt 9 | run `fp2-20260827T084257Z-c9d6dcc498`；report SHA-256 `590e90cb20a7c9a1341fb36a03c9a04bf7a0c36b034717fadd830d952d4339a3`；A1/A2/B1 phases passed，immutable Failed at post-sequence storage harness semantics |
+| FP2 Attempt 10 | run `fp2-20260827T090954Z-7a85050695`；report SHA-256 `d14bf5f2881ce1c48ec49cf0ba1184b940d61013a462f56218fb1569d873455b`；A1/A2/B1 execution passed，runner 保持 awaiting-main-brain 边界 |
+| FP2 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp2-result.json`；SHA-256 `caa5ed4005c3e9c392c76a5d264d3d7d4d30cb741ac675fd27803c7f5fa06fa6`；**Passed on this native Windows host**；`verified:false` |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
-| FP2 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 Failed；report `274cdf14…`；claim `4f3e376f…`；this native Windows host only |
+| retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |
 | final Voices design checkpoint | `594d16700c7d8f5d169eaac6cf6fd62d5a12df49` |
 
 原始 machine evidence 保留在既有本地 `artifacts/`、source locks、results 和 Git 历史中；

@@ -1,0 +1,212 @@
+{
+  "schema": "verisilo-camoufox-fp2-result/v1",
+  "status": "passed",
+  "gate": "FP2 Formal R1 capability qualification",
+  "generatedAtUtc": "2026-08-27T09:14:40.1478456Z",
+  "evidenceClass": "observed-on-this-native-windows-host-plus-main-brain-adjudication",
+  "verified": false,
+  "formalCandidate": {
+    "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-formal-v3",
+    "sourceCommit": "42012eeec617169a9dc6729f8634f8150e5cf3fa",
+    "sourceTree": "edb72f820d3b854787ac6d997114e8aa377606c9",
+    "sourceLock": {
+      "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json",
+      "sha256": "a32cf21852909be6ed4a3a4b10dec9310533908996dd73e465535e262f61bc53",
+      "sizeBytes": 32864
+    },
+    "buildResult": {
+      "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-build-result.json",
+      "sha256": "4eeffbf1dc505c743871a90510f81854243f48fc9abffc4fd1459079cab3b631",
+      "sizeBytes": 5068
+    },
+    "archive": {
+      "sha256": "032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5",
+      "sizeBytes": 493493005
+    },
+    "executable": {
+      "sha256": "b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f142a6",
+      "sizeBytes": 818176
+    },
+    "runtimeAssetLock": {
+      "path": "artifacts/camoufox-fp2-formal-r1-attempt-8/formal-v3-runtime-asset-lock.json",
+      "sha256": "81e73a69347272d0b770bfa3c9b3eb07449bb165efb0c16948eece2e5a0678ce"
+    },
+    "runtimeTree": {
+      "path": "artifacts/camoufox-fp2-formal-r1-attempt-8/formal-v3-browser-tree-manifest.json",
+      "rawSha256": "8434ab9925bf0f7d95cc4ff06fe94b7dcf9963a0691f37638469d68cda58ace2",
+      "canonicalSha256": "68d78d0f414d90545691560858b46ed179ee163b7258306c44f0d850bcde6204",
+      "fileCount": 503,
+      "totalBytes": 982405560
+    }
+  },
+  "artifacts": {
+    "A": {
+      "id": "identity-fp2-formal-v3-a",
+      "path": "artifacts/camoufox-fp2-formal-r1-attempt-8/identity-fp2-formal-v3-a.json",
+      "sha256": "0b77fd017aceefce48e8d21a567a3a233671f6b3555461e4386e7f721b036080",
+      "sizeBytes": 45805,
+      "configuredIdentityDigest": "sha256:e5b30490ddf2290adcabfbe2bedc0770bc36fef686bd9f51b6b5219e0924c24f"
+    },
+    "B": {
+      "id": "identity-fp2-formal-v3-b",
+      "path": "artifacts/camoufox-fp2-formal-r1-attempt-8/identity-fp2-formal-v3-b.json",
+      "sha256": "686b5dde7168ab87f7bef4588cb55fce64fc4726fae9b5335f9c35a3b7df481e",
+      "sizeBytes": 46271,
+      "configuredIdentityDigest": "sha256:9583a832ec17e441374282431671e201440374a0533121ac9d53a6bee78378f8"
+    }
+  },
+  "qualificationInputs": {
+    "probeBundleManifestSha256": "cc413909dc8ec8187d19e6d3b6a3ec7874d4331595a8db169df4a0421a15799a",
+    "applicabilityLedgerSha256": "f6d51d4e3234fec9677e65c996933131519c96fa4c739890bc67a249cca2ef63",
+    "relationMatrixSha256": "95936ce9253a3cc4dc547eafbcb6bb514a2129fed5a43a0fd04a8cea9dc86231",
+    "staticAbDiffSha256": "1810728dbfeafee9aa840710beafae8dc92c2d801066af4d23c378f8b9d2fa49"
+  },
+  "attemptLineage": {
+    "previousAggregate": {
+      "status": "failed",
+      "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json",
+      "sha256": "540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db"
+    },
+    "terminalAttempt": {
+      "attempt": 10,
+      "runnerStatus": "execution-passed-awaiting-main-brain-gate",
+      "runId": "fp2-20260827T090954Z-7a85050695",
+      "policy": "one-evidence-attempt-no-retry-no-sample-selection",
+      "gitHead": "6f3d662087b6b76f593aecac6930c8eb7d973b78",
+      "gitTree": "52f91901dded12b847d7d5e78ee4c4d51287d8cb",
+      "nativeWindows": true,
+      "inputDesktopAccessible": true,
+      "sequenceRequested": [
+        "A1",
+        "A2",
+        "B1"
+      ],
+      "sequenceCompleted": [
+        "A1",
+        "A2",
+        "B1"
+      ],
+      "runner": {
+        "path": "artifacts/camoufox-fp2-formal-r1-attempt-10/run_fp2_formal_v3_windows.py",
+        "sha256": "39cb0261fbda0989481335697d418f4aaea49600e0dd3c250d0a5468d7e41e45",
+        "sizeBytes": 7920
+      },
+      "claim": {
+        "path": "artifacts/camoufox-fp2-formal-r1-attempt-10/attempts/fp2-attempt-10-032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5.json",
+        "sha256": "cfb1f19ac9c4414aaa33fb61ae673a17a236dd787815191d78d9689dc5a8a0de",
+        "sizeBytes": 14246
+      },
+      "report": {
+        "path": "artifacts/camoufox-fp2-formal-r1-attempt-10/runs/fp2-20260827T090954Z-7a85050695/run-report.json",
+        "sha256": "d14bf5f2881ce1c48ec49cf0ba1184b940d61013a462f56218fb1569d873455b",
+        "sizeBytes": 64198,
+        "sidecarMatches": true
+      },
+      "offlineAdjudication": {
+        "path": "artifacts/camoufox-fp2-formal-r1-attempt-10/runs/fp2-20260827T090954Z-7a85050695/final-offline-adjudication.json",
+        "sha256": "cf3d73e039da63e5705e4938668dbcc87ebdb3032038b1b33e0153408c548c25",
+        "sizeBytes": 574,
+        "sidecarMatches": true
+      },
+      "byteClosure": {
+        "path": "artifacts/camoufox-fp2-formal-r1-attempt-10/runs/fp2-20260827T090954Z-7a85050695/byte-closure-receipt.json",
+        "sha256": "0d2a2b596b93f3c795e07865cf94fb11f6e4ab26bafe5d7d2f964ba5189c5248",
+        "sizeBytes": 6042,
+        "entryCount": 38,
+        "allEntriesRecomputed": true,
+        "sidecarMatches": true
+      }
+    }
+  },
+  "directRuntimeObservations": {
+    "phases": {
+      "labels": [
+        "A1",
+        "A2",
+        "B1"
+      ],
+      "status": "passed",
+      "requiredRealmsPerPhase": 6,
+      "headerCapturesPerPhase": 6,
+      "crossRealmIdentity": true,
+      "headerCoherence": true,
+      "serviceWorker": true,
+      "mediaDevicesReadiness": true,
+      "voicePublicationPhase": true
+    },
+    "bootCounters": {
+      "A1": [0, 1],
+      "A2": [1, 2],
+      "B1": [0, 1]
+    },
+    "comparisons": {
+      "sameArtifactReplay": {
+        "capabilityShapeStable": true,
+        "identityStable": true
+      },
+      "artifactContrast": {
+        "expectedDifferenceCount": 13,
+        "expectedDifferencesChecked": true,
+        "commonFieldsStable": true
+      },
+      "storage": {
+        "bootAndContinuity": true,
+        "profileIsolation": true
+      },
+      "serviceWorker": {
+        "registrationReplay": true,
+        "profileIsolation": true
+      }
+    },
+    "voicePublicationPhase": {
+      "expectedInventorySha256": "sha256:75850fd3a0a1cee2d877270ced4f59bc16eeee515433a64ffdfb3635c3860017",
+      "traceWindowMs": 3000,
+      "trajectory": "empty* -> exact*",
+      "acceptedPhases": [
+        "A1",
+        "A2",
+        "B1"
+      ],
+      "firstTrustedTargetEventAtMs": {
+        "A1": 16,
+        "A2": 14,
+        "B1": 19
+      },
+      "sameSpeechSynthesisObject": true,
+      "immediateReplayExact": true,
+      "allNonemptyObservationsExact": true,
+      "boundedNoForbiddenInventoryObserved": true,
+      "evidenceBoundary": "each top-window three-second trace"
+    },
+    "lifecycle": {
+      "allExitStatusZero": true,
+      "allProcessTreesExited": true,
+      "allJobActiveProcessCountsZero": true,
+      "allCloseOutcomes": "success",
+      "forcedJobCleanup": "not_needed"
+    }
+  },
+  "mainBrainAdjudication": {
+    "fp2Accepted": true,
+    "formalR1Accepted": true,
+    "reason": "The exact Formal-v3 candidate and bound A/B Artifacts completed A1, A2, and B1; all per-phase validation, same-Artifact replay, declared A/B contrast, profile continuity/isolation, ServiceWorker replay/isolation, and clean lifecycle checks passed.",
+    "runnerBoundary": "The immutable runner intentionally stopped at execution-passed-awaiting-main-brain-gate; this aggregate result records the separate product Gate adjudication."
+  },
+  "claims": {
+    "windowsRuntimeObserved": true,
+    "fp2Passed": true,
+    "formalR1Passed": true,
+    "voicesPhaseQualifiedOnThisHost": true,
+    "voicesFixed": false,
+    "runtimeVerified": false,
+    "crossHostReplay": false,
+    "fp3Entered": false,
+    "productReleased": false
+  },
+  "limitations": [
+    "This result is bounded to this native Windows host and the exact candidate and Artifact inputs above.",
+    "Voices evidence is bounded to one three-second top-window trace in each of A1, A2, and B1; it is not exhaustive exclusion or a claim that Voices is universally fixed.",
+    "Cross-host replay, runtime verified status, FP3, packaging, signing, shipping, and product release are not claimed."
+  ],
+  "nextGate": "FP3 network identity / Geo / WebRTC"
+}
