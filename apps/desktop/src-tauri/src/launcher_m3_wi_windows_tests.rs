@@ -1045,7 +1045,7 @@ fn fp3_1b_native_windows_required_fixed_proxy_discriminator() {
 
 fn run_fp3_1b(evidence_path: &Path, failure_context: &Mutex<Option<FP3FailureContext>>) {
     let run_dir = evidence_path.parent().expect("FP3 evidence parent");
-    let root = run_dir.join("runtime/app");
+    let root = run_dir.join("runtime").join("app");
     assert!(!root.exists(), "FP3 runtime root already exists");
     let artifact_root = root.join("camoufox/artifacts");
     fs::create_dir_all(&artifact_root).expect("create FP3 Artifact root");
