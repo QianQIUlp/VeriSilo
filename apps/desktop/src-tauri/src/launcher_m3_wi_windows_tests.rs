@@ -7,13 +7,16 @@
 
 use std::{
     collections::BTreeSet,
-    env, fs,
-    net::TcpListener,
+    env,
+    fs::{self, OpenOptions},
+    io::Write,
+    net::{SocketAddr, TcpListener, TcpStream},
+    panic::{catch_unwind, resume_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     thread,
     time::{Duration, Instant},
@@ -38,8 +41,8 @@ use crate::{
         EngineDescriptor, EngineError, EngineHealth, EngineLaunchPlan, EngineLaunchRequest,
         EngineMaintenanceReceipt, EngineNegotiation, EnginePackageRequest, EngineTransport,
         IdentityDerivationContext, IdentityTemplate, IdentityTokenDeriver, SiloEngineConfig,
-        SiteFallbackRule, CAMOUFOX_ARTIFACT_SCHEMA, CAMOUFOX_HOST_PROTOCOL,
-        ENGINE_CONTRACT_VERSION,
+        SiteFallbackRule, CAMOUFOX_ARTIFACT_SCHEMA, CAMOUFOX_ARTIFACT_SCHEMA_V6,
+        CAMOUFOX_HOST_PROTOCOL, ENGINE_CONTRACT_VERSION,
     },
     vault::ProxyAuthentication,
 };
@@ -64,6 +67,8 @@ struct M3WiRealHostAdapter {
     probe_port: u16,
     expected_release: String,
     expected_asset_sha256: String,
+    asset_lock_path: Option<PathBuf>,
+    browser_root_path: Option<PathBuf>,
 }
 
 impl M3WiRealHostAdapter {
@@ -79,6 +84,11 @@ impl M3WiRealHostAdapter {
             externally_packaged: true,
             emergency_disabled: false,
         }
+    }
+
+    fn with_host_script(mut self, host_script: PathBuf) -> Self {
+        self.host_script = host_script;
+        self
     }
 }
 
@@ -115,15 +125,25 @@ impl EngineAdapter for M3WiRealHostAdapter {
                 "Camoufox Host must not receive a Vault-derived token".to_owned(),
             ));
         }
-        if !matches!(
+        let required_proxy = matches!(
+            request.network_profile,
+            NetworkProfile::FixedProxy {
+                proxy_required: true,
+                scheme: ProxyScheme::Http | ProxyScheme::Socks5,
+                ..
+            }
+        );
+        if (!matches!(
             request.network_profile,
             NetworkProfile::Direct {
                 proxy_required: false
             }
-        ) || !request.fallback_rules.is_empty()
+        ) && !required_proxy)
+            || !request.fallback_rules.is_empty()
         {
             return Err(EngineError::CapabilityUnavailable(
-                "M3-WI real Host permits Direct without fallback only".to_owned(),
+                "M3-WI real Host permits Direct(false) or required FixedProxy HTTP/SOCKS5 profiles"
+                    .to_owned(),
             ));
         }
         let roots = request.camoufox_roots.as_ref().ok_or_else(|| {
@@ -131,9 +151,31 @@ impl EngineAdapter for M3WiRealHostAdapter {
         })?;
         let artifact = request.camoufox_artifact_binding.as_ref().ok_or_else(|| {
             EngineError::InvalidIdentityTemplate(
-                "M3-WI plan is missing the v3 Artifact binding".to_owned(),
+                "M3-WI plan is missing the Artifact binding".to_owned(),
             )
         })?;
+        if required_proxy && artifact.schema != CAMOUFOX_ARTIFACT_SCHEMA_V6 {
+            return Err(EngineError::CapabilityUnavailable(
+                "Camoufox required FixedProxy launches require an Artifact/Policy v6 network-bound binding"
+                    .to_owned(),
+            ));
+        }
+        if required_proxy
+            && !request
+                .identity
+                .as_ref()
+                .is_some_and(|identity| identity.network.proxy_required)
+        {
+            return Err(EngineError::CapabilityUnavailable(
+                "Camoufox Host v1 identity template network.proxyRequired must be true for required FixedProxy"
+                    .to_owned(),
+            ));
+        }
+        if self.asset_lock_path.is_some() != self.browser_root_path.is_some() {
+            return Err(EngineError::CapabilityUnavailable(
+                "M3-WI explicit asset lock and browser root must be paired".to_owned(),
+            ));
+        }
         let silo_id = request.silo_id.ok_or_else(|| {
             EngineError::InvalidIdentityTemplate("M3-WI plan is missing the Silo ID".to_owned())
         })?;
@@ -154,6 +196,17 @@ impl EngineAdapter for M3WiRealHostAdapter {
             "--probe-port".to_owned(),
             self.probe_port.to_string(),
         ];
+        let mut arguments = arguments;
+        if let (Some(asset_lock_path), Some(browser_root_path)) =
+            (&self.asset_lock_path, &self.browser_root_path)
+        {
+            arguments.extend([
+                "--asset-lock".to_owned(),
+                asset_lock_path.to_string_lossy().into_owned(),
+                "--browser-root".to_owned(),
+                browser_root_path.to_string_lossy().into_owned(),
+            ]);
+        }
         if arguments.iter().any(|argument| {
             argument.starts_with("--proxy")
                 || argument == "--no-proxy-server"
@@ -460,6 +513,8 @@ fn adapter_for(
         probe_port,
         expected_release: expected_release.to_owned(),
         expected_asset_sha256: expected_asset_sha256.to_owned(),
+        asset_lock_path: None,
+        browser_root_path: None,
     }
 }
 
@@ -515,6 +570,7 @@ fn active_snapshot(runtime: &RuntimeManager, app_root: &Path) -> Value {
         "profileId": host.binding.profile_id,
         "artifactId": host.binding.artifact_id,
         "artifactFileSha256": host.binding.artifact_file_sha256,
+        "browserProxyServer": host.binding.browser_proxy_server,
         "observedWebsiteDigest": host.observed_website_digest,
         "evidenceClass": host.evidence_class,
         "launchSurface": host
@@ -871,6 +927,536 @@ fn scenario_root(run_dir: &Path, name: &str, repo_root: &Path) -> PathBuf {
     let root = run_dir.join(name).join("app");
     copy_artifact(repo_root, &root);
     root
+}
+
+fn write_new_json(path: &Path, value: &Value) {
+    let mut raw = serde_json::to_vec_pretty(value).expect("serialize immutable FP3 evidence");
+    raw.push(b'\n');
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(&raw))
+        .unwrap_or_else(|error| panic!("write immutable FP3 evidence {}: {error}", path.display()));
+}
+
+#[derive(Clone)]
+struct FP3FailureContext {
+    host_pid: u32,
+    managed_pids: Vec<u32>,
+    relay_port: u16,
+    session_path: PathBuf,
+}
+
+fn fp3_failure_cleanup(context: &Mutex<Option<FP3FailureContext>>) -> Value {
+    let Some(context) = context.lock().expect("FP3 failure context").clone() else {
+        return json!({
+            "status": "unavailable",
+            "reason": "panic before exact Host/relay ownership was captured"
+        });
+    };
+    let stopped = fs::read(&context.session_path)
+        .ok()
+        .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+        .unwrap_or(Value::Null);
+    let mut owned_pids = context.managed_pids;
+    if owned_pids.is_empty() {
+        owned_pids.extend(
+            stopped
+                .pointer("/managedPids")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_u64)
+                .map(|pid| pid as u32),
+        );
+    }
+    owned_pids.push(context.host_pid);
+    owned_pids.sort_unstable();
+    owned_pids.dedup();
+    let alive_owned_pids = wait_for_pids_dead(&owned_pids, Duration::from_secs(30));
+    let relay_closed = TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], context.relay_port)),
+        Duration::from_millis(250),
+    )
+    .is_err();
+    let clean = alive_owned_pids.is_empty()
+        && relay_closed
+        && stopped.get("state").and_then(Value::as_str) == Some("exited")
+        && stopped
+            .pointer("/closeOutcome/status")
+            .and_then(Value::as_str)
+            == Some("success")
+        && stopped
+            .pointer("/processTreeExit/job/activeProcessCount")
+            .and_then(Value::as_u64)
+            == Some(0);
+    json!({
+        "status": if clean { "observed_clean" } else { "failed" },
+        "ownedPids": owned_pids,
+        "aliveOwnedPids": alive_owned_pids,
+        "relayPort": context.relay_port,
+        "relayPortClosed": relay_closed,
+        "stopped": stopped
+    })
+}
+
+#[test]
+#[ignore = "requires authorized native Windows browser and external FP3 observation services"]
+fn fp3_1b_native_windows_required_fixed_proxy_discriminator() {
+    let evidence_path = PathBuf::from(required_env("VERISILO_FP3_NATIVE_EVIDENCE_PATH"));
+    assert!(
+        !evidence_path.exists(),
+        "FP3 native evidence already exists"
+    );
+    let failure_context = Mutex::new(None);
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        run_fp3_1b(&evidence_path, &failure_context)
+    }));
+    if let Err(payload) = result {
+        if !evidence_path.exists() {
+            fs::create_dir_all(evidence_path.parent().expect("FP3 evidence parent"))
+                .expect("create FP3 failed-evidence parent");
+            let message = payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| {
+                    payload
+                        .downcast_ref::<&str>()
+                        .map(|value| (*value).to_owned())
+                })
+                .unwrap_or_else(|| "non-string Rust panic".to_owned());
+            write_new_json(
+                &evidence_path,
+                &json!({
+                    "schema": "verisilo-camoufox-fp3-1b-native-evidence/v1",
+                    "status": "failed",
+                    "evidenceClass": "attempted-on-this-native-windows-host",
+                    "verified": false,
+                    "failure": { "type": "RustPanic", "message": message },
+                    "cleanup": fp3_failure_cleanup(&failure_context),
+                    "dns": { "actualPath": "unavailable" }
+                }),
+            );
+        }
+        resume_unwind(payload);
+    }
+}
+
+fn run_fp3_1b(evidence_path: &Path, failure_context: &Mutex<Option<FP3FailureContext>>) {
+    let run_dir = evidence_path.parent().expect("FP3 evidence parent");
+    let root = run_dir.join("runtime/app");
+    assert!(!root.exists(), "FP3 runtime root already exists");
+    let artifact_root = root.join("camoufox/artifacts");
+    fs::create_dir_all(&artifact_root).expect("create FP3 Artifact root");
+    fs::create_dir_all(root.join("camoufox/profiles")).expect("create FP3 Profile root");
+    fs::create_dir_all(root.join("camoufox/state")).expect("create FP3 state root");
+
+    let artifact_id = required_env("VERISILO_FP3_ARTIFACT_ID");
+    let artifact_sha256 = required_env("VERISILO_FP3_ARTIFACT_SHA256");
+    let artifact_source = PathBuf::from(required_env("VERISILO_FP3_ARTIFACT_PATH"));
+    let expected_artifact_name = format!("{artifact_id}.json");
+    assert_eq!(
+        artifact_source.file_name().and_then(|name| name.to_str()),
+        Some(expected_artifact_name.as_str()),
+        "FP3 Artifact filename must match its immutable ID"
+    );
+    let source_sidecar = artifact_source.with_file_name(format!("{expected_artifact_name}.sha256"));
+    assert_eq!(
+        fs::read_to_string(&source_sidecar).expect("read FP3 Artifact sidecar"),
+        format!("{artifact_sha256}  {expected_artifact_name}\n")
+    );
+    let artifact_raw = fs::read(&artifact_source).expect("read FP3 Artifact");
+    let artifact_document: Value =
+        serde_json::from_slice(&artifact_raw).expect("parse FP3 Artifact");
+    fs::write(artifact_root.join(&expected_artifact_name), artifact_raw)
+        .expect("copy FP3 Artifact into run-owned root");
+    fs::copy(
+        &source_sidecar,
+        artifact_root.join(format!("{expected_artifact_name}.sha256")),
+    )
+    .expect("copy FP3 Artifact sidecar into run-owned root");
+
+    let proxy_host = required_env("VERISILO_FP3_PROXY_HOST");
+    let proxy_port = required_env("VERISILO_FP3_PROXY_PORT")
+        .parse::<u16>()
+        .expect("FP3 proxy port");
+    let direct_ip = required_env("VERISILO_FP3_DIRECT_PUBLIC_IP");
+    let artifact_network_identity = artifact_document
+        .get("networkIdentity")
+        .expect("FP3 Artifact networkIdentity");
+    let expected_ip = artifact_network_identity
+        .get("expectedPublicAddress")
+        .and_then(Value::as_str)
+        .expect("FP3 Artifact public address")
+        .to_owned();
+    let expected_country = artifact_network_identity
+        .get("countryCode")
+        .and_then(Value::as_str)
+        .expect("FP3 Artifact country code")
+        .to_owned();
+    let expected_timezone = artifact_network_identity
+        .get("timezone")
+        .and_then(Value::as_str)
+        .expect("FP3 Artifact timezone")
+        .to_owned();
+    let expected_locale = artifact_network_identity
+        .get("locale")
+        .and_then(Value::as_str)
+        .expect("FP3 Artifact locale")
+        .to_owned();
+    let expected_latitude = artifact_network_identity
+        .get("latitude")
+        .and_then(Value::as_f64)
+        .expect("FP3 Artifact latitude");
+    let expected_longitude = artifact_network_identity
+        .get("longitude")
+        .and_then(Value::as_f64)
+        .expect("FP3 Artifact longitude");
+    let stun_url = required_env("VERISILO_FP3_STUN_URL");
+
+    let control_profile = root.join("silo-control-profile");
+    fs::create_dir_all(&control_profile).expect("create FP3 Silo control Profile");
+    let placeholder_browser = root.join("not-used-by-camoufox.exe");
+    fs::write(&placeholder_browser, []).expect("create FP3 browser descriptor placeholder");
+    let identity: IdentityTemplate = serde_json::from_value(json!({
+        "schemaVersion": 1,
+        "templateId": "73333333-3333-4333-8333-333333333333",
+        "os": { "family": "windows", "version": "11", "architecture": "x64" },
+        "browser": {
+            "family": "firefox",
+            "majorVersion": 152,
+            "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+            "uaCh": null
+        },
+        "languages": { "primary": expected_locale, "accepted": [expected_locale] },
+        "timezone": expected_timezone,
+        "screen": {
+            "width": 1920, "height": 1080,
+            "availableWidth": 1920, "availableHeight": 1040,
+            "devicePixelRatio": 1.0, "colorDepth": 24
+        },
+        "render": { "canvas": "native", "webGlVendor": null, "webGlRenderer": null },
+        "fonts": { "families": ["Segoe UI"] },
+        "media": { "microphones": 1, "cameras": 1, "speakers": 1, "labelsExposed": true },
+        "network": {
+            "proxyRequired": true,
+            "countryCode": expected_country,
+            "timezone": expected_timezone,
+            "locale": expected_locale,
+            "desiredQuic": "browser_default"
+        }
+    }))
+    .expect("FP3 IdentityTemplate");
+    let silo = Silo {
+        id: Uuid::parse_str("74444444-4444-4444-8444-444444444444").unwrap(),
+        schema_version: SCHEMA_VERSION,
+        name: "fp3-1b-required-fixed-proxy".to_owned(),
+        color: "#4f46e5".to_owned(),
+        browser: BrowserDescriptor {
+            kind: BrowserKind::Chrome,
+            executable_path: placeholder_browser.to_string_lossy().into_owned(),
+            version: None,
+        },
+        execution_target: SiloExecutionTarget::Local,
+        profile_directory: control_profile.to_string_lossy().into_owned(),
+        network_profile: NetworkProfile::FixedProxy {
+            proxy_required: true,
+            scheme: ProxyScheme::Socks5,
+            host: proxy_host.clone(),
+            port: proxy_port,
+            bypass_list: Vec::new(),
+            credential_reference: None,
+            external_mihomo: None,
+        },
+        engine: SiloEngineConfig::Camoufox {
+            identity_template: identity,
+            fallback_rules: Vec::new(),
+            artifact_binding: Some(CamoufoxArtifactBindingV1 {
+                artifact_id: artifact_id.clone(),
+                artifact_file_sha256: artifact_sha256.clone(),
+                schema: CAMOUFOX_ARTIFACT_SCHEMA_V6.to_owned(),
+            }),
+        },
+        seed_reference: Uuid::parse_str("75555555-5555-4555-8555-555555555555").unwrap(),
+        created_at: Utc::now(),
+        identity_locked_at: None,
+        archived_at: None,
+    };
+
+    let cache_root = run_dir.join("runtime/cache");
+    fs::create_dir_all(&cache_root).expect("create FP3 run-owned Camoufox cache");
+    let _cache_environment = EnvironmentGuard::set("VERISILO_CAMOUFOX_CACHE_DIR", &cache_root);
+    let reservation = TcpListener::bind("127.0.0.1:0").expect("reserve FP3 probe port");
+    let probe_port = reservation.local_addr().expect("FP3 probe address").port();
+    drop(reservation);
+
+    let mut adapter = adapter_for(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("FP3 repository root")
+            .as_path(),
+        probe_port,
+        BROWSER_RELEASE,
+        &required_env("VERISILO_FP3_EXPECTED_ASSET_SHA256"),
+        &required_env("VERISILO_FP3_TREE_SHA256"),
+    )
+    .with_host_script(PathBuf::from(required_env("VERISILO_FP3_HOST_SCRIPT")));
+    adapter.browser_tree_manifest_path = PathBuf::from(required_env("VERISILO_FP3_TREE_MANIFEST"));
+    adapter.asset_lock_path = Some(PathBuf::from(required_env("VERISILO_FP3_ASSET_LOCK")));
+    adapter.browser_root_path = Some(PathBuf::from(required_env("VERISILO_FP3_BROWSER_ROOT")));
+
+    let deriver_called = Arc::new(AtomicBool::new(false));
+    let deriver = SentinelDeriver {
+        called: Arc::clone(&deriver_called),
+    };
+    let mut guard = launch_real(&root, adapter, &silo, &deriver)
+        .unwrap_or_else(|error| panic!("launch FP3 native discriminator: {error}"));
+    let relay_port = guard
+        .runtime
+        .proxy_relay
+        .as_ref()
+        .expect("FP3 exact runtime relay")
+        .endpoint()
+        .port;
+    let relay_uri = format!("socks5://127.0.0.1:{relay_port}");
+    let upstream_endpoint = format!("{proxy_host}:{proxy_port}");
+    let host_pid = guard.runtime.child.as_ref().expect("FP3 Host child").id();
+    let session_id = match guard.runtime.engine_runtime.as_ref() {
+        Some(EngineRuntimeProtocol::CamoufoxHost(host)) => host.session_id.clone(),
+        _ => panic!("FP3 RuntimeManager did not retain the Host protocol"),
+    };
+    *failure_context.lock().expect("set FP3 failure context") = Some(FP3FailureContext {
+        host_pid,
+        managed_pids: Vec::new(),
+        relay_port,
+        session_path: root
+            .join("camoufox/state")
+            .join(&session_id)
+            .join("session.json"),
+    });
+    let running = active_snapshot(&guard.runtime, &root);
+    assert_eq!(
+        running["hostPid"].as_u64().expect("FP3 Host PID") as u32,
+        host_pid
+    );
+    let managed_pids = json_u32_array(&running, "/session/managedPids");
+    assert_eq!(
+        running["sessionId"].as_str().expect("FP3 session ID"),
+        session_id
+    );
+    failure_context
+        .lock()
+        .expect("update FP3 failure context")
+        .as_mut()
+        .expect("FP3 failure context present")
+        .managed_pids = managed_pids.clone();
+    let wire = running["wire"].as_str().expect("FP3 Host wire");
+    let arguments = running
+        .pointer("/launchSurface/arguments")
+        .and_then(Value::as_array)
+        .expect("FP3 typed Host argv")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let persisted_session =
+        serde_json::to_string(&running["session"]).expect("serialize FP3 persisted Host session");
+    let observation = running
+        .pointer("/observed/fp3NetworkObservation")
+        .expect("FP3 browser network observation");
+    let ice_candidates = observation
+        .pointer("/ice/candidates")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let ice_addresses = ice_candidates
+        .iter()
+        .filter_map(|candidate| candidate.get("address").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+
+    let route_applied = running.pointer("/activation/state").and_then(Value::as_str)
+        == Some("running")
+        && running
+            .pointer("/activation/networkEvidence/endpoint")
+            .and_then(Value::as_str)
+            == Some("reachable")
+        && running
+            .pointer("/activation/networkEvidence/browserRouting")
+            .and_then(Value::as_str)
+            == Some("applied");
+    let route_binding_exact = running.get("browserProxyServer").and_then(Value::as_str)
+        == Some(relay_uri.as_str())
+        && wire.matches(&relay_uri).count() == 1;
+    let upstream_absent_from_host = !arguments.contains(&upstream_endpoint)
+        && !wire.contains(&upstream_endpoint)
+        && !persisted_session.contains(&upstream_endpoint);
+    let exit_matches = observation
+        .pointer("/publicExit/success")
+        .and_then(Value::as_bool)
+        == Some(true)
+        && observation
+            .pointer("/publicExit/ip")
+            .and_then(Value::as_str)
+            == Some(expected_ip.as_str())
+        && expected_ip != direct_ip
+        && observation
+            .pointer("/publicExit/countryCode")
+            .and_then(Value::as_str)
+            == Some(expected_country.as_str());
+    let timezone_matches =
+        observation.get("timezone").and_then(Value::as_str) == Some(expected_timezone.as_str());
+    let locale_matches =
+        observation.get("locale").and_then(Value::as_str) == Some(expected_locale.as_str());
+    let geolocation_matches = observation
+        .pointer("/geolocationPermission/status")
+        .and_then(Value::as_str)
+        == Some("granted")
+        && observation
+            .pointer("/geolocation/status")
+            .and_then(Value::as_str)
+            == Some("observed")
+        && observation
+            .pointer("/geolocation/latitude")
+            .and_then(Value::as_f64)
+            .is_some_and(|value| (value - expected_latitude).abs() <= 1e-6)
+        && observation
+            .pointer("/geolocation/longitude")
+            .and_then(Value::as_f64)
+            .is_some_and(|value| (value - expected_longitude).abs() <= 1e-6);
+    let ice_matches = observation.get("stunUrl").and_then(Value::as_str) == Some(stun_url.as_str())
+        && observation
+            .pointer("/ice/completed")
+            .and_then(Value::as_bool)
+            == Some(true)
+        && observation
+            .pointer("/ice/timedOut")
+            .and_then(Value::as_bool)
+            == Some(false)
+        && !ice_candidates.is_empty()
+        && ice_addresses.contains(&expected_ip.as_str())
+        && !ice_addresses.contains(&direct_ip.as_str());
+    let artifact_binding_exact = running.get("artifactFileSha256").and_then(Value::as_str)
+        == Some(artifact_sha256.as_str())
+        && running.get("artifactId").and_then(Value::as_str) == Some(artifact_id.as_str());
+
+    let stopped_activation = guard
+        .runtime
+        .stop_managed_camoufox(silo.id)
+        .expect("cleanly stop FP3 native discriminator");
+    let exact_child_success = guard.runtime.child.is_none();
+    let stopped = session_after_stop(&root, &session_id);
+    let mut owned_pids = managed_pids.clone();
+    owned_pids.push(host_pid);
+    let residual_owned = wait_for_pids_dead(&owned_pids, Duration::from_secs(30));
+    let relay_closed = TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], relay_port)),
+        Duration::from_millis(250),
+    )
+    .is_err();
+    let clean_close = stopped_activation.state == RuntimeState::Stopped
+        && guard.runtime.profile_lease.is_none()
+        && guard.runtime.proxy_relay.is_none()
+        && relay_closed
+        && exact_child_success
+        && residual_owned.is_empty()
+        && stopped.get("state").and_then(Value::as_str) == Some("exited")
+        && stopped.get("exitStatus").and_then(Value::as_i64) == Some(0)
+        && stopped.get("exitFileObserved").and_then(Value::as_bool) == Some(true)
+        && stopped.get("quarantine").is_none_or(Value::is_null)
+        && stopped
+            .pointer("/closeOutcome/status")
+            .and_then(Value::as_str)
+            == Some("success")
+        && stopped
+            .pointer("/closeOutcome/contextClose/ctx/status")
+            .and_then(Value::as_str)
+            == Some("success")
+        && matches!(
+            stopped
+                .pointer("/closeOutcome/contextClose/page/status")
+                .and_then(Value::as_str),
+            Some("success") | Some("not_present")
+        )
+        && stopped
+            .pointer("/closeOutcome/gracefulProcessExit/status")
+            .and_then(Value::as_str)
+            == Some("success")
+        && stopped
+            .pointer("/closeOutcome/forcedJobCleanup/status")
+            .and_then(Value::as_str)
+            == Some("not_needed")
+        && stopped
+            .pointer("/processTreeExit/exited")
+            .and_then(Value::as_bool)
+            == Some(true)
+        && stopped
+            .pointer("/processTreeExit/sigkill")
+            .and_then(Value::as_bool)
+            == Some(false)
+        && stopped
+            .pointer("/processTreeExit/job/terminateJobObject")
+            .and_then(Value::as_bool)
+            == Some(false)
+        && stopped
+            .pointer("/processTreeExit/job/activeProcessCount")
+            .and_then(Value::as_u64)
+            == Some(0);
+
+    let checks = [
+        ("routeApplied", route_applied),
+        ("routeBindingExactThroughStatus", route_binding_exact),
+        ("upstreamAbsentFromHostSurfaces", upstream_absent_from_host),
+        ("artifactBindingExact", artifact_binding_exact),
+        (
+            "identityDeriverNotCalled",
+            !deriver_called.load(Ordering::SeqCst),
+        ),
+        ("browserExitMatchesArtifactAndNotDirect", exit_matches),
+        ("browserTimezoneMatchesArtifact", timezone_matches),
+        ("browserLocaleMatchesArtifact", locale_matches),
+        ("browserGeolocationMatchesArtifact", geolocation_matches),
+        ("iceContainsArtifactAndNotDirect", ice_matches),
+        ("cleanClose", clean_close),
+    ];
+    let passed = checks.iter().all(|(_, value)| *value);
+    let checks = checks
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), Value::Bool(value)))
+        .collect::<serde_json::Map<_, _>>();
+    let evidence = json!({
+        "schema": "verisilo-camoufox-fp3-1b-native-evidence/v1",
+        "status": if passed { "passed" } else { "failed" },
+        "evidenceClass": "observed-on-this-native-windows-host",
+        "verified": false,
+        "fixedInputs": {
+            "artifactId": artifact_id,
+            "artifactFileSha256": artifact_sha256,
+            "artifactNetworkIdentity": artifact_network_identity,
+            "requiredProxy": { "scheme": "socks5", "host": proxy_host, "port": proxy_port, "authentication": "none" },
+            "expectedPublicAddress": expected_ip,
+            "directPublicAddress": direct_ip,
+            "countryCode": expected_country,
+            "timezone": expected_timezone,
+            "locale": expected_locale,
+            "latitude": expected_latitude,
+            "longitude": expected_longitude,
+            "stunUrl": stun_url,
+            "probePort": probe_port
+        },
+        "checks": checks,
+        "route": { "relayUri": relay_uri, "relayPortClosed": relay_closed },
+        "running": running,
+        "stopped": stopped,
+        "exactHostChildExitConfirmed": exact_child_success,
+        "residualProcessCheck": { "ownedPids": owned_pids, "aliveOwnedPids": residual_owned },
+        "dns": { "actualPath": "unavailable" }
+    });
+    fs::create_dir_all(run_dir).expect("create FP3 evidence parent");
+    write_new_json(evidence_path, &evidence);
+    assert!(passed, "FP3-1b native discriminator failed: {checks:?}");
+    guard.armed = false;
 }
 
 #[test]
