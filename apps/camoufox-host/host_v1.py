@@ -7,9 +7,10 @@ protocol frames; all logs go to stderr.
 
 Commands: hello, launch, status, close, shutdown.
 
-Launch requests carry artifactId/profileId/expectedArtifactFileSha256 only;
-the caller can never pass arbitrary paths. Roots are fixed at process start
-(--artifact-root, --profile-root, --state-root).
+Launch requests carry artifactId/profileId/expectedArtifactFileSha256 and an
+optional canonical loopback SOCKS5 browserProxyServer; the caller can never
+pass arbitrary paths, upstream endpoints, or credentials. Roots are fixed at
+process start (--artifact-root, --profile-root, --state-root).
 
 State machine per session: idle -> starting -> running -> closing ->
 exited/failed. Profile directories hold an exclusive OS file lease; a
@@ -42,6 +43,8 @@ from urllib.parse import quote
 
 from identity_policy import (
     ARTIFACT_ID_RE,
+    ARTIFACT_SCHEMA_V6,
+    POLICY_SCHEMA_V6,
     ArtifactIntegrityError,
     UnsupportedSchemaVersionError,
     _strict_json_loads,
@@ -113,6 +116,7 @@ HOST_VERSION = "0.1.0"
 MAX_FRAME_BYTES = 32768
 PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+LOOPBACK_SOCKS5_RE = re.compile(r"^socks5://127\.0\.0\.1:([1-9][0-9]{0,4})$")
 _FRAME_TOO_LARGE = object()
 COOKIE_SQLITE_READ_MAX_ATTEMPTS = 6
 COOKIE_SQLITE_READ_RETRY_DELAY_SECONDS = 0.2
@@ -492,11 +496,31 @@ def parse_frame(raw: bytes) -> dict:
 REQUEST_FIELDS = {"id", "command", "params"}
 PARAMS_FIELDS = {
     "hello": set(),
-    "launch": {"artifactId", "profileId", "expectedArtifactFileSha256"},
+    "launch": {
+        "artifactId",
+        "profileId",
+        "expectedArtifactFileSha256",
+        "browserProxyServer",
+    },
     "status": {"sessionId"},
     "close": {"sessionId"},
     "shutdown": set(),
 }
+
+
+def validate_browser_proxy_server(value: Any) -> str:
+    if type(value) is not str:
+        raise ProtocolError(
+            "bad_type",
+            "browserProxyServer must be socks5://127.0.0.1:<1..65535>",
+        )
+    match = LOOPBACK_SOCKS5_RE.fullmatch(value)
+    if match is None or not 1 <= int(match.group(1)) <= 65535:
+        raise ProtocolError(
+            "bad_type",
+            "browserProxyServer must be socks5://127.0.0.1:<1..65535>",
+        )
+    return value
 
 
 def validate_request(obj: dict) -> tuple[str, str, dict]:
@@ -532,6 +556,8 @@ def validate_request(obj: dict) -> tuple[str, str, dict]:
             raise ProtocolError(
                 "bad_type", "expectedArtifactFileSha256 must be 64 hex chars"
             )
+        if "browserProxyServer" in params:
+            validate_browser_proxy_server(params["browserProxyServer"])
     if command == "close" and not isinstance(params.get("sessionId"), str):
         raise ProtocolError("bad_type", "sessionId must be a string")
     if command == "status" and "sessionId" in params and not isinstance(
@@ -702,8 +728,14 @@ class CamoufoxHost:
     # -- launch ------------------------------------------------------------
 
     async def launch(
-        self, artifact_id: str, profile_id: str, expected_sha: str
+        self,
+        artifact_id: str,
+        profile_id: str,
+        expected_sha: str,
+        browser_proxy_server: Optional[str] = None,
     ) -> dict:
+        if browser_proxy_server is not None:
+            validate_browser_proxy_server(browser_proxy_server)
         if self.session is not None and self.session["state"] in (
             "starting",
             "running",
@@ -718,6 +750,17 @@ class CamoufoxHost:
         artifact, file_sha = verify_artifact_raw(
             artifact_path, expected_file_sha=expected_sha
         )
+        if browser_proxy_server is not None and (
+            artifact.get("schema") != ARTIFACT_SCHEMA_V6
+            or artifact.get("policy", {}).get("schema")
+            != POLICY_SCHEMA_V6
+            or artifact.get("policy", {}).get("timezoneMode") != "network-bound"
+            or not isinstance(artifact.get("networkIdentity"), dict)
+        ):
+            raise ProtocolError(
+                "network_identity_required",
+                "browserProxyServer requires a verified Artifact/Policy v6 network-bound identity",
+            )
         self._verify_browser_binding_for_launch(artifact)
 
         profile_dir = self.profile_root / profile_id
@@ -774,6 +817,7 @@ class CamoufoxHost:
             "profileDir": profile_dir,
             "artifactFileSha256": file_sha,
             "artifactDigest": artifact["canonicalDigest"],
+            "browserProxyServer": browser_proxy_server,
             "state": "starting",
             "profileLock": profile_lock,
             "lockFd": profile_lock.handle_value,
@@ -824,7 +868,7 @@ class CamoufoxHost:
         except Exception as exc:  # noqa: BLE001
             await self._fail_session(session, f"{type(exc).__name__}: {exc}")
             raise ProtocolError("launch_failed", f"{type(exc).__name__}: {exc}") from exc
-        return {
+        result = {
             "sessionId": session_id,
             "state": session["state"],
             "artifactId": artifact_id,
@@ -843,6 +887,9 @@ class CamoufoxHost:
             "verified": False,
             "evidenceClass": "observed-on-this-host",
         }
+        if session["browserProxyServer"] is not None:
+            result["browserProxyServer"] = session["browserProxyServer"]
+        return result
 
     async def _launch_browser(self, session: dict, artifact: dict) -> None:
         policy = artifact["policy"]
@@ -881,6 +928,11 @@ class CamoufoxHost:
         from camoufox.utils import launch_options
 
         launch_start = time.perf_counter()
+        expected_proxy = (
+            {"server": session["browserProxyServer"]}
+            if session["browserProxyServer"] is not None
+            else None
+        )
         with _active_launch_stage("launch_options"):
             opts = await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -898,8 +950,20 @@ class CamoufoxHost:
                     firefox_user_prefs=firefox_user_prefs_for_config(disk_config),
                     exclude_addons=[DefaultAddons.UBO],
                     i_know_what_im_doing=True,
+                    proxy=expected_proxy,
                 ),
             )
+            if expected_proxy is None:
+                if "proxy" in opts:
+                    raise ProtocolError(
+                        "proxy_mutation",
+                        "Direct launch_options unexpectedly returned a proxy",
+                    )
+            elif opts.get("proxy") != expected_proxy:
+                raise ProtocolError(
+                    "proxy_mutation",
+                    "launch_options did not preserve the exact loopback proxy binding",
+                )
             try:
                 sent_config, diff, opts["env"] = normalize_camou_config_env(
                     opts["env"], disk_config
@@ -1356,7 +1420,7 @@ class CamoufoxHost:
                 raise ProtocolError("session_not_found", f"no session {session_id}")
         if session is None:
             return {"state": "idle"}
-        return {
+        result = {
             "state": session["state"],
             "sessionId": session["sessionId"],
             "artifactId": session["artifactId"],
@@ -1373,6 +1437,9 @@ class CamoufoxHost:
             "verified": False,
             "evidenceClass": "observed-on-this-host",
         }
+        if session["browserProxyServer"] is not None:
+            result["browserProxyServer"] = session["browserProxyServer"]
+        return result
 
     async def close(self, session_id: str) -> dict:
         session = self.session
@@ -2324,6 +2391,7 @@ async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
                 params["artifactId"],
                 params["profileId"],
                 params["expectedArtifactFileSha256"],
+                params.get("browserProxyServer"),
             )
         elif command == "status":
             result = host.status(params.get("sessionId"))

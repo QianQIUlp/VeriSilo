@@ -186,6 +186,7 @@ impl EngineAdapter for M3WiRealHostAdapter {
                 browser_asset_sha256: self.expected_asset_sha256.clone(),
                 browser_tree_manifest_path: self.browser_tree_manifest_path.clone(),
                 browser_tree_manifest_sha256: self.browser_tree_manifest_raw_sha256.clone(),
+                browser_proxy_server: None,
             }),
             // This is the key trust boundary: the real Host integration run is
             // not a production package/signature verification receipt.

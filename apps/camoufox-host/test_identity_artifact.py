@@ -115,6 +115,37 @@ def load_fixture(name: str) -> dict:
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
 
 
+def test_host_browser_proxy_server_request_validation_is_strict() -> None:
+    params = {
+        "artifactId": "identity-fp3-network-a",
+        "profileId": "silo-fp3-network-a",
+        "expectedArtifactFileSha256": "a" * 64,
+    }
+    request = {"id": "fp3", "command": "launch", "params": params}
+    assert host_v1.validate_request(request)[2] is params
+    for value in (
+        None,
+        "http://127.0.0.1:43127",
+        "socks4://127.0.0.1:43127",
+        "socks5://user:pass@127.0.0.1:43127",
+        "socks5://127.0.0.1:0",
+        "socks5://127.0.0.1:65536",
+        "socks5://127.0.0.1:043127",
+        "socks5://127.0.0.1:43127/path",
+        "socks5://127.0.0.1:43127?query",
+        "socks5://[::1]:43127",
+    ):
+        candidate = {**params, "browserProxyServer": value}
+        try:
+            host_v1.validate_request(
+                {"id": "fp3", "command": "launch", "params": candidate}
+            )
+        except host_v1.ProtocolError:
+            pass
+        else:
+            raise AssertionError(f"invalid browserProxyServer accepted: {value!r}")
+
+
 def _camou_config_from_env(env: dict) -> dict:
     chunks = sorted(
         (int(key.rsplit("_", 1)[1]), value)
@@ -1853,6 +1884,117 @@ def test_v6_network_identity_rebind_is_deterministic_and_closed() -> None:
             pass
         else:
             raise AssertionError(f"v6 rebind accepted invalid latitude {invalid_latitude!r}")
+
+
+def test_camoufox_launch_options_preserve_v6_config_and_loopback_proxy() -> None:
+    from camoufox import DefaultAddons
+    from camoufox.utils import launch_options
+
+    source = _v5_artifact(VOICES_MODE_MANAGED, GPC_POLICY_MANAGED_OPT_OUT)
+    artifact = rebind_network_identity_artifact(
+        source,
+        artifact_id="identity-fp3-launch-options",
+        network_identity={
+            "expectedPublicAddress": "1.1.1.1",
+            "countryCode": "SG",
+            "timezone": "Asia/Singapore",
+            "locale": "en-SG",
+            "latitude": 1.3521,
+            "longitude": 103.8198,
+        },
+        generated_at_utc="2026-08-27T12:00:00Z",
+    )
+    disk_config = copy.deepcopy(artifact["resolvedConfig"])
+    with tempfile.TemporaryDirectory(prefix="verisilo-fp3-launch-options-") as tmp:
+        root = Path(tmp)
+        executable = root / "camoufox.exe"
+        executable.write_bytes(b"")
+        property_types = {
+            bool: "bool",
+            int: "int",
+            float: "double",
+            str: "str",
+            list: "array",
+            dict: "dict",
+        }
+        (root / "properties.json").write_text(
+            json.dumps(
+                [
+                    {"property": key, "type": property_types[type(value)]}
+                    for key, value in disk_config.items()
+                ]
+            ),
+            encoding="utf-8",
+        )
+        options = launch_options(
+            config=copy.deepcopy(disk_config),
+            os=artifact["policy"]["targetOs"],
+            window=tuple(artifact["policy"]["window"]),
+            locale=artifact["policy"]["locale"],
+            ff_version=artifact["policy"]["ffVersion"],
+            headless=False,
+            executable_path=str(executable),
+            user_data_dir=str(root / "proxy-profile"),
+            firefox_user_prefs=firefox_user_prefs_for_config(disk_config),
+            exclude_addons=[DefaultAddons.UBO],
+            i_know_what_im_doing=True,
+            proxy={"server": "socks5://127.0.0.1:43127"},
+        )
+        assert options["proxy"] == {"server": "socks5://127.0.0.1:43127"}
+        normalized, diff, rewritten = normalize_camou_config_env(
+            options["env"], disk_config
+        )
+        assert diff == {"added": [], "removed": [], "changed": []}
+        assert _camou_config_from_env(rewritten) == disk_config
+        assert normalized == disk_config
+        assert configured_identity_digest(normalized) == artifact[
+            "configuredIdentityDigest"
+        ]
+
+        direct_options = launch_options(
+            config=copy.deepcopy(disk_config),
+            os=artifact["policy"]["targetOs"],
+            window=tuple(artifact["policy"]["window"]),
+            locale=artifact["policy"]["locale"],
+            ff_version=artifact["policy"]["ffVersion"],
+            headless=False,
+            executable_path=str(executable),
+            user_data_dir=str(root / "direct-profile"),
+            firefox_user_prefs=firefox_user_prefs_for_config(disk_config),
+            exclude_addons=[DefaultAddons.UBO],
+            i_know_what_im_doing=True,
+            proxy=None,
+        )
+        assert "proxy" not in direct_options
+
+
+def test_host_proxy_launch_rejects_v5_before_profile_or_browser_use() -> None:
+    artifact = _v5_artifact(VOICES_MODE_MANAGED, GPC_POLICY_MANAGED_OPT_OUT)
+    with tempfile.TemporaryDirectory(prefix="verisilo-fp3-v5-rejected-") as tmp:
+        host = object.__new__(host_v1.CamoufoxHost)
+        host.session = None
+        host.artifact_root = Path(tmp)
+        (host.artifact_root / "identity-fp3-v5-rejected.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        with mock.patch.object(
+            host_v1,
+            "verify_artifact_raw",
+            return_value=(artifact, "a" * 64),
+        ):
+            try:
+                asyncio.run(
+                    host.launch(
+                        "identity-fp3-v5-rejected",
+                        "silo-fp3-v5-rejected",
+                        "a" * 64,
+                        "socks5://127.0.0.1:43127",
+                    )
+                )
+            except host_v1.ProtocolError as exc:
+                assert exc.code == "network_identity_required"
+            else:
+                raise AssertionError("required proxy launch accepted an Artifact v5 input")
 
 
 def _assert_strict_rejected(artifact: dict, label: str) -> None:

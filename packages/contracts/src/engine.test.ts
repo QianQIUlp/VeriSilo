@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CAMOUFOX_ARTIFACT_SCHEMA_V6,
   camoufoxArtifactBindingV1Schema,
   camoufoxHostPackageManifestSchema,
   camoufoxHostPackageTreeManifestSchema,
@@ -346,6 +347,13 @@ describe("EngineAdapter contracts", () => {
         },
       }).artifactBinding?.artifactId,
     ).toBe("identity-camoufox-m3");
+    expect(
+      camoufoxArtifactBindingV1Schema.parse({
+        artifactId: "identity-camoufox-m3",
+        artifactFileSha256: "a".repeat(64),
+        schema: CAMOUFOX_ARTIFACT_SCHEMA_V6,
+      }).schema,
+    ).toBe(CAMOUFOX_ARTIFACT_SCHEMA_V6);
     expect(() =>
       camoufoxArtifactBindingV1Schema.parse({
         artifactId: "identity-Camoufox",

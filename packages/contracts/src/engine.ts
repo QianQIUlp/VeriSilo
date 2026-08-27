@@ -3,8 +3,11 @@ import { z } from "zod";
 export const ENGINE_CONTRACT_VERSION = 1 as const;
 export const ENGINE_RUNTIME_RECEIPT_VERSION = 1 as const;
 export const MAX_ENGINE_RUNTIME_RECEIPT_BYTES = 32 * 1024;
-export const CAMOUFOX_ARTIFACT_SCHEMA =
+export const CAMOUFOX_ARTIFACT_SCHEMA_V3 =
   "verisilo-camoufox-resolved-identity/v3" as const;
+export const CAMOUFOX_ARTIFACT_SCHEMA_V6 =
+  "verisilo-camoufox-resolved-identity/v6" as const;
+export const CAMOUFOX_ARTIFACT_SCHEMA = CAMOUFOX_ARTIFACT_SCHEMA_V3;
 export const CAMOUFOX_HOST_PROTOCOL = "verisilo-camoufox-host/v1" as const;
 export const CAMOUFOX_HOST_ENTRYPOINT_KIND = "camoufox-host-v1" as const;
 
@@ -401,7 +404,10 @@ export const camoufoxArtifactBindingV1Schema = z
       .string()
       .regex(/^identity-[a-z0-9][a-z0-9-]{0,63}$/u),
     artifactFileSha256: z.string().regex(/^[a-f0-9]{64}$/u),
-    schema: z.literal(CAMOUFOX_ARTIFACT_SCHEMA),
+    schema: z.union([
+      z.literal(CAMOUFOX_ARTIFACT_SCHEMA_V3),
+      z.literal(CAMOUFOX_ARTIFACT_SCHEMA_V6),
+    ]),
   })
   .strict();
 export type CamoufoxArtifactBindingV1 = z.infer<

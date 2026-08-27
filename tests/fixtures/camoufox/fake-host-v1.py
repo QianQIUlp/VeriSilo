@@ -103,9 +103,11 @@ def main() -> int:
     profile_id = "silo-22222222222242228222222222222222"
     artifact_sha = "a" * 64
     state = "idle"
+    browser_proxy_server: str | None = None
+    status_count = 0
 
     def launch_result() -> dict:
-        return {
+        result = {
             "sessionId": session_id,
             "state": "running",
             "artifactId": artifact_id,
@@ -116,9 +118,12 @@ def main() -> int:
             "verified": False,
             "evidenceClass": "observed-on-this-host",
         }
+        if browser_proxy_server is not None:
+            result["browserProxyServer"] = browser_proxy_server
+        return result
 
     def status_result() -> dict:
-        return {
+        result = {
             "state": state,
             "sessionId": session_id,
             "artifactId": artifact_id,
@@ -133,6 +138,9 @@ def main() -> int:
             "verified": False,
             "evidenceClass": "observed-on-this-host",
         }
+        if browser_proxy_server is not None:
+            result["browserProxyServer"] = browser_proxy_server
+        return result
 
     for raw in sys.stdin.buffer:
         if len(raw.rstrip(b"\n")) > MAX_FRAME_BYTES:
@@ -204,6 +212,7 @@ def main() -> int:
                 raise SystemExit("unexpected fake profile ID")
             if params.get("expectedArtifactFileSha256") != artifact_sha:
                 raise SystemExit("unexpected fake artifact SHA")
+            browser_proxy_server = params.get("browserProxyServer")
             state = "running"
             launch = launch_result()
             if mode == "launch-artifact-mismatch":
@@ -212,16 +221,23 @@ def main() -> int:
                 launch["artifactFileSha256"] = "e" * 64
             elif mode == "launch-profile-mismatch":
                 launch["profileId"] = "silo-wrong"
+            elif mode == "proxy-mismatch":
+                launch["browserProxyServer"] = "socks5://127.0.0.1:65535"
+            elif mode == "proxy-missing":
+                launch.pop("browserProxyServer", None)
             elif mode == "launch-unknown-field":
                 response(request_id, launch, extra={"unexpected": True})
                 continue
             response(request_id, launch)
         elif command == "status":
+            status_count += 1
             status = status_result()
             if mode == "quarantined":
                 status["quarantine"] = {"reason": "fake quarantine"}
             elif mode == "status-failure":
                 status["failure"] = "fake failure"
+            elif mode == "status-proxy-mismatch" and status_count > 1:
+                status["browserProxyServer"] = "socks5://127.0.0.1:65535"
             response(request_id, status)
             if mode == "active-session-eof":
                 return 0

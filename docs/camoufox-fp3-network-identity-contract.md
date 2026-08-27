@@ -57,3 +57,45 @@ It requires a frozen proxy/network input, Camoufox Host routing support, browser
 network evidence. Until that separately authorized Gate runs, proxy application, Geo accuracy,
 browser Geolocation, ICE/STUN behavior, actual DNS path, cross-host replay and `verified:true` remain
 unavailable or unverified.
+
+## FP3-1 routing seam
+
+The local routing seam is closed before native execution with these limits:
+
+- Camoufox accepts only Direct(false), or a required HTTP/SOCKS5 `FixedProxy` whose
+  `IdentityTemplate.network.proxyRequired` is true and whose Artifact binding is v6. Optional
+  FixedProxy, PAC, HTTPS and SOCKS4 remain unavailable.
+- The desktop reuses its existing authenticated `ProxyRelay`. The Host receives only
+  `socks5://127.0.0.1:<ephemeral-port>`; upstream authority, credential reference and Vault
+  credentials never enter the Artifact, serialized Engine plan, Host argv or persisted Host state.
+- A proxy launch fails closed unless the verified on-disk Artifact and Policy are v6
+  `network-bound`. The Host passes the exact loopback value to Camoufox `launch_options` and echoes
+  it only after browser creation. The desktop requires the same value in launch and status results.
+- An exact native Host receipt may make `browserRouting=applied`; it is not an exit, Geo, DNS,
+  WebRTC or `verified` observation. A later Host status/close failure revokes the exact-runtime relay
+  and marks browser routing failed. Fake-Host tests prove transport and cleanup only.
+- Camoufox publishes no DNS/QUIC/WebRTC safeguards until those controls are directly established.
+  Standard Silo keeps its existing safeguards. Direct remains `browserRouting=not_requested`.
+
+The Host does not add a loopback bypass. Whether the existing local identity probe succeeds through
+the required proxy is deliberately left to the native discriminator rather than hidden by a retry,
+bypass or engine preference workaround.
+
+## Frozen native discriminator
+
+Before the separately authorized native run, freeze:
+
+1. one reachable required HTTP or SOCKS5 proxy; credentials remain only in Vault;
+2. a fresh Network Check v2 made through that proxy, including public address, country, timezone,
+   locale and paired coordinates;
+3. a deterministic Artifact v6 rebound from the selected v5 source, plus its raw SHA binding;
+4. a direct-host public-address negative control distinct from the proxy address;
+5. the existing pinned Host/browser package and a bounded observation page for public exit,
+   timezone/locale, browser Geolocation and ICE candidates.
+
+The discriminator passes only if the exact Host route binding remains present through status,
+browser public exit equals the Artifact address and differs from the direct control, browser
+timezone/locale/Geolocation match the Artifact, and ICE evidence contains the Artifact public
+address with no contradictory direct public address. Every result records clean Host/process/relay
+close. Actual DNS path remains `unavailable` unless separately observed; `verified:true`, cross-host
+replay, package shipping and release remain out of scope.

@@ -45,13 +45,14 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Voices `0005` + Artifact v4 policy | **Static authoring closed**；仅为 Formal source candidate 输入，不是 runtime pass |
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
-| FP2 / FP3 | **FP2 Passed on this native Windows host**；Attempt 10 的 A1→A2→B1 aggregate result 已裁决；FP3 是下一 Gate，尚未进入 |
+| FP2 / FP3 | **FP2 Passed on this native Windows host**；FP3-0 configured input 与 FP3-1 local Host routing seam 已闭合；native discriminator 未运行 |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
 
 - 当前 Artifact 的 `fontMode=inherit`；宿主字体可见，不声明字体隔离；
 - TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
+- FP3 尚未取得真实代理出口、浏览器 Geolocation、ICE/STUN 或实际 DNS 路径 evidence；
 - 没有受信 signer、签名 Host package、installer 或 production runtime；
 - Formal-v3 runtime observation 只覆盖本机绑定 candidate/Artifacts；Voices 只覆盖 A1、A2、B1
   各自三秒 top-window trace，不是 exhaustive exclusion；desktop Managed Identity 尚未 shipped。
@@ -99,20 +100,23 @@ schema/default-engine 语义。Formal series 精确为
 
 ## 当前下一任务
 
-### FP3-1 native Windows required FixedProxy discriminator
+### FP3-1b native Windows required FixedProxy discriminator
 
-FP3-0 configured-input Gate 已闭合。Network Check v2 保留成对经纬度并兼容历史 v1；opt-in
-Artifact/Policy v6 将公网地址、国家、时区、显式 locale、经纬度和单一地址族 WebRTC 目标冻结为
-严格、可复现的 `network-bound` 配置；默认 writer 仍为 v5。Direct 没有受管路由动作，启动后
-`browserRouting` 保持 `not_requested`。合同见
+FP3-0 configured input 与 FP3-1a local routing seam 已闭合。Camoufox 只接受 Direct(false)，或
+Artifact/Policy v6 `network-bound` 绑定下的 required HTTP/SOCKS5 FixedProxy；Desktop 复用既有
+ProxyRelay，只把本次运行的 loopback SOCKS5 地址交给 Host。Host 在 browser creation 后回传精确
+launch/status binding，Desktop 才能把 `browserRouting` 标为 `applied`。上游地址、Vault 凭据和
+临时 relay port 不进入 Artifact 或持久化 Host state。Direct 仍为 `not_requested`。合同见
 [FP3 network identity contract](camoufox-fp3-network-identity-contract.md)。
 
-这些结果只直接证明 configured input 与状态边界；尚未证明 Camoufox 已应用代理、Geo 或 WebRTC
-配置，也未观察公网出口、浏览器 Geolocation、ICE/STUN 或实际 DNS 路径。
+Focused Python、Rust fake-Host/RuntimeManager 和 TypeScript/Zod checks 直接证明本地合同、secret-free
+transport、exact receipt 与 relay teardown；它们不证明真实 Camoufox 已应用代理、Geo 或 WebRTC，
+也未观察公网出口、浏览器 Geolocation、ICE/STUN 或实际 DNS 路径。Camoufox 不声明尚未建立的
+DNS/QUIC/WebRTC safeguards。
 
-下一项最高价值 Gate 是在原生 Windows 上为 required FixedProxy 建立 Host routing seam，并用冻结
-输入判定 route application 与实际出口/Geo/WebRTC observation。它需要浏览器启动、外部网络
-evidence 和新的 runtime 授权；本 checkpoint 不进入该风险边界。
+下一项最高价值 Gate 是用合同中冻结的真实代理、Network Check v2、Artifact v6 与 direct negative
+control，在原生 Windows 上判定 route application 和实际出口/Geo/WebRTC observation。它需要
+浏览器启动、外部网络 evidence、可用代理输入和新的 runtime 授权；本 checkpoint 不跨越该边界。
 
 ## 后续 Gate 顺序
 
@@ -121,7 +125,8 @@ Formal-v3 static source candidate（已闭合）
 → fresh Windows build/provenance（已闭合）
 → native launch discriminator + FP2 A1→A2→B1 qualification（已闭合）
 → FP3-0 configured network identity input（已闭合）
-→ FP3-1 native Windows required FixedProxy discriminator（下一 Gate，未进入）
+→ FP3-1a local required FixedProxy Host routing seam（已闭合）
+→ FP3-1b native Windows required FixedProxy discriminator（下一 Gate，未进入）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery

@@ -15,7 +15,7 @@ use thiserror::Error;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::domain::{BrowserDescriptor, BrowserKind, NetworkProfile};
+use crate::domain::{BrowserDescriptor, BrowserKind, NetworkProfile, ProxyScheme};
 
 pub const ENGINE_CONTRACT_VERSION: u32 = 1;
 pub const ENGINE_BOOTSTRAP_VERSION: u32 = 1;
@@ -25,7 +25,9 @@ pub const MAX_ENGINE_BOOTSTRAP_BYTES: usize = 256 * 1024;
 pub const MAX_ENGINE_BOOTSTRAP_ACK_BYTES: usize = 16 * 1024;
 pub const MAX_ENGINE_RUNTIME_RECEIPT_BYTES: usize = 32 * 1024;
 pub const CAMOUFOX_HOST_PACKAGE_SCHEMA_VERSION: u32 = 3;
-pub const CAMOUFOX_ARTIFACT_SCHEMA: &str = "verisilo-camoufox-resolved-identity/v3";
+pub const CAMOUFOX_ARTIFACT_SCHEMA_V3: &str = "verisilo-camoufox-resolved-identity/v3";
+pub const CAMOUFOX_ARTIFACT_SCHEMA_V6: &str = "verisilo-camoufox-resolved-identity/v6";
+pub const CAMOUFOX_ARTIFACT_SCHEMA: &str = CAMOUFOX_ARTIFACT_SCHEMA_V3;
 pub const CAMOUFOX_HOST_PROTOCOL: &str = "verisilo-camoufox-host/v1";
 pub const CAMOUFOX_HOST_ENTRYPOINT_KIND: &str = "camoufox-host-v1";
 pub const CAMOUFOX_BROWSER_TREE_SCHEMA: &str = "verisilo-camoufox-browser-tree-manifest/v1";
@@ -104,10 +106,13 @@ impl CamoufoxArtifactBindingV1 {
     pub fn validate(&self) -> Result<(), EngineError> {
         if !valid_artifact_id(&self.artifact_id)
             || !is_lower_hex(&self.artifact_file_sha256, 64)
-            || self.schema != CAMOUFOX_ARTIFACT_SCHEMA
+            || !matches!(
+                self.schema.as_str(),
+                CAMOUFOX_ARTIFACT_SCHEMA_V3 | CAMOUFOX_ARTIFACT_SCHEMA_V6
+            )
         {
             return Err(EngineError::InvalidIdentityTemplate(
-                "identity_artifact_unavailable: Camoufox Artifact binding is not a strict v3 ID/raw-SHA binding"
+                "identity_artifact_unavailable: Camoufox Artifact binding is not a strict v3/v6 ID/raw-SHA binding"
                     .to_owned(),
             ));
         }
@@ -499,6 +504,8 @@ pub struct CamoufoxHostLaunch {
     pub browser_asset_sha256: String,
     pub browser_tree_manifest_path: PathBuf,
     pub browser_tree_manifest_sha256: String,
+    #[serde(skip)]
+    pub browser_proxy_server: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2794,16 +2801,33 @@ impl EngineAdapter for ExternalPackageEngineAdapter {
             &request.network_profile,
             NetworkProfile::Direct {
                 proxy_required: false
+            } | NetworkProfile::FixedProxy {
+                proxy_required: true,
+                scheme: ProxyScheme::Http | ProxyScheme::Socks5,
+                ..
             }
         ) {
             return Err(EngineError::CapabilityUnavailable(
-                "Camoufox Host v1 only supports a Direct network profile; FixedProxy and PAC were rejected before spawn"
+                "Camoufox Host v1 only supports Direct(false) or required FixedProxy HTTP/SOCKS5 profiles"
                     .to_owned(),
             ));
         }
-        if identity.network.proxy_required {
+        if matches!(
+            &request.network_profile,
+            NetworkProfile::FixedProxy {
+                proxy_required: true,
+                ..
+            }
+        ) && binding.schema != CAMOUFOX_ARTIFACT_SCHEMA_V6
+        {
             return Err(EngineError::CapabilityUnavailable(
-                "Camoufox Host v1 identity template requires a proxy; launch was rejected before spawn"
+                "Camoufox required FixedProxy launches require an Artifact/Policy v6 network-bound binding"
+                    .to_owned(),
+            ));
+        }
+        if identity.network.proxy_required != request.network_profile.requires_proxy() {
+            return Err(EngineError::CapabilityUnavailable(
+                "Camoufox Host v1 identity template network.proxyRequired must match the Silo network policy"
                     .to_owned(),
             ));
         }
@@ -2884,6 +2908,7 @@ impl EngineAdapter for ExternalPackageEngineAdapter {
                 browser_asset_sha256: package.browser_asset_sha256()?,
                 browser_tree_manifest_path,
                 browser_tree_manifest_sha256: browser_tree_manifest.sha256.clone(),
+                browser_proxy_server: None,
             }),
             package_verification: Some(EngineLaunchPackageVerification {
                 verifier_id: package.verification.verifier_id.clone(),
@@ -5031,8 +5056,8 @@ mod tests {
         IdentityScreen, IdentityTemplate, IdentityTokenDeriver, IdentityUaCh, IdentityUaChBrand,
         SiteFallbackAction, SiteFallbackRule, StockChromiumAdapter,
         UnavailableIdentityTokenDeriver, WindowsProductionEnginePackageVerifier,
-        CAMOUFOX_ARTIFACT_SCHEMA, CAMOUFOX_BROWSER_TREE_SCHEMA, CAMOUFOX_HOST_ENTRYPOINT_KIND,
-        CAMOUFOX_HOST_PROTOCOL,
+        CAMOUFOX_ARTIFACT_SCHEMA, CAMOUFOX_ARTIFACT_SCHEMA_V6, CAMOUFOX_BROWSER_TREE_SCHEMA,
+        CAMOUFOX_HOST_ENTRYPOINT_KIND, CAMOUFOX_HOST_PROTOCOL,
     };
 
     struct TestPackageVerifier;
@@ -5309,11 +5334,11 @@ mod tests {
             non_direct_request.network_profile = network_profile;
             let error = adapter
                 .launch_plan(&non_direct_request)
-                .expect_err("Camoufox engine plan must reject every non-Direct profile");
+                .expect_err("Camoufox engine plan must reject unsupported network profiles");
             assert!(matches!(
                 error,
                 EngineError::CapabilityUnavailable(message)
-                    if message.contains("only supports a Direct network profile")
+                    if message.contains("only supports Direct(false) or required FixedProxy")
             ));
         }
         assert_eq!(plan.transport, EngineTransport::CamoufoxHostJsonlV1);
@@ -5358,17 +5383,48 @@ mod tests {
             "v152.0.4-beta.28"
         );
 
-        let mut required_proxy = request.clone();
-        required_proxy
+        let required_profile = |scheme| NetworkProfile::FixedProxy {
+            proxy_required: true,
+            scheme,
+            host: "fp3-upstream.example".to_owned(),
+            port: 1080,
+            bypass_list: Vec::new(),
+            credential_reference: Some(Uuid::nil()),
+            external_mihomo: None,
+        };
+        let mut required_v3 = request.clone();
+        required_v3.network_profile = required_profile(ProxyScheme::Http);
+        required_v3
             .identity
             .as_mut()
             .expect("identity")
             .network
             .proxy_required = true;
         assert!(matches!(
-            adapter.launch_plan(&required_proxy),
-            Err(EngineError::CapabilityUnavailable(_))
+            adapter.launch_plan(&required_v3),
+            Err(EngineError::CapabilityUnavailable(message))
+                if message.contains("Artifact/Policy v6")
         ));
+        for scheme in [ProxyScheme::Http, ProxyScheme::Socks5] {
+            let mut required_v6 = required_v3.clone();
+            required_v6.network_profile = required_profile(scheme);
+            required_v6
+                .camoufox_artifact_binding
+                .as_mut()
+                .expect("Artifact binding")
+                .schema = CAMOUFOX_ARTIFACT_SCHEMA_V6.to_owned();
+            let required_plan = adapter
+                .launch_plan(&required_v6)
+                .expect("required proxy v6 Host plan");
+            let serialized = serde_json::to_string(&required_plan).expect("Host plan JSON");
+            assert!(!serialized.contains("fp3-upstream.example"));
+            assert!(!serialized.contains(&Uuid::nil().to_string()));
+            assert!(!serialized.contains("browserProxyServer"));
+            assert!(required_plan
+                .camoufox_host
+                .as_ref()
+                .is_some_and(|binding| binding.browser_proxy_server.is_none()));
+        }
         let mut missing_binding = request.clone();
         missing_binding.camoufox_artifact_binding = None;
         assert!(matches!(
