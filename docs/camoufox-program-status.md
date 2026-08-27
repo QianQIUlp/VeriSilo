@@ -119,7 +119,9 @@ harness mapping defect，不是新的 recovery Gate。
 Attempt 9 的 A1、A2、B1 六 realm、headers、ServiceWorker、MediaDevices、Voices 与 lifecycle 均
 逐 phase 通过，最终仅在 post-sequence storage comparator Failed：probe 写入 session cookie 却要求
 重启后存在，并错误要求两个隔离 profile 写入的同一 sentinel hash 不同。A2 boot、LocalStorage 与
-ServiceWorker 延续、B1 freshness 已直接观察；该结果仍不构成 FP2 Passed。
+ServiceWorker 延续、B1 freshness 已直接观察。冻结 evidence 的完整离线比较还确认 full-B Worker
+Canvas raw family 随已声明 font/spacing 输入变化，不应进入 A/B common projection；relation/comparator
+修正后全量离线比较通过。Attempt 9 仍不构成 FP2 Passed，fresh runtime 只剩 persistent-cookie evidence。
 
 当前最短完整路径：
 
@@ -127,8 +129,9 @@ ServiceWorker 延续、B1 freshness 已直接观察；该结果仍不构成 FP2 
    `032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5`；
 2. Attempt 8 已通过 launch discriminator；native DNT 映射按既有 Artifact v5 contract 做最小修复，
    focused frozen-evidence replay 已通过；
-3. storage probe 改用 bounded persistent cookie，comparator 只以 freshness 判 profile 隔离；focused
-   regression 后用新 attempt 关闭同一 A1→A2→B1 Gate，不扩大 timeout、retry 或另造 recovery Gate。
+3. storage probe 改用 bounded persistent cookie；storage/Canvas relation focused regression 与冻结
+   evidence 全量离线比较已通过；用新 attempt 关闭同一 A1→A2→B1 Gate，不扩大 timeout、retry 或
+   另造 recovery Gate。
 
 attempt 编号只属于 immutable evidence lineage，不是工程 Gate。
 

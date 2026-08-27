@@ -1002,7 +1002,7 @@ async function capture(factory) {
         )
         self.assertEqual(
             fp2.sha256_file(fp2.RELATION_PATH),
-            "c6a919f6a792bcf9781195d049f47960c68d1903c5ebc69f7cecfe837978e191",
+            "95936ce9253a3cc4dc547eafbcb6bb514a2129fed5a43a0fd04a8cea9dc86231",
         )
 
     def test_load_artifact_accepts_strict_v5_without_legacy_key_count(self) -> None:
@@ -1268,6 +1268,20 @@ async function capture(factory) {
         comparisons = self.make_comparisons()
         comparisons["B1"]["identityProjection"]["top-window"]["localeTimezone"]["timeZone"] = "Other/Zone"
         self.assertCode("ab_common_identity_mismatch", fp2.compare_ab, comparisons["A1"], comparisons["A2"], comparisons["B1"], self.artifact_a, self.artifact_b, self.ledger, self.relation)
+
+    def test_full_b_expected_canvas_raw_change_passes(self) -> None:
+        comparisons = self.make_comparisons()
+        for item in comparisons.values():
+            worker_canvas = copy.deepcopy(item["rawRealms"]["top-window"]["canvas"])
+            worker_canvas["resultPresent"] = True
+            worker_canvas.pop("dataUrlHash", None)
+            for realm in fp2.WORKER_REALMS:
+                item["rawRealms"][realm]["workerCanvas"] = copy.deepcopy(worker_canvas)
+                item["rawRealms"][realm]["capabilities"]["workerCanvas"] = {"apiPresent": True}
+                item["capabilityShape"][realm]["workerCanvas"] = {"status": "conditional-if-api-present", "apiPresent": True}
+                item["identityProjection"][realm]["workerCanvas"] = copy.deepcopy(worker_canvas)
+        result = fp2.compare_ab(comparisons["A1"], comparisons["A2"], comparisons["B1"], self.artifact_a, self.artifact_b, self.ledger, self.relation)
+        self.assertTrue(result["commonFieldsStable"])
 
     def test_full_b_canvas_raw_unexplained_drift(self) -> None:
         raw_a = {"canvas": {"rawHash": marker_hash("a"), "rawRgbaHash": marker_hash("a"), "decodedPngPixelsHash": marker_hash("a")}, "fonts": {"injectedFonts": [], "fontUniverseWidths": {}}}

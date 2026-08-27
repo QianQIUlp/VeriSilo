@@ -125,10 +125,10 @@
   },
   "canvas": {
     "windowToWindow": "exact-equal",
-    "workerWhenApplicable": "decoded-pixels-equal for raw pixels; PNG blob bytes must be stable within the same Artifact and deterministically related across Artifact A/B",
+    "workerWhenApplicable": "exact-equal within the same Artifact; full-B raw/raw-RGBA/decoded pixels may differ when fonts or fonts:spacing_seed changed with matching window font/width evidence; PNG/export remains canvas:seed-related",
     "fullArtifactB": {
       "export": "expected-different when canvas:seed differs",
-      "raw": "decoded-pixels-equal unless fonts or fonts:spacing_seed changed with matching font/width evidence; raw change is otherwise unexplained drift"
+      "raw": "same-Artifact exact; full-B window/worker raw family may change only when fonts or fonts:spacing_seed changed with matching window font/width evidence; raw change is otherwise unexplained drift"
     },
     "pngContract": [
       "signature-valid",

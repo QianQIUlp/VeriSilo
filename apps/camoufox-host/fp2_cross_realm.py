@@ -1345,14 +1345,21 @@ def compare_ab(
                     for surface_name in ("canvas", "workerCanvas"):
                         canvas = projection.get(surface_name)
                         if isinstance(canvas, dict):
-                            for field in ("dataUrlHash", "exportHash", "pngBytesHash"):
+                            for field in (
+                                "dataUrlHash",
+                                "exportHash",
+                                "pngBytesHash",
+                                "rawHash",
+                                "rawRgbaHash",
+                                "decodedPngPixelsHash",
+                            ):
                                 canvas.pop(field, None)
         compare_projection(f"A/B.{realm}", a_projection, b_projection, "ab_common_identity_mismatch")
     return {
         "staticDiffKeys": sorted(changed),
         "expectedDifferencesChecked": True,
         "commonFieldsStable": True,
-        "fullBCanvasRule": "font/spacing evidence permits raw family change; export remains seed-related",
+        "fullBCanvasRule": "same-Artifact exact; full-B font/spacing evidence permits raw family change; export remains seed-related",
     }
 
 
