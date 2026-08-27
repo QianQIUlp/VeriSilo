@@ -168,6 +168,14 @@ FORMAL_R1_V2_CANVAS_BROWSER_BINDING = {
     "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
 }
 
+FORMAL_R1_V3_CANVAS_BROWSER_BINDING = {
+    "archiveSha256": "032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5",
+    "archiveSizeBytes": 493493005,
+    "buildId": "20260811045234",
+    "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+    "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+}
+
 DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS = [
     key for key in SESSION_VARIABLE_SIGNAL_KEYS if key != "canvasExportHash"
 ]
@@ -643,6 +651,7 @@ def canvas_policy_variant_for_browser_binding(binding: Any) -> str:
             DETERMINISTIC_CANVAS_BROWSER_BINDING,
             FORMAL_R1_CANVAS_BROWSER_BINDING,
             FORMAL_R1_V2_CANVAS_BROWSER_BINDING,
+            FORMAL_R1_V3_CANVAS_BROWSER_BINDING,
         )
     ):
         matches.append(DETERMINISTIC_CANVAS_POLICY_VARIANT)
