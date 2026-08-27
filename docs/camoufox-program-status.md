@@ -111,14 +111,18 @@ Formal-v2 的 direct/supervised native Windows evidence 已证明 Juggler 启动
 `missing field recordType` / no-engine Search 错误；context 未返回。但更早同一 Formal-v2 曾成功
 launch，因此 Search defect 是高价值候选 blocker，不是已证明的唯一 launch 根因。
 
+Formal-v3 Attempt 8 已直接证明默认 context 返回，旧 Search 错误消失，MediaDevices readiness 与
+Voices phase 均通过；A1 随后因 validator 将 native DNT 的 absent header (`null`) 与 Firefox
+`navigator.doNotTrack="unspecified"` 强制字符串相等而 Failed。该 attempt 保持不可变；这是已定位的
+harness mapping defect，不是新的 recovery Gate。
+
 当前最短完整路径：
 
 1. Formal-v3 fresh Windows-target build 已完成并绑定为 compiled-only candidate：ZIP
    `032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5`；
-2. 在本机用既有 supervisor/deadline 做 launch discriminator：pipe handles valid、默认 context 在
-   60 秒内返回，stderr 不再出现旧 schema/no-engine 错误；
-3. discriminator 通过后，在同一 FP2 Gate 内直接完成 A1→A2→B1；若 Search 错误消失但仍 hang，
-   只根据新 evidence 继续定位，不扩大 timeout、retry 或另造 recovery Gate。
+2. Attempt 8 已通过 launch discriminator；native DNT 映射按既有 Artifact v5 contract 做最小修复，
+   focused frozen-evidence replay 已通过；
+3. 新 attempt 在同一 FP2 Gate 内直接完成 A1→A2→B1，不扩大 timeout、retry 或另造 recovery Gate。
 
 attempt 编号只属于 immutable evidence lineage，不是工程 Gate。
 
@@ -146,6 +150,7 @@ Formal-v3 static source candidate（已闭合）
 | Formal `0005` static candidate | patch SHA-256 `998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec`；parent pre/post `c6171e…` / `c43447…` |
 | Formal-v3 source/recipe lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json`；SHA-256 `a32cf21852909be6ed4a3a4b10dec9310533908996dd73e465535e262f61bc53`；static candidate |
 | 最近 Windows-target build result | Formal-v3 result lock SHA-256 `4eeffbf1dc505c743871a90510f81854243f48fc9abffc4fd1459079cab3b631`；ZIP SHA-256 `032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5`；compiled only，等待 native qualification |
+| FP2 Attempt 8 | run `fp2-20260827T082048Z-9a7821e264`；report SHA-256 `86f0ae525925809757456c11fec33b5c7a20a4d6fa00d686bda903f75ca1cc53`；immutable Failed at native-DNT harness mapping；launch/Search/MediaDevices/Voices discriminator passed |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | FP2 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 Failed；report `274cdf14…`；claim `4f3e376f…`；this native Windows host only |

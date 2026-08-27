@@ -386,8 +386,18 @@ class FP2NoBrowserTests(unittest.TestCase):
         self.assertNotIn("privacySignals", projection)
         self.assertNotIn("dnt", projection["httpHeaders"]["identityHeaders"])
         self.assertNotIn("sec-gpc", projection["httpHeaders"]["identityHeaders"])
+        realm["navigator"]["doNotTrack"] = "unspecified"
+        realm["privacySignals"]["doNotTrack"]["value"] = "unspecified"
+        realm["requestHeaders"]["identityHeaders"]["dnt"] = None
+        fp2.validate_realm_result("A1", "top-window", realm, artifact, self.ledger)
         realm["requestHeaders"]["identityHeaders"]["dnt"] = "arbitrary"
         self.assertCode("dnt_mapping_mismatch", fp2.validate_header_coherence, "A1", "top-window", realm, artifact)
+        worker = self.make_realm(artifact, "dedicated-worker", artifact_label="A")
+        worker["navigator"]["doNotTrack"] = None
+        worker["capabilities"]["privacySignals"]["doNotTrack"] = {"apiPresent": False}
+        worker["privacySignals"]["doNotTrack"] = {"apiPresent": False, "value": None}
+        worker["requestHeaders"]["identityHeaders"]["dnt"] = "1"
+        fp2.validate_header_coherence("A1", "dedicated-worker", worker, artifact)
         realm = self.make_realm(artifact, "top-window", artifact_label="A")
         realm["requestHeaders"]["identityHeaders"]["sec-gpc"] = "arbitrary"
         self.assertCode("gpc_mapping_mismatch", fp2.validate_header_coherence, "A1", "top-window", realm, artifact)

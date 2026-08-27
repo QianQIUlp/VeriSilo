@@ -887,8 +887,16 @@ def validate_header_coherence(label: str, realm: str, result: dict[str, Any], ar
     if "navigator.doNotTrack" in config:
         require("dnt" in identity, "header_observation_missing", f"{label}.{realm}.dnt")
         require(identity["dnt"] == str(configured_dnt), "dnt_mapping_mismatch", f"{label}.{realm}")
-    elif "dnt" in identity:
-        require(identity["dnt"] == str(navigator_value.get("doNotTrack")), "dnt_mapping_mismatch", f"{label}.{realm}")
+    elif "dnt" in identity and (
+        (((result.get("capabilities") or {}).get("privacySignals") or {}).get("doNotTrack") or {}).get("apiPresent") is True
+    ):
+        observed_dnt = navigator_value.get("doNotTrack")
+        require(
+            (identity["dnt"] is None and observed_dnt in (None, "unspecified"))
+            or identity["dnt"] == str(observed_dnt),
+            "dnt_mapping_mismatch",
+            f"{label}.{realm}",
+        )
     configured_gpc = config.get("navigator.globalPrivacyControl")
     if "navigator.globalPrivacyControl" in config:
         require("sec-gpc" in identity, "header_observation_missing", f"{label}.{realm}.sec-gpc")
