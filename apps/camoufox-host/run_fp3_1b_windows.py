@@ -8,6 +8,7 @@ runtime tree, and appends one bounded network observation to ``observed.json``.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -264,6 +265,17 @@ def verify_self_built_browser_root(
 
 OBSERVATION_SCRIPT = r"""
 async ({ipUrl, stunUrl, exitTimeoutMs, geoTimeoutMs, iceTimeoutMs}) => {
+  const withTimeout = (promise, timeoutMs, label) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const error = new Error(`${label} timed out`);
+      error.name = "TimeoutError";
+      reject(error);
+    }, timeoutMs);
+    Promise.resolve(promise).then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
   const errors = [];
   const observation = {
     status: "completed",
@@ -281,14 +293,15 @@ async ({ipUrl, stunUrl, exitTimeoutMs, geoTimeoutMs, iceTimeoutMs}) => {
   };
 
   const exitController = new AbortController();
-  const exitTimer = setTimeout(() => exitController.abort(), exitTimeoutMs);
   try {
-    const response = await fetch(ipUrl, {
-      cache: "no-store",
-      credentials: "omit",
-      signal: exitController.signal,
-    });
-    const payload = await response.json();
+    const {response, payload} = await withTimeout((async () => {
+      const response = await fetch(ipUrl, {
+        cache: "no-store",
+        credentials: "omit",
+        signal: exitController.signal,
+      });
+      return {response, payload: await response.json()};
+    })(), exitTimeoutMs, "public-exit");
     observation.publicExit = {
       success: response.ok && payload?.success === true,
       httpStatus: response.status,
@@ -302,36 +315,39 @@ async ({ipUrl, stunUrl, exitTimeoutMs, geoTimeoutMs, iceTimeoutMs}) => {
       longitude: Number.isFinite(payload?.longitude) ? payload.longitude : null,
     };
   } catch (error) {
+    exitController.abort();
     observation.publicExit = {
       success: false,
       error: error?.name ?? "Error",
     };
     errors.push(`public-exit:${error?.name ?? "Error"}`);
-  } finally {
-    clearTimeout(exitTimer);
   }
 
-  observation.geolocation = await new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      resolve({status: "unavailable"});
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => resolve({
-        status: "observed",
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy,
-        timestamp: position.timestamp,
-      }),
-      (error) => resolve({
-        status: "failed",
-        code: error.code,
-        message: String(error.message ?? "").slice(0, 120),
-      }),
-      {enableHighAccuracy: false, maximumAge: 0, timeout: geoTimeoutMs},
-    );
-  });
+  try {
+    observation.geolocation = await withTimeout(new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve({status: "unavailable"});
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve({
+          status: "observed",
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          timestamp: position.timestamp,
+        }),
+        (error) => resolve({
+          status: "failed",
+          code: error.code,
+          message: String(error.message ?? "").slice(0, 120),
+        }),
+        {enableHighAccuracy: false, maximumAge: 0, timeout: geoTimeoutMs},
+      );
+    }), geoTimeoutMs + 1000, "geolocation");
+  } catch (error) {
+    observation.geolocation = {status: "failed", error: error?.name ?? "Error"};
+  }
   if (observation.geolocation.status !== "observed") {
     errors.push(`geolocation:${observation.geolocation.status}`);
   }
@@ -342,7 +358,6 @@ async ({ipUrl, stunUrl, exitTimeoutMs, geoTimeoutMs, iceTimeoutMs}) => {
     peer = new RTCPeerConnection({iceServers: [{urls: [stunUrl]}]});
     peer.createDataChannel("fp3");
     let completed = false;
-    let timedOut = false;
     const gathered = new Promise((resolve) => {
       const finish = () => {
         if (!completed) {
@@ -381,27 +396,23 @@ async ({ipUrl, stunUrl, exitTimeoutMs, geoTimeoutMs, iceTimeoutMs}) => {
         if (peer.iceGatheringState === "complete") finish();
       });
     });
-    await peer.setLocalDescription(await peer.createOffer());
-    await Promise.race([
-      gathered,
-      new Promise((resolve) => setTimeout(() => {
-        timedOut = true;
-        resolve();
-      }, iceTimeoutMs)),
-    ]);
+    await withTimeout((async () => {
+      await peer.setLocalDescription(await peer.createOffer());
+      await gathered;
+    })(), iceTimeoutMs, "ice");
     observation.ice = {
       completed,
-      timedOut,
+      timedOut: false,
       candidateCount: candidates.length,
       candidates,
     };
-    if (!completed || timedOut || candidates.length === 0) {
+    if (!completed || candidates.length === 0) {
       errors.push("ice:incomplete");
     }
   } catch (error) {
     observation.ice = {
       completed: false,
-      timedOut: false,
+      timedOut: error?.name === "TimeoutError",
       candidateCount: candidates.length,
       candidates,
       error: error?.name ?? "Error",
@@ -444,15 +455,18 @@ class FP3ManagedHost(host_v1.CamoufoxHost):
             stun_url = os.environ.get("VERISILO_FP3_STUN_URL", STUN_URL)
             if stun_url != STUN_URL:
                 raise FP3HostError("STUN URL differs from the frozen FP3 input")
-            observation = await page.evaluate(
-                OBSERVATION_SCRIPT,
-                {
-                    "ipUrl": IP_OBSERVATION_URL,
-                    "stunUrl": stun_url,
-                    "exitTimeoutMs": 20_000,
-                    "geoTimeoutMs": 15_000,
-                    "iceTimeoutMs": 10_000,
-                },
+            observation = await asyncio.wait_for(
+                page.evaluate(
+                    OBSERVATION_SCRIPT,
+                    {
+                        "ipUrl": IP_OBSERVATION_URL,
+                        "stunUrl": stun_url,
+                        "exitTimeoutMs": 20_000,
+                        "geoTimeoutMs": 15_000,
+                        "iceTimeoutMs": 10_000,
+                    },
+                ),
+                timeout=55,
             )
         except Exception as exc:  # noqa: BLE001 - bounded type only enters evidence
             observation = {
