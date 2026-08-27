@@ -1702,7 +1702,7 @@ impl RuntimeManager {
                 error
             })?;
         }
-        network_evidence.browser_routing = RuntimeEvidenceState::Applied;
+        mark_browser_routing_applied(&silo.network_profile, &mut network_evidence);
         let started_at = Utc::now();
         let runtime_id = network_evidence.runtime_id;
         let activation = RuntimeActivation {
@@ -2495,6 +2495,12 @@ fn asserted_exit_state(has_public_ip_observation: bool) -> RuntimeEvidenceState 
         RuntimeEvidenceState::Observed
     } else {
         RuntimeEvidenceState::Failed
+    }
+}
+
+fn mark_browser_routing_applied(profile: &NetworkProfile, evidence: &mut RuntimeNetworkEvidence) {
+    if !matches!(profile, NetworkProfile::Direct { .. }) {
+        evidence.browser_routing = RuntimeEvidenceState::Applied;
     }
 }
 
@@ -3826,6 +3832,8 @@ mod tests {
                     isp: None,
                     timezone: None,
                     network_hint: NativeNetworkHint::Unknown,
+                    latitude: None,
+                    longitude: None,
                 }),
                 dns: NativeDnsObservation {
                     state: NativeDnsState::Failed,
@@ -5144,6 +5152,8 @@ process.stdin.on('end', () => {
         assert!(runtime.child.is_some());
         assert!(runtime.engine_runtime.is_some());
         assert!(runtime.profile_lease.is_some());
+        let network = activation.network_evidence.expect("Host network evidence");
+        assert_eq!(network.browser_routing, RuntimeEvidenceState::NotRequested);
         let evidence = activation.engine_evidence.expect("Host evidence");
         assert_eq!(evidence.launched_adapter, Some(EngineAdapterId::Camoufox));
         assert_eq!(evidence.verified_adapter, None);
@@ -5531,6 +5541,35 @@ process.stdin.on('end', () => {
         let activation = runtime.activation();
         assert!(activation.active_silo_id.is_none());
         assert!(matches!(activation.state, RuntimeState::Failed));
+    }
+
+    #[test]
+    fn browser_routing_evidence_is_not_applied_for_direct_profiles() {
+        let direct = NetworkProfile::Direct {
+            proxy_required: false,
+        };
+        let mut direct_evidence = RuntimeNetworkEvidence::configured(&direct, false);
+        super::mark_browser_routing_applied(&direct, &mut direct_evidence);
+        assert_eq!(
+            direct_evidence.browser_routing,
+            RuntimeEvidenceState::NotRequested
+        );
+
+        let fixed_proxy = NetworkProfile::FixedProxy {
+            proxy_required: false,
+            scheme: ProxyScheme::Socks5,
+            host: "127.0.0.1".to_owned(),
+            port: 1,
+            bypass_list: Vec::new(),
+            credential_reference: None,
+            external_mihomo: None,
+        };
+        let mut fixed_proxy_evidence = RuntimeNetworkEvidence::configured(&fixed_proxy, false);
+        super::mark_browser_routing_applied(&fixed_proxy, &mut fixed_proxy_evidence);
+        assert_eq!(
+            fixed_proxy_evidence.browser_routing,
+            RuntimeEvidenceState::Applied
+        );
     }
 
     #[test]

@@ -99,14 +99,20 @@ schema/default-engine 语义。Formal series 精确为
 
 ## 当前下一任务
 
-### FP3 network identity / Geo / WebRTC
+### FP3-1 native Windows required FixedProxy discriminator
 
-FP2 已由 Formal-v3 Attempt 10 的完整 A1→A2→B1 evidence 关闭；Attempt 8、9 的 Failed 结果保持
-不可变，只作为 lineage，不再形成 recovery Gate。
+FP3-0 configured-input Gate 已闭合。Network Check v2 保留成对经纬度并兼容历史 v1；opt-in
+Artifact/Policy v6 将公网地址、国家、时区、显式 locale、经纬度和单一地址族 WebRTC 目标冻结为
+严格、可复现的 `network-bound` 配置；默认 writer 仍为 v5。Direct 没有受管路由动作，启动后
+`browserRouting` 保持 `not_requested`。合同见
+[FP3 network identity contract](camoufox-fp3-network-identity-contract.md)。
 
-下一项最高价值问题是：Network Policy、Geo 与 WebRTC 的 configured/applied/observed 边界能否在不
-吞并 Profile、Artifact 或 Engine 生命周期的前提下形成可判定的 FP3 输入。FP3 涉及新的产品语义和
-原生 runtime Gate，本轮只记录目标，不进入实现、启动或证据生成。
+这些结果只直接证明 configured input 与状态边界；尚未证明 Camoufox 已应用代理、Geo 或 WebRTC
+配置，也未观察公网出口、浏览器 Geolocation、ICE/STUN 或实际 DNS 路径。
+
+下一项最高价值 Gate 是在原生 Windows 上为 required FixedProxy 建立 Host routing seam，并用冻结
+输入判定 route application 与实际出口/Geo/WebRTC observation。它需要浏览器启动、外部网络
+evidence 和新的 runtime 授权；本 checkpoint 不进入该风险边界。
 
 ## 后续 Gate 顺序
 
@@ -114,7 +120,8 @@ FP2 已由 Formal-v3 Attempt 10 的完整 A1→A2→B1 evidence 关闭；Attempt
 Formal-v3 static source candidate（已闭合）
 → fresh Windows build/provenance（已闭合）
 → native launch discriminator + FP2 A1→A2→B1 qualification（已闭合）
-→ FP3 network identity / Geo / WebRTC（下一 Gate，未进入）
+→ FP3-0 configured network identity input（已闭合）
+→ FP3-1 native Windows required FixedProxy discriminator（下一 Gate，未进入）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery

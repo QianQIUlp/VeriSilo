@@ -303,6 +303,43 @@ pub struct NativeIpExitObservation {
     pub isp: Option<String>,
     pub timezone: Option<String>,
     pub network_hint: NativeNetworkHint,
+    #[serde(
+        default,
+        deserialize_with = "present_nullable::deserialize",
+        serialize_with = "present_nullable::serialize",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub latitude: Option<Option<f64>>,
+    #[serde(
+        default,
+        deserialize_with = "present_nullable::deserialize",
+        serialize_with = "present_nullable::serialize",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub longitude: Option<Option<f64>>,
+}
+
+mod present_nullable {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de>,
+    {
+        Option::<T>::deserialize(deserializer).map(Some)
+    }
+
+    pub fn serialize<S, T>(value: &Option<Option<T>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: Serialize,
+    {
+        match value {
+            Some(value) => value.serialize(serializer),
+            None => serializer.serialize_none(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -766,7 +803,7 @@ fn validate_network_check(
     reference_time: DateTime<Utc>,
 ) -> Result<(), NativeHostError> {
     let age = reference_time.signed_duration_since(result.checked_at);
-    if result.schema_version != 1
+    if !matches!(result.schema_version, 1 | 2)
         || age > Duration::seconds(NETWORK_CHECK_MAX_AGE_SECONDS)
         || age < Duration::seconds(-SNAPSHOT_CLOCK_SKEW_SECONDS)
         || result.errors.len() > 10
@@ -776,6 +813,23 @@ fn validate_network_check(
     }
 
     if let Some(ip) = &result.ip {
+        let coordinates_present = ip.latitude.is_some() || ip.longitude.is_some();
+        let latitude = ip.latitude.flatten();
+        let longitude = ip.longitude.flatten();
+        if (result.schema_version == 1 && coordinates_present)
+            || (result.schema_version == 2
+                && (ip.latitude.is_none()
+                    || ip.longitude.is_none()
+                    || latitude.is_some() != longitude.is_some()))
+            || latitude.is_some_and(|latitude| {
+                !latitude.is_finite() || !(-90.0..=90.0).contains(&latitude)
+            })
+            || longitude.is_some_and(|longitude| {
+                !longitude.is_finite() || !(-180.0..=180.0).contains(&longitude)
+            })
+        {
+            return Err(NativeHostError::EvidenceRejected);
+        }
         let parsed_address = ip
             .address
             .parse::<IpAddr>()
@@ -1688,6 +1742,8 @@ mod tests {
             isp: None,
             timezone: None,
             network_hint: NativeNetworkHint::Unknown,
+            latitude: None,
+            longitude: None,
         });
         assert!(network_evidence_has_public_ip_observation(&public_ip));
         public_ip
@@ -1757,6 +1813,75 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn validates_v2_coordinate_pairs_and_keeps_v1_coordinate_free() {
+        let mut legacy_with_coordinates = test_network_check();
+        legacy_with_coordinates.ip = Some(test_ip(Some(1.3521), Some(103.8198)));
+        assert!(super::validate_network_check(&legacy_with_coordinates, Utc::now()).is_err());
+
+        let mut legacy_with_null_coordinates = test_network_check();
+        legacy_with_null_coordinates.ip = Some(test_ip(None, None));
+        assert!(super::validate_network_check(&legacy_with_null_coordinates, Utc::now()).is_err());
+
+        let mut legacy_ip = test_ip(None, None);
+        legacy_ip.latitude = None;
+        legacy_ip.longitude = None;
+        let legacy_json = serde_json::to_value(&legacy_ip).expect("serialize legacy IP");
+        assert!(legacy_json.get("latitude").is_none());
+        assert!(legacy_json.get("longitude").is_none());
+        let legacy_roundtrip: NativeIpExitObservation =
+            serde_json::from_value(legacy_json).expect("read legacy IP");
+        assert_eq!(legacy_roundtrip.latitude, None);
+
+        let mut valid_v2 = test_network_check();
+        valid_v2.schema_version = 2;
+        valid_v2.ip = Some(test_ip(Some(1.3521), Some(103.8198)));
+        super::validate_network_check(&valid_v2, Utc::now()).expect("valid v2 coordinates");
+
+        let mut v2_without_coordinates = test_network_check();
+        v2_without_coordinates.schema_version = 2;
+        v2_without_coordinates.ip = Some(test_ip(None, None));
+        super::validate_network_check(&v2_without_coordinates, Utc::now())
+            .expect("v2 may mark coordinates unavailable");
+        let v2_json = serde_json::to_value(
+            v2_without_coordinates
+                .ip
+                .as_ref()
+                .expect("v2 IP observation"),
+        )
+        .expect("serialize v2 IP");
+        assert!(v2_json
+            .get("latitude")
+            .is_some_and(serde_json::Value::is_null));
+        assert!(v2_json
+            .get("longitude")
+            .is_some_and(serde_json::Value::is_null));
+        let v2_roundtrip: NativeIpExitObservation =
+            serde_json::from_value(v2_json).expect("read v2 IP");
+        assert_eq!(v2_roundtrip.latitude, Some(None));
+
+        let mut v2_missing_coordinates = test_network_check();
+        v2_missing_coordinates.schema_version = 2;
+        v2_missing_coordinates.ip = Some(test_ip(None, None));
+        if let Some(ip) = &mut v2_missing_coordinates.ip {
+            ip.latitude = None;
+            ip.longitude = None;
+        }
+        assert!(super::validate_network_check(&v2_missing_coordinates, Utc::now()).is_err());
+
+        for (latitude, longitude) in [
+            (Some(1.3521), None),
+            (None, Some(103.8198)),
+            (Some(90.1), Some(103.8198)),
+            (Some(1.3521), Some(180.1)),
+            (Some(f64::NAN), Some(103.8198)),
+        ] {
+            let mut invalid = valid_v2.clone();
+            invalid.ip = Some(test_ip(latitude, longitude));
+            assert!(super::validate_network_check(&invalid, Utc::now()).is_err());
+        }
+    }
+
     fn publish_running_snapshot(
         root: &std::path::Path,
         silo_id: uuid::Uuid,
@@ -1818,6 +1943,24 @@ mod tests {
                 explanation: NETWORK_REPUTATION_EXPLANATION.to_owned(),
             },
             errors: vec!["No useful result.".to_owned()],
+        }
+    }
+
+    fn test_ip(latitude: Option<f64>, longitude: Option<f64>) -> NativeIpExitObservation {
+        NativeIpExitObservation {
+            address: "8.8.8.8".to_owned(),
+            version: NativeIpVersion::Ipv4,
+            country: None,
+            country_code: None,
+            region: None,
+            city: None,
+            asn: None,
+            organization: None,
+            isp: None,
+            timezone: None,
+            network_hint: NativeNetworkHint::Unknown,
+            latitude: Some(latitude),
+            longitude: Some(longitude),
         }
     }
 

@@ -95,6 +95,8 @@ HTTP 认证收据不会保存目标、用户名、密码、授权头或响应头
 
 Companion 回传始终是 `extension_asserted`，公网出口最多为 `observed`。HTTP 认证若满足上述联合条件，认证阶段的来源另记为 `relay_observed`。这两个来源只表示同一 Silo/runtime 和检查窗口内的本机联合观测；Native inbox 没有独立认证浏览器进程，relay 也看不到扩展身份，因此 UI 和报告不得把它描述成独立可信的端到端证明。
 
+Network Check v2 在该时限内同时保留 Provider 返回的经纬度；缺失、非有限、越界或不成对的坐标统一为不可用，历史 v1 结果仍可读取。坐标只是外部 Provider 的 `extension_asserted` Geo 观测，不证明浏览器 Geolocation API 的输出。Direct 配置没有受管路由动作，因此浏览器成功启动也不会把 `browserRouting` 升级为 `applied`。
+
 Companion 的出口观测有固定有效期。已接受的观测失败或过期后不会继续显示为 `verified`/`observed`；required-proxy runtime 会撤销其 relay，且不会由后台刷新自动恢复。Rust 回归只能证明本机 listener/连接状态机和启动参数，没有替代真实 Windows Chrome/Edge 的 DNS、WebRTC、QUIC 与系统流量观测。
 
 WebRTC 当前能验证浏览器隐私设置的控制权和回读结果，但没有默认公共 STUN 服务或包级观测，因此不会显示“实际 WebRTC 出口已证明”。

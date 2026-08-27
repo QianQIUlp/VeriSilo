@@ -15,11 +15,13 @@ Schema families:
   (website-observed values only: no artifactId, no internal seeds, no canvas,
   no artifact-supplied font input).
 
-Version contract (M2.0.2):
+Version contract:
 
 - Artifact/Policy v5 adds the FF>=135 DNT-native, DPR host-bound, and
   managed/native GPC contracts; v3/v4 remain readable for historical
-  artifacts; ObservedWebsiteDigest is v2.
+  artifacts. Artifact/Policy v6 is an opt-in network-bound extension with
+  exact Geo and WebRTC configured inputs; v5 remains the default writer and
+  ObservedWebsiteDigest remains v2.
   Old v2 artifacts are
   rejected with UnsupportedSchemaVersionError (protocol code
   unsupported_schema_version), never as a plain missing-field error.
@@ -49,11 +51,14 @@ Font policy (M2.0.1):
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
+import math
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 POLICY_SCHEMA_V3 = "verisilo-camoufox-identity-policy/v3"
 ARTIFACT_SCHEMA_V3 = "verisilo-camoufox-resolved-identity/v3"
@@ -61,6 +66,8 @@ POLICY_SCHEMA_V4 = "verisilo-camoufox-identity-policy/v4"
 ARTIFACT_SCHEMA_V4 = "verisilo-camoufox-resolved-identity/v4"
 POLICY_SCHEMA_V5 = "verisilo-camoufox-identity-policy/v5"
 ARTIFACT_SCHEMA_V5 = "verisilo-camoufox-resolved-identity/v5"
+POLICY_SCHEMA_V6 = "verisilo-camoufox-identity-policy/v6"
+ARTIFACT_SCHEMA_V6 = "verisilo-camoufox-resolved-identity/v6"
 POLICY_SCHEMA = POLICY_SCHEMA_V5
 ARTIFACT_SCHEMA = ARTIFACT_SCHEMA_V5
 PROJECTION_SCHEMA = "verisilo-camoufox-stable-signal-projection/v3"
@@ -196,6 +203,9 @@ CANONICAL_JSON_RULE = (
 ARTIFACT_ID_RE = re.compile(r"^identity-[a-z0-9-]{1,63}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 RFC3339_UTC_Z_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
+COUNTRY_CODE_RE = re.compile(r"^[A-Z]{2}$")
+LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}-[A-Z]{2}$")
+TIMEZONE_RE = re.compile(r"^(?:UTC|[A-Za-z0-9_+.-]+(?:/[A-Za-z0-9_+.-]+)+)$")
 
 # --------------------------------------------------------------------------
 # Recursive schema primitives (exact type identity, no bool-as-int).
@@ -391,6 +401,20 @@ V5_MANAGED_VOICES_CONFIG_KEYS = {
 V5_NATIVE_GPC_CONFIG_KEYS = {
     **V5_NATIVE_CONFIG_KEYS,
     GPC_CONFIG_KEY: BOOL,
+}
+NETWORK_IDENTITY_SPEC = {
+    "keys": {
+        "expectedPublicAddress": STR,
+        "countryCode": STR,
+        "timezone": STR,
+        "locale": STR,
+        "latitude": FLOAT,
+        "longitude": FLOAT,
+    }
+}
+NETWORK_GEO_CONFIG_KEYS = {
+    "geolocation:latitude": FLOAT,
+    "geolocation:longitude": FLOAT,
 }
 POLICY_SPEC = {
     "keys": {
@@ -609,6 +633,54 @@ def _v5_artifact_spec(voices_mode: str, gpc_policy: str) -> dict[str, Any]:
     }
 
 
+def _v6_config_keys(
+    voices_mode: str, gpc_policy: str, ip_version: int
+) -> dict[str, Any]:
+    if ip_version not in (4, 6):
+        raise ValueError(f"unsupported network identity IP version: {ip_version!r}")
+    return {
+        **_v5_config_keys(voices_mode, gpc_policy),
+        **NETWORK_GEO_CONFIG_KEYS,
+        f"webrtc:ipv{ip_version}": STR,
+    }
+
+
+def _network_identity_ip_version(network_identity: Any) -> int:
+    address = (
+        network_identity.get("expectedPublicAddress")
+        if type(network_identity) is dict
+        else None
+    )
+    try:
+        return ipaddress.ip_address(address).version
+    except (TypeError, ValueError):
+        return 4
+
+
+def _v6_artifact_spec(
+    voices_mode: str, gpc_policy: str, network_identity: Any
+) -> dict[str, Any]:
+    return {
+        "keys": {
+            **TOP_LEVEL_SPEC["keys"],
+            "policy": V5_POLICY_SPEC,
+            "networkIdentity": NETWORK_IDENTITY_SPEC,
+            "resolvedConfig": {
+                "keys": _v6_config_keys(
+                    voices_mode,
+                    gpc_policy,
+                    _network_identity_ip_version(network_identity),
+                )
+            },
+            "stableSignalsDeclared": (
+                V5_NATIVE_DECLARED_SPEC
+                if voices_mode == VOICES_MODE_NATIVE
+                else V5_DECLARED_SPEC
+            ),
+        }
+    }
+
+
 class ArtifactIntegrityError(Exception):
     """Raised when an identity artifact fails pre-launch validation."""
 
@@ -788,25 +860,33 @@ def identity_policy(
     voices_mode: str | None = VOICES_MODE_MANAGED,
     gpc_policy: str = GPC_POLICY_MANAGED_OPT_OUT,
     schema_version: int | None = None,
+    network_ip_version: int | None = None,
 ) -> dict:
     if schema_version is None:
         schema_version = 3 if voices_mode is None else 5
-    if schema_version not in (3, 4, 5):
+    if schema_version not in (3, 4, 5, 6):
         raise ValueError(f"unknown identity policy schema version: {schema_version!r}")
     if schema_version == 3 and voices_mode is not None:
         raise ValueError("v3 policy cannot declare voicesMode")
-    if schema_version in (4, 5) and voices_mode not in (
+    if schema_version in (4, 5, 6) and voices_mode not in (
         VOICES_MODE_MANAGED,
         VOICES_MODE_NATIVE,
     ):
         raise ValueError(f"{schema_version} policy requires a voices mode")
-    if schema_version == 5:
+    if schema_version in (5, 6):
         if type(ff_version) is not int or ff_version < 135:
-            raise ValueError("Artifact/Policy v5 requires ffVersion >= 135")
+            raise ValueError(f"Artifact/Policy v{schema_version} requires ffVersion >= 135")
         if gpc_policy not in (GPC_POLICY_NATIVE, GPC_POLICY_MANAGED_OPT_OUT):
             raise ValueError(f"unknown gpc policy: {gpc_policy!r}")
     elif gpc_policy != GPC_POLICY_MANAGED_OPT_OUT:
-        raise ValueError("gpc_policy is only available for Artifact/Policy v5")
+        raise ValueError("gpc_policy is only available for Artifact/Policy v5+")
+    if schema_version == 6:
+        if timezone_mode != "network-bound":
+            raise ValueError("Artifact/Policy v6 requires network-bound timezoneMode")
+        if network_ip_version not in (4, 6):
+            raise ValueError("Artifact/Policy v6 requires network_ip_version 4 or 6")
+    elif network_ip_version is not None:
+        raise ValueError("network_ip_version is only available for Artifact/Policy v6")
     if browser_binding is None:
         # Preserve the legacy default for existing callers and fixtures. New
         # artifact generation always supplies its resolved browser binding.
@@ -825,6 +905,11 @@ def identity_policy(
     elif schema_version == 4:
         stable_website_fields = list(STABLE_WEBSITE_SIGNAL_KEYS)
         required_config_keys = sorted(V4_MANAGED_CONFIG_KEYS)
+    elif schema_version == 6:
+        stable_website_fields = _v5_stable_website_fields(voices_mode, gpc_policy)
+        required_config_keys = sorted(
+            _v6_config_keys(voices_mode, gpc_policy, network_ip_version)
+        )
     elif voices_mode == VOICES_MODE_NATIVE:
         stable_website_fields = _v5_stable_website_fields(voices_mode, gpc_policy)
         required_config_keys = sorted(_v5_config_keys(voices_mode, gpc_policy))
@@ -836,6 +921,7 @@ def identity_policy(
             3: POLICY_SCHEMA_V3,
             4: POLICY_SCHEMA_V4,
             5: POLICY_SCHEMA_V5,
+            6: POLICY_SCHEMA_V6,
         }[schema_version],
         "version": schema_version,
         "targetOs": target_os,
@@ -851,9 +937,9 @@ def identity_policy(
         "requiredConfigKeys": required_config_keys,
         "canonicalJsonRule": CANONICAL_JSON_RULE,
     }
-    if schema_version in (4, 5):
+    if schema_version in (4, 5, 6):
         policy["voicesMode"] = voices_mode
-    if schema_version == 5:
+    if schema_version in (5, 6):
         policy[GPC_POLICY_KEY] = gpc_policy
     return policy
 
@@ -885,7 +971,11 @@ def validate_artifact_strict(artifact: dict) -> None:
     voices_mode = policy.get("voicesMode") if isinstance(policy, dict) else None
 
     gpc_policy = policy.get(GPC_POLICY_KEY) if isinstance(policy, dict) else None
-    if artifact_schema == ARTIFACT_SCHEMA_V5:
+    if artifact_schema == ARTIFACT_SCHEMA_V6:
+        artifact_spec = _v6_artifact_spec(
+            voices_mode, gpc_policy, artifact.get("networkIdentity")
+        )
+    elif artifact_schema == ARTIFACT_SCHEMA_V5:
         artifact_spec = _v5_artifact_spec(voices_mode, gpc_policy)
     elif artifact_schema == ARTIFACT_SCHEMA_V4 and voices_mode == VOICES_MODE_NATIVE:
         artifact_spec = V4_NATIVE_TOP_LEVEL_SPEC
@@ -899,10 +989,12 @@ def validate_artifact_strict(artifact: dict) -> None:
         ARTIFACT_SCHEMA_V3,
         ARTIFACT_SCHEMA_V4,
         ARTIFACT_SCHEMA_V5,
+        ARTIFACT_SCHEMA_V6,
     ):
         errors.append(
             f"schema must be one of {ARTIFACT_SCHEMA_V3!r}, "
-            f"{ARTIFACT_SCHEMA_V4!r}, or {ARTIFACT_SCHEMA_V5!r}"
+            f"{ARTIFACT_SCHEMA_V4!r}, {ARTIFACT_SCHEMA_V5!r}, "
+            f"or {ARTIFACT_SCHEMA_V6!r}"
         )
     artifact_id = artifact.get("artifactId")
     if not isinstance(artifact_id, str) or not ARTIFACT_ID_RE.match(artifact_id):
@@ -940,22 +1032,28 @@ def validate_artifact_strict(artifact: dict) -> None:
             ARTIFACT_SCHEMA_V3: POLICY_SCHEMA_V3,
             ARTIFACT_SCHEMA_V4: POLICY_SCHEMA_V4,
             ARTIFACT_SCHEMA_V5: POLICY_SCHEMA_V5,
+            ARTIFACT_SCHEMA_V6: POLICY_SCHEMA_V6,
         }.get(artifact_schema)
         expected_policy_version = {
             ARTIFACT_SCHEMA_V3: 3,
             ARTIFACT_SCHEMA_V4: 4,
             ARTIFACT_SCHEMA_V5: 5,
+            ARTIFACT_SCHEMA_V6: 6,
         }.get(artifact_schema)
         if policy.get("schema") != expected_policy_schema:
             errors.append(f"policy.schema must be {expected_policy_schema!r}")
         if policy.get("version") != expected_policy_version:
             errors.append(f"policy.version must be {expected_policy_version}")
-        if artifact_schema in (ARTIFACT_SCHEMA_V4, ARTIFACT_SCHEMA_V5) and voices_mode not in (
+        if artifact_schema in (
+            ARTIFACT_SCHEMA_V4,
+            ARTIFACT_SCHEMA_V5,
+            ARTIFACT_SCHEMA_V6,
+        ) and voices_mode not in (
             VOICES_MODE_MANAGED,
             VOICES_MODE_NATIVE,
         ):
             errors.append("policy.voicesMode must be managed or native")
-        if artifact_schema == ARTIFACT_SCHEMA_V5:
+        if artifact_schema in (ARTIFACT_SCHEMA_V5, ARTIFACT_SCHEMA_V6):
             if policy.get(GPC_POLICY_KEY) not in (
                 GPC_POLICY_NATIVE,
                 GPC_POLICY_MANAGED_OPT_OUT,
@@ -964,14 +1062,16 @@ def validate_artifact_strict(artifact: dict) -> None:
                     "policy.navigator.gpcPolicy must be native or managed-opt-out"
                 )
             if isinstance(policy.get("ffVersion"), int) and policy["ffVersion"] < 135:
-                errors.append("Artifact/Policy v5 requires ffVersion >= 135")
+                errors.append("Artifact/Policy v5+ requires ffVersion >= 135")
         if policy.get("targetOs") not in ("linux", "macos", "windows"):
             errors.append("policy.targetOs unsupported")
         if policy.get("fontMode") not in ("inherit", "managed"):
             errors.append("policy.fontMode must be inherit or managed")
         if policy.get("timezoneMode") not in ("fixed", "network-bound"):
             errors.append("policy.timezoneMode must be fixed or network-bound")
-        if artifact_schema == ARTIFACT_SCHEMA_V5:
+        if artifact_schema == ARTIFACT_SCHEMA_V6 and policy.get("timezoneMode") != "network-bound":
+            errors.append("Artifact/Policy v6 requires network-bound timezoneMode")
+        if artifact_schema in (ARTIFACT_SCHEMA_V5, ARTIFACT_SCHEMA_V6):
             expected_stable_fields = _v5_stable_website_fields(voices_mode, gpc_policy)
         elif artifact_schema == ARTIFACT_SCHEMA_V4:
             expected_stable_fields = (
@@ -997,7 +1097,15 @@ def validate_artifact_strict(artifact: dict) -> None:
             != expected_canvas_classification
         ):
             errors.append("policy.canvasClassification does not match the canonical map")
-        if artifact_schema == ARTIFACT_SCHEMA_V5:
+        if artifact_schema == ARTIFACT_SCHEMA_V6:
+            expected_config_keys = sorted(
+                _v6_config_keys(
+                    voices_mode,
+                    gpc_policy,
+                    _network_identity_ip_version(artifact.get("networkIdentity")),
+                )
+            )
+        elif artifact_schema == ARTIFACT_SCHEMA_V5:
             expected_config_keys = sorted(_v5_config_keys(voices_mode, gpc_policy))
         elif artifact_schema == ARTIFACT_SCHEMA_V4 and voices_mode == VOICES_MODE_NATIVE:
             expected_config_keys = sorted(V4_NATIVE_CONFIG_KEYS)
@@ -1011,7 +1119,11 @@ def validate_artifact_strict(artifact: dict) -> None:
     config = artifact.get("resolvedConfig")
     if isinstance(config, dict):
         if (
-            artifact_schema in (ARTIFACT_SCHEMA_V4, ARTIFACT_SCHEMA_V5)
+            artifact_schema in (
+                ARTIFACT_SCHEMA_V4,
+                ARTIFACT_SCHEMA_V5,
+                ARTIFACT_SCHEMA_V6,
+            )
             and voices_mode == VOICES_MODE_MANAGED
         ):
             errors.extend(_managed_voice_errors(config.get("voices")))
@@ -1023,13 +1135,17 @@ def validate_artifact_strict(artifact: dict) -> None:
                 ):
                     errors.append(f"resolvedConfig.{key} must be exactly {expected!r}")
         elif (
-            artifact_schema in (ARTIFACT_SCHEMA_V4, ARTIFACT_SCHEMA_V5)
+            artifact_schema in (
+                ARTIFACT_SCHEMA_V4,
+                ARTIFACT_SCHEMA_V5,
+                ARTIFACT_SCHEMA_V6,
+            )
             and voices_mode == VOICES_MODE_NATIVE
         ):
             for key in ("voices", *VOICE_DERIVED_CONFIG):
                 if key in config:
                     errors.append(f"native voices mode forbids resolvedConfig.{key}")
-        if artifact_schema == ARTIFACT_SCHEMA_V5:
+        if artifact_schema in (ARTIFACT_SCHEMA_V5, ARTIFACT_SCHEMA_V6):
             if gpc_policy == GPC_POLICY_MANAGED_OPT_OUT:
                 if config.get(GPC_CONFIG_KEY) is not True:
                     errors.append(
@@ -1040,6 +1156,81 @@ def validate_artifact_strict(artifact: dict) -> None:
                 errors.append(
                     "native gpcPolicy forbids resolvedConfig.navigator.globalPrivacyControl"
                 )
+        if artifact_schema == ARTIFACT_SCHEMA_V6:
+            network_identity = artifact.get("networkIdentity")
+            if isinstance(network_identity, dict):
+                address = network_identity.get("expectedPublicAddress")
+                parsed_address = None
+                try:
+                    parsed_address = ipaddress.ip_address(address)
+                except (TypeError, ValueError):
+                    errors.append("networkIdentity.expectedPublicAddress must be an IP address")
+                if parsed_address is not None and (
+                    not parsed_address.is_global or parsed_address.is_multicast
+                ):
+                    errors.append(
+                        "networkIdentity.expectedPublicAddress must be global unicast"
+                    )
+                if parsed_address is not None and address != str(parsed_address):
+                    errors.append("networkIdentity.expectedPublicAddress must be canonical")
+                country_code = network_identity.get("countryCode")
+                if type(country_code) is not str or not COUNTRY_CODE_RE.fullmatch(country_code):
+                    errors.append("networkIdentity.countryCode must be two uppercase letters")
+                timezone = network_identity.get("timezone")
+                if type(timezone) is not str or not TIMEZONE_RE.fullmatch(timezone):
+                    errors.append("networkIdentity.timezone must be UTC or an IANA-style timezone")
+                else:
+                    try:
+                        ZoneInfo(timezone)
+                    except (ZoneInfoNotFoundError, ValueError):
+                        errors.append("networkIdentity.timezone must be a known IANA timezone")
+                locale = network_identity.get("locale")
+                normalized_locale = None
+                if type(locale) is not str or not LOCALE_RE.fullmatch(locale):
+                    errors.append("networkIdentity.locale must be language-REGION")
+                else:
+                    from camoufox.exceptions import LocaleError
+                    from camoufox.locales import normalize_locale
+
+                    try:
+                        normalized_locale = normalize_locale(locale)
+                    except LocaleError:
+                        errors.append("networkIdentity.locale must be a supported locale")
+                    else:
+                        if (
+                            normalized_locale.as_string != locale
+                            or normalized_locale.region is None
+                            or normalized_locale.script is None
+                        ):
+                            errors.append("networkIdentity.locale must be canonical")
+                latitude = network_identity.get("latitude")
+                longitude = network_identity.get("longitude")
+                if type(latitude) is not float or not math.isfinite(latitude) or not -90 <= latitude <= 90:
+                    errors.append("networkIdentity.latitude must be a finite float in [-90, 90]")
+                if type(longitude) is not float or not math.isfinite(longitude) or not -180 <= longitude <= 180:
+                    errors.append("networkIdentity.longitude must be a finite float in [-180, 180]")
+                if config.get("timezone") != timezone:
+                    errors.append("networkIdentity.timezone inconsistent with resolvedConfig")
+                if config.get("geolocation:latitude") != latitude:
+                    errors.append("networkIdentity.latitude inconsistent with resolvedConfig")
+                if config.get("geolocation:longitude") != longitude:
+                    errors.append("networkIdentity.longitude inconsistent with resolvedConfig")
+                if normalized_locale is not None:
+                    if (
+                        config.get("locale:language") != normalized_locale.language
+                        or config.get("locale:region") != normalized_locale.region
+                        or config.get("locale:script") != normalized_locale.script
+                    ):
+                        errors.append("networkIdentity.locale inconsistent with resolvedConfig")
+                if parsed_address is not None:
+                    web_rtc_key = f"webrtc:ipv{parsed_address.version}"
+                    if config.get(web_rtc_key) != str(parsed_address):
+                        errors.append(
+                            "networkIdentity.expectedPublicAddress inconsistent with resolvedConfig"
+                        )
+                if isinstance(policy, dict):
+                    if policy.get("locale") != locale:
+                        errors.append("networkIdentity.locale inconsistent with policy")
         canvas_seed = config.get("canvas:seed")
         if type(canvas_seed) is int and not 0 <= canvas_seed <= 0xFFFFFFFF:
             errors.append(
@@ -1109,7 +1300,7 @@ def validate_artifact_strict(artifact: dict) -> None:
             errors.append("stableSignalsDeclared.fonts inconsistent with resolvedConfig")
         if declared.get("voices") != config.get("voices"):
             errors.append("stableSignalsDeclared.voices inconsistent with resolvedConfig")
-        if artifact_schema != ARTIFACT_SCHEMA_V5 and (
+        if artifact_schema not in (ARTIFACT_SCHEMA_V5, ARTIFACT_SCHEMA_V6) and (
             type(declared.get("devicePixelRatio")) is not int
             or declared.get("devicePixelRatio") != 1
         ):
@@ -1180,6 +1371,7 @@ def assert_artifact_clean(artifact: dict) -> None:
         artifact.get("resolvedConfig", {}),
         artifact.get("stableSignalsDeclared", {}),
         artifact.get("browserBinding", {}),
+        artifact.get("networkIdentity", {}),
     ]
     hits: list[str] = []
     for part in parts:
@@ -1245,6 +1437,7 @@ def verify_artifact_raw(
         ARTIFACT_SCHEMA_V3,
         ARTIFACT_SCHEMA_V4,
         ARTIFACT_SCHEMA_V5,
+        ARTIFACT_SCHEMA_V6,
     ):
         if isinstance(schema, str) and schema.startswith(
             "verisilo-camoufox-resolved-identity/"
@@ -1252,7 +1445,8 @@ def verify_artifact_raw(
             raise UnsupportedSchemaVersionError(
                 f"unsupported artifact schema version: {schema!r}; "
                 f"expected one of {ARTIFACT_SCHEMA_V3!r}, "
-                f"{ARTIFACT_SCHEMA_V4!r}, or {ARTIFACT_SCHEMA_V5!r}"
+                f"{ARTIFACT_SCHEMA_V4!r}, {ARTIFACT_SCHEMA_V5!r}, "
+                f"or {ARTIFACT_SCHEMA_V6!r}"
             )
         raise ArtifactIntegrityError(f"artifact schema mismatch: {schema!r}")
     validate_artifact_strict(artifact)

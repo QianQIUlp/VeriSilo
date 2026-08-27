@@ -28,6 +28,8 @@ from identity_policy import (
     ARTIFACT_SCHEMA,
     ARTIFACT_SCHEMA_V4,
     ARTIFACT_SCHEMA_V3,
+    ARTIFACT_SCHEMA_V5,
+    ARTIFACT_SCHEMA_V6,
     CANVAS_CLASSIFICATION,
     DETERMINISTIC_CANVAS_BROWSER_BINDING,
     DETERMINISTIC_CANVAS_CLASSIFICATION,
@@ -92,6 +94,7 @@ from generate_identity import (
     complete_resolved_config,
     declared_stable_signals,
     rebind_identity_artifact,
+    rebind_network_identity_artifact,
     write_artifact_with_sidecar,
 )
 
@@ -1745,6 +1748,111 @@ def test_v5_gpc_dnt_dpr_policy_is_closed_and_ff_bound() -> None:
         pass
     else:
         raise AssertionError("v5 writer must reject FF < 135")
+
+
+def test_v6_network_identity_rebind_is_deterministic_and_closed() -> None:
+    source = _v5_artifact(VOICES_MODE_MANAGED, GPC_POLICY_MANAGED_OPT_OUT)
+    assert source["schema"] == ARTIFACT_SCHEMA_V5 == ARTIFACT_SCHEMA
+    network_identity = {
+        "expectedPublicAddress": "1.1.1.1",
+        "countryCode": "SG",
+        "timezone": "Asia/Singapore",
+        "locale": "en-SG",
+        "latitude": 1.3521,
+        "longitude": 103.8198,
+    }
+    kwargs = {
+        "artifact_id": "identity-fp3-network-a",
+        "network_identity": network_identity,
+        "generated_at_utc": "2026-08-27T12:00:00Z",
+    }
+    artifact = rebind_network_identity_artifact(source, **kwargs)
+    assert artifact == rebind_network_identity_artifact(source, **kwargs)
+    assert artifact["schema"] == ARTIFACT_SCHEMA_V6
+    assert artifact["policy"]["version"] == 6
+    assert artifact["policy"]["timezoneMode"] == "network-bound"
+    assert artifact["policy"]["locale"] == "en-SG"
+    assert artifact["networkIdentity"] == network_identity
+    assert artifact["resolvedConfig"]["timezone"] == "Asia/Singapore"
+    assert artifact["resolvedConfig"]["locale:language"] == "en"
+    assert artifact["resolvedConfig"]["locale:region"] == "SG"
+    assert artifact["resolvedConfig"]["locale:script"] == "Latn"
+    assert artifact["resolvedConfig"]["geolocation:latitude"] == 1.3521
+    assert artifact["resolvedConfig"]["geolocation:longitude"] == 103.8198
+    assert artifact["resolvedConfig"]["webrtc:ipv4"] == "1.1.1.1"
+    assert "webrtc:ipv6" not in artifact["resolvedConfig"]
+    validate_artifact_strict(artifact)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "identity-v6.json"
+        write_artifact_with_sidecar(path, artifact)
+        assert verify_artifact(path) == artifact
+
+    ipv6 = rebind_network_identity_artifact(
+        source,
+        artifact_id="identity-fp3-network-a-ipv6",
+        network_identity={
+            **network_identity,
+            "expectedPublicAddress": "2606:4700:4700::1111",
+        },
+        generated_at_utc="2026-08-27T12:00:00Z",
+    )
+    assert ipv6["resolvedConfig"]["webrtc:ipv6"] == "2606:4700:4700::1111"
+    assert "webrtc:ipv4" not in ipv6["resolvedConfig"]
+
+    mutations = {
+        "unknown-network-field": lambda a: a["networkIdentity"].__setitem__(
+            "proxy", "forbidden"
+        ),
+        "timezone-mismatch": lambda a: a["resolvedConfig"].__setitem__(
+            "timezone", "UTC"
+        ),
+        "latitude-mismatch": lambda a: a["resolvedConfig"].__setitem__(
+            "geolocation:latitude", 2.0
+        ),
+        "locale-script-mismatch": lambda a: a["resolvedConfig"].__setitem__(
+            "locale:script", "Cyrl"
+        ),
+        "noncanonical-locale": lambda a: (
+            a["networkIdentity"].__setitem__("locale", "EN-SG"),
+            a["policy"].__setitem__("locale", "EN-SG"),
+            a["resolvedConfig"].__setitem__("locale:language", "EN"),
+        ),
+        "unknown-timezone": lambda a: (
+            a["networkIdentity"].__setitem__("timezone", "Asia/Not_A_Zone"),
+            a["resolvedConfig"].__setitem__("timezone", "Asia/Not_A_Zone"),
+        ),
+        "multicast-address": lambda a: (
+            a["networkIdentity"].__setitem__("expectedPublicAddress", "224.0.0.1"),
+            a["resolvedConfig"].__setitem__("webrtc:ipv4", "224.0.0.1"),
+        ),
+    }
+    for label, mutate in mutations.items():
+        candidate = copy.deepcopy(artifact)
+        mutate(candidate)
+        _assert_strict_rejected(candidate, f"v6-{label}")
+
+    for invalid_address in (
+        "127.0.0.1",
+        "224.0.0.1",
+        "ff02::1",
+        "not-an-ip",
+        16843009,
+    ):
+        invalid = {**network_identity, "expectedPublicAddress": invalid_address}
+        try:
+            rebind_network_identity_artifact(source, **{**kwargs, "network_identity": invalid})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"v6 rebind accepted invalid address {invalid_address!r}")
+    for invalid_latitude in (float("nan"), -91, 91):
+        invalid = {**network_identity, "latitude": invalid_latitude}
+        try:
+            rebind_network_identity_artifact(source, **{**kwargs, "network_identity": invalid})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"v6 rebind accepted invalid latitude {invalid_latitude!r}")
 
 
 def _assert_strict_rejected(artifact: dict, label: str) -> None:

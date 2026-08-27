@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import argparse
 import copy
+import ipaddress
 import json
+import math
 import os
 import random
 from datetime import datetime, timezone
@@ -35,6 +37,10 @@ import numpy as np
 
 from identity_policy import (
     ARTIFACT_SCHEMA,
+    ARTIFACT_SCHEMA_V5,
+    ARTIFACT_SCHEMA_V6,
+    ArtifactIntegrityError,
+    GPC_POLICY_KEY,
     GPC_POLICY_MANAGED_OPT_OUT,
     GPC_POLICY_NATIVE,
     VOICES_MODE_MANAGED,
@@ -48,6 +54,7 @@ from identity_policy import (
     _canvas_policy_fields_for_browser_binding,
     read_bundle_metadata,
     sha256_hex,
+    validate_artifact_strict,
     verify_artifact,
 )
 from run_spike import (
@@ -279,6 +286,118 @@ def rebind_identity_artifact(
     )
     artifact.pop("canonicalDigest", None)
     artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+    assert_artifact_clean(artifact)
+    return artifact
+
+
+def rebind_network_identity_artifact(
+    source: dict,
+    *,
+    artifact_id: str,
+    network_identity: dict,
+    generated_at_utc: str,
+) -> dict:
+    """Create one deterministic, configured-only network-bound Artifact v6."""
+
+    validate_artifact_strict(source)
+    if source.get("schema") != ARTIFACT_SCHEMA_V5:
+        raise ValueError("network identity rebind requires an Artifact v5 source")
+    if source.get("canonicalDigest") != compute_artifact_digest(source):
+        raise ArtifactIntegrityError("source artifact canonicalDigest mismatch")
+    required = {
+        "expectedPublicAddress",
+        "countryCode",
+        "timezone",
+        "locale",
+        "latitude",
+        "longitude",
+    }
+    if type(network_identity) is not dict or set(network_identity) != required:
+        raise ValueError("network_identity must contain the exact v6 field set")
+
+    address_input = network_identity["expectedPublicAddress"]
+    if type(address_input) is not str:
+        raise ValueError("expectedPublicAddress must be an IP address string")
+    try:
+        address = ipaddress.ip_address(address_input)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("expectedPublicAddress must be an IP address") from exc
+    if not address.is_global or address.is_multicast:
+        raise ValueError("expectedPublicAddress must be global unicast")
+
+    coordinates: dict[str, float] = {}
+    for key, lower, upper in (
+        ("latitude", -90, 90),
+        ("longitude", -180, 180),
+    ):
+        value = network_identity[key]
+        if (
+            type(value) not in (int, float)
+            or not math.isfinite(value)
+            or not lower <= value <= upper
+        ):
+            raise ValueError(f"{key} must be finite and in [{lower}, {upper}]")
+        coordinates[key] = float(value)
+
+    from camoufox.locales import normalize_locale
+
+    locale = normalize_locale(network_identity["locale"])
+    if locale.region is None or locale.script is None:
+        raise ValueError("locale must resolve to language, region, and script")
+    normalized_locale = locale.as_string
+
+    artifact = copy.deepcopy(source)
+    source_policy = source["policy"]
+    config = artifact["resolvedConfig"]
+    for key in tuple(config):
+        if key.startswith("geolocation:") or key.startswith("webrtc:ipv"):
+            config.pop(key)
+    config.update(
+        {
+            "timezone": network_identity["timezone"],
+            "locale:language": locale.language,
+            "locale:region": locale.region,
+            "locale:script": locale.script,
+            "geolocation:latitude": coordinates["latitude"],
+            "geolocation:longitude": coordinates["longitude"],
+            f"webrtc:ipv{address.version}": str(address),
+        }
+    )
+    artifact.update(
+        {
+            "schema": ARTIFACT_SCHEMA_V6,
+            "artifactId": artifact_id,
+            "generatedBy": "VeriSilo generate_identity.py (Artifact v6 network-bound rebind)",
+            "generatedAtUtc": generated_at_utc,
+            "networkIdentity": {
+                "expectedPublicAddress": str(address),
+                "countryCode": network_identity["countryCode"],
+                "timezone": network_identity["timezone"],
+                "locale": normalized_locale,
+                **coordinates,
+            },
+        }
+    )
+    artifact["policy"] = identity_policy(
+        target_os=source_policy["targetOs"],
+        font_mode=source_policy["fontMode"],
+        window=tuple(source_policy["window"]),
+        locale=normalized_locale,
+        ff_version=source_policy["ffVersion"],
+        timezone_mode="network-bound",
+        browser_binding=artifact["browserBinding"],
+        voices_mode=source_policy["voicesMode"],
+        gpc_policy=source_policy[GPC_POLICY_KEY],
+        schema_version=6,
+        network_ip_version=address.version,
+    )
+    artifact["stableSignalsDeclared"] = declared_stable_signals(
+        config, normalized_locale, include_device_pixel_ratio=False
+    )
+    artifact["configuredIdentityDigest"] = configured_identity_digest(config)
+    artifact.pop("canonicalDigest", None)
+    artifact["canonicalDigest"] = compute_artifact_digest(artifact)
+    validate_artifact_strict(artifact)
     assert_artifact_clean(artifact)
     return artifact
 
