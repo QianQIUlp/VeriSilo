@@ -3065,7 +3065,6 @@ def validate_storage_sequence(comparisons: dict[str, dict[str, Any]]) -> None:
     require(a2["cookiePresentBefore"] is True and a2["localStoragePresentBefore"] is True, "a2_storage_not_continuous")
     require(a1["cookieValueSha256"] == a2["cookieValueSha256"] and a1["localStorageValueSha256"] == a2["localStorageValueSha256"], "a1_a2_storage_hash_drift")
     require(b1["cookiePresentBefore"] is False and b1["localStoragePresentBefore"] is False, "b1_profile_inherits_a_storage")
-    require(a1["cookieValueSha256"] != b1["cookieValueSha256"] or a1["localStorageValueSha256"] != b1["localStorageValueSha256"], "ab_storage_hash_not_separate")
 
 
 def validate_service_worker_sequence(comparisons: dict[str, dict[str, Any]]) -> None:

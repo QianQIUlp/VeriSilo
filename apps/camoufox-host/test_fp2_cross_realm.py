@@ -1251,6 +1251,14 @@ async function capture(factory) {
         comparisons["B1"]["storage"]["cookiePresentBefore"] = True
         self.assertCode("b1_profile_inherits_a_storage", fp2.validate_storage_sequence, comparisons)
 
+    def test_storage_sequence_allows_same_sentinel_in_isolated_profiles(self) -> None:
+        comparisons = self.make_comparisons()
+        sentinel = "sha256:6bdfd64769e156accb03882dd096d1e51a27ee2a0ad79f9603ba391b74711588"
+        for item in comparisons.values():
+            item["storage"]["cookieValueSha256"] = sentinel
+            item["storage"]["localStorageValueSha256"] = sentinel
+        fp2.validate_storage_sequence(comparisons)
+
     def test_a1_a2_capability_shape_drift(self) -> None:
         comparisons = self.make_comparisons()
         comparisons["A2"]["capabilityShape"]["top-window"]["canvas"]["apiPresent"] = False
