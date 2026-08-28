@@ -263,167 +263,244 @@ def verify_self_built_browser_root(
     return EXECUTABLE, verify_runtime_tree_once()
 
 
-OBSERVATION_SCRIPT = r"""
-async ({ipUrl, stunUrl, exitTimeoutMs, geoTimeoutMs, iceTimeoutMs}) => {
-  const withTimeout = (promise, timeoutMs, label) => new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      const error = new Error(`${label} timed out`);
-      error.name = "TimeoutError";
-      reject(error);
-    }, timeoutMs);
-    Promise.resolve(promise).then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (error) => { clearTimeout(timer); reject(error); },
-    );
-  });
-  const errors = [];
-  const observation = {
-    status: "completed",
-    observedAtUtc: new Date().toISOString(),
-    ipObservationUrl: ipUrl,
-    stunUrl,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
-    locale: navigator.language ?? null,
-    languages: Array.from(navigator.languages ?? []),
-    publicExit: null,
-    geolocation: null,
-    ice: null,
-    errors,
-    verified: false,
+PUBLIC_EXIT_SCRIPT = r"""
+async ({ipUrl}) => {
+  const response = await fetch(ipUrl, {cache: "no-store", credentials: "omit"});
+  const payload = await response.json();
+  return {
+    success: response.ok && payload?.success === true,
+    httpStatus: response.status,
+    ip: typeof payload?.ip === "string" ? payload.ip : null,
+    type: typeof payload?.type === "string" ? payload.type : null,
+    countryCode:
+      typeof payload?.country_code === "string" ? payload.country_code : null,
+    timezone:
+      typeof payload?.timezone?.id === "string" ? payload.timezone.id : null,
+    latitude: Number.isFinite(payload?.latitude) ? payload.latitude : null,
+    longitude: Number.isFinite(payload?.longitude) ? payload.longitude : null,
   };
-
-  const exitController = new AbortController();
-  try {
-    const {response, payload} = await withTimeout((async () => {
-      const response = await fetch(ipUrl, {
-        cache: "no-store",
-        credentials: "omit",
-        signal: exitController.signal,
-      });
-      return {response, payload: await response.json()};
-    })(), exitTimeoutMs, "public-exit");
-    observation.publicExit = {
-      success: response.ok && payload?.success === true,
-      httpStatus: response.status,
-      ip: typeof payload?.ip === "string" ? payload.ip : null,
-      type: typeof payload?.type === "string" ? payload.type : null,
-      countryCode:
-        typeof payload?.country_code === "string" ? payload.country_code : null,
-      timezone:
-        typeof payload?.timezone?.id === "string" ? payload.timezone.id : null,
-      latitude: Number.isFinite(payload?.latitude) ? payload.latitude : null,
-      longitude: Number.isFinite(payload?.longitude) ? payload.longitude : null,
-    };
-  } catch (error) {
-    exitController.abort();
-    observation.publicExit = {
-      success: false,
-      error: error?.name ?? "Error",
-    };
-    errors.push(`public-exit:${error?.name ?? "Error"}`);
-  }
-
-  try {
-    observation.geolocation = await withTimeout(new Promise((resolve) => {
-      if (!navigator.geolocation) {
-        resolve({status: "unavailable"});
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (position) => resolve({
-          status: "observed",
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          timestamp: position.timestamp,
-        }),
-        (error) => resolve({
-          status: "failed",
-          code: error.code,
-          message: String(error.message ?? "").slice(0, 120),
-        }),
-        {enableHighAccuracy: false, maximumAge: 0, timeout: geoTimeoutMs},
-      );
-    }), geoTimeoutMs + 1000, "geolocation");
-  } catch (error) {
-    observation.geolocation = {status: "failed", error: error?.name ?? "Error"};
-  }
-  if (observation.geolocation.status !== "observed") {
-    errors.push(`geolocation:${observation.geolocation.status}`);
-  }
-
-  let peer = null;
-  const candidates = [];
-  try {
-    peer = new RTCPeerConnection({iceServers: [{urls: [stunUrl]}]});
-    peer.createDataChannel("fp3");
-    let completed = false;
-    const gathered = new Promise((resolve) => {
-      const finish = () => {
-        if (!completed) {
-          completed = true;
-          resolve();
-        }
-      };
-      peer.addEventListener("icecandidate", (event) => {
-        if (!event.candidate) {
-          finish();
-          return;
-        }
-        const candidate = event.candidate;
-        const raw = candidate.candidate ?? "";
-        const parts = raw.trim().split(/\s+/u);
-        candidates.push({
-          candidate: raw,
-          address:
-            typeof candidate.address === "string"
-              ? candidate.address
-              : (parts.length > 4 ? parts[4] : null),
-          candidateType:
-            typeof candidate.type === "string"
-              ? candidate.type
-              : (parts[6] === "typ" ? parts[7] : null),
-          protocol:
-            typeof candidate.protocol === "string"
-              ? candidate.protocol
-              : (parts.length > 2 ? parts[2].toLowerCase() : null),
-          port: Number.isInteger(candidate.port)
-            ? candidate.port
-            : (parts.length > 5 ? Number(parts[5]) : null),
-        });
-      });
-      peer.addEventListener("icegatheringstatechange", () => {
-        if (peer.iceGatheringState === "complete") finish();
-      });
-    });
-    await withTimeout((async () => {
-      await peer.setLocalDescription(await peer.createOffer());
-      await gathered;
-    })(), iceTimeoutMs, "ice");
-    observation.ice = {
-      completed,
-      timedOut: false,
-      candidateCount: candidates.length,
-      candidates,
-    };
-    if (!completed || candidates.length === 0) {
-      errors.push("ice:incomplete");
-    }
-  } catch (error) {
-    observation.ice = {
-      completed: false,
-      timedOut: error?.name === "TimeoutError",
-      candidateCount: candidates.length,
-      candidates,
-      error: error?.name ?? "Error",
-    };
-    errors.push(`ice:${error?.name ?? "Error"}`);
-  } finally {
-    if (peer) peer.close();
-  }
-  return observation;
 }
 """
+
+GEOLOCATION_SCRIPT = r"""
+({timeoutMs}) => new Promise((resolve) => {
+  if (!navigator.geolocation) {
+    resolve({status: "unavailable"});
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (position) => resolve({
+      status: "observed",
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy: position.coords.accuracy,
+      timestamp: position.timestamp,
+    }),
+    (error) => resolve({
+      status: "failed",
+      code: error.code,
+      message: String(error.message ?? "").slice(0, 120),
+    }),
+    {enableHighAccuracy: false, maximumAge: 0, timeout: timeoutMs},
+  );
+})
+"""
+
+ICE_SCRIPT = r"""
+({stunUrl, timeoutMs}) => new Promise((resolve) => {
+  const candidates = [];
+  let settled = false;
+  let timer = null;
+  const finish = (completed, timedOut, error = null) => {
+    if (settled) return;
+    settled = true;
+    if (timer !== null) clearTimeout(timer);
+    const result = {
+      completed,
+      timedOut,
+      candidateCount: candidates.length,
+      candidates,
+    };
+    if (error) result.error = error;
+    resolve(result);
+  };
+  timer = setTimeout(() => finish(false, true, "TimeoutError"), timeoutMs);
+  try {
+    const peer = new RTCPeerConnection({iceServers: [{urls: [stunUrl]}]});
+    peer.createDataChannel("fp3");
+    peer.addEventListener("icecandidate", (event) => {
+      if (!event.candidate) {
+        finish(true, false);
+        return;
+      }
+      const candidate = event.candidate;
+      const raw = candidate.candidate ?? "";
+      const parts = raw.trim().split(/\s+/u);
+      candidates.push({
+        candidate: raw,
+        address:
+          typeof candidate.address === "string"
+            ? candidate.address
+            : (parts.length > 4 ? parts[4] : null),
+        candidateType:
+          typeof candidate.type === "string"
+            ? candidate.type
+            : (parts[6] === "typ" ? parts[7] : null),
+        protocol:
+          typeof candidate.protocol === "string"
+            ? candidate.protocol
+            : (parts.length > 2 ? parts[2].toLowerCase() : null),
+        port: Number.isInteger(candidate.port)
+          ? candidate.port
+          : (parts.length > 5 ? Number(parts[5]) : null),
+      });
+    });
+    peer.addEventListener("icegatheringstatechange", () => {
+      if (peer.iceGatheringState === "complete") finish(true, false);
+    });
+    peer.createOffer()
+      .then((offer) => peer.setLocalDescription(offer))
+      .catch((error) => finish(false, false, error?.name ?? "Error"));
+  } catch (error) {
+    finish(false, false, error?.name ?? "Error");
+  }
+})
+"""
+
+STAGE_SETUP_TIMEOUT_SECONDS = 8.0
+STAGE_CLOSE_TIMEOUT_SECONDS = 2.0
+STAGE_EVALUATION_TIMEOUTS = {
+    "publicExit": 20.0,
+    "geolocation": 18.0,
+    "ice": 12.0,
+}
+
+
+def persist_observation(
+    observed_path: Path, payload: dict[str, Any], observation: dict[str, Any]
+) -> None:
+    payload["fp3NetworkObservation"] = observation
+    raw = (json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    temporary = observed_path.with_name("observed.fp3.tmp")
+    if temporary.exists():
+        raise FP3HostError("stale FP3 observation temporary file")
+    temporary.write_bytes(raw)
+    os.replace(temporary, observed_path)
+
+
+async def observe_stage(
+    context: Any,
+    probe_url: str,
+    script: str,
+    argument: dict[str, Any],
+    *,
+    setup_timeout: float,
+    evaluation_timeout: float,
+    close_timeout: float,
+) -> dict[str, Any]:
+    stage_page = None
+
+    async def prepare_page() -> None:
+        nonlocal stage_page
+        stage_page = await context.new_page()
+        await stage_page.goto(
+            probe_url,
+            wait_until="domcontentloaded",
+            timeout=int(setup_timeout * 1000),
+        )
+
+    try:
+        await asyncio.wait_for(prepare_page(), timeout=setup_timeout)
+        value = await asyncio.wait_for(
+            stage_page.evaluate(script, argument), timeout=evaluation_timeout
+        )
+        if type(value) is not dict:
+            raise FP3HostError("FP3 observation stage returned a non-object")
+        result: dict[str, Any] = {"status": "observed", "value": value}
+    except Exception as exc:  # noqa: BLE001 - only the bounded type enters evidence
+        result = {"status": "failed", "errorType": type(exc).__name__[:64]}
+    if stage_page is None:
+        result["pageClose"] = {"status": "not_present"}
+    else:
+        result["pageClose"] = (
+            await host_v1.close_context_bounded(stage_page, close_timeout)
+        ).as_dict()
+    return result
+
+
+async def collect_network_observation(
+    context: Any,
+    probe_url: str,
+    observed_path: Path,
+    payload: dict[str, Any],
+    permission: dict[str, Any],
+    stun_url: str,
+    *,
+    setup_timeout: float = STAGE_SETUP_TIMEOUT_SECONDS,
+    evaluation_timeouts: dict[str, float] | None = None,
+    close_timeout: float = STAGE_CLOSE_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    base = payload.get("observedFull")
+    if type(base) is not dict or type(base.get("session")) is not dict:
+        raise FP3HostError("base Host observation is unavailable")
+    timeouts = evaluation_timeouts or STAGE_EVALUATION_TIMEOUTS
+    observation: dict[str, Any] = {
+        "status": "completed",
+        "observedAtUtc": run_spike.utcnow(),
+        "ipObservationUrl": IP_OBSERVATION_URL,
+        "stunUrl": stun_url,
+        "timezone": base["session"].get("timezone"),
+        "locale": base.get("language"),
+        "languages": base.get("languages"),
+        "publicExit": None,
+        "geolocation": None,
+        "ice": None,
+        "stages": {},
+        "errors": [],
+        "geolocationPermission": permission,
+        "verified": False,
+    }
+    persist_observation(observed_path, payload, observation)
+    specs = (
+        ("publicExit", PUBLIC_EXIT_SCRIPT, {"ipUrl": IP_OBSERVATION_URL}),
+        (
+            "geolocation",
+            GEOLOCATION_SCRIPT,
+            {"timeoutMs": 15_000},
+        ),
+        (
+            "ice",
+            ICE_SCRIPT,
+            {"stunUrl": stun_url, "timeoutMs": 10_000},
+        ),
+    )
+    for name, script, argument in specs:
+        stage = await observe_stage(
+            context,
+            probe_url,
+            script,
+            argument,
+            setup_timeout=setup_timeout,
+            evaluation_timeout=timeouts[name],
+            close_timeout=close_timeout,
+        )
+        value = stage.pop("value", None)
+        observation["stages"][name] = stage
+        observation[name] = value
+        if stage["status"] != "observed":
+            observation["errors"].append(f"{name}:{stage.get('errorType', 'Error')}")
+        elif name == "publicExit" and value.get("success") is not True:
+            observation["errors"].append("publicExit:failed")
+        elif name == "geolocation" and value.get("status") != "observed":
+            observation["errors"].append(
+                f"geolocation:{value.get('status', 'failed')}"
+            )
+        elif name == "ice" and (
+            value.get("completed") is not True or value.get("candidateCount", 0) == 0
+        ):
+            observation["errors"].append("ice:incomplete")
+        persist_observation(observed_path, payload, observation)
+    return observation
 
 
 class FP3ManagedHost(host_v1.CamoufoxHost):
@@ -442,6 +519,7 @@ class FP3ManagedHost(host_v1.CamoufoxHost):
         page = session.get("page")
         context = session.get("ctx")
         observed_path = Path(session["sessionDir"]) / "observed.json"
+        payload = strict_json(observed_path)
         permission = {"status": "failed", "origin": None}
         try:
             if page is None or context is None:
@@ -455,34 +533,27 @@ class FP3ManagedHost(host_v1.CamoufoxHost):
             stun_url = os.environ.get("VERISILO_FP3_STUN_URL", STUN_URL)
             if stun_url != STUN_URL:
                 raise FP3HostError("STUN URL differs from the frozen FP3 input")
-            observation = await asyncio.wait_for(
-                page.evaluate(
-                    OBSERVATION_SCRIPT,
-                    {
-                        "ipUrl": IP_OBSERVATION_URL,
-                        "stunUrl": stun_url,
-                        "exitTimeoutMs": 20_000,
-                        "geoTimeoutMs": 15_000,
-                        "iceTimeoutMs": 10_000,
-                    },
-                ),
-                timeout=55,
+            await collect_network_observation(
+                context,
+                page.url,
+                observed_path,
+                payload,
+                permission,
+                stun_url,
             )
         except Exception as exc:  # noqa: BLE001 - bounded type only enters evidence
-            observation = {
-                "status": "failed",
-                "errorType": type(exc).__name__,
-                "verified": False,
-            }
-        observation["geolocationPermission"] = permission
-        payload = strict_json(observed_path)
-        payload["fp3NetworkObservation"] = observation
-        raw = (json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-        temporary = observed_path.with_name("observed.fp3.tmp")
-        if temporary.exists():
-            raise FP3HostError("stale FP3 observation temporary file")
-        temporary.write_bytes(raw)
-        os.replace(temporary, observed_path)
+            payload = strict_json(observed_path)
+            existing = payload.get("fp3NetworkObservation")
+            observation = existing if type(existing) is dict else {}
+            observation.update(
+                {
+                    "status": "failed",
+                    "errorType": type(exc).__name__[:64],
+                    "geolocationPermission": permission,
+                    "verified": False,
+                }
+            )
+            persist_observation(observed_path, payload, observation)
 
 
 def patch_host() -> None:
