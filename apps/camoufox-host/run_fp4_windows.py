@@ -284,12 +284,14 @@ async def complex_javascript(page: Any) -> dict[str, Any]:
         re.compile(r"^https://react\.dev/reference/react/useState(?:[#?].*)?$"),
         timeout=NAVIGATION_TIMEOUT_MS,
     )
+    heading = page.get_by_role("heading", name="useState", exact=True).first
+    await heading.wait_for(state="visible")
     return {
         "initialHttpStatus": response_status(initial),
         "searchInputValue": search_input_value,
         "resultHref": result_href,
         "resultText": result_text,
-        "heading": (await page.locator("h1").first.inner_text()).strip(),
+        "heading": (await heading.inner_text()).strip(),
         "title": await page.title(),
         "finalUrl": page.url,
     }

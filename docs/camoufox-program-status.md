@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / Attempt 8 Inconclusive**；React search/result/target URL 已完成，但 runner 在 client route render 前读取旧 `h1`；另有 graphics/media 外部加载超时，bindings/lifecycle clean，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / requalification pending**；Attempt 8 已到 React target URL；runner 现等待合同既有 `h1=useState` marker，尚无该修复后的 native full-matrix evidence，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,7 +60,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 React client-route render marker
+### FP4-1 native V2 requalification after render-marker fix
 
 FP3-1b 已在冻结 Formal-v3 candidate、Artifact v6、required SOCKS5 route 与 direct negative control
 上闭合。原生 Windows Attempt 7 直接观察到 exact route binding、香港代理出口、Artifact
@@ -118,9 +118,9 @@ Attempt 8 ([report](../artifacts/camoufox-fp4-attempt-8/run-report.json)，SHA-2
 与播放进度外部超时，均无 crash/disconnect/direct failure，且 Attempt 7 已通过对应任务。document、
 form/replay 通过；全部 bindings 与 lifecycle checks 通过。
 
-Attempt 8 保持 immutable。当前最小修复只是在 URL 改变后等待合同已要求的可见
-`h1=useState`，不增加 retry/delay 或新 marker；focused tests 通过后从 clean synced HEAD 运行新
-full-matrix attempt。不得修改其余站点、重跑 upstream control、FP2/FP3，或进入 M3-WI。
+Attempt 8 保持 immutable。runner 现只在 URL 改变后等待合同已要求的可见 `h1=useState`，未增加
+retry/delay 或新 marker。focused tests 通过后从 clean synced HEAD 运行 Attempt 9 full matrix；不得
+修改其余站点、重跑 upstream control、FP2/FP3，或进入 M3-WI。
 
 ## 后续 Gate 顺序
 
@@ -131,7 +131,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（React URL 已通过；等待既有 h1 marker 后再 qualification）
+→ FP4 ordinary-site compatibility（既有 h1 marker wait 已配置；native Attempt 9 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
