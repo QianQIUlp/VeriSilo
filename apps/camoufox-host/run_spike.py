@@ -428,6 +428,8 @@ def firefox_user_prefs_for_config(config: Optional[dict] = None) -> dict:
         "app.update.auto": False,
         "app.update.enabled": False,
         "browser.shell.checkDefaultBrowser": False,
+        # Camoufox disables backing history while masking window.history.length.
+        "browser.sessionhistory.max_entries": 50,
     }
     if IS_WINDOWS and config and config.get("mediaDevices:enabled") is True:
         # Windows/RDP hardware enumeration can disappear between launches.

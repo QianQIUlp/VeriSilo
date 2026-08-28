@@ -680,6 +680,10 @@ def test_windows_media_device_policy_is_deterministic() -> None:
         assert prefs["media.navigator.permission.disabled"] is True
 
 
+def test_shared_firefox_runtime_prefs_restore_session_history() -> None:
+    assert firefox_user_prefs_for_config()["browser.sessionhistory.max_entries"] == 50
+
+
 def test_candidate_extra_identity_policy_is_closed_and_fail_closed() -> None:
     assert set(CANDIDATE_EXTRA_IDENTITY_FIELDS) == {
         "navigator.maxTouchPoints",

@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Failed / Gate open**；唯一 pinned upstream control 复现同一 document history direct failure，归因 inherited Camoufox/Firefox product limitation；修复与新 full-matrix attempt 尚未执行，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / requalification pending**；唯一 upstream control 已确认 inherited session-history limitation；shared Host/evidence pref 已做最小修复，尚无新 native full-matrix evidence，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,7 +60,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 Host session-history repair + native requalification
+### FP4-1 native requalification after Host session-history repair
 
 FP3-1b 已在冻结 Formal-v3 candidate、Artifact v6、required SOCKS5 route 与 direct negative control
 上闭合。原生 Windows Attempt 7 直接观察到 exact route binding、香港代理出口、Artifact
@@ -93,10 +93,11 @@ SOCKS5 route、完整 observation/screenshot、clean close、Host child、proces
 与临时运行根移除的全部裁决检查均通过；因此 FP4 为 `Failed/open`，归因 inherited
 Camoufox/Firefox product limitation，不是 `Inconclusive`，`verified:false`。
 
-当前最小修复 Gate 是在现有 shared Host/evidence Firefox prefs seam 把
+最小修复已落在现有 shared Host/evidence Firefox prefs seam：把
 `browser.sessionhistory.max_entries` 从 Camoufox 配置的 `0` 恢复为 Firefox 正常容量 `50`；不修改
-Artifact、Profile、Engine 或 Network Policy 生命周期。focused test 通过并从 clean synced HEAD 冻结
-后，运行一个新版本 full-matrix native attempt。不得重跑 upstream control、FP2/FP3，或进入 M3-WI。
+Artifact、Profile、Engine 或 Network Policy 生命周期。一次性 control runner 已从 HEAD 删除，其
+冻结 commit/evidence 保留，shared prefs focused test 已通过。当前唯一下一步是从 clean synced HEAD
+运行 Attempt 7 full native matrix；不得重跑 upstream control、FP2/FP3，或进入 M3-WI。
 
 ## 后续 Gate 顺序
 
@@ -107,7 +108,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（合同已冻结；upstream 同故障，Host repair 下一步）
+→ FP4 ordinary-site compatibility（合同已冻结；Host repair 已配置，native full matrix 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
