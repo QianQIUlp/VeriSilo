@@ -48,6 +48,37 @@ Profile、Identity Artifact、Engine Binding、Network Policy 与 Runtime Eviden
 - 能先证明“生成 → 存储 → 应用 → 冷启动重放 → 网站观测”的最小垂直链；
 - 比同时自研 Chromium、Camoufox 与虚拟化后端更可维护。
 
+## FP1–FP4 的稳定产品解释
+
+FP1–FP4 不是四组可任意扩张的“指纹功能”，而是一条有明确终点的资格链：
+
+```text
+FP1 = Identity determinism
+FP2 = Identity consistency and replay
+FP3 = Network-bound coherence
+FP4 = Ordinary-site product compatibility
+```
+
+FP4 只回答一个有界问题：通过 FP2/FP3 的精确 Engine、Artifact、required Network Policy 与
+Persistent Profile，能否在原生 Windows Host 上完成冻结的代表性普通网站核心任务，同时不发生
+浏览器崩溃、无界挂起、Profile 损坏、身份/网络 binding 回归或 owned lifecycle 脏关闭。
+
+因此 FP4 不是反检测评分、“不可检测”证明、universal site compatibility、验证码/账号风控绕过、
+DNS/TLS/QUIC 资格、installer、签名、UI 或 release Gate，也不以继续增加 spoof 字段为目标。
+外部网站宕机、结构漂移、region/consent wall、CAPTCHA、rate limit 或第三方资源故障保持
+`Inconclusive`；只有冻结输入下的直接、可归因产品失败才构成 `Failed`。必要归因只对失败任务运行
+一个 pinned upstream Camoufox 对照，不为通过项建立完整 A/B 矩阵。
+
+FP4 是 Camoufox-first 的产品级 go/no-go：通过只支持继续该路线，不等于商业产品或发布就绪；若
+目标用户必需的普通网站能力出现可复现的 Camoufox/Firefox 固有限制，才形成重评 Controlled
+Chromium 的有效证据。FP4 闭合后不创建 FP5，而是立即回到最终候选上的 clean M3-WI，证明真实
+Desktop RuntimeManager → EngineAdapter → Host → Browser 两次生命周期。
+
+精确站点、任务、预算、判定与 immutable evidence 仍分别以
+[FP4 冻结合同](camoufox-fp4-ordinary-site-compatibility-contract.md)和
+[FP4 aggregate result](../apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp4-result.json)
+为准；本节只固定其长期产品含义，不重写历史 attempt 或扩大其 claim。
+
 ## 平台分工
 
 - **原生 Windows**：Windows 资产、桌面生命周期、文件锁、Job Object 与 Windows 专属结论；
@@ -77,12 +108,12 @@ Profile、Identity Artifact、Engine Binding、Network Policy 与 Runtime Eviden
 ## 当前执行顺序
 
 ```text
-完成当前 Camoufox FP2-R1 remediation
-→ FP1-R1 rebuilt-engine carry-forward
-→ FP2-R1 cross-realm/replay qualification
-→ FP3 network/geo/timezone/locale coordination
+FP1 deterministic Artifact projection
+→ FP2 cross-realm consistency and replay
+→ FP3 network/geo/timezone/locale coherence
 → FP4 ordinary-site compatibility
-→ 使用最终 Managed Engine 重开 clean M3-WI
+→ 使用最终 Managed Engine 执行 clean M3-WI
+→ production package/signing、installer、Managed Silo UI 与 Windows release acceptance
 ```
 
 精确下一任务以状态页为准。旧 M3-WI、FP1/FP2 generation、diagnostic build 与 one-shot

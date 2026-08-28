@@ -74,8 +74,9 @@ Attempt 13 的 immutable native Windows evidence：document back/forward、React
 drag/zoom/satellite、media play/surface-pause/seek、同 Profile preference replay 六项全部通过；两个
 Host 生命周期均 clean exit，process tree、Job active count 与 residual PID 归零，`verified:false`。
 
-FP4 的权威产品含义是：它只回答最终 fingerprint candidate 能否完成代表性 ordinary-site 核心任务，
-不是反检测评分、universal compatibility、commercial product readiness 或 desktop integration Gate。
+FP4 的权威产品含义（稳定解释见 [Camoufox-first 决策](camoufox-managed-engine-decision.md)）是：它只回答
+最终 fingerprint candidate 能否完成代表性 ordinary-site 核心任务，不是反检测评分、universal
+compatibility、commercial product readiness 或 desktop integration Gate。
 因此不创建 FP5；FP4 Passed 后立即转向 clean M3-WI。
 
 [clean M3-WI active contract](camoufox-m3-wi-clean-contract.md) 已冻结一个最小问题：真实 desktop
