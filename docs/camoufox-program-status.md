@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / Attempt 12 Inconclusive**；其余五项与 replay 全部通过；media Pause button pointer action 未落定，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / V5 requalification pending**；其余五项与 replay 已直接通过；media surface pause marker 待 Attempt 13，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,7 +60,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 media surface pause marker
+### FP4-1 native V5 requalification
 
 Attempt 12 ([report](../artifacts/camoufox-fp4-attempt-12/run-report.json)，SHA-256
 `997749f7c18811dbef889a1fc18a65f0abdd6f3440e870e4e565ff029f1de525`) 是 clean synced commit
@@ -74,10 +74,10 @@ native evidence SHA-256 为
 `d569649cd016a352f2f828a7b19442f70b3548496e983b7a3a472333b756f025`，aggregate terminal
 `Inconclusive`，`verified:false`。
 
-Attempt 12 不以未变输入重跑。当前最小输入把 pause user action 明确冻结为对正在播放的可见
-`video.vjs-tech` 做一次 pointer click，并继续要求 `paused=true` 与原 Progress Bar seek marker；不改
-站点、media、duration/progress/seek、预算或其余矩阵。该语义作为 V5 经 focused checks 后运行
-Attempt 13。
+Attempt 12 不以未变输入重跑。`fp4-ordinary-sites-v5` 已把 pause user action 明确冻结为对正在播放的
+可见 `video.vjs-tech` 做一次 pointer click，并继续要求 `paused=true` 与原 Progress Bar seek marker；
+未改变站点、media、duration/progress/seek、预算或其余矩阵。focused checks 已通过，下一步从 clean
+synced HEAD 运行 Attempt 13。
 
 ## 后续 Gate 顺序
 

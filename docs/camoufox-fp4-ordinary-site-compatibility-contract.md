@@ -3,7 +3,7 @@
 ## Product question
 
 FP4 asks one bounded go/no-go question: can the exact Formal-v3 browser and Artifact v6 that passed
-FP2/FP3 complete the frozen `fp4-ordinary-sites-v4` capability matrix on native Windows through the
+FP2/FP3 complete the frozen `fp4-ordinary-sites-v5` capability matrix on native Windows through the
 required SOCKS5 route, preserve one non-sensitive site preference across a clean browser restart, and
 then close every owned lifecycle cleanly?
 
@@ -18,13 +18,15 @@ and route bindings forward; it does not rerun FP2/FP3 or add a desktop/Host prod
 - one fresh temporary Profile reused by two sequential Host launch/close phases;
 - required unauthenticated SOCKS5 endpoint `127.0.0.1:7897`;
 - native Windows, one immutable attempt, no retry or runtime sample rotation;
-- site matrix `fp4-ordinary-sites-v4` below.
+- site matrix `fp4-ordinary-sites-v5` below.
 
 The unchanged selections retain their 2026-08-28 availability evidence. React remains selected after
 its pre-V2 HTTP 200 freeze. Attempt 10 directly recorded the OSM/Nominatim search surface returning an
 external `503 backend read error`. Before any V4 attempt root or browser process, the predeclared
 Google Maps alternate returned final HTTP 200 through `socks5h://127.0.0.1:7897`. V4 changes only the
-graphics selection; media remains on its available primary. No site may switch after launch.
+graphics selection. Attempt 12 directly passed that selection but recorded the visible Video.js Pause
+button action leaving the ready, advancing media unpaused. V5 changes only the media pause user action
+to one pointer click on the visible playing video surface. No site may switch after launch.
 
 ## Frozen capability matrix
 
@@ -56,16 +58,17 @@ The frozen semantic markers are:
   `[role=radio][jsaction="layerswitcher.intent.satellite"][aria-checked=true]`, another changed place
   URL and another changed canvas SHA-256. All four canvas digests must be distinct;
 - media primary: `video.vjs-tech`, `readyState >= 2`, duration from 19 through 21 seconds, at least
-  one second of `currentTime` progress within three seconds after the user play action, `paused=true`
-  after Pause, then a slider Home/ArrowRight seek producing `currentTime` from 4 through 6 seconds.
-  The fallback uses identical selectors and thresholds except duration is 29 through 31 seconds;
+  one second of `currentTime` progress within three seconds after the user play action, exactly one
+  pointer click on the visible playing `video.vjs-tech`, `paused=true`, then a slider Home/ArrowRight
+  seek producing `currentTime` from 4 through 6 seconds. The fallback uses identical selectors and
+  thresholds except duration is 29 through 31 seconds;
 - state primary and fallback: exact Large radio
   `#skin-client-pref-vector-feature-custom-font-size-value-2` is checked and the root class contains
   `vector-feature-custom-font-size-clientpref-2` after reload and again before any Phase B mutation;
   Phase B then checks the Standard radio and records the Large marker as cleared.
 
 The Google selection is not a hidden retry: its availability was frozen before V4 code, attempt root
-or browser execution. Attempt 10 remains immutable and V4 is a new input.
+or browser execution. Attempt 12 remains immutable and V5 is a new input.
 
 ## Execution phases and budgets
 

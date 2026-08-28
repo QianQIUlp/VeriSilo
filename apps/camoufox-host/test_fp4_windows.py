@@ -108,6 +108,8 @@ def passing_evidence() -> dict:
             durationSeconds=20.0,
             startTimeSeconds=0.2,
             progressedTimeSeconds=1.4,
+            pauseAction="video-surface-click",
+            pauseActionCount=1,
             paused=True,
             pausedTimeSeconds=1.4,
             seekTimeSeconds=5.0,
@@ -335,6 +337,15 @@ def main() -> None:
     result = fp4.adjudicate_native(unchanged_graphics)
     assert result["status"] == "inconclusive"
     assert result["checks"]["tasks"]["interactiveGraphics"] is False
+
+    wrong_pause_action = copy.deepcopy(evidence)
+    media_task = wrong_pause_action["observations"]["phaseA"][
+        "fp4CompatibilityObservation"
+    ]["tasks"][3]
+    media_task["pauseAction"] = "control-button-click"
+    result = fp4.adjudicate_native(wrong_pause_action)
+    assert result["status"] == "inconclusive"
+    assert result["checks"]["tasks"]["audioVideo"] is False
 
     incomplete_reads = copy.deepcopy(evidence)
     incomplete_reads["readErrors"] = [{"label": "phaseA.session"}]

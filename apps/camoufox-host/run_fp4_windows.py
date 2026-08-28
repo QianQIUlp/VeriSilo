@@ -36,9 +36,9 @@ from host_platform import process_identity_alive
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 BRANCH = "codex/camoufox-m3-engine-adapter"
-MATRIX_VERSION = "fp4-ordinary-sites-v4"
+MATRIX_VERSION = "fp4-ordinary-sites-v5"
 CONTRACT = REPO_ROOT / "docs/camoufox-fp4-ordinary-site-compatibility-contract.md"
-CONTRACT_SHA256 = "5a91bfb50c84ebaa175ccde1079bb1466f046fe5544d5fc0d69a3d4852254549"
+CONTRACT_SHA256 = "db7fe9c0df74a102ac98affaf99b0612256390b47decb504cbc75378a15471ce"
 FP3_RESULT = HOST_DIR / "lock" / (
     "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json"
 )
@@ -449,11 +449,8 @@ async def audio_video(page: Any) -> dict[str, Any]:
         timeout=3_000,
     )
     progressed = await media_state(video)
-    player = page.locator(".video-js").filter(has=video).first
-    await player.hover()
-    pause_control = player.locator("button.vjs-play-control.vjs-playing").first
-    await pause_control.wait_for(state="visible")
-    await pause_control.click()
+    pause_action = "video-surface-click"
+    await video.click()
     try:
         await page.wait_for_function(
             "() => document.querySelector('video.vjs-tech')?.paused === true",
@@ -461,7 +458,7 @@ async def audio_video(page: Any) -> dict[str, Any]:
         )
     except PlaywrightTimeoutError as exc:
         raise FP4Error(
-            "media Pause control did not settle: "
+            "media surface Pause action did not settle: "
             + json.dumps(await media_state(video), sort_keys=True)
         ) from exc
     paused = await media_state(video)
@@ -488,6 +485,8 @@ async def audio_video(page: Any) -> dict[str, Any]:
         "durationSeconds": started["duration"],
         "startTimeSeconds": started["currentTime"],
         "progressedTimeSeconds": progressed["currentTime"],
+        "pauseAction": pause_action,
+        "pauseActionCount": 1,
         "paused": paused["paused"],
         "pausedTimeSeconds": paused["currentTime"],
         "seekTimeSeconds": sought["currentTime"],
@@ -684,6 +683,8 @@ def media_markers_passed(task: dict[str, Any]) -> bool:
         and all(type(value) in (int, float) and math.isfinite(value) for value in numbers)
         and 19 <= task["durationSeconds"] <= 21
         and task["progressedTimeSeconds"] - task["startTimeSeconds"] >= 1
+        and task.get("pauseAction") == "video-surface-click"
+        and task.get("pauseActionCount") == 1
         and task.get("paused") is True
         and 4 <= task["seekTimeSeconds"] <= 6
         and urlsplit(task.get("finalUrl", "")).hostname
