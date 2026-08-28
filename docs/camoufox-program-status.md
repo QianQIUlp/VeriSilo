@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / Attempt 9 Inconclusive**；React fallback 与其余五项中四项/replay 已通过；仅 OSM search-result async zoom 与固定 12→13 marker 竞态，bindings/lifecycle clean，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / V3 requalification pending**；React 已直接通过；OSM marker 现等待香港 relocation 后验证 relative zoom +1，尚无该输入的 native evidence，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,7 +60,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 OSM search-settle + relative zoom marker
+### FP4-1 native V3 requalification
 
 FP3-1b 已在冻结 Formal-v3 candidate、Artifact v6、required SOCKS5 route 与 direct negative control
 上闭合。原生 Windows Attempt 7 直接观察到 exact route binding、香港代理出口、Artifact
@@ -126,9 +126,9 @@ search results 出现后站点异步把地图从初始 zoom 12 重定位到香�
 仍等待一次 Zoom In 后得到固定 zoom 13。无 crash/disconnect/direct failure，全部 bindings 与
 lifecycle checks 通过。
 
-Attempt 9 保持 immutable。当前最小修复是等待香港 search-result map relocation 完成，再验证 pan
-保持该 settled zoom、Zoom In 精确增加一级，并继续验证 CyclOSM/new tiles；不加 retry/delay，不改
-其他任务。该 marker 语义需作为 V3 冻结并通过 focused tests 后，再运行新 full-matrix attempt。
+Attempt 9 保持 immutable。`fp4-ordinary-sites-v3` 现等待香港 search-result map relocation 完成，再
+验证 pan 保持该 settled zoom、Zoom In 精确增加一级，并继续验证 CyclOSM/new tiles；未增加
+retry/delay，其他任务不变。focused tests 通过后从 clean synced HEAD 运行 Attempt 10 full matrix。
 
 ## 后续 Gate 顺序
 
@@ -139,7 +139,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（React 已通过；OSM settled relative-zoom marker 下一步）
+→ FP4 ordinary-site compatibility（V3 OSM marker 已配置；native Attempt 10 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery

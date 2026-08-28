@@ -36,9 +36,9 @@ from host_platform import process_identity_alive
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 BRANCH = "codex/camoufox-m3-engine-adapter"
-MATRIX_VERSION = "fp4-ordinary-sites-v2"
+MATRIX_VERSION = "fp4-ordinary-sites-v3"
 CONTRACT = REPO_ROOT / "docs/camoufox-fp4-ordinary-site-compatibility-contract.md"
-CONTRACT_SHA256 = "011ace6c3b312a16aeb42520173210243f1ba74d50b37bd2996cef00f8d02025"
+CONTRACT_SHA256 = "f2ca7bd7621af81aa9ea936f377be93d13f6d10d14a1057e99ad2696bf33dd3c"
 FP3_RESULT = HOST_DIR / "lock" / (
     "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json"
 )
@@ -310,6 +310,15 @@ def map_zoom(fragment: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def map_is_hong_kong(fragment: str) -> bool:
+    match = re.match(r"^map=\d+/(-?\d+(?:\.\d+)?)/(-?\d+(?:\.\d+)?)", fragment)
+    return bool(
+        match
+        and 21.5 <= float(match.group(1)) <= 23.5
+        and 113.0 <= float(match.group(2)) <= 115.5
+    )
+
+
 async def interactive_graphics(page: Any) -> dict[str, Any]:
     initial = await page.goto(
         GRAPHICS_URL, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS
@@ -330,7 +339,23 @@ async def interactive_graphics(page: Any) -> dict[str, Any]:
     search_results = page.locator(".search_results_entry")
     await search_results.first.wait_for(state="visible")
     search_result_count = await search_results.count()
+    await page.wait_for_function(
+        r"""() => {
+          const match = location.hash.match(
+            /^#map=\d+\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)/
+          );
+          if (!match) return false;
+          const latitude = Number(match[1]);
+          const longitude = Number(match[2]);
+          return latitude >= 21.5 && latitude <= 23.5 &&
+            longitude >= 113 && longitude <= 115.5;
+        }""",
+        timeout=NAVIGATION_TIMEOUT_MS,
+    )
     pre_pan_hash = urlsplit(page.url).fragment
+    settled_zoom = map_zoom(pre_pan_hash)
+    if settled_zoom is None:
+        raise FP4Error("OSM search settled without a map zoom")
     await map_view.focus()
     await map_view.press("ArrowRight")
     await page.wait_for_function(
@@ -341,7 +366,8 @@ async def interactive_graphics(page: Any) -> dict[str, Any]:
     pan_hash = urlsplit(page.url).fragment
     await page.locator(".zoom .plus-lg").first.click()
     await page.wait_for_function(
-        "() => location.hash.startsWith('#map=13/')",
+        "zoom => location.hash.startsWith(`#map=${zoom}/`)",
+        arg=settled_zoom + 1,
         timeout=NAVIGATION_TIMEOUT_MS,
     )
     zoom_hash = urlsplit(page.url).fragment
@@ -581,6 +607,10 @@ def complex_markers_passed(task: dict[str, Any]) -> bool:
 
 
 def graphics_markers_passed(task: dict[str, Any]) -> bool:
+    pre_pan_hash = task.get("prePanHash") or ""
+    pan_hash = task.get("panHash") or ""
+    zoom_hash = task.get("zoomHash") or ""
+    settled_zoom = map_zoom(pre_pan_hash)
     return (
         http_ok(task.get("initialHttpStatus"))
         and type(task.get("initialCompletedTileCount")) is int
@@ -589,10 +619,13 @@ def graphics_markers_passed(task: dict[str, Any]) -> bool:
         and task.get("placeQuery") == "Hong Kong"
         and type(task.get("searchResultCount")) is int
         and task["searchResultCount"] >= 1
-        and map_zoom(task.get("prePanHash", "")) == 12
-        and task.get("panHash") != task.get("prePanHash")
-        and map_zoom(task.get("panHash", "")) == 12
-        and map_zoom(task.get("zoomHash", "")) == 13
+        and settled_zoom is not None
+        and map_is_hong_kong(pre_pan_hash)
+        and pan_hash != pre_pan_hash
+        and map_zoom(pan_hash) == settled_zoom
+        and map_is_hong_kong(pan_hash)
+        and map_zoom(zoom_hash) == settled_zoom + 1
+        and map_is_hong_kong(zoom_hash)
         and task.get("cyclosmChecked") is True
         and type(task.get("newLayerTileCount")) is int
         and task["newLayerTileCount"] >= 1

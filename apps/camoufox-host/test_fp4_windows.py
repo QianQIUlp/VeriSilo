@@ -77,12 +77,12 @@ def passing_evidence() -> dict:
             initialCompletedTileCount=4,
             placeQuery="Hong Kong",
             searchResultCount=2,
-            prePanHash="map=12/51.5074/-0.1278",
-            panHash="map=12/51.5074/-0.1100",
-            zoomHash="map=13/51.5074/-0.1100",
+            prePanHash="map=10/22.3527/114.1599",
+            panHash="map=10/22.3527/114.1700",
+            zoomHash="map=11/22.3527/114.1700",
             cyclosmChecked=True,
             newLayerTileCount=4,
-            finalUrl="https://www.openstreetmap.org/#map=13/51.5074/-0.1100",
+            finalUrl="https://www.openstreetmap.org/#map=11/22.3527/114.1700&layers=Y",
         ),
         task(
             "audioVideo",
@@ -232,6 +232,9 @@ def passing_evidence() -> dict:
 
 
 def main() -> None:
+    assert fp4.map_is_hong_kong("map=10/22.3527/114.1599")
+    assert not fp4.map_is_hong_kong("map=12/51.5074/-0.1278")
+
     with tempfile.TemporaryDirectory(prefix="verisilo-fp4-test-") as root:
         staged = Path(root)
         fp4.stage_artifact(staged)
@@ -300,6 +303,15 @@ def main() -> None:
     result = fp4.adjudicate_native(site_drift)
     assert result["status"] == "inconclusive"
     assert result["checks"]["tasks"]["complexJavaScript"] is False
+
+    wrong_relative_zoom = copy.deepcopy(evidence)
+    graphics_task = wrong_relative_zoom["observations"]["phaseA"][
+        "fp4CompatibilityObservation"
+    ]["tasks"][2]
+    graphics_task["zoomHash"] = "map=12/22.3527/114.1700"
+    result = fp4.adjudicate_native(wrong_relative_zoom)
+    assert result["status"] == "inconclusive"
+    assert result["checks"]["tasks"]["interactiveGraphics"] is False
 
     incomplete_reads = copy.deepcopy(evidence)
     incomplete_reads["readErrors"] = [{"label": "phaseA.session"}]
