@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / V3 requalification pending**；React 已直接通过；OSM marker 现等待香港 relocation 后验证 relative zoom +1，尚无该输入的 native evidence，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / Attempt 10 Inconclusive**；OSM 外部 503，media marker 未完整判定；其余任务与全部 bindings/lifecycle 通过，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,75 +60,23 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 native V3 requalification
+### FP4-1 graphics fallback availability freeze
 
-FP3-1b 已在冻结 Formal-v3 candidate、Artifact v6、required SOCKS5 route 与 direct negative control
-上闭合。原生 Windows Attempt 7 直接观察到 exact route binding、香港代理出口、Artifact
-timezone/locale/Geolocation、匹配出口的 ICE `srflx` address 与 clean lifecycle。Geo 的应用边界是
-managed Host 以 Artifact 坐标设置 Playwright persistent context；不声明 Camoufox 原生 Geo provider。
-合同见 [FP3 network identity contract](camoufox-fp3-network-identity-contract.md)。
+Attempt 10 ([report](../artifacts/camoufox-fp4-attempt-10/run-report.json)，SHA-256
+`4bc4815e2dcccf8dbcd707eaaaf1d13e346733972d2930c81e4a86c5f7f878f8`) 是 clean synced commit
+`42b45b3` 上的 immutable native Windows V3 evidence。document、React、form/replay 直接通过；
+Formal-v3、Artifact、Profile、required SOCKS5、boot、clean close、Host/process tree/Job 与 evidence
+receipts 全部通过。
 
-FP4 的 `fp4-ordinary-sites-v1` 仍只回答 ordinary-site product compatibility。Attempt 6
-([report](../artifacts/camoufox-fp4-attempt-6/run-report.json)，SHA-256
-`426c1ff564900bb69dbca8881335e488f353a71bc4524c2fcc6355758f0bfd3b`) 的原 runner 结论保持
-immutable `Inconclusive`：complex JS、media、form state 与跨重启 replay Passed，graphics 因一次
-bounded site wait 保持 Inconclusive；exact Formal/Artifact/route/boot binding、两次 clean close、
-Job/process tree 清零和临时运行根移除均通过。
+OSM 搜索直接显示第三方 `503 backend read error` 并停留伦敦，因此是外部不可判定，不是产品
+failure。media 已加载并播放，但未在预算内完成冻结的 Pause/seek 全套 marker；无 crash、disconnect
+或 direct product failure，保持 ambiguous `Inconclusive`。Attempt 10 aggregate 为 terminal
+`Inconclusive`，native evidence SHA-256
+`19036455a331e83198cfcbfd7b53ec58b1c58d8517f9a9466ba36d6d2a267ec6`，`verified:false`。
 
-文档任务已取得新的直接因果证据，不再属于网站或 `history.length` 歧义：冻结 Formal-v3 与 pinned
-upstream 的 `camoufox.cfg` 是同一 SHA-256
-`2d4e2d1ebca1a7103b03477d7d11dc056ae0f53ab12ef63e55d8bf2ff4b5722a`，均设置
-`browser.sessionhistory.max_entries=0`；Firefox owning test 明确断言该值不保存任何 session-history
-entry。Camoufox 另在 `nsHistory::GetLength` 把网页可见值替换为 Artifact 的固定
-`window.history.length=4`。这精确解释了 Attempt 2 的 `page.go_back()` null、Attempt 4 的快捷键、
-Attempt 5/6 的 `history.back()` 均停留在文章页，以及 Attempt 6 的 `4 -> 4 -> 4`、无 dialog、
-navigation request/failure、`popstate`、crash 或 page error。当前代码已移除把该遮罩值误当 backing
-history entry 的判定条件；这是对既有 evidence 的 corrected adjudication，不重写 Attempt 6。
-
-唯一 document/navigation-only pinned upstream control
-([report](../artifacts/camoufox-fp4-upstream-document-control-1/run-report.json)，SHA-256
-`aee6dbeb88a0a0844f829c8c93ea4535c9ab389729a0c5b9eee3905f2004b276`) 已在 native Windows 上
-复现同一 direct failure。official Engine/tree、derived control Artifact、fresh Profile `0 -> 1`、required
-SOCKS5 route、完整 observation/screenshot、clean close、Host child、process tree、Job、shutdown self-check
-与临时运行根移除的全部裁决检查均通过；因此 FP4 为 `Failed/open`，归因 inherited
-Camoufox/Firefox product limitation，不是 `Inconclusive`，`verified:false`。
-
-最小修复已落在现有 shared Host/evidence Firefox prefs seam：把
-`browser.sessionhistory.max_entries` 从 Camoufox 配置的 `0` 恢复为 Firefox 正常容量 `50`；不修改
-Artifact、Profile、Engine 或 Network Policy 生命周期。一次性 control runner 已从 HEAD 删除，其
-冻结 commit/evidence 保留，shared prefs focused test 已通过。
-
-修复后的 Attempt 7 ([report](../artifacts/camoufox-fp4-attempt-7/run-report.json)，SHA-256
-`7dd2914393ede09fb23e50ba1f61caecdcb5474fb4730d239f4818ce0ecf9f56`) 直接通过 document 的 exact
-search/article/back/forward，证明 backing session history 已恢复；graphics、media、form state 与
-跨重启 replay 也通过。唯一 Inconclusive 是 GitHub：exact `Filter by labels` click 成功后，当前页面
-未出现冻结的 `role=dialog`，bounded 30 秒后截图仍是健康 issues list；无 crash、disconnect 或 direct
-product failure。两阶段 Formal/Artifact/route/boot binding、截图、clean close、Host child、process
-tree、Job、shutdown self-check 与临时根移除全部通过。
-
-Attempt 7 保持 immutable，不以未变输入重跑。合同预声明的
-`https://react.dev/reference/react` 已在任何新 attempt root/browser 前通过 required SOCKS5 route 取得
-最终 HTTP 200。`fp4-ordinary-sites-v2` 只把 complex-JS 切到 exact `useState` search/result/client-route
-markers，其余站点、Artifact、Profile、Engine、Network 与 lifecycle 输入不变。
-
-Attempt 8 ([report](../artifacts/camoufox-fp4-attempt-8/run-report.json)，SHA-256
-`076b518f659594e822cb61137120ce04de6e92839a718aee592377483631878a`) 已完成 React exact search、
-`useState` result 与目标 `/reference/react/useState` URL，但 runner 在 client route 完成 render 前立即读取
-旧 `h1=React Reference Overview`；截图也直接支持该时序。graphics 与 media 本轮分别为 bounded tile
-与播放进度外部超时，均无 crash/disconnect/direct failure，且 Attempt 7 已通过对应任务。document、
-form/replay 通过；全部 bindings 与 lifecycle checks 通过。
-
-Attempt 8 保持 immutable。runner 只在 URL 改变后等待合同已要求的可见 `h1=useState`，未增加
-retry/delay 或新 marker。Attempt 9 ([report](../artifacts/camoufox-fp4-attempt-9/run-report.json)，
-SHA-256 `6f6ca6a197aa1cc30beeb28c3e086ffd91a074b72b3bbd249c3f398badfba409`) 已直接通过 React exact
-search/result/target URL/`h1=useState`；document、media、form/replay 也通过。唯一 Inconclusive 是 OSM：
-search results 出现后站点异步把地图从初始 zoom 12 重定位到香港 zoom 10，而旧 worker 在该竞态中
-仍等待一次 Zoom In 后得到固定 zoom 13。无 crash/disconnect/direct failure，全部 bindings 与
-lifecycle checks 通过。
-
-Attempt 9 保持 immutable。`fp4-ordinary-sites-v3` 现等待香港 search-result map relocation 完成，再
-验证 pan 保持该 settled zoom、Zoom In 精确增加一级，并继续验证 CyclOSM/new tiles；未增加
-retry/delay，其他任务不变。focused tests 通过后从 clean synced HEAD 运行 Attempt 10 full matrix。
+Attempt 10 不以未变输入重跑。下一最小 Gate 是在任何新 attempt root/browser 前检查合同已预声明的
+Google Maps graphics fallback；若可用，V4 只切换 graphics selection。media primary 保持不变，
+因为它本轮可达且 Attempt 9 已直接通过，不把一次 ambiguous timeout 扩张成新的 workaround。
 
 ## 后续 Gate 顺序
 
@@ -139,7 +87,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（V3 OSM marker 已配置；native Attempt 10 下一步）
+→ FP4 ordinary-site compatibility（Attempt 10 Inconclusive；graphics fallback availability freeze 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
