@@ -33,10 +33,10 @@ use crate::{
         production_engine_adapter, read_engine_bootstrap_ack_frame,
         read_engine_runtime_receipt_frame, strict_json_from_slice, write_engine_bootstrap_frame,
         CamoufoxHostLaunch, CamoufoxHostRoots, EngineBootstrapAck, EngineBootstrapAckExpectation,
-        EngineBootstrapEnvelope, EngineCapabilityOperation, EngineCapabilityState,
-        EngineControlExecution, EngineHealthState, EngineLaunchPlan, EngineLaunchRequest,
-        EngineRuntimeReceiptExpectation, EngineRuntimeReceiptFrame, EngineTransport,
-        IdentityDerivationContext, IdentityTokenDeriver, CAMOUFOX_HOST_PROTOCOL,
+        EngineBootstrapEnvelope, EngineCapabilityId, EngineCapabilityOperation,
+        EngineCapabilityState, EngineControlExecution, EngineHealthState, EngineLaunchPlan,
+        EngineLaunchRequest, EngineRuntimeReceiptExpectation, EngineRuntimeReceiptFrame,
+        EngineTransport, IdentityDerivationContext, IdentityTokenDeriver, CAMOUFOX_HOST_PROTOCOL,
         DEFAULT_SESSION_TOKEN_LIFETIME_MINUTES, MAX_CAMOUFOX_HOST_FRAME_BYTES,
     },
     mihomo,
@@ -1733,7 +1733,9 @@ impl RuntimeManager {
             apply_camoufox_host_capability_evidence(
                 &mut engine_evidence,
                 &engine_plan.capabilities,
-                host_runtime.expect("checked Camoufox Host runtime"),
+                &host_runtime
+                    .expect("checked Camoufox Host runtime")
+                    .evidence_class,
             )
             .map_err(|error| {
                 terminate_just_spawned_child(&mut child);
@@ -3165,18 +3167,17 @@ fn validate_camoufox_host_shutdown(
 fn apply_camoufox_host_capability_evidence(
     evidence: &mut RuntimeEngineEvidence,
     plan: &[EngineCapabilityState],
-    host: &CamoufoxHostRuntime,
+    evidence_class: &str,
 ) -> Result<(), String> {
     let mut capabilities = plan.to_vec();
-    let host_evidence = format!(
-        "camoufox-host/v1 running; evidenceClass={}",
-        host.evidence_class
-    );
+    let host_evidence = format!("camoufox-host/v1 running; evidenceClass={}", evidence_class);
     for capability in &mut capabilities {
-        if capability.operation == EngineCapabilityOperation::Configured {
+        if capability.id == EngineCapabilityId::ProfileIsolation
+            && capability.operation == EngineCapabilityOperation::Configured
+        {
             capability
                 .transition(
-                    crate::engine::EngineCapabilityOperation::Applied,
+                    EngineCapabilityOperation::Applied,
                     vec![host_evidence.clone()],
                     Utc::now(),
                 )
@@ -4731,6 +4732,49 @@ process.stdin.on('end', () => {
         duplicated.extend([OsString::from("--probe-port"), OsString::from("43128")]);
         assert!(super::validate_camoufox_host_hello(&hello, &binding, &duplicated).is_err());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn camoufox_host_running_applies_only_profile_binding() {
+        let plan = EngineCapabilityId::ALL
+            .into_iter()
+            .map(|id| EngineCapabilityState {
+                id,
+                availability: if id == EngineCapabilityId::ProfileIsolation {
+                    EngineCapabilityAvailability::Supported
+                } else {
+                    EngineCapabilityAvailability::Experimental
+                },
+                operation: EngineCapabilityOperation::Configured,
+                reason: "configured test capability".to_owned(),
+                verified_at: None,
+                evidence: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        let mut evidence = RuntimeEngineEvidence::configured(EngineAdapterId::Camoufox, true);
+
+        super::apply_camoufox_host_capability_evidence(
+            &mut evidence,
+            &plan,
+            "observed-on-this-host",
+        )
+        .expect("apply bound Camoufox Host evidence");
+
+        for capability in evidence.capabilities {
+            if capability.id == EngineCapabilityId::ProfileIsolation {
+                assert_eq!(capability.operation, EngineCapabilityOperation::Applied);
+                assert_eq!(
+                    capability.evidence,
+                    vec![
+                        "camoufox-host/v1 running; evidenceClass=observed-on-this-host".to_owned()
+                    ]
+                );
+            } else {
+                assert_eq!(capability.operation, EngineCapabilityOperation::Configured);
+                assert!(capability.evidence.is_empty());
+            }
+            assert!(capability.verified_at.is_none());
+        }
     }
 
     #[test]
