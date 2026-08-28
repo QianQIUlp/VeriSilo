@@ -155,13 +155,14 @@ async def document_navigation(page: Any) -> dict[str, Any]:
     history = page.get_by_role("heading", name="History", exact=True).first
     await history.scroll_into_view_if_needed()
     history_visible = await history.is_visible()
-    back = await page.go_back(
-        wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS
-    )
+    await page.keyboard.press("Alt+Left")
+    await page.wait_for_url(DOCUMENT_URL, timeout=NAVIGATION_TIMEOUT_MS)
     back_url = page.url
     back_heading = (await page.locator("h1").first.inner_text()).strip()
-    forward = await page.go_forward(
-        wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS
+    await page.keyboard.press("Alt+Right")
+    await page.wait_for_url(
+        re.compile(r"^https://en\.wikipedia\.org/wiki/Military_camouflage(?:[#?].*)?$"),
+        timeout=NAVIGATION_TIMEOUT_MS,
     )
     return {
         "initialHttpStatus": response_status(initial),
@@ -169,10 +170,10 @@ async def document_navigation(page: Any) -> dict[str, Any]:
         "articleUrl": article_url,
         "articleHeading": article_heading,
         "historyVisible": history_visible,
-        "backHttpStatus": response_status(back),
+        "backAction": "Alt+Left",
         "backUrl": back_url,
         "backHeading": back_heading,
-        "forwardHttpStatus": response_status(forward),
+        "forwardAction": "Alt+Right",
         "forwardUrl": page.url,
         "forwardHeading": (await page.locator("h1").first.inner_text()).strip(),
         "title": await page.title(),
@@ -194,6 +195,7 @@ async def complex_javascript(page: Any) -> dict[str, Any]:
     await dialog.get_by_role(
         "option", name=re.compile(r"^browser-chromium(?:\s|$)")
     ).first.click()
+    await page.keyboard.press("Escape")
     expected_query = "is:issue state:open label:browser-chromium"
     await page.wait_for_function(
         """expected => {
@@ -265,7 +267,7 @@ async def interactive_graphics(page: Any) -> dict[str, Any]:
     initial_sources = await completed_tile_sources(page)
     initial_hash = urlsplit(page.url).fragment
     place_query = "Hong Kong"
-    search = page.locator("#query")
+    search = page.locator("#sidebar #query")
     await search.fill(place_query)
     await search.press("Enter")
     search_results = page.locator(".search_results_entry")
@@ -451,9 +453,10 @@ def document_markers_passed(task: dict[str, Any]) -> bool:
         and urlsplit(task.get("articleUrl", "")).path == "/wiki/Military_camouflage"
         and task.get("articleHeading") == "Military camouflage"
         and task.get("historyVisible") is True
-        and http_ok(task.get("backHttpStatus"))
+        and task.get("backAction") == "Alt+Left"
+        and task.get("backUrl") == DOCUMENT_URL
         and task.get("backHeading") == "Search results"
-        and http_ok(task.get("forwardHttpStatus"))
+        and task.get("forwardAction") == "Alt+Right"
         and urlsplit(task.get("forwardUrl", "")).path == "/wiki/Military_camouflage"
         and task.get("forwardHeading") == "Military camouflage"
         and task.get("finalUrl") == task.get("forwardUrl")

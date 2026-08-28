@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open**；Attempt 1 在 browser launch 前因 runner 漏配 Artifact sidecar 而 Failed，没有站点 runtime evidence |
+| FP4 ordinary-site compatibility | **Gate open**；Attempt 2 为 Inconclusive：媒体、状态及重启重放 Passed，三个站点任务暴露 harness 动作/selector 偏差；exact bindings 与 lifecycle 全部 clean |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -75,14 +75,16 @@ fallback。2026-08-28 的一次 SOCKS5 availability preflight 选择了全部 pr
 状态重放及最终 Host/process tree/Job clean close。合同见
 [FP4 ordinary-site compatibility contract](camoufox-fp4-ordinary-site-compatibility-contract.md)。
 
-Attempt 1 (`8d0409b`；[report](../artifacts/camoufox-fp4-attempt-1/run-report.json)，SHA-256
-`71d5871c27c2e05950e6dc508296545e369716be274ab1521aa903ef71646a96`) 在 phase A launch 前被
-production Host 的 Artifact integrity check 拒绝：
-runner 只复制了 raw Artifact，未复制 Host 已要求的 matching SHA sidecar。Host child clean exit，
-没有创建浏览器 session、没有站点任务 observation；该 Failed evidence 保持不可变，但不关闭 FP4
-工程 Gate。runner 已改为在 attempt 目录创建前验证并复制 exact sidecar，focused regression 直接
-覆盖这条输入链。当前下一步是同步修复 checkpoint 后生成清晰版本化的 Attempt 2；不声明
-compatibility pass。
+Attempt 1 在 browser launch 前因 runner 漏配 Artifact sidecar 而 Failed；其 immutable evidence
+保持不变，但没有站点 observation，也不关闭工程 Gate。输入链修复后的 Attempt 2
+([report](../artifacts/camoufox-fp4-attempt-2/run-report.json)，SHA-256
+`7004aede47ee22d4c2b853219e8da12d17d0680c81afd0d73fb63e3781d5e6f4`) 完成两阶段原生执行：
+exact Formal/Artifact/route/boot 绑定、六张截图、两次 clean close、Job/process tree 清零及临时运行根
+移除均通过；音视频、表单状态和跨重启重放 Passed。文档导航的 Playwright history API 未产生
+用户 back/forward、GitHub label 已勾选但弹层未提交 query、OSM `#query` 命中两个元素，因此三项
+为 Inconclusive，无 direct product failure、无需 upstream control。runner 只按直接 evidence 改为
+原生 `Alt+Left/Alt+Right`、关闭 GitHub label 弹层、限定 OSM sidebar search。当前下一步是在该
+修复 checkpoint 上生成新的不可变 Attempt 3；不声明 compatibility pass。
 
 ## 后续 Gate 顺序
 
@@ -117,6 +119,7 @@ Formal-v3 static source candidate（已闭合）
 | FP2 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp2-result.json`；SHA-256 `caa5ed4005c3e9c392c76a5d264d3d7d4d30cb741ac675fd27803c7f5fa06fa6`；**Passed on this native Windows host**；`verified:false` |
 | FP3 Attempt 7 | run `fp3-20260828T024057905465Z`；report SHA-256 `697a190ff485814a3f310cf3977792698e9ac2aaa2bcbae625bbbf7797acc25d`；required route、出口、Geo、ICE 与 lifecycle 全部通过 |
 | FP3 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`；SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`；**Passed on this native Windows host**；`verified:false` |
+| FP4 Attempt 2 | `artifacts/camoufox-fp4-attempt-2/run-report.json`；SHA-256 `7004aede47ee22d4c2b853219e8da12d17d0680c81afd0d73fb63e3781d5e6f4`；三项 Passed、三项 harness Inconclusive；bindings/lifecycle clean，`verified:false` |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |
