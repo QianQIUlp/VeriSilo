@@ -42,9 +42,6 @@ def passing_evidence() -> dict:
             articleUrl="https://en.wikipedia.org/wiki/Military_camouflage",
             articleHeading="Military camouflage",
             historyVisible=True,
-            historyLengthBeforeArticle=2,
-            historyLengthAfterArticle=3,
-            historyLengthAfterBack=3,
             backAction="history.back()",
             backActionInvoked=True,
             backWaitTimedOut=False,
@@ -255,6 +252,9 @@ def main() -> None:
         evidence["observations"]["phaseA"]["fp4CompatibilityObservation"]["tasks"][0]
     )
     history_failure.update(
+        historyLengthBeforeArticle=4,
+        historyLengthAfterArticle=4,
+        historyLengthAfterBack=4,
         backWaitTimedOut=True,
         backTraversalObserved=False,
         backNavigationUrls=[],
@@ -265,12 +265,6 @@ def main() -> None:
         forwardTraversalObserved=False,
     )
     assert fp4.document_direct_failure(history_failure) is True
-
-    no_new_entry = copy.deepcopy(history_failure)
-    no_new_entry["historyLengthAfterArticle"] = no_new_entry[
-        "historyLengthBeforeArticle"
-    ]
-    assert fp4.document_direct_failure(no_new_entry) is False
 
     dialog_blocked = copy.deepcopy(history_failure)
     dialog_blocked["backDialogTypes"] = ["beforeunload"]

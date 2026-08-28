@@ -38,7 +38,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 BRANCH = "codex/camoufox-m3-engine-adapter"
 MATRIX_VERSION = "fp4-ordinary-sites-v1"
 CONTRACT = REPO_ROOT / "docs/camoufox-fp4-ordinary-site-compatibility-contract.md"
-CONTRACT_SHA256 = "5bd350d643b5453a397fdf9c35e65b9ef512c921ef9db3ee78a616c0f07c3826"
+CONTRACT_SHA256 = "eca782c69c801b9b41b8dbf9f961db9788f6f736fd7b4fc5b7f6183b84cb887c"
 FP3_RESULT = HOST_DIR / "lock" / (
     "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json"
 )
@@ -143,7 +143,6 @@ async def document_navigation(page: Any) -> dict[str, Any]:
         DOCUMENT_URL, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS
     )
     initial_heading = (await page.locator("h1").first.inner_text()).strip()
-    history_length_before_article = await page.evaluate("history.length")
     await page.get_by_role(
         "link", name="Military camouflage", exact=True
     ).first.click()
@@ -157,7 +156,6 @@ async def document_navigation(page: Any) -> dict[str, Any]:
     history = page.get_by_role("heading", name="History", exact=True).first
     await history.scroll_into_view_if_needed()
     history_visible = await history.is_visible()
-    history_length = await page.evaluate("history.length")
     back_dialog_types: list[str] = []
     back_navigation_urls: list[str] = []
     back_navigation_requests: list[str] = []
@@ -207,7 +205,6 @@ async def document_navigation(page: Any) -> dict[str, Any]:
         back_wait_timed_out = True
     back_url = page.url
     back_heading = (await page.locator("h1").first.inner_text()).strip()
-    history_length_after_back = await page.evaluate("history.length")
     back_popstate_count = await page.evaluate(
         "globalThis.__verisiloFp4PopstateCount ?? 0"
     )
@@ -241,9 +238,6 @@ async def document_navigation(page: Any) -> dict[str, Any]:
         "articleUrl": article_url,
         "articleHeading": article_heading,
         "historyVisible": history_visible,
-        "historyLengthBeforeArticle": history_length_before_article,
-        "historyLengthAfterArticle": history_length,
-        "historyLengthAfterBack": history_length_after_back,
         "backAction": "history.back()",
         "backActionInvoked": back_action_invoked,
         "backWaitTimedOut": back_wait_timed_out,
@@ -538,11 +532,6 @@ def document_markers_passed(task: dict[str, Any]) -> bool:
         and urlsplit(task.get("articleUrl", "")).path == "/wiki/Military_camouflage"
         and task.get("articleHeading") == "Military camouflage"
         and task.get("historyVisible") is True
-        and type(task.get("historyLengthBeforeArticle")) is int
-        and type(task.get("historyLengthAfterArticle")) is int
-        and task["historyLengthAfterArticle"]
-        == task["historyLengthBeforeArticle"] + 1
-        and type(task.get("historyLengthAfterBack")) is int
         and task.get("backAction") == "history.back()"
         and task.get("backActionInvoked") is True
         and task.get("backWaitTimedOut") is False
@@ -583,11 +572,8 @@ def document_direct_failure(task: dict[str, Any]) -> bool:
         and urlsplit(task.get("articleUrl", "")).path == "/wiki/Military_camouflage"
         and task.get("articleHeading") == "Military camouflage"
         and task.get("historyVisible") is True
-        and type(task.get("historyLengthBeforeArticle")) is int
-        and type(task.get("historyLengthAfterArticle")) is int
-        and task["historyLengthAfterArticle"]
-        == task["historyLengthBeforeArticle"] + 1
-        and task.get("historyLengthAfterBack") == task["historyLengthAfterArticle"]
+        # window.history.length is an Artifact-controlled MaskConfig surface,
+        # not evidence that Firefox retained a backing session-history entry.
         and task.get("backDialogTypes") == []
         and task.get("backNavigationUrls") == []
         and task.get("backNavigationRequests") == []

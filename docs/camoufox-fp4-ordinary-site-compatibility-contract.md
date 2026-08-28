@@ -93,9 +93,10 @@ evidence and exceeding a budget does not pass even if late work eventually retur
 - both sessions close successfully, the Host child exits, the owned process tree is empty, Windows
   Job active-process count is zero, and bounded evidence/report files are complete.
 
-`Failed` means direct evidence of a browser/patch/Host defect, browser crash or disconnect, Profile
-damage or lost state after an otherwise successful write/reload, FP2/FP3 binding regression, exceeded
-hard lifecycle boundary, or dirty process/Job shutdown.
+`Failed` means direct evidence of a browser/patch/Host defect (including an inherited pinned
+Camoufox/Firefox product limitation), browser crash or disconnect, Profile damage or lost state after
+an otherwise successful write/reload, FP2/FP3 binding regression, exceeded hard lifecycle boundary,
+or dirty process/Job shutdown.
 
 `Inconclusive` means a task cannot be adjudicated because of site outage or structure drift, consent,
 region policy, CAPTCHA/challenge, rate limit, third-party media/tile failure, or another ambiguous
@@ -111,10 +112,11 @@ Outcome precedence is deterministic: `Blocked` stops before launch; after launch
 evidence dominates `Inconclusive`, which dominates `Passed`.
 
 A Formal-v3 site task with direct product-failure evidence triggers one pinned upstream Camoufox
-control for that failed task only. If upstream passes, Formal-v3 remains `Failed`; if upstream has the
-same failure, is unavailable, or cannot be adjudicated, that site task becomes `Inconclusive` because
-the failure cannot be attributed to Formal-v3. Independent binding, Profile or lifecycle failures
-remain `Failed` without a site control. Passing and initially Inconclusive tasks receive no control.
+control for that failed task only. If upstream passes, Formal-v3 remains `Failed` and attribution is
+the VeriSilo patch/Host application layer. If upstream has the same direct failure, FP4 remains
+`Failed` and attribution is an inherited Camoufox/Firefox product limitation. An unavailable or
+unadjudicable control is `Inconclusive`. Independent binding, Profile or lifecycle failures remain
+`Failed` without a site control. Passing and initially Inconclusive tasks receive no control.
 
 ## Evidence and explicit boundary
 
