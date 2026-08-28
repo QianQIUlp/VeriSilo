@@ -1,0 +1,63 @@
+seeding camoufox cache from verified archive (152.0.4-beta.28-032ca1a4) ...
+host: reader thread started
+session 7c0df4a62f2744b8bf95c83e6d80dfe8: launching artifact=identity-fp3-1b-formal-v3-a profile=fp4-attempt-9
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_options","event":"start","durationMs":0}
+C:\Users\qiu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\thread.py:59: LeakWarning: When using a proxy, it is heavily recommended that you pass `geoip=True`.
+  result = self.fn(*self.args, **self.kwargs)
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_options","event":"success","durationMs":9}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_persistent_context","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_persistent_context","event":"success","durationMs":9817}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"supervisor_job_bind","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"supervisor_job_bind","event":"success","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"new_page","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"new_page","event":"success","durationMs":2928}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"goto","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"goto","event":"success","durationMs":155}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.fonts","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.fonts","event":"success","durationMs":44}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.media","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.media","event":"success","durationMs":222,"reason":"success"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.identity","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.identity","event":"success","durationMs":201}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"cookie","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"cookie","event":"success","durationMs":3033}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.write","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.write","event":"success","durationMs":3}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"response_write","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"response_write","event":"success","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"start","durationMs":0,"phase":"page.close"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"result","durationMs":5,"phase":"page.close","outcome":"success"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"start","durationMs":0,"phase":"ctx.close"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"result","durationMs":568,"phase":"ctx.close","outcome":"success"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"result","durationMs":579,"phase":"graceful-process-exit","outcome":"success"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"result","durationMs":579,"phase":"forced-job-cleanup","outcome":"not_needed"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"result","durationMs":593,"phase":"sqlite-evidence","outcome":"available"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"success","durationMs":914}
+session 8f6c5e14cd034dd3bce92bbbb94598c5: launching artifact=identity-fp3-1b-formal-v3-a profile=fp4-attempt-9
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_options","event":"start","durationMs":0}
+C:\Users\qiu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\thread.py:59: LeakWarning: When using a proxy, it is heavily recommended that you pass `geoip=True`.
+  result = self.fn(*self.args, **self.kwargs)
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_options","event":"success","durationMs":4}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_persistent_context","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_persistent_context","event":"success","durationMs":5868}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"supervisor_job_bind","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"supervisor_job_bind","event":"success","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"new_page","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"new_page","event":"success","durationMs":2474}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"goto","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"goto","event":"success","durationMs":67}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.fonts","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.fonts","event":"success","durationMs":33}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.media","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.media","event":"success","durationMs":215,"reason":"success"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.identity","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.identity","event":"success","durationMs":179}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"cookie","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"cookie","event":"success","durationMs":8}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.write","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.write","event":"success","durationMs":2}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"response_write","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"response_write","event":"success","durationMs":0}
+host: loop finished, closing active sessions
+host: sessions closed, playwright stopping

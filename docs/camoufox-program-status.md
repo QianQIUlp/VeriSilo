@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / requalification pending**；Attempt 8 已到 React target URL；runner 现等待合同既有 `h1=useState` marker，尚无该修复后的 native full-matrix evidence，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / Attempt 9 Inconclusive**；React fallback 与其余五项中四项/replay 已通过；仅 OSM search-result async zoom 与固定 12→13 marker 竞态，bindings/lifecycle clean，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,7 +60,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 native V2 requalification after render-marker fix
+### FP4-1 OSM search-settle + relative zoom marker
 
 FP3-1b 已在冻结 Formal-v3 candidate、Artifact v6、required SOCKS5 route 与 direct negative control
 上闭合。原生 Windows Attempt 7 直接观察到 exact route binding、香港代理出口、Artifact
@@ -118,9 +118,17 @@ Attempt 8 ([report](../artifacts/camoufox-fp4-attempt-8/run-report.json)，SHA-2
 与播放进度外部超时，均无 crash/disconnect/direct failure，且 Attempt 7 已通过对应任务。document、
 form/replay 通过；全部 bindings 与 lifecycle checks 通过。
 
-Attempt 8 保持 immutable。runner 现只在 URL 改变后等待合同已要求的可见 `h1=useState`，未增加
-retry/delay 或新 marker。focused tests 通过后从 clean synced HEAD 运行 Attempt 9 full matrix；不得
-修改其余站点、重跑 upstream control、FP2/FP3，或进入 M3-WI。
+Attempt 8 保持 immutable。runner 只在 URL 改变后等待合同已要求的可见 `h1=useState`，未增加
+retry/delay 或新 marker。Attempt 9 ([report](../artifacts/camoufox-fp4-attempt-9/run-report.json)，
+SHA-256 `6f6ca6a197aa1cc30beeb28c3e086ffd91a074b72b3bbd249c3f398badfba409`) 已直接通过 React exact
+search/result/target URL/`h1=useState`；document、media、form/replay 也通过。唯一 Inconclusive 是 OSM：
+search results 出现后站点异步把地图从初始 zoom 12 重定位到香港 zoom 10，而旧 worker 在该竞态中
+仍等待一次 Zoom In 后得到固定 zoom 13。无 crash/disconnect/direct failure，全部 bindings 与
+lifecycle checks 通过。
+
+Attempt 9 保持 immutable。当前最小修复是等待香港 search-result map relocation 完成，再验证 pan
+保持该 settled zoom、Zoom In 精确增加一级，并继续验证 CyclOSM/new tiles；不加 retry/delay，不改
+其他任务。该 marker 语义需作为 V3 冻结并通过 focused tests 后，再运行新 full-matrix attempt。
 
 ## 后续 Gate 顺序
 
@@ -131,7 +139,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（既有 h1 marker wait 已配置；native Attempt 9 下一步）
+→ FP4 ordinary-site compatibility（React 已通过；OSM settled relative-zoom marker 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
@@ -155,7 +163,7 @@ Formal-v3 static source candidate（已闭合）
 | FP2 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp2-result.json`；SHA-256 `caa5ed4005c3e9c392c76a5d264d3d7d4d30cb741ac675fd27803c7f5fa06fa6`；**Passed on this native Windows host**；`verified:false` |
 | FP3 Attempt 7 | run `fp3-20260828T024057905465Z`；report SHA-256 `697a190ff485814a3f310cf3977792698e9ac2aaa2bcbae625bbbf7797acc25d`；required route、出口、Geo、ICE 与 lifecycle 全部通过 |
 | FP3 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`；SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`；**Passed on this native Windows host**；`verified:false` |
-| FP4 latest attempt | Attempt 8 `artifacts/camoufox-fp4-attempt-8/run-report.json`；SHA-256 `076b518f659594e822cb61137120ce04de6e92839a718aee592377483631878a`；React target URL reached but old h1 read before render，graphics/media external timeout；bindings/lifecycle clean，`verified:false` |
+| FP4 latest attempt | Attempt 9 `artifacts/camoufox-fp4-attempt-9/run-report.json`；SHA-256 `6f6ca6a197aa1cc30beeb28c3e086ffd91a074b72b3bbd249c3f398badfba409`；React 与其余四项/replay Passed，仅 OSM async relocation/fixed zoom marker Inconclusive；bindings/lifecycle clean，`verified:false` |
 | FP4 upstream document control | `artifacts/camoufox-fp4-upstream-document-control-1/run-report.json`；SHA-256 `aee6dbeb88a0a0844f829c8c93ea4535c9ab389729a0c5b9eee3905f2004b276`；same direct failure，全部 binding/lifecycle checks true；**FP4 Failed/open**，`verified:false` |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
