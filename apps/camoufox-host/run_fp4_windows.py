@@ -33,6 +33,7 @@ if str(HOST_DIR) not in sys.path:
 import host_v1
 import run_fp3_1b_windows as fp3
 from host_platform import process_identity_alive
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 BRANCH = "codex/camoufox-m3-engine-adapter"
 MATRIX_VERSION = "fp4-ordinary-sites-v1"
@@ -142,6 +143,7 @@ async def document_navigation(page: Any) -> dict[str, Any]:
         DOCUMENT_URL, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS
     )
     initial_heading = (await page.locator("h1").first.inner_text()).strip()
+    history_length_before_article = await page.evaluate("history.length")
     await page.get_by_role(
         "link", name="Military camouflage", exact=True
     ).first.click()
@@ -156,17 +158,82 @@ async def document_navigation(page: Any) -> dict[str, Any]:
     await history.scroll_into_view_if_needed()
     history_visible = await history.is_visible()
     history_length = await page.evaluate("history.length")
-    await page.evaluate("history.back()")
-    await page.wait_for_url(
-        DOCUMENT_URL, wait_until="commit", timeout=NAVIGATION_TIMEOUT_MS
+    back_dialog_types: list[str] = []
+    back_navigation_urls: list[str] = []
+    back_navigation_requests: list[str] = []
+    back_navigation_request_failures: list[dict[str, str]] = []
+
+    def on_dialog(dialog: Any) -> None:
+        back_dialog_types.append(str(dialog.type)[:64])
+        asyncio.create_task(dialog.dismiss())
+
+    def on_frame_navigated(frame: Any) -> None:
+        if frame == page.main_frame:
+            back_navigation_urls.append(str(frame.url)[:500])
+
+    def on_request(request: Any) -> None:
+        if request.is_navigation_request() and request.frame == page.main_frame:
+            back_navigation_requests.append(str(request.url)[:500])
+
+    def on_request_failed(request: Any) -> None:
+        if request.is_navigation_request() and request.frame == page.main_frame:
+            back_navigation_request_failures.append(
+                {
+                    "url": str(request.url)[:500],
+                    "error": str(request.failure or "")[:200],
+                }
+            )
+
+    page.on("dialog", on_dialog)
+    page.on("framenavigated", on_frame_navigated)
+    page.on("request", on_request)
+    page.on("requestfailed", on_request_failed)
+    await page.evaluate(
+        """() => {
+          globalThis.__verisiloFp4PopstateCount = 0;
+          addEventListener('popstate', () => {
+            globalThis.__verisiloFp4PopstateCount += 1;
+          });
+        }"""
     )
+    back_action_invoked = True
+    await page.evaluate("history.back()")
+    back_wait_timed_out = False
+    try:
+        await page.wait_for_url(
+            DOCUMENT_URL, wait_until="commit", timeout=NAVIGATION_TIMEOUT_MS
+        )
+    except PlaywrightTimeoutError:
+        back_wait_timed_out = True
     back_url = page.url
     back_heading = (await page.locator("h1").first.inner_text()).strip()
-    await page.evaluate("history.forward()")
-    await page.wait_for_url(
-        re.compile(r"^https://en\.wikipedia\.org/wiki/Military_camouflage(?:[#?].*)?$"),
-        wait_until="commit",
-        timeout=NAVIGATION_TIMEOUT_MS,
+    history_length_after_back = await page.evaluate("history.length")
+    back_popstate_count = await page.evaluate(
+        "globalThis.__verisiloFp4PopstateCount ?? 0"
+    )
+    back_traversal_observed = (
+        back_url == DOCUMENT_URL and back_heading == "Search results"
+    )
+    forward_action_invoked = back_traversal_observed
+    forward_wait_timed_out = False
+    if forward_action_invoked:
+        await page.evaluate("history.forward()")
+        try:
+            await page.wait_for_url(
+                re.compile(
+                    r"^https://en\.wikipedia\.org/wiki/Military_camouflage(?:[#?].*)?$"
+                ),
+                wait_until="commit",
+                timeout=NAVIGATION_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            forward_wait_timed_out = True
+    forward_url = page.url
+    forward_heading = (await page.locator("h1").first.inner_text()).strip()
+    forward_traversal_observed = (
+        forward_action_invoked
+        and urlsplit(forward_url).path == "/wiki/Military_camouflage"
+        and forward_heading == "Military camouflage"
     )
     return {
         "initialHttpStatus": response_status(initial),
@@ -174,13 +241,26 @@ async def document_navigation(page: Any) -> dict[str, Any]:
         "articleUrl": article_url,
         "articleHeading": article_heading,
         "historyVisible": history_visible,
+        "historyLengthBeforeArticle": history_length_before_article,
         "historyLengthAfterArticle": history_length,
+        "historyLengthAfterBack": history_length_after_back,
         "backAction": "history.back()",
+        "backActionInvoked": back_action_invoked,
+        "backWaitTimedOut": back_wait_timed_out,
+        "backTraversalObserved": back_traversal_observed,
+        "backDialogTypes": back_dialog_types,
+        "backNavigationUrls": back_navigation_urls,
+        "backNavigationRequests": back_navigation_requests,
+        "backNavigationRequestFailures": back_navigation_request_failures,
+        "backPopstateCount": back_popstate_count,
         "backUrl": back_url,
         "backHeading": back_heading,
         "forwardAction": "history.forward()",
-        "forwardUrl": page.url,
-        "forwardHeading": (await page.locator("h1").first.inner_text()).strip(),
+        "forwardActionInvoked": forward_action_invoked,
+        "forwardWaitTimedOut": forward_wait_timed_out,
+        "forwardTraversalObserved": forward_traversal_observed,
+        "forwardUrl": forward_url,
+        "forwardHeading": forward_heading,
         "title": await page.title(),
         "finalUrl": page.url,
     }
@@ -458,15 +538,67 @@ def document_markers_passed(task: dict[str, Any]) -> bool:
         and urlsplit(task.get("articleUrl", "")).path == "/wiki/Military_camouflage"
         and task.get("articleHeading") == "Military camouflage"
         and task.get("historyVisible") is True
+        and type(task.get("historyLengthBeforeArticle")) is int
         and type(task.get("historyLengthAfterArticle")) is int
-        and task["historyLengthAfterArticle"] >= 2
+        and task["historyLengthAfterArticle"]
+        == task["historyLengthBeforeArticle"] + 1
+        and type(task.get("historyLengthAfterBack")) is int
         and task.get("backAction") == "history.back()"
+        and task.get("backActionInvoked") is True
+        and task.get("backWaitTimedOut") is False
+        and task.get("backTraversalObserved") is True
+        and task.get("backDialogTypes") == []
+        and task.get("backNavigationRequestFailures") == []
         and task.get("backUrl") == DOCUMENT_URL
         and task.get("backHeading") == "Search results"
         and task.get("forwardAction") == "history.forward()"
+        and task.get("forwardActionInvoked") is True
+        and task.get("forwardWaitTimedOut") is False
+        and task.get("forwardTraversalObserved") is True
         and urlsplit(task.get("forwardUrl", "")).path == "/wiki/Military_camouflage"
         and task.get("forwardHeading") == "Military camouflage"
         and task.get("finalUrl") == task.get("forwardUrl")
+    )
+
+
+def document_direct_failure(task: dict[str, Any]) -> bool:
+    back_failed = (
+        task.get("backActionInvoked") is True
+        and task.get("backWaitTimedOut") is True
+        and task.get("backTraversalObserved") is False
+        and urlsplit(task.get("backUrl", "")).path == "/wiki/Military_camouflage"
+        and task.get("backHeading") == "Military camouflage"
+    )
+    forward_failed = (
+        task.get("backTraversalObserved") is True
+        and task.get("forwardActionInvoked") is True
+        and task.get("forwardWaitTimedOut") is True
+        and task.get("forwardTraversalObserved") is False
+        and task.get("forwardUrl") == DOCUMENT_URL
+        and task.get("forwardHeading") == "Search results"
+    )
+    return (
+        http_ok(task.get("initialHttpStatus"))
+        and task.get("initialHeading") == "Search results"
+        and urlsplit(task.get("articleUrl", "")).path == "/wiki/Military_camouflage"
+        and task.get("articleHeading") == "Military camouflage"
+        and task.get("historyVisible") is True
+        and type(task.get("historyLengthBeforeArticle")) is int
+        and type(task.get("historyLengthAfterArticle")) is int
+        and task["historyLengthAfterArticle"]
+        == task["historyLengthBeforeArticle"] + 1
+        and task.get("historyLengthAfterBack") == task["historyLengthAfterArticle"]
+        and task.get("backDialogTypes") == []
+        and task.get("backNavigationUrls") == []
+        and task.get("backNavigationRequests") == []
+        and task.get("backNavigationRequestFailures") == []
+        and task.get("backPopstateCount") == 0
+        and task.get("crashed") is False
+        and task.get("unexpectedPageClose") is False
+        and task.get("pageErrors") == []
+        and task.get("pageClose", {}).get("status") == "success"
+        and screenshot_valid(task.get("screenshot"))
+        and (back_failed or forward_failed)
     )
 
 
@@ -693,11 +825,15 @@ async def observe_task(context: Any, phase: str, name: str, ordinal: int) -> dic
             await host_v1.close_context_bounded(page, PAGE_CLOSE_TIMEOUT_SECONDS)
         ).as_dict()
 
+    direct_document_failure = name == "documentNavigation" and document_direct_failure(
+        result
+    )
     direct_failure = (
         crashed
         or result["unexpectedPageClose"]
         or (error is not None and disconnect_error(error))
         or result["pageClose"].get("status") not in {"success", "not_present"}
+        or direct_document_failure
     )
     semantic_pass = (
         error is None
@@ -707,7 +843,11 @@ async def observe_task(context: Any, phase: str, name: str, ordinal: int) -> dic
     )
     if direct_failure:
         result["status"] = "failed"
-        result["failureClass"] = "direct-browser-or-lifecycle"
+        result["failureClass"] = (
+            "direct-browser-capability"
+            if direct_document_failure
+            else "direct-browser-or-lifecycle"
+        )
     elif semantic_pass:
         result["status"] = "passed"
     else:

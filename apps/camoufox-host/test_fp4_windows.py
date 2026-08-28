@@ -42,11 +42,24 @@ def passing_evidence() -> dict:
             articleUrl="https://en.wikipedia.org/wiki/Military_camouflage",
             articleHeading="Military camouflage",
             historyVisible=True,
+            historyLengthBeforeArticle=2,
             historyLengthAfterArticle=3,
+            historyLengthAfterBack=3,
             backAction="history.back()",
+            backActionInvoked=True,
+            backWaitTimedOut=False,
+            backTraversalObserved=True,
+            backDialogTypes=[],
+            backNavigationUrls=[fp4.DOCUMENT_URL],
+            backNavigationRequests=[fp4.DOCUMENT_URL],
+            backNavigationRequestFailures=[],
+            backPopstateCount=0,
             backUrl=fp4.DOCUMENT_URL,
             backHeading="Search results",
             forwardAction="history.forward()",
+            forwardActionInvoked=True,
+            forwardWaitTimedOut=False,
+            forwardTraversalObserved=True,
             forwardUrl="https://en.wikipedia.org/wiki/Military_camouflage",
             forwardHeading="Military camouflage",
             finalUrl="https://en.wikipedia.org/wiki/Military_camouflage",
@@ -237,6 +250,45 @@ def main() -> None:
 
     evidence = passing_evidence()
     assert fp4.adjudicate_native(evidence)["status"] == "passed"
+
+    history_failure = copy.deepcopy(
+        evidence["observations"]["phaseA"]["fp4CompatibilityObservation"]["tasks"][0]
+    )
+    history_failure.update(
+        backWaitTimedOut=True,
+        backTraversalObserved=False,
+        backNavigationUrls=[],
+        backNavigationRequests=[],
+        backUrl="https://en.wikipedia.org/wiki/Military_camouflage",
+        backHeading="Military camouflage",
+        forwardActionInvoked=False,
+        forwardTraversalObserved=False,
+    )
+    assert fp4.document_direct_failure(history_failure) is True
+
+    no_new_entry = copy.deepcopy(history_failure)
+    no_new_entry["historyLengthAfterArticle"] = no_new_entry[
+        "historyLengthBeforeArticle"
+    ]
+    assert fp4.document_direct_failure(no_new_entry) is False
+
+    dialog_blocked = copy.deepcopy(history_failure)
+    dialog_blocked["backDialogTypes"] = ["beforeunload"]
+    assert fp4.document_direct_failure(dialog_blocked) is False
+
+    request_failed = copy.deepcopy(history_failure)
+    request_failed["backNavigationRequestFailures"] = [
+        {"url": fp4.DOCUMENT_URL, "error": "NS_ERROR_NET_TIMEOUT"}
+    ]
+    assert fp4.document_direct_failure(request_failed) is False
+
+    request_started = copy.deepcopy(history_failure)
+    request_started["backNavigationRequests"] = [fp4.DOCUMENT_URL]
+    assert fp4.document_direct_failure(request_started) is False
+
+    same_document_entry = copy.deepcopy(history_failure)
+    same_document_entry["backPopstateCount"] = 1
+    assert fp4.document_direct_failure(same_document_entry) is False
 
     state_lost = copy.deepcopy(evidence)
     replay = state_lost["observations"]["phaseB"][
