@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / V2 requalification pending**；history 修复已直接通过；GitHub 结构漂移后，合同预声明 React fallback 已按 exact route 冻结为 V2 唯一变更，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / Attempt 8 Inconclusive**；React search/result/target URL 已完成，但 runner 在 client route render 前读取旧 `h1`；另有 graphics/media 外部加载超时，bindings/lifecycle clean，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,7 +60,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 native V2 requalification
+### FP4-1 React client-route render marker
 
 FP3-1b 已在冻结 Formal-v3 candidate、Artifact v6、required SOCKS5 route 与 direct negative control
 上闭合。原生 Windows Attempt 7 直接观察到 exact route binding、香港代理出口、Artifact
@@ -109,9 +109,18 @@ tree、Job、shutdown self-check 与临时根移除全部通过。
 Attempt 7 保持 immutable，不以未变输入重跑。合同预声明的
 `https://react.dev/reference/react` 已在任何新 attempt root/browser 前通过 required SOCKS5 route 取得
 最终 HTTP 200。`fp4-ordinary-sites-v2` 只把 complex-JS 切到 exact `useState` search/result/client-route
-markers，其余站点、Artifact、Profile、Engine、Network 与 lifecycle 输入不变。当前唯一下一步是
-focused tests 通过并从 clean synced HEAD 运行 Attempt 8；不得继续猜 GitHub selector、重跑 upstream
-control、FP2/FP3，或进入 M3-WI。
+markers，其余站点、Artifact、Profile、Engine、Network 与 lifecycle 输入不变。
+
+Attempt 8 ([report](../artifacts/camoufox-fp4-attempt-8/run-report.json)，SHA-256
+`076b518f659594e822cb61137120ce04de6e92839a718aee592377483631878a`) 已完成 React exact search、
+`useState` result 与目标 `/reference/react/useState` URL，但 runner 在 client route 完成 render 前立即读取
+旧 `h1=React Reference Overview`；截图也直接支持该时序。graphics 与 media 本轮分别为 bounded tile
+与播放进度外部超时，均无 crash/disconnect/direct failure，且 Attempt 7 已通过对应任务。document、
+form/replay 通过；全部 bindings 与 lifecycle checks 通过。
+
+Attempt 8 保持 immutable。当前最小修复只是在 URL 改变后等待合同已要求的可见
+`h1=useState`，不增加 retry/delay 或新 marker；focused tests 通过后从 clean synced HEAD 运行新
+full-matrix attempt。不得修改其余站点、重跑 upstream control、FP2/FP3，或进入 M3-WI。
 
 ## 后续 Gate 顺序
 
@@ -122,7 +131,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（V2 React fallback 已冻结；native Attempt 8 下一步）
+→ FP4 ordinary-site compatibility（React URL 已通过；等待既有 h1 marker 后再 qualification）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
@@ -146,7 +155,7 @@ Formal-v3 static source candidate（已闭合）
 | FP2 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp2-result.json`；SHA-256 `caa5ed4005c3e9c392c76a5d264d3d7d4d30cb741ac675fd27803c7f5fa06fa6`；**Passed on this native Windows host**；`verified:false` |
 | FP3 Attempt 7 | run `fp3-20260828T024057905465Z`；report SHA-256 `697a190ff485814a3f310cf3977792698e9ac2aaa2bcbae625bbbf7797acc25d`；required route、出口、Geo、ICE 与 lifecycle 全部通过 |
 | FP3 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`；SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`；**Passed on this native Windows host**；`verified:false` |
-| FP4 latest attempt | Attempt 7 `artifacts/camoufox-fp4-attempt-7/run-report.json`；SHA-256 `7dd2914393ede09fb23e50ba1f61caecdcb5474fb4730d239f4818ce0ecf9f56`；document/history repair 与其余四类/replay Passed，仅 GitHub frozen dialog structure drift 为 Inconclusive；bindings/lifecycle clean，`verified:false` |
+| FP4 latest attempt | Attempt 8 `artifacts/camoufox-fp4-attempt-8/run-report.json`；SHA-256 `076b518f659594e822cb61137120ce04de6e92839a718aee592377483631878a`；React target URL reached but old h1 read before render，graphics/media external timeout；bindings/lifecycle clean，`verified:false` |
 | FP4 upstream document control | `artifacts/camoufox-fp4-upstream-document-control-1/run-report.json`；SHA-256 `aee6dbeb88a0a0844f829c8c93ea4535c9ab389729a0c5b9eee3905f2004b276`；same direct failure，全部 binding/lifecycle checks true；**FP4 Failed/open**，`verified:false` |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
