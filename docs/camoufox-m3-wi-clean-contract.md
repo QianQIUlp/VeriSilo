@@ -1,6 +1,6 @@
 # Clean M3-WI 原生 Windows Desktop / Real Host 合同
 
-- 状态：**Attempts 1–2 immutable Failed；Attempt 3 corrected input frozen**
+- 状态：**Attempts 1–3 immutable Failed；Attempt 4 corrected input frozen**
 - 冻结日期：2026-08-28
 - 执行分支：`codex/camoufox-m3-engine-adapter`
 - definition 基线：`02e5bad7962aabcf44839e3a69c7c5d21d7b7927`
@@ -136,7 +136,7 @@ focused test 只需证明 Profile binding 可升格、Template-derived identity 
   `68d78d0f414d90545691560858b46ed179ee163b7258306c44f0d850bcde6204`；`camoufox.exe`
   SHA-256 `b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f142a6`。
 - Host source：`apps/camoufox-host/host_v1.py`，SHA-256
-  `b3b313d4cf6d2eaadceaff4320e5a6bb8afb5d39212652b2c51474eb6809aad0`。Attempt 3 通过
+  `b3b313d4cf6d2eaadceaff4320e5a6bb8afb5d39212652b2c51474eb6809aad0`。Attempt 4 通过
   `apps/camoufox-host/run_m3_wi_clean_host.py`（SHA-256
   `2015e91bf0902cc6b7276aadb6e8589ca728eb0dc11791a457d0b9744bae5ee8`）进入；该薄入口只复用已存在的
   `apps/camoufox-host/run_fp3_1b_windows.py` Formal-v3 exact lock/tree 校验 hooks（SHA-256
@@ -147,14 +147,14 @@ focused test 只需证明 Profile binding 可升格、Template-derived identity 
   `41f63b2c12c3102573266b4d9ac002fbd29f7f95cc3d291b8a41d09e411f8f6f`。
 - Network Policy：required unauthenticated SOCKS5 `127.0.0.1:7897`。执行前只做一次
   `Test-NetConnection 127.0.0.1 -Port 7897`；失败则不创建 attempt、不启动浏览器。
-- 尝试：`clean-m3-wi-attempt-1` 与 `clean-m3-wi-attempt-2` 保持 immutable Failed；修正后的新
-  code/input 使用 `clean-m3-wi-attempt-3`。这不是 retry/recovery Gate，不引入 delay、sample
+- 尝试：`clean-m3-wi-attempt-1`、`clean-m3-wi-attempt-2` 与 `clean-m3-wi-attempt-3` 保持
+  immutable Failed；修正后的新 code/input 使用 `clean-m3-wi-attempt-4`。这不是 retry/recovery Gate，不引入 delay、sample
   rotation、cache workaround 或 site fallback。
 
-Attempt 3 沿用本 Gate 已取得的 native Windows browser authorization；本 Gate 不需要也不访问出口 IP、Geo、
+Attempt 4 沿用本 Gate 已取得的 native Windows browser authorization；本 Gate 不需要也不访问出口 IP、Geo、
 Geolocation、ICE/STUN 或 ordinary-site 外部检查服务。
 
-## Attempts 1–2 直接结论与修正边界
+## Attempts 1–3 直接结论与修正边界
 
 Attempt 1 的 `run-report.json` 与 `native-evidence.json` 保持不可变 Failed。它在 Phase A 的 Host hello
 前直接失败，浏览器没有启动。独立 hello-only 诊断证明基础 Host 的 `run_spike` asset allowlist 只接受
@@ -169,6 +169,16 @@ Attempt 2 通过了上述 Formal-v3 Host 准备并返回了可解析 hello，但
 Attempt 3 只把该 test-owned root 改为逐组件 `join("runtime").join("app")`。clean-only entrypoint 仍只
 复用 FP3 已有的 Formal-v3 严格 lock/tree 验证并恢复基础 `CamoufoxHost`；它不扩大共享 `run_spike`
 trust allowlist，不改变 Profile、Artifact、Engine 或 Network 生命周期，也不复用 FP3 外部网络采集。
+
+Attempt 3 随后完成了 cycle 1 的 Host `hello → launch → status` 和 browser observation，但共享
+`assert_running_evidence` 把基础实现源 `host_v1.py` 硬编码为 expected argv，而 launch receipt 正确记录了
+合同冻结的 `run_m3_wi_clean_host.py` 薄入口，因而在记录 failure context 前 panic。`RuntimeGuard` drop
+仍关闭了精确 runtime；残留 session 直接记录 `state=exited`、`exitStatus=0`、process tree
+`remaining=[]` 与 Job active count `0`。Attempt 3 仍按原生 evidence 保持 Failed。
+
+Attempt 4 只让共享 assertion 接收 test adapter 的实际 `host_script` typed input，并对 receipt 做原始
+字符串精确比较；不再把实现源当作执行入口，也不做单侧 Windows `\\?\` canonicalization。runner 仍分别
+冻结薄入口、Formal input binder 与基础 Host source 的 SHA-256，不弱化执行或来源绑定。
 
 ## Owning seam
 
@@ -194,7 +204,7 @@ plan，`package_verification=None`，且不得进入 non-test build。plan 形�
 
 ## 唯一执行序列
 
-1. 从 clean synced Attempt 3 implementation commit 创建一个 run-owned root，复制精确 Artifact 与 sidecar；
+1. 从 clean synced Attempt 4 implementation commit 创建一个 run-owned root，复制精确 Artifact 与 sidecar；
    记录 code revision/tree/origin、合同 SHA、Python path/version 和全部冻结输入 hash。
 2. Phase A：新 `RuntimeManager` 启动同一 Silo；要求 `Running`、exact Artifact/Profile/Engine binding、
    Host status 中唯一 relay URI、`ProfileIsolation=applied`，Template-derived identity capabilities

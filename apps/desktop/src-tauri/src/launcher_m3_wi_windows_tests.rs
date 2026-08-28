@@ -754,7 +754,7 @@ fn wait_exact_child_exit(runtime: &mut RuntimeManager, timeout: Duration) {
     }
 }
 
-fn assert_running_evidence(snapshot: &Value) {
+fn assert_running_evidence(snapshot: &Value, expected_host: &Path) {
     assert_eq!(
         snapshot
             .pointer("/activation/state")
@@ -858,15 +858,10 @@ fn assert_running_evidence(snapshot: &Value) {
         .and_then(Value::as_array)
         .expect("real M3-WI typed Host argv receipt");
     assert_eq!(arguments.first().and_then(Value::as_str), Some("-u"));
-    let expected_host = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../camoufox-host/host_v1.py")
-        .canonicalize()
-        .expect("canonical real Host source")
-        .to_string_lossy()
-        .into_owned();
+    let expected_host = expected_host.to_string_lossy();
     assert_eq!(
         arguments.get(1).and_then(Value::as_str),
-        Some(expected_host.as_str())
+        Some(expected_host.as_ref())
     );
 }
 
@@ -1719,7 +1714,7 @@ fn run_m3_wi_clean_two_cycle(
         let relay_uri = format!("socks5://127.0.0.1:{relay_port}");
         let network_endpoint_label = format!("127.0.0.1:{relay_port} → {proxy_host}:{proxy_port}");
         let running = active_snapshot(&guard.runtime, &root);
-        assert_running_evidence(&running);
+        assert_running_evidence(&running, &adapter.host_script);
         let host_pid = running["hostPid"].as_u64().expect("clean M3-WI Host PID") as u32;
         let managed_pids = json_u32_array(&running, "/session/managedPids");
         let session_id = running["sessionId"]
@@ -2028,7 +2023,7 @@ fn m3_wi_windows_r1_runtime_manager_five_cycle_soak() {
         let mut guard = launch_real(&root, adapter.clone(), &silo, &deriver)
             .unwrap_or_else(|error| panic!("launch R1 reliability cycle {cycle}: {error}"));
         let running = active_snapshot(&guard.runtime, &root);
-        assert_running_evidence(&running);
+        assert_running_evidence(&running, &adapter.host_script);
         assert_eq!(
             running
                 .pointer("/session/bootCountBefore")
@@ -2280,7 +2275,7 @@ fn m3_wi_windows_r2_runtime_manager_ten_cycle_clean_close_soak() {
         let mut guard = launch_real(&root, adapter.clone(), &silo, &deriver)
             .unwrap_or_else(|error| panic!("launch R2 reliability cycle {cycle}: {error}"));
         let running = active_snapshot(&guard.runtime, &root);
-        assert_running_evidence(&running);
+        assert_running_evidence(&running, &adapter.host_script);
         assert_eq!(
             running
                 .pointer("/session/bootCountBefore")
@@ -2540,7 +2535,7 @@ fn m3_wi_windows_real_host_runtime_manager_gate() {
     )
     .expect("launch first real Host/browser persistence cycle");
     let first_running = active_snapshot(&first.runtime, &persistence_root);
-    assert_running_evidence(&first_running);
+    assert_running_evidence(&first_running, &adapter.host_script);
     let first_host_pid = first_running["hostPid"].as_u64().unwrap() as u32;
     let first_managed = json_u32_array(&first_running, "/session/managedPids");
     owned_pids.insert(first_host_pid);
@@ -2596,7 +2591,7 @@ fn m3_wi_windows_real_host_runtime_manager_gate() {
     )
     .expect("launch second real Host/browser persistence cycle");
     let second_running = active_snapshot(&second.runtime, &persistence_root);
-    assert_running_evidence(&second_running);
+    assert_running_evidence(&second_running, &adapter.host_script);
     let second_host_pid = second_running["hostPid"].as_u64().unwrap() as u32;
     let second_managed = json_u32_array(&second_running, "/session/managedPids");
     owned_pids.insert(second_host_pid);

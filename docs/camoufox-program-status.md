@@ -47,7 +47,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
 | FP4 ordinary-site compatibility | **Passed on this native Windows host**；精确 V5 六项 task、Profile replay 与 clean lifecycle 全部通过，`verified:false` |
-| clean M3-WI | evidence-semantics 修正与 focused test 已闭合；Attempts 1–2 immutable Failed、均未启动浏览器；Attempt 3 输入已冻结，等待 native two-cycle qualification |
+| clean M3-WI | evidence-semantics 修正与 focused test 已闭合；Attempts 1–3 immutable Failed；Attempt 4 输入已冻结，等待 native two-cycle qualification |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -58,7 +58,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 - FP4 只覆盖冻结的 V5 live-site matrix，不声明 universal compatibility；login、payment 与 CAPTCHA 未测试；
 - Camoufox 通用 `IdentityTemplate` 与 Resolved Artifact binding 仍没有语义绑定；focused 修正已阻止
   generic Host running evidence 把 Template-derived identity capability 升格为 `applied`，但真实 desktop
-  two-cycle 的 Profile continuity、typed bindings 与 clean stop 尚待 Attempt 3 直接证明；
+  two-cycle 的 Profile continuity、typed bindings 与 clean stop 尚待 Attempt 4 直接证明；
 - 没有受信 signer、签名 Host package、installer 或 production runtime；
 - Formal-v3 runtime observation 只覆盖本机绑定 candidate/Artifacts；Voices 只覆盖 A1、A2、B1
   各自三秒 top-window trace，不是 exhaustive exclusion；desktop Managed Identity 尚未 shipped。
@@ -88,8 +88,10 @@ Artifact 已应用事实。
 evidence-semantics 修正与 focused test 已通过：Camoufox Host running 只把直接绑定的
 `ProfileIsolation` 提升为 `applied`，Template-derived identity claims 保持 `configured`，Network
 Policy 继续走独立 Network Evidence seam。Attempt 1 因 Formal-v3 lock owning seam 错误、Attempt 2
-因 Windows root 字符串混合分隔符而在 `launch` 前失败；两份 Failed evidence 保持不可变。Attempt 3
-只冻结已证明根因的组件式 path join 修正。下一步从 clean synced commit 执行合同中的唯一原生 Windows
+因 Windows root 字符串混合分隔符而在 `launch` 前失败。Attempt 3 完成了 cycle 1 launch/status/observation，
+但共享 assertion 错把 `host_v1.py` 实现源当成冻结薄入口；panic 后 exact RuntimeGuard 仍取得 clean exit、
+空 process tree 与 Job active count `0`。三份 Failed evidence 保持不可变。Attempt 4 只改为对 adapter
+实际 `host_script` typed input 做精确比较。下一步从 clean synced commit 执行合同中的唯一原生 Windows
 two-cycle attempt；不引入 retry/recovery Gate，不访问 FP3/FP4 外部检查服务。
 
 ## 后续 Gate 顺序
@@ -104,7 +106,7 @@ Formal-v3 static source candidate（已闭合）
 → FP4 ordinary-site compatibility（已闭合）
 → clean M3-WI definition/refreeze（已闭合）
 → clean M3-WI evidence-semantics correction（已闭合）
-→ clean M3-WI Attempt 3 native two-cycle qualification（当前下一 Gate）
+→ clean M3-WI Attempt 4 native two-cycle qualification（当前下一 Gate）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
@@ -130,7 +132,7 @@ Formal-v3 static source candidate（已闭合）
 | FP3 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`；SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`；**Passed on this native Windows host**；`verified:false` |
 | FP4 Attempt 13 | run `fp4-853f5fe2c6ad4238ac76776f3668f163`；report SHA-256 `de69f0083f7babfdfae5d3d1887fbf18e22e711981e2ca26e9f79e89bcc9e6a7`；V5 六项 task、Profile replay、bindings 与 lifecycle 全部通过 |
 | FP4 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp4-result.json`；SHA-256 `14c7de3a8a14b8037cf0e16ec7b5dc213294b68050665a57513dea79efd8f2de`；**Passed on this native Windows host**；`verified:false` |
-| clean M3-WI active contract | `docs/camoufox-m3-wi-clean-contract.md`；SHA-256 `0cbb603717578caf22a3704d6ffd9e1f07faf02baae86f6e9d5c933a395a2dbb`；Attempts 1–2 immutable Failed，Attempt 3 corrected input frozen |
+| clean M3-WI active contract | `docs/camoufox-m3-wi-clean-contract.md`；SHA-256 `acdc725dbbb1ccb0c39571cea43f6eb7ef3137429f4f8b256ec764f3be20af74`；Attempts 1–3 immutable Failed，Attempt 4 corrected input frozen |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |

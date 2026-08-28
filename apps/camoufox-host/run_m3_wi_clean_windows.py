@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the immutable clean M3-WI Attempt 3 qualification."""
+"""Run the immutable clean M3-WI Attempt 4 qualification."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOST_DIR = Path(__file__).resolve().parent
 BRANCH = "codex/camoufox-m3-engine-adapter"
-ATTEMPT_ROOT = REPO_ROOT / "artifacts/camoufox-m3-wi-clean-attempt-3"
+ATTEMPT_ROOT = REPO_ROOT / "artifacts/camoufox-m3-wi-clean-attempt-4"
 CONTRACT = REPO_ROOT / "docs/camoufox-m3-wi-clean-contract.md"
-CONTRACT_SHA256 = "0cbb603717578caf22a3704d6ffd9e1f07faf02baae86f6e9d5c933a395a2dbb"
+CONTRACT_SHA256 = "acdc725dbbb1ccb0c39571cea43f6eb7ef3137429f4f8b256ec764f3be20af74"
 ARTIFACT = REPO_ROOT / (
     "artifacts/camoufox-fp3-1b-attempt-7/identity-fp3-1b-formal-v3-a.json"
 )
@@ -314,8 +314,8 @@ def execute() -> str:
         status = "inconclusive"
     report = {
         "schema": "verisilo-camoufox-m3-wi-clean-run-report/v1",
-        "attempt": 3,
-        "runId": "clean-m3-wi-attempt-3",
+        "attempt": 4,
+        "runId": "clean-m3-wi-attempt-4",
         "startedAtUtc": started_at,
         "completedAtUtc": completed_at,
         "status": status,
