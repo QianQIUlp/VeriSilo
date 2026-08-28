@@ -1,0 +1,185 @@
+{
+  "schema": "verisilo-camoufox-fp3-result/v1",
+  "status": "passed",
+  "gate": "FP3 network identity / Geo / WebRTC",
+  "generatedAtUtc": "2026-08-28T02:45:20.2088651Z",
+  "evidenceClass": "observed-on-this-native-windows-host-plus-main-brain-adjudication",
+  "verified": false,
+  "exactCandidate": {
+    "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-formal-v3",
+    "code": {
+      "branch": "codex/camoufox-m3-engine-adapter",
+      "revision": "467d21a81ea021156f7c5a2a85c2b97677e08b2f",
+      "tree": "9aa980218008ba6d6d3c57935509cbf9def79e04",
+      "originRevision": "467d21a81ea021156f7c5a2a85c2b97677e08b2f"
+    },
+    "fp2Result": {
+      "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp2-result.json",
+      "sha256": "caa5ed4005c3e9c392c76a5d264d3d7d4d30cb741ac675fd27803c7f5fa06fa6"
+    },
+    "requiredProxy": {
+      "scheme": "socks5",
+      "host": "127.0.0.1",
+      "port": 7897,
+      "authentication": "none"
+    },
+    "networkCheck": {
+      "path": "artifacts/camoufox-fp3-1b-attempt-7/network-check-v2.json",
+      "sha256": "7652ced0a03a4dd9b818bb61801ba83cf7dfa0ada0d186d64affbdf39c4b2b22"
+    },
+    "directControl": {
+      "path": "artifacts/camoufox-fp3-1b-attempt-7/direct-control.json",
+      "sha256": "a61ec65348a2df86f3d50df7dee9dae656b3ae2d58738d0070414c29fb69abdb",
+      "publicAddress": "20.198.86.220"
+    },
+    "sourceArtifact": {
+      "path": "artifacts/camoufox-fp2-formal-r1-attempt-8/identity-fp2-formal-v3-a.json",
+      "sha256": "0b77fd017aceefce48e8d21a567a3a233671f6b3555461e4386e7f721b036080"
+    },
+    "resolvedArtifact": {
+      "path": "artifacts/camoufox-fp3-1b-attempt-7/identity-fp3-1b-formal-v3-a.json",
+      "sha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+      "publicAddress": "216.236.36.30",
+      "countryCode": "HK",
+      "timezone": "Asia/Hong_Kong",
+      "locale": "en-US",
+      "latitude": 22.2818333,
+      "longitude": 114.1582831
+    },
+    "stunUrl": "stun:stun.cloudflare.com:3478"
+  },
+  "attemptLineage": {
+    "previousAttempts": [
+      {
+        "attempt": 1,
+        "status": "failed",
+        "reportPath": "artifacts/camoufox-fp3-1b-attempt-1/run-report.json",
+        "reportSha256": "0216ff6b4eef312d9193ba400b17df2d6cf85c34cba5eb5f7d14e13c8b9bfd28",
+        "nativeEvidencePath": "artifacts/camoufox-fp3-1b-attempt-1/native-evidence.json",
+        "nativeEvidenceSha256": "0576fd6ca376a6871bd4c6572509f4c4e56c08e9c8cd6ae9631937e1939a74a4"
+      },
+      {
+        "attempt": 2,
+        "status": "failed",
+        "reportPath": "artifacts/camoufox-fp3-1b-attempt-2/run-report.json",
+        "reportSha256": "09c2a0f5b1adf775f6de32c34c4a94280ac44ef43a5119e535b0939d20c8f901",
+        "nativeEvidencePath": "artifacts/camoufox-fp3-1b-attempt-2/native-evidence.json",
+        "nativeEvidenceSha256": "b835de7607a95945b5a437f8944ae3a454e7537f1c540fd6e52cc59ee6a1b335"
+      },
+      {
+        "attempt": 3,
+        "status": "failed",
+        "reportPath": "artifacts/camoufox-fp3-1b-attempt-3/run-report.json",
+        "reportSha256": "f2f6df15858da9395cf3f321f88aefdff2bb83bafa90af42745c555296eb46b9",
+        "nativeEvidencePath": "artifacts/camoufox-fp3-1b-attempt-3/native-evidence.json",
+        "nativeEvidenceSha256": "14201da2105e10a9c1c6bf6d380c153ed825d2d4eae3691d985a00cc677ecbc4"
+      },
+      {
+        "attempt": 4,
+        "status": "failed",
+        "reportPath": "artifacts/camoufox-fp3-1b-attempt-4/run-report.json",
+        "reportSha256": "3e188c378079f57dcd170bd2b3310485387989638a96e77b94b2a9782808179e",
+        "nativeEvidencePath": "artifacts/camoufox-fp3-1b-attempt-4/native-evidence.json",
+        "nativeEvidenceSha256": "1f6be5d192b69aaba35e714bdbd396c00a05453fcc28547af3b4b91c2b40ddd0"
+      },
+      {
+        "attempt": 5,
+        "status": "failed",
+        "reportPath": "artifacts/camoufox-fp3-1b-attempt-5/run-report.json",
+        "reportSha256": "cd9949b625dacd0a4cf7bfb4dbf1d5b6f75caab82d49817571553a35c8dc04c9",
+        "nativeEvidencePath": "artifacts/camoufox-fp3-1b-attempt-5/native-evidence.json",
+        "nativeEvidenceSha256": "d1880748b85ae135758a17768087f19f4e1fe09ccb0d411dcbaa1b35d0f082b6"
+      },
+      {
+        "attempt": 6,
+        "status": "failed",
+        "reportPath": "artifacts/camoufox-fp3-1b-attempt-6/run-report.json",
+        "reportSha256": "bf5270dd2d4abe56f4088ed230aa6ed00b0c7fa119c592898432a73b945be319",
+        "nativeEvidencePath": "artifacts/camoufox-fp3-1b-attempt-6/native-evidence.json",
+        "nativeEvidenceSha256": "bd90a46dcc77ac2c40a0f25b8369c92095e59a7c77d8368d0a50fba4defce73d"
+      }
+    ],
+    "terminalAttempt": {
+      "attempt": 7,
+      "status": "passed",
+      "runId": "fp3-20260828T024057905465Z",
+      "nativeWindows": true,
+      "startedAtUtc": "2026-08-28T02:40:57.905465Z",
+      "completedAtUtc": "2026-08-28T02:41:36.258551Z",
+      "report": {
+        "path": "artifacts/camoufox-fp3-1b-attempt-7/run-report.json",
+        "sha256": "697a190ff485814a3f310cf3977792698e9ac2aaa2bcbae625bbbf7797acc25d",
+        "sizeBytes": 4651
+      },
+      "nativeEvidence": {
+        "path": "artifacts/camoufox-fp3-1b-attempt-7/native-evidence.json",
+        "sha256": "41487618be4e3b4e4f4652ab49be45682a2d1822899f8d0756e4fd11eb1c1ca8",
+        "sizeBytes": 71049
+      }
+    }
+  },
+  "directRuntimeObservations": {
+    "networkPolicy": {
+      "configured": "required FixedProxy",
+      "applied": true,
+      "exactRouteBindingThroughStatus": true,
+      "upstreamAbsentFromHostSurfaces": true
+    },
+    "publicExit": {
+      "observed": true,
+      "address": "216.236.36.30",
+      "countryCode": "HK",
+      "matchesArtifact": true,
+      "differsFromDirectControl": true
+    },
+    "websiteIdentity": {
+      "timezone": "Asia/Hong_Kong",
+      "locale": "en-US",
+      "bothMatchArtifact": true
+    },
+    "geolocation": {
+      "applicationBoundary": "managed-host-bound-playwright-context-from-artifact",
+      "permissionGranted": true,
+      "latitude": 22.2818333,
+      "longitude": 114.1582831,
+      "accuracy": 0,
+      "matchesArtifact": true
+    },
+    "webrtc": {
+      "iceCompleted": true,
+      "serverReflexiveAddress": "216.236.36.30",
+      "containsArtifactAddress": true,
+      "containsDirectControlAddress": false
+    },
+    "lifecycle": {
+      "exitStatusZero": true,
+      "processTreeExited": true,
+      "jobActiveProcessCountZero": true,
+      "relayClosed": true,
+      "forcedCleanup": "not_needed"
+    }
+  },
+  "mainBrainAdjudication": {
+    "fp3Accepted": true,
+    "reason": "The exact required route remained bound through Host status; the browser public exit, timezone, locale, Geolocation and ICE observations matched the bound Artifact and excluded the direct public-address control; the lifecycle closed cleanly.",
+    "geoBoundary": "Artifact coordinates are applied by the managed Host as a Playwright persistent-context option and observed through browser Geolocation. This does not claim that Camoufox's native Geolocation provider was independently proven."
+  },
+  "claims": {
+    "windowsRuntimeObserved": true,
+    "fp3PassedOnThisHost": true,
+    "networkPolicyApplied": true,
+    "browserExitObserved": true,
+    "browserGeoObserved": true,
+    "browserIceObserved": true,
+    "actualDnsPathObserved": false,
+    "runtimeVerified": false,
+    "crossHostReplay": false,
+    "productReleased": false
+  },
+  "limitations": [
+    "This result is bounded to this native Windows host and the exact candidate, Artifact, proxy and external observation inputs above.",
+    "Actual browser DNS path, TLS ClientHello, QUIC and exhaustive native address inventory were not observed.",
+    "Native Camoufox Geolocation-provider behavior, cross-host replay, verified:true, packaging, signing, shipping and release are not claimed."
+  ],
+  "nextGate": "FP4 ordinary-site compatibility"
+}

@@ -1,7 +1,7 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**当前路由页**
-- 更新日期：2026-08-27
+- 更新日期：2026-08-28
 - 当前分支：`codex/camoufox-m3-engine-adapter`
 - 当前 source candidate：Formal-v3（`0000 → … → 0007`）
 
@@ -45,78 +45,31 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Voices `0005` + Artifact v4 policy | **Static authoring closed**；仅为 Formal source candidate 输入，不是 runtime pass |
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
-| FP2 / FP3 | **FP2 Passed on this native Windows host**；FP3-0 configured input 与 FP3-1 local Host routing seam 已闭合；native discriminator 未运行 |
+| FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
 
 - 当前 Artifact 的 `fontMode=inherit`；宿主字体可见，不声明字体隔离；
-- TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
-- FP3 尚未取得真实代理出口、浏览器 Geolocation、ICE/STUN 或实际 DNS 路径 evidence；
+- 实际浏览器 DNS 路径、TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
+- FP3 不证明 Camoufox 原生 Geolocation provider 或 exhaustive native address inventory；
 - 没有受信 signer、签名 Host package、installer 或 production runtime；
 - Formal-v3 runtime observation 只覆盖本机绑定 candidate/Artifacts；Voices 只覆盖 A1、A2、B1
   各自三秒 top-window trace，不是 exhaustive exclusion；desktop Managed Identity 尚未 shipped。
 
-## 已关闭的当前诊断结论
-
-唯一有效 phase-anchor run：
-
-```text
-fp2-r1-phase-anchor-recovery-v2-20260824T112146Z-fee3df2667
-
-same speechSynthesis object:
-S0 = 0
-→ native VoiceAdded ×5
-→ first trusted voiceschanged = exact native 5
-→ managed VoiceAdded ×53
-→ settled = native 5 + managed 53
-```
-
-claim SHA-256：
-`47ce7d90230d90654d26e21c9aba5b73634760b154db10d1c3a902e915486e61`。
-run clean close、process tree exited；它只支持 native-only first-notification publication
-phase，不是 exhaustive exclusion，也不是 Voices fixed、FP2-R1 或 Formal R1 通过。
-
-固定 FF152 source 解释该序列：首个 content actor 的 `SendInit()` 懒触发 parent registry；
-SAPI 先同步注册/通知 native voices，随后才注入 managed voices。根因冻结为：
-**actor 已可接收增量时，parent canonical managed state 尚未形成。**
-
-## 最近关闭的静态 Gate
-
-Formal-v3 只在冻结 Formal-v2 后追加单文件、纯删除的
-`0007-verisilo-ff152-search-schema-repair.patch`，移除 FF152 Rust selector 不接受的旧 Search
-schema injection，恢复 Firefox 既有 Remote Settings→packaged local dump 路径；不接管 Search
-schema/default-engine 语义。Formal series 精确为
-`0000 → 0001 → 0002 → 0003 → 0003a → 0004 → 0005 → 0006 → 0007`，拒绝 9000。
-
-- `0007` SHA-256：`3902cc7187362a306954eb7b18cedb06f74c454d26cc543c28c1fef069a054bb`；
-- Search seam pre/post：`ca843d9379f8cf4b5ed04e3da35fa7ace2cbbe6f2ec5a652afea09f8642ffff3`
-  / `e3d5351945fc5f4f0866c55021d969f358dc9c59ee405751a308b6ffd10430d9`；
-- fresh exact preimage 已完成 GNU patch `--fuzz=0` apply/reverse/apply；focused v3、remediation
-  与 frozen v2 tests 通过。
-
-这只关闭 source candidate authoring。Search source defect 已直接证明；它是否造成 launch hang 仍须
-由新 build 的 native Windows discriminator 判定。
-
 ## 当前下一任务
 
-### FP3-1b native Windows required FixedProxy discriminator
+### FP4-0 ordinary-site compatibility Gate definition
 
-FP3-0 configured input 与 FP3-1a local routing seam 已闭合。Camoufox 只接受 Direct(false)，或
-Artifact/Policy v6 `network-bound` 绑定下的 required HTTP/SOCKS5 FixedProxy；Desktop 复用既有
-ProxyRelay，只把本次运行的 loopback SOCKS5 地址交给 Host。Host 在 browser creation 后回传精确
-launch/status binding，Desktop 才能把 `browserRouting` 标为 `applied`。上游地址、Vault 凭据和
-临时 relay port 不进入 Artifact 或持久化 Host state。Direct 仍为 `not_requested`。合同见
-[FP3 network identity contract](camoufox-fp3-network-identity-contract.md)。
+FP3-1b 已在冻结 Formal-v3 candidate、Artifact v6、required SOCKS5 route 与 direct negative control
+上闭合。原生 Windows Attempt 7 直接观察到 exact route binding、香港代理出口、Artifact
+timezone/locale/Geolocation、匹配出口的 ICE `srflx` address 与 clean lifecycle。Geo 的应用边界是
+managed Host 以 Artifact 坐标设置 Playwright persistent context；不声明 Camoufox 原生 Geo provider。
+合同见 [FP3 network identity contract](camoufox-fp3-network-identity-contract.md)。
 
-Focused Python、Rust fake-Host/RuntimeManager 和 TypeScript/Zod checks 直接证明本地合同、secret-free
-transport、exact receipt 与 relay teardown；它们不证明真实 Camoufox 已应用代理、Geo 或 WebRTC，
-也未观察公网出口、浏览器 Geolocation、ICE/STUN 或实际 DNS 路径。Camoufox 不声明尚未建立的
-DNS/QUIC/WebRTC safeguards。
-
-下一项最高价值 Gate 是用合同中冻结的真实代理、Network Check v2、Artifact v6 与 direct negative
-control，在原生 Windows 上判定 route application 和实际出口/Geo/WebRTC observation。它需要
-浏览器启动、外部网络 evidence、可用代理输入和新的 runtime 授权；本 checkpoint 不跨越该边界。
+按已接受架构顺序，下一项最高价值 Gate 是 **FP4 ordinary-site compatibility**。当前先定义最小
+普通站点集合、必须完成的用户任务和判败条件；尚未选择站点或生成 runtime evidence。该 Gate
+涉及新的产品验收语义及外部站点浏览器执行，需单独冻结输入后再进入。
 
 ## 后续 Gate 顺序
 
@@ -126,7 +79,8 @@ Formal-v3 static source candidate（已闭合）
 → native launch discriminator + FP2 A1→A2→B1 qualification（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
-→ FP3-1b native Windows required FixedProxy discriminator（下一 Gate，未进入）
+→ FP3-1b native Windows required FixedProxy discriminator（已闭合）
+→ FP4 ordinary-site compatibility（下一 Gate，未进入）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
@@ -148,6 +102,8 @@ Formal-v3 static source candidate（已闭合）
 | FP2 Attempt 9 | run `fp2-20260827T084257Z-c9d6dcc498`；report SHA-256 `590e90cb20a7c9a1341fb36a03c9a04bf7a0c36b034717fadd830d952d4339a3`；A1/A2/B1 phases passed，immutable Failed at post-sequence storage harness semantics |
 | FP2 Attempt 10 | run `fp2-20260827T090954Z-7a85050695`；report SHA-256 `d14bf5f2881ce1c48ec49cf0ba1184b940d61013a462f56218fb1569d873455b`；A1/A2/B1 execution passed，runner 保持 awaiting-main-brain 边界 |
 | FP2 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp2-result.json`；SHA-256 `caa5ed4005c3e9c392c76a5d264d3d7d4d30cb741ac675fd27803c7f5fa06fa6`；**Passed on this native Windows host**；`verified:false` |
+| FP3 Attempt 7 | run `fp3-20260828T024057905465Z`；report SHA-256 `697a190ff485814a3f310cf3977792698e9ac2aaa2bcbae625bbbf7797acc25d`；required route、出口、Geo、ICE 与 lifecycle 全部通过 |
+| FP3 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`；SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`；**Passed on this native Windows host**；`verified:false` |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |

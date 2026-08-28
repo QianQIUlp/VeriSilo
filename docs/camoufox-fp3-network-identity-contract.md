@@ -52,11 +52,9 @@ validation rejects missing, extra or inconsistent fields. It does not alter DNS 
 FP3-0 is closed when Network Check v2 is backward-readable, Artifact v6 is deterministic and
 strict, Direct no longer receives a false `applied` state, and focused contract tests pass.
 
-The next Gate is **FP3-1 native Windows required FixedProxy application/observation discriminator**.
-It requires a frozen proxy/network input, Camoufox Host routing support, browser launch and external
-network evidence. Until that separately authorized Gate runs, proxy application, Geo accuracy,
-browser Geolocation, ICE/STUN behavior, actual DNS path, cross-host replay and `verified:true` remain
-unavailable or unverified.
+FP3-1 then requires a frozen proxy/network input, Camoufox Host routing support, browser launch and
+external network evidence. Its result cannot promote actual DNS path, cross-host replay or
+`verified:true` without separate evidence.
 
 ## FP3-1 routing seam
 
@@ -83,11 +81,11 @@ bypass or engine preference workaround.
 
 ## Frozen native discriminator
 
-Before the separately authorized native run, freeze:
+The terminal native discriminator froze:
 
 1. one reachable required HTTP or SOCKS5 proxy; credentials remain only in Vault;
-2. a fresh Network Check v2 made through that proxy, including public address, country, timezone,
-   locale and paired coordinates;
+2. a fresh Network Check v2 made through that proxy, including public address, country, timezone
+   and paired coordinates; locale remains a separate explicit Artifact input;
 3. a deterministic Artifact v6 rebound from the selected v5 source, plus its raw SHA binding;
 4. a direct-host public-address negative control distinct from the proxy address;
 5. the existing pinned Host/browser package and a bounded observation page for public exit,
@@ -99,3 +97,25 @@ timezone/locale/Geolocation match the Artifact, and ICE evidence contains the Ar
 address with no contradictory direct public address. Every result records clean Host/process/relay
 close. Actual DNS path remains `unavailable` unless separately observed; `verified:true`, cross-host
 replay, package shipping and release remain out of scope.
+
+## FP3-1b result
+
+FP3-1b **Passed on this native Windows host** in immutable Attempt 7 for the exact frozen input. The
+Host route binding remained exact through status; the browser observed the Artifact public exit,
+country, timezone, locale and Geolocation; ICE completed with the Artifact public address and
+without the direct-control address; Host, process tree, Job and relay all closed cleanly.
+
+The lifecycle boundary remains explicit:
+
+- Network Policy is configured outside the Artifact and applied through the existing Desktop relay
+  and Host route receipt.
+- Geo coordinates are configured in Artifact v6, applied by the managed Host as a Playwright
+  persistent-context option, and observed through browser Geolocation. This is a Host-bound Engine
+  application result, not proof of Camoufox's native Geolocation provider.
+- WebRTC public address is configured in the Artifact and observed in the bounded ICE result.
+- Public exit, Geo and ICE are Runtime Evidence; they do not become Profile or Artifact state.
+
+The aggregate result is
+`apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`.
+Actual browser DNS path, TLS/QUIC, exhaustive native address inventory, cross-host replay,
+`verified:true`, packaging, shipping and release remain unavailable or unverified.
