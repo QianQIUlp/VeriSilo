@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / Attempt 10 Inconclusive**；OSM 外部 503，media marker 未完整判定；其余任务与全部 bindings/lifecycle 通过，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / V4 requalification pending**；Google Maps fallback 已经 required SOCKS5 取得 HTTP 200 并冻结；media primary 不变，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,7 +60,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 graphics fallback availability freeze
+### FP4-1 native V4 requalification
 
 Attempt 10 ([report](../artifacts/camoufox-fp4-attempt-10/run-report.json)，SHA-256
 `4bc4815e2dcccf8dbcd707eaaaf1d13e346733972d2930c81e4a86c5f7f878f8`) 是 clean synced commit
@@ -74,9 +74,11 @@ failure。media 已加载并播放，但未在预算内完成冻结的 Pause/see
 `Inconclusive`，native evidence SHA-256
 `19036455a331e83198cfcbfd7b53ec58b1c58d8517f9a9466ba36d6d2a267ec6`，`verified:false`。
 
-Attempt 10 不以未变输入重跑。下一最小 Gate 是在任何新 attempt root/browser 前检查合同已预声明的
-Google Maps graphics fallback；若可用，V4 只切换 graphics selection。media primary 保持不变，
-因为它本轮可达且 Attempt 9 已直接通过，不把一次 ambiguous timeout 扩张成新的 workaround。
+Attempt 10 不以未变输入重跑。合同预声明的 Google Maps graphics fallback 已在任何 V4 attempt
+root/browser 前经 required SOCKS5 route 取得 final HTTP 200。`fp4-ordinary-sites-v4` 只切换 graphics
+selection，并冻结当前 visible role controls、place URL、canvas、drag、Zoom in 与 Satellite selected-state
+markers。media primary 保持不变，因为它本轮可达且 Attempt 9 已直接通过，不把一次 ambiguous
+timeout 扩张成新的 workaround。focused checks 通过后从 clean synced HEAD 运行 Attempt 11。
 
 ## 后续 Gate 顺序
 
@@ -87,7 +89,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（Attempt 10 Inconclusive；graphics fallback availability freeze 下一步）
+→ FP4 ordinary-site compatibility（V4 Google Maps fallback 已配置；native Attempt 11 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery

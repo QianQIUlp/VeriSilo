@@ -73,16 +73,33 @@ def passing_evidence() -> dict:
         task(
             "interactiveGraphics",
             initialHttpStatus=200,
-            initialHash="map=12/51.5074/-0.1278",
-            initialCompletedTileCount=4,
             placeQuery="Hong Kong",
-            searchResultCount=2,
-            prePanHash="map=10/22.3527/114.1599",
-            panHash="map=10/22.3527/114.1700",
-            zoomHash="map=11/22.3527/114.1700",
-            cyclosmChecked=True,
-            newLayerTileCount=4,
-            finalUrl="https://www.openstreetmap.org/#map=11/22.3527/114.1700&layers=Y",
+            searchInputValue="Hong Kong",
+            searchUrl="https://www.google.com/maps/place/Hong+Kong/@22.35,114.16,10z",
+            mapCanvasCssWidth=1200.0,
+            mapCanvasCssHeight=800.0,
+            mapCanvasPixelWidth=1800,
+            mapCanvasPixelHeight=1200,
+            preDragMapSha256="1" * 64,
+            dragActionCount=1,
+            postDragUrl="https://www.google.com/maps/place/Hong+Kong/@22.35,114.17,10z",
+            postDragMapSha256="2" * 64,
+            zoomInActionCount=1,
+            postZoomUrl="https://www.google.com/maps/place/Hong+Kong/@22.35,114.17,11z",
+            postZoomMapSha256="3" * 64,
+            satelliteControlCountBefore=1,
+            layersActionCount=1,
+            satelliteSelectedBefore=False,
+            satelliteSelected=True,
+            postSatelliteUrl=(
+                "https://www.google.com/maps/place/Hong+Kong/"
+                "@22.35,114.17,11z/data=!3m1!1e3"
+            ),
+            postSatelliteMapSha256="4" * 64,
+            finalUrl=(
+                "https://www.google.com/maps/place/Hong+Kong/"
+                "@22.35,114.17,11z/data=!3m1!1e3"
+            ),
         ),
         task(
             "audioVideo",
@@ -232,9 +249,6 @@ def passing_evidence() -> dict:
 
 
 def main() -> None:
-    assert fp4.map_is_hong_kong("map=10/22.3527/114.1599")
-    assert not fp4.map_is_hong_kong("map=12/51.5074/-0.1278")
-
     with tempfile.TemporaryDirectory(prefix="verisilo-fp4-test-") as root:
         staged = Path(root)
         fp4.stage_artifact(staged)
@@ -304,12 +318,21 @@ def main() -> None:
     assert result["status"] == "inconclusive"
     assert result["checks"]["tasks"]["complexJavaScript"] is False
 
-    wrong_relative_zoom = copy.deepcopy(evidence)
-    graphics_task = wrong_relative_zoom["observations"]["phaseA"][
+    wrong_graphics_route = copy.deepcopy(evidence)
+    graphics_task = wrong_graphics_route["observations"]["phaseA"][
         "fp4CompatibilityObservation"
     ]["tasks"][2]
-    graphics_task["zoomHash"] = "map=12/22.3527/114.1700"
-    result = fp4.adjudicate_native(wrong_relative_zoom)
+    graphics_task["searchUrl"] = "https://www.google.com/maps/search/Hong+Kong"
+    result = fp4.adjudicate_native(wrong_graphics_route)
+    assert result["status"] == "inconclusive"
+    assert result["checks"]["tasks"]["interactiveGraphics"] is False
+
+    unchanged_graphics = copy.deepcopy(evidence)
+    graphics_task = unchanged_graphics["observations"]["phaseA"][
+        "fp4CompatibilityObservation"
+    ]["tasks"][2]
+    graphics_task["postZoomMapSha256"] = graphics_task["postDragMapSha256"]
+    result = fp4.adjudicate_native(unchanged_graphics)
     assert result["status"] == "inconclusive"
     assert result["checks"]["tasks"]["interactiveGraphics"] is False
 

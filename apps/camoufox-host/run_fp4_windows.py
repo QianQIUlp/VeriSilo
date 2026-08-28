@@ -36,9 +36,9 @@ from host_platform import process_identity_alive
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 BRANCH = "codex/camoufox-m3-engine-adapter"
-MATRIX_VERSION = "fp4-ordinary-sites-v3"
+MATRIX_VERSION = "fp4-ordinary-sites-v4"
 CONTRACT = REPO_ROOT / "docs/camoufox-fp4-ordinary-site-compatibility-contract.md"
-CONTRACT_SHA256 = "f2ca7bd7621af81aa9ea936f377be93d13f6d10d14a1057e99ad2696bf33dd3c"
+CONTRACT_SHA256 = "5a91bfb50c84ebaa175ccde1079bb1466f046fe5544d5fc0d69a3d4852254549"
 FP3_RESULT = HOST_DIR / "lock" / (
     "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json"
 )
@@ -59,7 +59,7 @@ DOCUMENT_URL = (
     "search=camouflage+animals+military&title=Special%3ASearch&ns0=1"
 )
 COMPLEX_JS_URL = "https://react.dev/reference/react"
-GRAPHICS_URL = "https://www.openstreetmap.org/#map=12/51.5074/-0.1278"
+GRAPHICS_URL = "https://www.google.com/maps?hl=en"
 MEDIA_URL = (
     "https://commons.wikimedia.org/wiki/"
     "File:Big_Buck_Bunny_keyframe_strobing_example.webm"
@@ -297,112 +297,115 @@ async def complex_javascript(page: Any) -> dict[str, Any]:
     }
 
 
-async def completed_tile_sources(page: Any) -> list[str]:
-    return await page.locator("img.leaflet-tile").evaluate_all(
-        """tiles => tiles
-          .filter(tile => tile.complete && tile.naturalWidth === 256)
-          .map(tile => tile.currentSrc || tile.src)"""
-    )
-
-
-def map_zoom(fragment: str) -> int | None:
-    match = re.match(r"^map=(\d+)/", fragment)
-    return int(match.group(1)) if match else None
-
-
-def map_is_hong_kong(fragment: str) -> bool:
-    match = re.match(r"^map=\d+/(-?\d+(?:\.\d+)?)/(-?\d+(?:\.\d+)?)", fragment)
-    return bool(
-        match
-        and 21.5 <= float(match.group(1)) <= 23.5
-        and 113.0 <= float(match.group(2)) <= 115.5
-    )
+async def map_canvas_sha256(canvas: Any) -> str:
+    return hashlib.sha256(await canvas.screenshot()).hexdigest()
 
 
 async def interactive_graphics(page: Any) -> dict[str, Any]:
     initial = await page.goto(
         GRAPHICS_URL, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS
     )
-    map_view = page.locator("#map")
-    await map_view.wait_for(state="visible")
-    await page.wait_for_function(
-        """() => [...document.querySelectorAll('img.leaflet-tile')]
-          .some(tile => tile.complete && tile.naturalWidth === 256)""",
-        timeout=NAVIGATION_TIMEOUT_MS,
-    )
-    initial_sources = await completed_tile_sources(page)
-    initial_hash = urlsplit(page.url).fragment
     place_query = "Hong Kong"
-    search = page.locator("#sidebar #query")
+    search = page.get_by_role("combobox").first
     await search.fill(place_query)
-    await search.press("Enter")
-    search_results = page.locator(".search_results_entry")
-    await search_results.first.wait_for(state="visible")
-    search_result_count = await search_results.count()
+    search_input_value = await search.input_value()
+    await page.get_by_role("button", name="Search", exact=True).first.click()
     await page.wait_for_function(
-        r"""() => {
-          const match = location.hash.match(
-            /^#map=\d+\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)/
-          );
-          if (!match) return false;
-          const latitude = Number(match[1]);
-          const longitude = Number(match[2]);
-          return latitude >= 21.5 && latitude <= 23.5 &&
-            longitude >= 113 && longitude <= 115.5;
-        }""",
+        "() => location.pathname.startsWith('/maps/place/Hong+Kong/')",
         timeout=NAVIGATION_TIMEOUT_MS,
     )
-    pre_pan_hash = urlsplit(page.url).fragment
-    settled_zoom = map_zoom(pre_pan_hash)
-    if settled_zoom is None:
-        raise FP4Error("OSM search settled without a map zoom")
-    await map_view.focus()
-    await map_view.press("ArrowRight")
+    search_url = page.url
+    canvas = page.locator("canvas:visible").first
+    await canvas.wait_for(state="visible")
+    canvas_dimensions = await canvas.evaluate(
+        """canvas => {
+          const rect = canvas.getBoundingClientRect();
+          return {
+            cssWidth: rect.width,
+            cssHeight: rect.height,
+            pixelWidth: canvas.width,
+            pixelHeight: canvas.height
+          };
+        }"""
+    )
+    pre_drag_sha256 = await map_canvas_sha256(canvas)
+    map_application = page.get_by_role("application", name=re.compile(r"^Map\b")).first
+    await map_application.wait_for(state="visible")
+    box = await map_application.bounding_box()
+    if box is None:
+        raise FP4Error("Google Maps application has no visible bounding box")
+    start_x = box["x"] + box["width"] * 0.7
+    start_y = box["y"] + box["height"] * 0.55
+    await page.mouse.move(start_x, start_y)
+    await page.mouse.down()
+    try:
+        await page.mouse.move(
+            box["x"] + box["width"] * 0.8,
+            start_y,
+            steps=8,
+        )
+    finally:
+        await page.mouse.up()
     await page.wait_for_function(
-        "before => location.hash.slice(1) !== before",
-        arg=pre_pan_hash,
+        "before => location.href !== before",
+        arg=search_url,
         timeout=NAVIGATION_TIMEOUT_MS,
     )
-    pan_hash = urlsplit(page.url).fragment
-    await page.locator(".zoom .plus-lg").first.click()
+    post_drag_url = page.url
+    post_drag_sha256 = await map_canvas_sha256(canvas)
+    await page.locator('button[aria-label="Zoom in"]:visible').first.click()
     await page.wait_for_function(
-        "zoom => location.hash.startsWith(`#map=${zoom}/`)",
-        arg=settled_zoom + 1,
+        "before => location.href !== before",
+        arg=post_drag_url,
         timeout=NAVIGATION_TIMEOUT_MS,
     )
-    zoom_hash = urlsplit(page.url).fragment
-    await page.wait_for_function(
-        """() => [...document.querySelectorAll('img.leaflet-tile')]
-          .some(tile => tile.complete && tile.naturalWidth === 256)""",
-        timeout=NAVIGATION_TIMEOUT_MS,
+    post_zoom_url = page.url
+    post_zoom_sha256 = await map_canvas_sha256(canvas)
+    satellite = page.locator(
+        '[role="radio"][jsaction="layerswitcher.intent.satellite"]'
     )
-    before_layer_sources = await completed_tile_sources(page)
-    await page.locator(".control-layers > .control-button").first.click()
-    cyclosm = page.locator("#map-ui-layer-cyclosm")
-    await page.locator('label[for="map-ui-layer-cyclosm"]').click()
+    satellite_control_count_before = await satellite.count()
+    satellite_selected_before = (
+        await satellite.get_attribute("aria-checked") == "true"
+        if satellite_control_count_before == 1
+        else None
+    )
+    await page.get_by_role("button", name="Layers", exact=True).click()
     await page.wait_for_function(
         """before => {
-          const selected = document.querySelector('#map-ui-layer-cyclosm');
-          return selected && selected.checked &&
-            [...document.querySelectorAll('img.leaflet-tile')].some(tile =>
-              tile.complete && tile.naturalWidth === 256 &&
-              !before.includes(tile.currentSrc || tile.src));
+          const satellite = document.querySelector(
+            '[role="radio"][jsaction="layerswitcher.intent.satellite"]'
+          );
+          return satellite?.getAttribute('aria-checked') === 'true' &&
+            location.href !== before;
         }""",
-        arg=before_layer_sources,
+        arg=post_zoom_url,
         timeout=NAVIGATION_TIMEOUT_MS,
     )
-    final_sources = await completed_tile_sources(page)
+    post_satellite_url = page.url
+    post_satellite_sha256 = await map_canvas_sha256(canvas)
     return {
         "initialHttpStatus": response_status(initial),
-        "initialHash": initial_hash,
-        "initialCompletedTileCount": len(initial_sources),
         "placeQuery": place_query,
-        "searchResultCount": search_result_count,
-        "prePanHash": pre_pan_hash,
-        "panHash": pan_hash,
-        "zoomHash": zoom_hash,
-        "cyclosmChecked": await cyclosm.is_checked(),
-        "newLayerTileCount": len(set(final_sources) - set(before_layer_sources)),
+        "searchInputValue": search_input_value,
+        "searchUrl": search_url,
+        "mapCanvasCssWidth": canvas_dimensions["cssWidth"],
+        "mapCanvasCssHeight": canvas_dimensions["cssHeight"],
+        "mapCanvasPixelWidth": canvas_dimensions["pixelWidth"],
+        "mapCanvasPixelHeight": canvas_dimensions["pixelHeight"],
+        "preDragMapSha256": pre_drag_sha256,
+        "dragActionCount": 1,
+        "postDragUrl": post_drag_url,
+        "postDragMapSha256": post_drag_sha256,
+        "zoomInActionCount": 1,
+        "postZoomUrl": post_zoom_url,
+        "postZoomMapSha256": post_zoom_sha256,
+        "satelliteControlCountBefore": satellite_control_count_before,
+        "layersActionCount": 1,
+        "satelliteSelectedBefore": satellite_selected_before,
+        "satelliteSelected": await satellite.get_attribute("aria-checked") == "true",
+        "postSatelliteUrl": post_satellite_url,
+        "postSatelliteMapSha256": post_satellite_sha256,
         "title": await page.title(),
         "finalUrl": page.url,
     }
@@ -607,29 +610,47 @@ def complex_markers_passed(task: dict[str, Any]) -> bool:
 
 
 def graphics_markers_passed(task: dict[str, Any]) -> bool:
-    pre_pan_hash = task.get("prePanHash") or ""
-    pan_hash = task.get("panHash") or ""
-    zoom_hash = task.get("zoomHash") or ""
-    settled_zoom = map_zoom(pre_pan_hash)
+    urls = (
+        task.get("searchUrl") or "",
+        task.get("postDragUrl") or "",
+        task.get("postZoomUrl") or "",
+        task.get("postSatelliteUrl") or "",
+    )
+    map_hashes = (
+        task.get("preDragMapSha256") or "",
+        task.get("postDragMapSha256") or "",
+        task.get("postZoomMapSha256") or "",
+        task.get("postSatelliteMapSha256") or "",
+    )
+    dimensions = (
+        task.get("mapCanvasCssWidth"),
+        task.get("mapCanvasCssHeight"),
+        task.get("mapCanvasPixelWidth"),
+        task.get("mapCanvasPixelHeight"),
+    )
     return (
         http_ok(task.get("initialHttpStatus"))
-        and type(task.get("initialCompletedTileCount")) is int
-        and task["initialCompletedTileCount"] >= 1
-        and map_zoom(task.get("initialHash", "")) == 12
         and task.get("placeQuery") == "Hong Kong"
-        and type(task.get("searchResultCount")) is int
-        and task["searchResultCount"] >= 1
-        and settled_zoom is not None
-        and map_is_hong_kong(pre_pan_hash)
-        and pan_hash != pre_pan_hash
-        and map_zoom(pan_hash) == settled_zoom
-        and map_is_hong_kong(pan_hash)
-        and map_zoom(zoom_hash) == settled_zoom + 1
-        and map_is_hong_kong(zoom_hash)
-        and task.get("cyclosmChecked") is True
-        and type(task.get("newLayerTileCount")) is int
-        and task["newLayerTileCount"] >= 1
-        and urlsplit(task.get("finalUrl", "")).hostname == "www.openstreetmap.org"
+        and task.get("searchInputValue") == "Hong Kong"
+        and all(
+            urlsplit(url).hostname == "www.google.com"
+            and urlsplit(url).path.startswith("/maps/place/Hong+Kong/")
+            for url in urls
+        )
+        and len(set(urls)) == 4
+        and all(type(value) in (int, float) and value > 0 for value in dimensions)
+        and all(re.fullmatch(r"[0-9a-f]{64}", value) for value in map_hashes)
+        and len(set(map_hashes)) == 4
+        and task.get("dragActionCount") == 1
+        and task.get("zoomInActionCount") == 1
+        and task.get("satelliteControlCountBefore") == 1
+        and task.get("layersActionCount") == 1
+        and task.get("satelliteSelectedBefore") is False
+        and task.get("satelliteSelected") is True
+        and urlsplit(task.get("finalUrl") or "").hostname == "www.google.com"
+        and urlsplit(task.get("finalUrl") or "").path.startswith(
+            "/maps/place/Hong+Kong/"
+        )
     )
 
 

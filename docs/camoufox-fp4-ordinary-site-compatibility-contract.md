@@ -3,7 +3,7 @@
 ## Product question
 
 FP4 asks one bounded go/no-go question: can the exact Formal-v3 browser and Artifact v6 that passed
-FP2/FP3 complete the frozen `fp4-ordinary-sites-v3` capability matrix on native Windows through the
+FP2/FP3 complete the frozen `fp4-ordinary-sites-v4` capability matrix on native Windows through the
 required SOCKS5 route, preserve one non-sensitive site preference across a clean browser restart, and
 then close every owned lifecycle cleanly?
 
@@ -18,12 +18,13 @@ and route bindings forward; it does not rerun FP2/FP3 or add a desktop/Host prod
 - one fresh temporary Profile reused by two sequential Host launch/close phases;
 - required unauthenticated SOCKS5 endpoint `127.0.0.1:7897`;
 - native Windows, one immutable attempt, no retry or runtime sample rotation;
-- site matrix `fp4-ordinary-sites-v3` below.
+- site matrix `fp4-ordinary-sites-v4` below.
 
 The unchanged selections retain their 2026-08-28 availability evidence. React remains selected after
-its pre-V2 HTTP 200 freeze. Attempt 9 directly recorded OSM asynchronously relocating to the Hong Kong
-search result after the result list appeared; V3 changes only the graphics markers to wait for that
-semantic relocation and measure one relative zoom increment. No site may switch after launch.
+its pre-V2 HTTP 200 freeze. Attempt 10 directly recorded the OSM/Nominatim search surface returning an
+external `503 backend read error`. Before any V4 attempt root or browser process, the predeclared
+Google Maps alternate returned final HTTP 200 through `socks5h://127.0.0.1:7897`. V4 changes only the
+graphics selection; media remains on its available primary. No site may switch after launch.
 
 ## Frozen capability matrix
 
@@ -31,7 +32,7 @@ semantic relocation and measure one relative zoom increment. No site may switch 
 | --- | --- | --- |
 | Document/navigation | `https://en.wikipedia.org/w/index.php?search=camouflage+animals+military&title=Special%3ASearch&ns0=1`: require the search-results heading, open exact result `Military camouflage`, require its heading, scroll to the `History` section, go back to the search results, then forward to the same article | `https://en.wiktionary.org/w/index.php?search=browser+internet&title=Special%3ASearch&ns0=1` with the same search-result/article/history semantics |
 | Complex JavaScript app | `https://react.dev/reference/react`: open site search, filter for `useState`, and open the matching client route | `https://github.com/microsoft/playwright/issues`: its former exact dialog marker drifted in Attempt 7 and is not selected |
-| Interactive graphics | `https://www.openstreetmap.org/#map=12/51.5074/-0.1278`: require completed 256px map tiles, search exact place `Hong Kong`, require results and the map settled over Hong Kong, pan at that zoom, zoom in exactly one level, open layers, select `CyclOSM`, require the checked layer and newly completed tiles | `https://www.google.com/maps?hl=en`: search exact place `Hong Kong`, require the `/place/Hong+Kong/` route and rendered map, then pan, zoom and select the Satellite layer |
+| Interactive graphics | `https://www.google.com/maps?hl=en`: search exact place `Hong Kong`, require the `/maps/place/Hong+Kong/` route and rendered map, then drag, zoom in and select the Satellite layer | `https://www.openstreetmap.org/#map=12/51.5074/-0.1278`: its Hong Kong search returned an external 503 in Attempt 10 and is not selected |
 | Audio/video | `https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_keyframe_strobing_example.webm`: start the video by user action, require ready media and advancing `currentTime`, pause, seek, and require the new media time | `https://commons.wikimedia.org/wiki/File:Big_buck_bunny_720p_5mb.webm` with the same media-state markers |
 | Form/state | `https://en.wikipedia.org/wiki/Web_browser`: change the anonymous Appearance font-size preference to `Large`, require it after reload, then require it again after a clean Host/browser restart using the same Profile and restore `Standard` | `https://en.wiktionary.org/wiki/browser` with the same anonymous Appearance preference markers |
 
@@ -45,15 +46,15 @@ The frozen semantic markers are:
 - complex-JS selection: open the visible `Search` control, fill exact `useState`, activate a visible
   result whose link path is `/reference/react/useState`, and require that final path with
   `h1=useState`;
-- graphics selection: at least one `img.leaflet-tile` with `complete=true` and `naturalWidth=256`
-  before interaction; `#query` is filled with exact `Hong Kong`, yields at least one
-  `.search_results_entry`, and the hash settles to latitude 21.5–23.5 / longitude 113–115.5; one
-  `ArrowRight` changes the hash while preserving that settled zoom; one `.zoom .plus-lg` click adds
-  exactly one zoom level; `#map-ui-layer-cyclosm` becomes checked; and at least one completed
-  post-selection tile has a source not present before selection. The fallback fills exact
-  `Hong Kong` in `#searchboxinput`, activates `#searchbox-searchbutton`, requires a final path beginning
-  `/maps/place/Hong+Kong/` and a rendered map canvas, then requires one drag, one Zoom-in action and the
-  Satellite layer to change the visible map state;
+- graphics selection: fill exact `Hong Kong` in the unique visible `role=combobox`, activate the
+  exact visible `role=button[name=Search]`, and require a path beginning `/maps/place/Hong+Kong/` plus
+  one visible canvas with positive CSS and backing dimensions. Record that canvas before interaction;
+  perform exactly one pointer drag within the visible map application and require a changed place URL
+  and canvas SHA-256; activate exact visible `button[aria-label="Zoom in"]` once and require another
+  changed place URL and canvas SHA-256; require the Satellite radio initially unselected, activate the
+  exact visible `role=button[name=Layers]` once, and require
+  `[role=radio][jsaction="layerswitcher.intent.satellite"][aria-checked=true]`, another changed place
+  URL and another changed canvas SHA-256. All four canvas digests must be distinct;
 - media primary: `video.vjs-tech`, `readyState >= 2`, duration from 19 through 21 seconds, at least
   one second of `currentTime` progress within three seconds after the user play action, `paused=true`
   after Pause, then a slider Home/ArrowRight seek producing `currentTime` from 4 through 6 seconds.
@@ -63,8 +64,8 @@ The frozen semantic markers are:
   `vector-feature-custom-font-size-clientpref-2` after reload and again before any Phase B mutation;
   Phase B then checks the Standard radio and records the Large marker as cleared.
 
-The React selection is not a hidden retry: its availability was frozen before V2 code, attempt root
-or browser execution. Attempt 9 remains immutable and V3 is a new input.
+The Google selection is not a hidden retry: its availability was frozen before V4 code, attempt root
+or browser execution. Attempt 10 remains immutable and V4 is a new input.
 
 ## Execution phases and budgets
 
