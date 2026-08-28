@@ -1,0 +1,108 @@
+{
+  "schema": "verisilo-camoufox-fp4-upstream-control-report/v1",
+  "status": "failed",
+  "verified": false,
+  "startedAtUtc": "2026-08-28T06:14:02.189046Z",
+  "completedAtUtc": "2026-08-28T06:15:20.383792Z",
+  "repository": {
+    "branch": "codex/camoufox-m3-engine-adapter",
+    "commit": "0dac4342b642cf5c97e7d83c3a1e830dd9b252eb",
+    "tree": "581597a6fc0694b8117265f2f70da946748964cd"
+  },
+  "contract": {
+    "path": "docs/camoufox-fp4-ordinary-site-compatibility-contract.md",
+    "sha256": "eca782c69c801b9b41b8dbf9f961db9788f6f736fd7b4fc5b7f6183b84cb887c"
+  },
+  "formalTrigger": {
+    "attempt": 6,
+    "reportSha256": "426c1ff564900bb69dbca8881335e488f353a71bc4524c2fcc6355758f0bfd3b",
+    "nativeEvidenceSha256": "e0b3c7d9d12b11de70d71dfe8f1ab6f68b52f33da1656c365be98e98b7bc0440",
+    "originalStatus": "inconclusive",
+    "correctedDocumentStatus": "failed"
+  },
+  "upstream": {
+    "assetLock": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-windows-x86_64.json",
+    "assetLockSha256": "8c4713586fb43f5f518e6f76209d596323b0e57e9b1570c5e665738b21133fea",
+    "archiveSha256": "386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d",
+    "archiveSizeBytes": 492370020,
+    "executableSha256": "ca931ff2b79aa4f4c66b9fae38693eeff7f700cbcd0704f2f8c45268b447065e",
+    "treeManifestSha256": "80f46b4bc7b40cd54072f1ba89462f8715c13eb339f596c2869560db880f6a40",
+    "camoufoxCfgSha256": "2d4e2d1ebca1a7103b03477d7d11dc056ae0f53ab12ef63e55d8bf2ff4b5722a"
+  },
+  "execution": {
+    "command": [
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+      "-u",
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\apps\\camoufox-host\\run_fp4_document_upstream_control.py",
+      "--child-host",
+      "--artifact-root",
+      "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-upstream-control-5fej_vu4\\artifacts",
+      "--profile-root",
+      "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-upstream-control-5fej_vu4\\profiles",
+      "--state-root",
+      "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-upstream-control-5fej_vu4\\state",
+      "--tree-manifest",
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json"
+    ],
+    "childExitCode": 0
+  },
+  "nativeEvidence": {
+    "path": "artifacts/camoufox-fp4-upstream-document-control-1/native-evidence.json",
+    "sha256": "b2b6a05c38c580188d81331e3b30a27c02ec100df3b52b688ce198b2ac7cefd3"
+  },
+  "adjudication": {
+    "status": "failed",
+    "fp4Status": "failed",
+    "controlOutcome": "same-direct-failure",
+    "attribution": "inherited-camoufox-firefox-product-limitation",
+    "formalAttempt6DirectFailure": true,
+    "upstreamPassed": false,
+    "upstreamSameDirectFailure": true,
+    "lifecycleClean": true,
+    "checks": {
+      "officialEngineExact": true,
+      "fixedInputsExact": true,
+      "launchBindingExact": true,
+      "statusBindingExact": true,
+      "shutdownSelfCheckClean": true,
+      "runnerCompletedWithoutError": true,
+      "observationComplete": true,
+      "cleanClose": true,
+      "exactHostChildExit": true,
+      "residualProcessTreeEmpty": true,
+      "runtimeRemovedAfterCleanExit": true,
+      "evidenceReadsComplete": true,
+      "screenshotExact": true
+    },
+    "terminal": true,
+    "verified": false
+  },
+  "boundaries": {
+    "controlScope": "document-navigation-only",
+    "universalCompatibility": "not_claimed",
+    "verified": false,
+    "nextGate": "fix-inherited-session-history-limitation-if-control-confirms"
+  },
+  "outputs": {
+    "artifacts/camoufox-fp4-upstream-document-control-1/identity-fp4-upstream-document-control.json": {
+      "sha256": "b417c687c3034fd4685eb34c2f7a1961618b804348ef1df1d3d65c0f8132ee52",
+      "sizeBytes": 46302
+    },
+    "artifacts/camoufox-fp4-upstream-document-control-1/identity-fp4-upstream-document-control.json.sha256": {
+      "sha256": "72d8a1c574770c280b2e88e8890acad758520ee1e673b71d7f88f4f54231db0d",
+      "sizeBytes": 110
+    },
+    "artifacts/camoufox-fp4-upstream-document-control-1/native-evidence.json": {
+      "sha256": "b2b6a05c38c580188d81331e3b30a27c02ec100df3b52b688ce198b2ac7cefd3",
+      "sizeBytes": 51216
+    },
+    "artifacts/camoufox-fp4-upstream-document-control-1/host-stderr.txt": {
+      "sha256": "5d54b0c690524165695b6c53de1a588a4697bb64c238098bb0a171556fb500e1",
+      "sizeBytes": 4062
+    },
+    "artifacts/camoufox-fp4-upstream-document-control-1/screenshots/upstreamControl-01-documentNavigation.png": {
+      "sha256": "7b488c8cd5052c6c6c2bd0411083743e9b553d45f6b0ad8a78093866dfa60237",
+      "sizeBytes": 220413
+    }
+  }
+}

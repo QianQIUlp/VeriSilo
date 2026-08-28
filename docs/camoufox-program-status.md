@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / direct product failure under attribution control**；Attempt 6 的原 runner 结论保持 immutable Inconclusive，但源码与冻结配置已直接证明 document history failure；尚未运行唯一 upstream control，`verified:false` |
+| FP4 ordinary-site compatibility | **Failed / Gate open**；唯一 pinned upstream control 复现同一 document history direct failure，归因 inherited Camoufox/Firefox product limitation；修复与新 full-matrix attempt 尚未执行，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,7 +60,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 pinned upstream document/navigation control
+### FP4-1 Host session-history repair + native requalification
 
 FP3-1b 已在冻结 Formal-v3 candidate、Artifact v6、required SOCKS5 route 与 direct negative control
 上闭合。原生 Windows Attempt 7 直接观察到 exact route binding、香港代理出口、Artifact
@@ -85,12 +85,18 @@ Attempt 5/6 的 `history.back()` 均停留在文章页，以及 Attempt 6 的 `4
 navigation request/failure、`popstate`、crash 或 page error。当前代码已移除把该遮罩值误当 backing
 history entry 的判定条件；这是对既有 evidence 的 corrected adjudication，不重写 Attempt 6。
 
-用户提供的 FP4 权威补充解释已收敛到合同：upstream 通过时归因 VeriSilo patch/Host application；
-upstream 出现同一 direct failure 时，FP4 仍为 `Failed`，归因 inherited Camoufox/Firefox product
-limitation；只有 control unavailable/unadjudicable 才是 `Inconclusive`。合同任务和站点矩阵未变。
-当前唯一下一步是用 production Host、同一 resolved identity/network values、独立 official Engine
-binding 和 fresh Profile 运行一次 document/navigation-only pinned upstream control。不得重跑完整
-Formal matrix、切换 fallback、进入 M3-WI 或创建 FP5。
+唯一 document/navigation-only pinned upstream control
+([report](../artifacts/camoufox-fp4-upstream-document-control-1/run-report.json)，SHA-256
+`aee6dbeb88a0a0844f829c8c93ea4535c9ab389729a0c5b9eee3905f2004b276`) 已在 native Windows 上
+复现同一 direct failure。official Engine/tree、derived control Artifact、fresh Profile `0 -> 1`、required
+SOCKS5 route、完整 observation/screenshot、clean close、Host child、process tree、Job、shutdown self-check
+与临时运行根移除的全部裁决检查均通过；因此 FP4 为 `Failed/open`，归因 inherited
+Camoufox/Firefox product limitation，不是 `Inconclusive`，`verified:false`。
+
+当前最小修复 Gate 是在现有 shared Host/evidence Firefox prefs seam 把
+`browser.sessionhistory.max_entries` 从 Camoufox 配置的 `0` 恢复为 Firefox 正常容量 `50`；不修改
+Artifact、Profile、Engine 或 Network Policy 生命周期。focused test 通过并从 clean synced HEAD 冻结
+后，运行一个新版本 full-matrix native attempt。不得重跑 upstream control、FP2/FP3，或进入 M3-WI。
 
 ## 后续 Gate 顺序
 
@@ -101,7 +107,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（合同已冻结；native discriminator 下一步）
+→ FP4 ordinary-site compatibility（合同已冻结；upstream 同故障，Host repair 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
@@ -126,6 +132,7 @@ Formal-v3 static source candidate（已闭合）
 | FP3 Attempt 7 | run `fp3-20260828T024057905465Z`；report SHA-256 `697a190ff485814a3f310cf3977792698e9ac2aaa2bcbae625bbbf7797acc25d`；required route、出口、Geo、ICE 与 lifecycle 全部通过 |
 | FP3 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`；SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`；**Passed on this native Windows host**；`verified:false` |
 | FP4 latest attempt | Attempt 6 `artifacts/camoufox-fp4-attempt-6/run-report.json`；SHA-256 `426c1ff564900bb69dbca8881335e488f353a71bc4524c2fcc6355758f0bfd3b`；原 runner immutable Inconclusive，document 已由 owning config/source corrected adjudication 为 direct failure；bindings/lifecycle clean，`verified:false` |
+| FP4 upstream document control | `artifacts/camoufox-fp4-upstream-document-control-1/run-report.json`；SHA-256 `aee6dbeb88a0a0844f829c8c93ea4535c9ab389729a0c5b9eee3905f2004b276`；same direct failure，全部 binding/lifecycle checks true；**FP4 Failed/open**，`verified:false` |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |
