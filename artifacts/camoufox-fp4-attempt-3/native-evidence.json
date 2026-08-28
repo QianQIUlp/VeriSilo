@@ -1,0 +1,4740 @@
+{
+  "schema": "verisilo-camoufox-fp4-native-evidence/v1",
+  "status": "inconclusive",
+  "evidenceClass": "attempted-on-this-native-windows-host",
+  "verified": false,
+  "fixedInputs": {
+    "matrixVersion": "fp4-ordinary-sites-v1",
+    "artifactId": "identity-fp3-1b-formal-v3-a",
+    "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+    "profileId": "fp4-attempt-3",
+    "requiredProxy": "socks5://127.0.0.1:7897",
+    "runtimeExecutableSha256": "b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f142a6",
+    "selectedUrls": {
+      "documentNavigation": "https://en.wikipedia.org/w/index.php?search=camouflage+animals+military&title=Special%3ASearch&ns0=1",
+      "complexJavaScript": "https://github.com/microsoft/playwright/issues",
+      "interactiveGraphics": "https://www.openstreetmap.org/#map=12/51.5074/-0.1278",
+      "audioVideo": "https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_keyframe_strobing_example.webm",
+      "formState": "https://en.wikipedia.org/wiki/Web_browser",
+      "formStateReplay": "https://en.wikipedia.org/wiki/Web_browser"
+    }
+  },
+  "responses": {
+    "phaseA": {
+      "launch": {
+        "id": "fp4-2-launch",
+        "ok": true,
+        "result": {
+          "sessionId": "fd0244cab5364c4184adab75f4be9207",
+          "state": "running",
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-3",
+          "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+          "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+          "bootCountBefore": 0,
+          "bootCountAfter": 1,
+          "spawnSeconds": 8.499,
+          "probeSeconds": 0.229,
+          "fontMode": "inherit",
+          "managedPids": [
+            68,
+            5280
+          ],
+          "cookieEvidence": {
+            "cookieAbsentBeforeWrite": true,
+            "cookieInApi": true,
+            "cookieOnPage": true,
+            "cookieValueLooksManaged": true
+          },
+          "probePort": 54552,
+          "verified": false,
+          "evidenceClass": "observed-on-this-host",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      },
+      "status": {
+        "id": "fp4-3-status",
+        "ok": true,
+        "result": {
+          "state": "running",
+          "sessionId": "fd0244cab5364c4184adab75f4be9207",
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-3",
+          "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+          "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+          "exitStatus": null,
+          "exitFileObserved": false,
+          "quarantine": null,
+          "failure": null,
+          "contextClose": null,
+          "closeOutcome": null,
+          "verified": false,
+          "evidenceClass": "observed-on-this-host",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      },
+      "close": {
+        "id": "fp4-4-close",
+        "ok": true,
+        "result": {
+          "sessionId": "fd0244cab5364c4184adab75f4be9207",
+          "state": "exited",
+          "exitStatus": 0,
+          "exitFileObserved": true,
+          "processTreeExit": {
+            "exited": true,
+            "managedIdentities": [
+              {
+                "pid": 5280,
+                "creationTime100ns": 134323656829092139,
+                "role": "supervisor"
+              },
+              {
+                "pid": 68,
+                "creationTime100ns": 134323656829219170,
+                "role": "browser"
+              }
+            ],
+            "remaining": [],
+            "job": {
+              "available": true,
+              "name": "Local\\VeriSiloCamoufox-fd0244cab5364c4184adab75f4be9207",
+              "activeProcessCount": 0,
+              "terminateJobObject": false
+            },
+            "sigterm": true,
+            "sigkill": false
+          },
+          "cookieSqlite": {
+            "fileExists": true,
+            "fileBytes": 524288,
+            "cookieNamePresent": true,
+            "sqliteReadAttempts": 1,
+            "sqliteReadMaxAttempts": 6,
+            "sqliteRetryDelayMilliseconds": 200,
+            "sqliteRetryExhausted": false,
+            "cookieRows": 1,
+            "hosts": [
+              "127.0.0.1"
+            ],
+            "valuesManaged": true
+          },
+          "contextClose": {
+            "page": {
+              "status": "success"
+            },
+            "ctx": {
+              "status": "success"
+            }
+          },
+          "closeOutcome": {
+            "status": "success",
+            "contextClose": {
+              "page": {
+                "status": "success"
+              },
+              "ctx": {
+                "status": "success"
+              }
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            }
+          },
+          "closeSeconds": 0.309
+        }
+      }
+    },
+    "phaseB": {
+      "launch": {
+        "id": "fp4-5-launch",
+        "ok": true,
+        "result": {
+          "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93",
+          "state": "running",
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-3",
+          "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+          "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+          "bootCountBefore": 1,
+          "bootCountAfter": 2,
+          "spawnSeconds": 5.918,
+          "probeSeconds": 0.179,
+          "fontMode": "inherit",
+          "managedPids": [
+            8424,
+            8852
+          ],
+          "cookieEvidence": {
+            "cookieAbsentBeforeWrite": false,
+            "cookieInApi": true,
+            "cookieOnPage": true,
+            "cookieValueLooksManaged": true
+          },
+          "probePort": 54552,
+          "verified": false,
+          "evidenceClass": "observed-on-this-host",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      },
+      "status": {
+        "id": "fp4-6-status",
+        "ok": true,
+        "result": {
+          "state": "running",
+          "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93",
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-3",
+          "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+          "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+          "exitStatus": null,
+          "exitFileObserved": false,
+          "quarantine": null,
+          "failure": null,
+          "contextClose": null,
+          "closeOutcome": null,
+          "verified": false,
+          "evidenceClass": "observed-on-this-host",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      },
+      "close": {
+        "id": "fp4-7-close",
+        "ok": true,
+        "result": {
+          "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93",
+          "state": "exited",
+          "exitStatus": 0,
+          "exitFileObserved": true,
+          "processTreeExit": {
+            "exited": true,
+            "managedIdentities": [
+              {
+                "pid": 8424,
+                "creationTime100ns": 134323658219716713,
+                "role": "supervisor"
+              },
+              {
+                "pid": 8852,
+                "creationTime100ns": 134323658219796393,
+                "role": "browser"
+              }
+            ],
+            "remaining": [],
+            "job": {
+              "available": true,
+              "name": "Local\\VeriSiloCamoufox-f9ad582fb45142acb66bcf6b88ebfd93",
+              "activeProcessCount": 0,
+              "terminateJobObject": false
+            },
+            "sigterm": true,
+            "sigkill": false
+          },
+          "cookieSqlite": {
+            "fileExists": true,
+            "fileBytes": 524288,
+            "cookieNamePresent": true,
+            "sqliteReadAttempts": 1,
+            "sqliteReadMaxAttempts": 6,
+            "sqliteRetryDelayMilliseconds": 200,
+            "sqliteRetryExhausted": false,
+            "cookieRows": 1,
+            "hosts": [
+              "127.0.0.1"
+            ],
+            "valuesManaged": true
+          },
+          "contextClose": {
+            "page": {
+              "status": "success"
+            },
+            "ctx": {
+              "status": "success"
+            }
+          },
+          "closeOutcome": {
+            "status": "success",
+            "contextClose": {
+              "page": {
+                "status": "success"
+              },
+              "ctx": {
+                "status": "success"
+              }
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            }
+          },
+          "closeSeconds": 0.394
+        }
+      }
+    },
+    "hello": {
+      "id": "fp4-1-hello",
+      "ok": true,
+      "result": {
+        "protocol": "verisilo-camoufox-host/v1",
+        "hostVersion": "0.1.0",
+        "pythonVersion": "3.12.13",
+        "artifactRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-3-os_cr5o5\\artifacts",
+        "profileRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-3-os_cr5o5\\profiles",
+        "stateRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-3-os_cr5o5\\state",
+        "maxFrameBytes": 32768,
+        "probePortPolicy": "ephemeral",
+        "browserRelease": "v152.0.4-beta.28",
+        "assetSha256": "032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5",
+        "treeManifest": "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\artifacts\\camoufox-fp2-formal-r1-attempt-8\\formal-v3-browser-tree-manifest.json",
+        "treeManifestSha256": "8434ab9925bf0f7d95cc4ff06fe94b7dcf9963a0691f37638469d68cda58ace2",
+        "platform": "windows-x64",
+        "state": "idle",
+        "verified": false,
+        "evidenceClass": "observed-on-this-host"
+      }
+    },
+    "shutdown": {
+      "id": "fp4-8-shutdown",
+      "ok": true,
+      "result": {
+        "state": "shutdown",
+        "sessionsClosed": 1,
+        "selfCheck": {
+          "argvMatches": [],
+          "stderrLogMatches": [],
+          "patternsChecked": 14
+        }
+      }
+    }
+  },
+  "observations": {
+    "phaseA": {
+      "generatedAtUtc": "2026-08-28T04:41:36.835240+00:00",
+      "projection": {
+        "schema": "verisilo-camoufox-stable-signal-projection/v3",
+        "runId": "fd0244cab5364c4184adab75f4be9207",
+        "coldStartIndex": 1,
+        "artifactId": "identity-fp3-1b-formal-v3-a",
+        "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+        "observedWebsiteSignals": {
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "language": "en-US",
+          "languages": [
+            "en-US",
+            "en"
+          ],
+          "platform": "Win32",
+          "oscpu": "Windows NT 10.0; Win64; x64",
+          "doNotTrack": "unspecified",
+          "globalPrivacyControl": true,
+          "screen": {
+            "width": 4300,
+            "height": 1800,
+            "availWidth": 4300,
+            "availHeight": 1740,
+            "availTop": 0,
+            "availLeft": 0,
+            "colorDepth": 24,
+            "pixelDepth": 24
+          },
+          "devicePixelRatio": 1.5,
+          "hardwareConcurrency": 8,
+          "historyLength": 4,
+          "mediaDevices": [
+            {
+              "kind": "audioinput",
+              "label": ""
+            },
+            {
+              "kind": "videoinput",
+              "label": ""
+            }
+          ],
+          "timezone": "Asia/Hong_Kong",
+          "utcOffsetMinutes": -480,
+          "fontNegativeControls": {
+            "VeriSiloBogusFontM2": true,
+            "DefinitelyNotAFontQz": true,
+            "NoSuchTypefaceXyZ": true
+          },
+          "webglVendor": "Google Inc. (NVIDIA)",
+          "webglRenderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+          "webglSummary": {
+            "version": "WebGL 1.0",
+            "shadingLanguageVersion": "WebGL GLSL ES 1.0",
+            "maxTextureSize": 16384,
+            "maxRenderbufferSize": 16384,
+            "maxViewportDims": [
+              32767,
+              32767
+            ],
+            "aliasedLineWidthRange": [
+              1,
+              1
+            ],
+            "aliasedPointSizeRange": [
+              1,
+              1024
+            ],
+            "extensions": [
+              "ANGLE_instanced_arrays",
+              "EXT_blend_minmax",
+              "EXT_color_buffer_half_float",
+              "EXT_float_blend",
+              "EXT_frag_depth",
+              "EXT_sRGB",
+              "EXT_shader_texture_lod",
+              "EXT_texture_compression_bptc",
+              "EXT_texture_compression_rgtc",
+              "EXT_texture_filter_anisotropic",
+              "OES_element_index_uint",
+              "OES_fbo_render_mipmap",
+              "OES_standard_derivatives",
+              "OES_texture_float",
+              "OES_texture_float_linear",
+              "OES_texture_half_float",
+              "OES_texture_half_float_linear",
+              "OES_vertex_array_object",
+              "WEBGL_color_buffer_float",
+              "WEBGL_compressed_texture_s3tc",
+              "WEBGL_compressed_texture_s3tc_srgb",
+              "WEBGL_debug_renderer_info",
+              "WEBGL_debug_shaders",
+              "WEBGL_depth_texture",
+              "WEBGL_draw_buffers",
+              "WEBGL_lose_context",
+              "WEBGL_provoking_vertex"
+            ]
+          },
+          "voices": [
+            {
+              "name": "Microsoft David - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.david.english.united.states"
+            },
+            {
+              "name": "Microsoft Mark - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.mark.english.united.states"
+            },
+            {
+              "name": "Microsoft Zira - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.zira.english.united.states"
+            },
+            {
+              "name": "Microsoft David Desktop - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.david.desktop.english.united.states"
+            },
+            {
+              "name": "Microsoft Zira Desktop - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.zira.desktop.english.united.states"
+            },
+            {
+              "name": "Microsoft Hazel - English (United Kingdom)",
+              "lang": "en-GB",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.english.united.kingdom"
+            },
+            {
+              "name": "Microsoft Hazel Desktop - English (Great Britain)",
+              "lang": "en-GB",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.desktop.english.great.britain"
+            },
+            {
+              "name": "Microsoft George - English (United Kingdom)",
+              "lang": "en-GB",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.george.english.united.kingdom"
+            },
+            {
+              "name": "Microsoft Susan - English (United Kingdom)",
+              "lang": "en-GB",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.susan.english.united.kingdom"
+            },
+            {
+              "name": "Microsoft Catherine - English (Australia)",
+              "lang": "en-AU",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.catherine.english.australia"
+            },
+            {
+              "name": "Microsoft James - English (Australia)",
+              "lang": "en-AU",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.james.english.australia"
+            },
+            {
+              "name": "Microsoft Linda - English (Canada)",
+              "lang": "en-CA",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.linda.english.canada"
+            },
+            {
+              "name": "Microsoft Richard - English (Canada)",
+              "lang": "en-CA",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.richard.english.canada"
+            },
+            {
+              "name": "Microsoft Sean - English (Ireland)",
+              "lang": "en-IE",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.sean.english.ireland"
+            },
+            {
+              "name": "Microsoft Heera - English (India)",
+              "lang": "en-IN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.heera.english.india"
+            },
+            {
+              "name": "Microsoft Ravi - English (India)",
+              "lang": "en-IN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.ravi.english.india"
+            },
+            {
+              "name": "Microsoft Hedda - German (Germany)",
+              "lang": "de-DE",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.german.germany"
+            },
+            {
+              "name": "Microsoft Hedda Desktop - German",
+              "lang": "de-DE",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.desktop.german"
+            },
+            {
+              "name": "Microsoft Katja - German (Germany)",
+              "lang": "de-DE",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.katja.german.germany"
+            },
+            {
+              "name": "Microsoft Stefan - German (Germany)",
+              "lang": "de-DE",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.stefan.german.germany"
+            },
+            {
+              "name": "Microsoft Hortense - French (France)",
+              "lang": "fr-FR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.french.france"
+            },
+            {
+              "name": "Microsoft Hortense Desktop - French",
+              "lang": "fr-FR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.desktop.french"
+            },
+            {
+              "name": "Microsoft Julie - French (France)",
+              "lang": "fr-FR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.julie.french.france"
+            },
+            {
+              "name": "Microsoft Paul - French (France)",
+              "lang": "fr-FR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.paul.french.france"
+            },
+            {
+              "name": "Microsoft Helena - Spanish (Spain)",
+              "lang": "es-ES",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.helena.spanish.spain"
+            },
+            {
+              "name": "Microsoft Helena Desktop - Spanish (Spain)",
+              "lang": "es-ES",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.helena.desktop.spanish.spain"
+            },
+            {
+              "name": "Microsoft Laura - Spanish (Spain)",
+              "lang": "es-ES",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.laura.spanish.spain"
+            },
+            {
+              "name": "Microsoft Pablo - Spanish (Spain)",
+              "lang": "es-ES",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.pablo.spanish.spain"
+            },
+            {
+              "name": "Microsoft Sabina - Spanish (Mexico)",
+              "lang": "es-MX",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.spanish.mexico"
+            },
+            {
+              "name": "Microsoft Sabina Desktop - Spanish (Mexico)",
+              "lang": "es-MX",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.desktop.spanish.mexico"
+            },
+            {
+              "name": "Microsoft Raul - Spanish (Mexico)",
+              "lang": "es-MX",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.raul.spanish.mexico"
+            },
+            {
+              "name": "Microsoft Cosimo - Italian (Italy)",
+              "lang": "it-IT",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.cosimo.italian.italy"
+            },
+            {
+              "name": "Microsoft Elsa - Italian (Italy)",
+              "lang": "it-IT",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.italian.italy"
+            },
+            {
+              "name": "Microsoft Elsa Desktop - Italian (Italy)",
+              "lang": "it-IT",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.desktop.italian.italy"
+            },
+            {
+              "name": "Microsoft Daniel - Portuguese (Brazil)",
+              "lang": "pt-BR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.daniel.portuguese.brazil"
+            },
+            {
+              "name": "Microsoft Maria - Portuguese (Brazil)",
+              "lang": "pt-BR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.maria.portuguese.brazil"
+            },
+            {
+              "name": "Microsoft Maria Desktop - Portuguese(Brazil)",
+              "lang": "pt-BR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.maria.desktop.portuguese.brazil"
+            },
+            {
+              "name": "Microsoft Helia - Portuguese (Portugal)",
+              "lang": "pt-PT",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.helia.portuguese.portugal"
+            },
+            {
+              "name": "Microsoft Huihui - Chinese (Simplified, PRC)",
+              "lang": "zh-CN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.chinese.simplified.prc"
+            },
+            {
+              "name": "Microsoft Huihui Desktop - Chinese (Simplified)",
+              "lang": "zh-CN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.desktop.chinese.simplified"
+            },
+            {
+              "name": "Microsoft Kangkang - Chinese (Simplified, PRC)",
+              "lang": "zh-CN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.kangkang.chinese.simplified.prc"
+            },
+            {
+              "name": "Microsoft Yaoyao - Chinese (Simplified, PRC)",
+              "lang": "zh-CN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.yaoyao.chinese.simplified.prc"
+            },
+            {
+              "name": "Microsoft Anna - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.anna.english.united.states"
+            },
+            {
+              "name": "Microsoft Frank - Dutch (Netherlands)",
+              "lang": "nl-NL",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.frank.dutch.netherlands"
+            },
+            {
+              "name": "Microsoft Adam - Polish (Poland)",
+              "lang": "pl-PL",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.adam.polish.poland"
+            },
+            {
+              "name": "Microsoft Paulina - Polish (Poland)",
+              "lang": "pl-PL",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.polish.poland"
+            },
+            {
+              "name": "Microsoft Paulina Desktop - Polish",
+              "lang": "pl-PL",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.desktop.polish"
+            },
+            {
+              "name": "Microsoft Jakub - Czech (Czech Republic)",
+              "lang": "cs-CZ",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.jakub.czech.czech.republic"
+            },
+            {
+              "name": "Microsoft Stefanos - Greek (Greece)",
+              "lang": "el-GR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.stefanos.greek.greece"
+            },
+            {
+              "name": "Microsoft Asaf - Hebrew (Israel)",
+              "lang": "he-IL",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.asaf.hebrew.israel"
+            },
+            {
+              "name": "Microsoft Naayf - Arabic (Saudi)",
+              "lang": "ar-SA",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.naayf.arabic.saudi"
+            },
+            {
+              "name": "Microsoft Tolga - Turkish (Turkey)",
+              "lang": "tr-TR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.tolga.turkish.turkey"
+            },
+            {
+              "name": "Microsoft Sarah Mobile - English (Great Britain)",
+              "lang": "en-GB",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.sarah.mobile.english.great.britain"
+            }
+          ],
+          "audioHash": "sha256:3ab2761e31df5274b3a28691118ba4784421d73f426cc65e30a8b07681046845"
+        },
+        "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270"
+      },
+      "observedFull": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+        "appCodeName": "Mozilla",
+        "appName": "Netscape",
+        "appVersion": "5.0 (Windows)",
+        "product": "Gecko",
+        "language": "en-US",
+        "languages": [
+          "en-US",
+          "en"
+        ],
+        "platform": "Win32",
+        "oscpu": "Windows NT 10.0; Win64; x64",
+        "doNotTrack": "unspecified",
+        "globalPrivacyControl": true,
+        "screen": {
+          "width": 4300,
+          "height": 1800,
+          "availWidth": 4300,
+          "availHeight": 1740,
+          "availTop": 0,
+          "availLeft": 0,
+          "colorDepth": 24,
+          "pixelDepth": 24
+        },
+        "devicePixelRatio": 1.5,
+        "hardwareConcurrency": 8,
+        "maxTouchPoints": 0,
+        "windowGeometry": {
+          "innerWidth": 1265,
+          "innerHeight": 736,
+          "outerWidth": 1280,
+          "outerHeight": 800,
+          "screenX": 3223,
+          "screenY": 500,
+          "screenLeft": 3223,
+          "screenTop": 500
+        },
+        "historyLength": 4,
+        "bootCount": 0,
+        "mediaDevices": [
+          {
+            "kind": "audioinput",
+            "label": ""
+          },
+          {
+            "kind": "videoinput",
+            "label": ""
+          }
+        ],
+        "canvas": {
+          "rawHash": "sha256:1976f101b5e26c449263eace67cad8228f1ee6297e4e0fc15ee8a9f3e67b5d50",
+          "rawRgbaHash": "sha256:1976f101b5e26c449263eace67cad8228f1ee6297e4e0fc15ee8a9f3e67b5d50",
+          "exportHash": "sha256:aab8726bf8151dd77697b2582607f8946632d31792ea1fd6a59d607fb0a5a9c5",
+          "dataUrlHash": "sha256:aab8726bf8151dd77697b2582607f8946632d31792ea1fd6a59d607fb0a5a9c5",
+          "pngBytesHash": "sha256:304481199088b8170e8c7b9770da1e0eeaca52f1b257623f6c837a980f3fd7a4",
+          "decodedPngPixelsHash": "sha256:89a00e26351b2908ce248592dad2a8e2c6c33a19853e30a3ea3b3779d54dc17c",
+          "png": {
+            "signatureValid": true,
+            "decodeValid": true,
+            "width": 240,
+            "height": 120,
+            "mimeType": "image/png"
+          }
+        },
+        "audioHash": "sha256:3ab2761e31df5274b3a28691118ba4784421d73f426cc65e30a8b07681046845",
+        "fontUniverseWidths": {
+          "Arial|The quick brown fox jumps over the lazy dog": 315.75,
+          "Arial|VeriSiloM2 0123456789": 169.5,
+          "Arial|mmmmmmmmmmmmmmmmmmmm": 266,
+          "Arial Black|The quick brown fox jumps over the lazy dog": 315.75,
+          "Arial Black|VeriSiloM2 0123456789": 169.5,
+          "Arial Black|mmmmmmmmmmmmmmmmmmmm": 266,
+          "Arimo|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Arimo|VeriSiloM2 0123456789": 158.3000030517578,
+          "Arimo|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Calibri|The quick brown fox jumps over the lazy dog": 288.3500061035156,
+          "Calibri|VeriSiloM2 0123456789": 154.97500610351562,
+          "Calibri|mmmmmmmmmmmmmmmmmmmm": 255,
+          "Cambria|The quick brown fox jumps over the lazy dog": 304.3500061035156,
+          "Cambria|VeriSiloM2 0123456789": 166.5,
+          "Cambria|mmmmmmmmmmmmmmmmmmmm": 265.5,
+          "Comic Sans MS|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Comic Sans MS|VeriSiloM2 0123456789": 158.3000030517578,
+          "Comic Sans MS|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Consolas|The quick brown fox jumps over the lazy dog": 377.32501220703125,
+          "Consolas|VeriSiloM2 0123456789": 184.27499389648438,
+          "Consolas|mmmmmmmmmmmmmmmmmmmm": 175.5,
+          "Courier New|The quick brown fox jumps over the lazy dog": 411.7250061035156,
+          "Courier New|VeriSiloM2 0123456789": 201.0749969482422,
+          "Courier New|mmmmmmmmmmmmmmmmmmmm": 191.5,
+          "Cousine|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Cousine|VeriSiloM2 0123456789": 158.3000030517578,
+          "Cousine|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "DejaVu Sans|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "DejaVu Sans|VeriSiloM2 0123456789": 158.3000030517578,
+          "DejaVu Sans|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "DejaVu Serif|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "DejaVu Serif|VeriSiloM2 0123456789": 158.3000030517578,
+          "DejaVu Serif|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Georgia|The quick brown fox jumps over the lazy dog": 314.20001220703125,
+          "Georgia|VeriSiloM2 0123456789": 171.5,
+          "Georgia|mmmmmmmmmmmmmmmmmmmm": 281,
+          "Helvetica|The quick brown fox jumps over the lazy dog": 315.75,
+          "Helvetica|VeriSiloM2 0123456789": 169.5,
+          "Helvetica|mmmmmmmmmmmmmmmmmmmm": 266,
+          "Impact|The quick brown fox jumps over the lazy dog": 285.5249938964844,
+          "Impact|VeriSiloM2 0123456789": 153.6750030517578,
+          "Impact|mmmmmmmmmmmmmmmmmmmm": 246,
+          "Liberation Mono|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Liberation Mono|VeriSiloM2 0123456789": 158.3000030517578,
+          "Liberation Mono|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Liberation Sans|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Liberation Sans|VeriSiloM2 0123456789": 158.3000030517578,
+          "Liberation Sans|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Liberation Serif|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Liberation Serif|VeriSiloM2 0123456789": 158.3000030517578,
+          "Liberation Serif|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Lucida Console|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Lucida Console|VeriSiloM2 0123456789": 158.3000030517578,
+          "Lucida Console|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Noto Sans|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Noto Sans|VeriSiloM2 0123456789": 158.3000030517578,
+          "Noto Sans|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Noto Serif|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Noto Serif|VeriSiloM2 0123456789": 158.3000030517578,
+          "Noto Serif|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Segoe UI|The quick brown fox jumps over the lazy dog": 316.67498779296875,
+          "Segoe UI|VeriSiloM2 0123456789": 165.5500030517578,
+          "Segoe UI|mmmmmmmmmmmmmmmmmmmm": 275,
+          "Tahoma|The quick brown fox jumps over the lazy dog": 317.75,
+          "Tahoma|VeriSiloM2 0123456789": 164.75,
+          "Tahoma|mmmmmmmmmmmmmmmmmmmm": 268,
+          "Times New Roman|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Times New Roman|VeriSiloM2 0123456789": 158.3000030517578,
+          "Times New Roman|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Trebuchet MS|The quick brown fox jumps over the lazy dog": 322.29998779296875,
+          "Trebuchet MS|VeriSiloM2 0123456789": 161.60000610351562,
+          "Trebuchet MS|mmmmmmmmmmmmmmmmmmmm": 265,
+          "Verdana|The quick brown fox jumps over the lazy dog": 362.7749938964844,
+          "Verdana|VeriSiloM2 0123456789": 191,
+          "Verdana|mmmmmmmmmmmmmmmmmmmm": 310.5
+        },
+        "fontNegativeControls": {
+          "VeriSiloBogusFontM2": true,
+          "DefinitelyNotAFontQz": true,
+          "NoSuchTypefaceXyZ": true
+        },
+        "injectedFonts": [
+          {
+            "family": "Arial",
+            "available": true
+          },
+          {
+            "family": "Calibri",
+            "available": true
+          },
+          {
+            "family": "Cambria Math",
+            "available": true
+          },
+          {
+            "family": "Consolas",
+            "available": true
+          },
+          {
+            "family": "Courier New",
+            "available": true
+          },
+          {
+            "family": "Georgia",
+            "available": true
+          },
+          {
+            "family": "Nirmala UI",
+            "available": true
+          },
+          {
+            "family": "Segoe UI",
+            "available": true
+          },
+          {
+            "family": "Tahoma",
+            "available": true
+          },
+          {
+            "family": "Times New Roman",
+            "available": true
+          },
+          {
+            "family": "Trebuchet MS",
+            "available": true
+          },
+          {
+            "family": "Verdana",
+            "available": true
+          },
+          {
+            "family": "Corbel Light",
+            "available": true
+          },
+          {
+            "family": "新細明體-ExtB",
+            "available": true
+          },
+          {
+            "family": "Ebrima",
+            "available": true
+          },
+          {
+            "family": "Impact",
+            "available": true
+          },
+          {
+            "family": "Yu Gothic Medium",
+            "available": true
+          },
+          {
+            "family": "Calibri Light",
+            "available": true
+          },
+          {
+            "family": "Sylfaen",
+            "available": true
+          },
+          {
+            "family": "Nirmala UI Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft Sans Serif",
+            "available": true
+          },
+          {
+            "family": "細明體-ExtB",
+            "available": true
+          },
+          {
+            "family": "Segoe Fluent Icons",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei UI",
+            "available": true
+          },
+          {
+            "family": "MingLiU_HKSCS-ExtB",
+            "available": true
+          },
+          {
+            "family": "Myanmar Text",
+            "available": true
+          },
+          {
+            "family": "Constantia",
+            "available": true
+          },
+          {
+            "family": "微軟正黑體 Light",
+            "available": true
+          },
+          {
+            "family": "Malgun Gothic Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei UI Light",
+            "available": true
+          },
+          {
+            "family": "Segoe UI Semibold",
+            "available": true
+          },
+          {
+            "family": "ＭＳ ゴシック",
+            "available": true
+          },
+          {
+            "family": "Microsoft Tai Le",
+            "available": true
+          },
+          {
+            "family": "Cambria",
+            "available": true
+          },
+          {
+            "family": "MV Boli",
+            "available": true
+          },
+          {
+            "family": "Lucida Sans Unicode",
+            "available": true
+          },
+          {
+            "family": "Yu Gothic UI Semibold",
+            "available": true
+          },
+          {
+            "family": "Leelawadee UI Semilight",
+            "available": true
+          },
+          {
+            "family": "맑은 고딕",
+            "available": true
+          },
+          {
+            "family": "SimSun",
+            "available": true
+          },
+          {
+            "family": "微軟正黑體",
+            "available": true
+          },
+          {
+            "family": "Wingdings",
+            "available": true
+          },
+          {
+            "family": "MS UI Gothic",
+            "available": true
+          },
+          {
+            "family": "Sitka Text",
+            "available": true
+          },
+          {
+            "family": "游ゴシック Light",
+            "available": true
+          },
+          {
+            "family": "Microsoft Himalaya",
+            "available": true
+          },
+          {
+            "family": "Mongolian Baiti",
+            "available": true
+          },
+          {
+            "family": "Microsoft New Tai Lue",
+            "available": true
+          },
+          {
+            "family": "Segoe UI Symbol",
+            "available": true
+          },
+          {
+            "family": "MS PGothic",
+            "available": true
+          },
+          {
+            "family": "Bahnschrift",
+            "available": true
+          },
+          {
+            "family": "游ゴシック",
+            "available": true
+          },
+          {
+            "family": "Franklin Gothic Medium",
+            "available": true
+          },
+          {
+            "family": "新宋体",
+            "available": true
+          },
+          {
+            "family": "Candara",
+            "available": true
+          },
+          {
+            "family": "맑은 고딕 Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei",
+            "available": true
+          },
+          {
+            "family": "Marlett",
+            "available": true
+          },
+          {
+            "family": "SimSun-ExtB",
+            "available": true
+          },
+          {
+            "family": "Segoe Print",
+            "available": true
+          }
+        ],
+        "hostFontNegativeControls": {},
+        "webglVendor": "Google Inc. (NVIDIA)",
+        "webglRenderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+        "webglSummary": {
+          "version": "WebGL 1.0",
+          "shadingLanguageVersion": "WebGL GLSL ES 1.0",
+          "maxTextureSize": 16384,
+          "maxRenderbufferSize": 16384,
+          "maxViewportDims": [
+            32767,
+            32767
+          ],
+          "aliasedLineWidthRange": [
+            1,
+            1
+          ],
+          "aliasedPointSizeRange": [
+            1,
+            1024
+          ],
+          "extensions": [
+            "ANGLE_instanced_arrays",
+            "EXT_blend_minmax",
+            "EXT_color_buffer_half_float",
+            "EXT_float_blend",
+            "EXT_frag_depth",
+            "EXT_sRGB",
+            "EXT_shader_texture_lod",
+            "EXT_texture_compression_bptc",
+            "EXT_texture_compression_rgtc",
+            "EXT_texture_filter_anisotropic",
+            "OES_element_index_uint",
+            "OES_fbo_render_mipmap",
+            "OES_standard_derivatives",
+            "OES_texture_float",
+            "OES_texture_float_linear",
+            "OES_texture_half_float",
+            "OES_texture_half_float_linear",
+            "OES_vertex_array_object",
+            "WEBGL_color_buffer_float",
+            "WEBGL_compressed_texture_s3tc",
+            "WEBGL_compressed_texture_s3tc_srgb",
+            "WEBGL_debug_renderer_info",
+            "WEBGL_debug_shaders",
+            "WEBGL_depth_texture",
+            "WEBGL_draw_buffers",
+            "WEBGL_lose_context",
+            "WEBGL_provoking_vertex"
+          ]
+        },
+        "webglAvailable": true,
+        "webgl2Vendor": "Google Inc. (NVIDIA)",
+        "webgl2Renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+        "webgl2Summary": {
+          "version": "WebGL 2.0",
+          "shadingLanguageVersion": "WebGL GLSL ES 3.00",
+          "maxTextureSize": 16384,
+          "maxRenderbufferSize": 16384,
+          "maxViewportDims": [
+            32767,
+            32767
+          ],
+          "aliasedLineWidthRange": [
+            1,
+            1
+          ],
+          "aliasedPointSizeRange": [
+            1,
+            1024
+          ],
+          "extensions": [
+            "EXT_color_buffer_float",
+            "EXT_float_blend",
+            "EXT_texture_compression_bptc",
+            "EXT_texture_compression_rgtc",
+            "EXT_texture_filter_anisotropic",
+            "OES_draw_buffers_indexed",
+            "OES_texture_float_linear",
+            "OVR_multiview2",
+            "WEBGL_compressed_texture_s3tc",
+            "WEBGL_compressed_texture_s3tc_srgb",
+            "WEBGL_debug_renderer_info",
+            "WEBGL_debug_shaders",
+            "WEBGL_lose_context",
+            "WEBGL_provoking_vertex"
+          ]
+        },
+        "webgl2Available": true,
+        "fonts": [
+          {
+            "family": "Arial",
+            "available": true
+          },
+          {
+            "family": "Calibri",
+            "available": true
+          },
+          {
+            "family": "Cambria Math",
+            "available": true
+          },
+          {
+            "family": "Consolas",
+            "available": true
+          },
+          {
+            "family": "Courier New",
+            "available": true
+          },
+          {
+            "family": "Georgia",
+            "available": true
+          },
+          {
+            "family": "Nirmala UI",
+            "available": true
+          },
+          {
+            "family": "Segoe UI",
+            "available": true
+          },
+          {
+            "family": "Tahoma",
+            "available": true
+          },
+          {
+            "family": "Times New Roman",
+            "available": true
+          },
+          {
+            "family": "Trebuchet MS",
+            "available": true
+          },
+          {
+            "family": "Verdana",
+            "available": true
+          },
+          {
+            "family": "Corbel Light",
+            "available": true
+          },
+          {
+            "family": "新細明體-ExtB",
+            "available": true
+          },
+          {
+            "family": "Ebrima",
+            "available": true
+          },
+          {
+            "family": "Impact",
+            "available": true
+          },
+          {
+            "family": "Yu Gothic Medium",
+            "available": true
+          },
+          {
+            "family": "Calibri Light",
+            "available": true
+          },
+          {
+            "family": "Sylfaen",
+            "available": true
+          },
+          {
+            "family": "Nirmala UI Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft Sans Serif",
+            "available": true
+          },
+          {
+            "family": "細明體-ExtB",
+            "available": true
+          },
+          {
+            "family": "Segoe Fluent Icons",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei UI",
+            "available": true
+          },
+          {
+            "family": "MingLiU_HKSCS-ExtB",
+            "available": true
+          },
+          {
+            "family": "Myanmar Text",
+            "available": true
+          },
+          {
+            "family": "Constantia",
+            "available": true
+          },
+          {
+            "family": "微軟正黑體 Light",
+            "available": true
+          },
+          {
+            "family": "Malgun Gothic Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei UI Light",
+            "available": true
+          },
+          {
+            "family": "Segoe UI Semibold",
+            "available": true
+          },
+          {
+            "family": "ＭＳ ゴシック",
+            "available": true
+          },
+          {
+            "family": "Microsoft Tai Le",
+            "available": true
+          },
+          {
+            "family": "Cambria",
+            "available": true
+          },
+          {
+            "family": "MV Boli",
+            "available": true
+          },
+          {
+            "family": "Lucida Sans Unicode",
+            "available": true
+          },
+          {
+            "family": "Yu Gothic UI Semibold",
+            "available": true
+          },
+          {
+            "family": "Leelawadee UI Semilight",
+            "available": true
+          },
+          {
+            "family": "맑은 고딕",
+            "available": true
+          },
+          {
+            "family": "SimSun",
+            "available": true
+          },
+          {
+            "family": "微軟正黑體",
+            "available": true
+          },
+          {
+            "family": "Wingdings",
+            "available": true
+          },
+          {
+            "family": "MS UI Gothic",
+            "available": true
+          },
+          {
+            "family": "Sitka Text",
+            "available": true
+          },
+          {
+            "family": "游ゴシック Light",
+            "available": true
+          },
+          {
+            "family": "Microsoft Himalaya",
+            "available": true
+          },
+          {
+            "family": "Mongolian Baiti",
+            "available": true
+          },
+          {
+            "family": "Microsoft New Tai Lue",
+            "available": true
+          },
+          {
+            "family": "Segoe UI Symbol",
+            "available": true
+          },
+          {
+            "family": "MS PGothic",
+            "available": true
+          },
+          {
+            "family": "Bahnschrift",
+            "available": true
+          },
+          {
+            "family": "游ゴシック",
+            "available": true
+          },
+          {
+            "family": "Franklin Gothic Medium",
+            "available": true
+          },
+          {
+            "family": "新宋体",
+            "available": true
+          },
+          {
+            "family": "Candara",
+            "available": true
+          },
+          {
+            "family": "맑은 고딕 Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei",
+            "available": true
+          },
+          {
+            "family": "Marlett",
+            "available": true
+          },
+          {
+            "family": "SimSun-ExtB",
+            "available": true
+          },
+          {
+            "family": "Segoe Print",
+            "available": true
+          }
+        ],
+        "voices": [
+          {
+            "name": "Microsoft David - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.david.english.united.states",
+            "isDefault": true
+          },
+          {
+            "name": "Microsoft Mark - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.mark.english.united.states",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Zira - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.zira.english.united.states",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft David Desktop - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.david.desktop.english.united.states",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Zira Desktop - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.zira.desktop.english.united.states",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hazel - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.english.united.kingdom",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hazel Desktop - English (Great Britain)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.desktop.english.great.britain",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft George - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.george.english.united.kingdom",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Susan - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.susan.english.united.kingdom",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Catherine - English (Australia)",
+            "lang": "en-AU",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.catherine.english.australia",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft James - English (Australia)",
+            "lang": "en-AU",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.james.english.australia",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Linda - English (Canada)",
+            "lang": "en-CA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.linda.english.canada",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Richard - English (Canada)",
+            "lang": "en-CA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.richard.english.canada",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Sean - English (Ireland)",
+            "lang": "en-IE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sean.english.ireland",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Heera - English (India)",
+            "lang": "en-IN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.heera.english.india",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Ravi - English (India)",
+            "lang": "en-IN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.ravi.english.india",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hedda - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.german.germany",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hedda Desktop - German",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.desktop.german",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Katja - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.katja.german.germany",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Stefan - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.stefan.german.germany",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hortense - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.french.france",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hortense Desktop - French",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.desktop.french",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Julie - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.julie.french.france",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Paul - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paul.french.france",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Helena - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helena.spanish.spain",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Helena Desktop - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helena.desktop.spanish.spain",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Laura - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.laura.spanish.spain",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Pablo - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.pablo.spanish.spain",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Sabina - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.spanish.mexico",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Sabina Desktop - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.desktop.spanish.mexico",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Raul - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.raul.spanish.mexico",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Cosimo - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.cosimo.italian.italy",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Elsa - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.italian.italy",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Elsa Desktop - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.desktop.italian.italy",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Daniel - Portuguese (Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.daniel.portuguese.brazil",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Maria - Portuguese (Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.maria.portuguese.brazil",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Maria Desktop - Portuguese(Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.maria.desktop.portuguese.brazil",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Helia - Portuguese (Portugal)",
+            "lang": "pt-PT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helia.portuguese.portugal",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Huihui - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.chinese.simplified.prc",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Huihui Desktop - Chinese (Simplified)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.desktop.chinese.simplified",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Kangkang - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.kangkang.chinese.simplified.prc",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Yaoyao - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.yaoyao.chinese.simplified.prc",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Anna - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.anna.english.united.states",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Frank - Dutch (Netherlands)",
+            "lang": "nl-NL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.frank.dutch.netherlands",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Adam - Polish (Poland)",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.adam.polish.poland",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Paulina - Polish (Poland)",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.polish.poland",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Paulina Desktop - Polish",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.desktop.polish",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Jakub - Czech (Czech Republic)",
+            "lang": "cs-CZ",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.jakub.czech.czech.republic",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Stefanos - Greek (Greece)",
+            "lang": "el-GR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.stefanos.greek.greece",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Asaf - Hebrew (Israel)",
+            "lang": "he-IL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.asaf.hebrew.israel",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Naayf - Arabic (Saudi)",
+            "lang": "ar-SA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.naayf.arabic.saudi",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Tolga - Turkish (Turkey)",
+            "lang": "tr-TR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.tolga.turkish.turkey",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Sarah Mobile - English (Great Britain)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sarah.mobile.english.great.britain",
+            "isDefault": false
+          }
+        ],
+        "webdriver": false,
+        "session": {
+          "timezone": "Asia/Hong_Kong",
+          "utcOffsetMinutes": -480,
+          "navigatorOnLine": true,
+          "windowScreenX": 3223,
+          "windowScreenY": 500,
+          "documentFontsStatus": "loaded"
+        },
+        "unavailable": {
+          "deviceMemory": null,
+          "userAgentData": null,
+          "windowChrome": null
+        }
+      },
+      "hostFontControls": [],
+      "hostFontMasking": {
+        "controlsTested": 0,
+        "allUnavailable": true,
+        "failures": []
+      },
+      "mediaDeviceReadiness": {
+        "expectedCounts": {
+          "audioinput": 1,
+          "videoinput": 1,
+          "audiooutput": 0
+        },
+        "attempts": [
+          {
+            "counts": {
+              "audioinput": 1,
+              "videoinput": 1,
+              "audiooutput": 0
+            },
+            "matched": true
+          }
+        ],
+        "matched": true,
+        "waitSeconds": 0.234,
+        "reason": "success"
+      },
+      "fontMode": "inherit",
+      "cookieEvidence": {
+        "cookieAbsentBeforeWrite": true,
+        "cookieInApi": true,
+        "cookieOnPage": true,
+        "cookieValueLooksManaged": true
+      },
+      "verified": false,
+      "evidenceClass": "observed-on-this-host",
+      "fp4CompatibilityObservation": {
+        "schema": "verisilo-camoufox-fp4-compatibility-observation/v1",
+        "matrixVersion": "fp4-ordinary-sites-v1",
+        "phase": "phaseA",
+        "status": "completed",
+        "startedAtUtc": "2026-08-28T04:41:36.853995Z",
+        "tasks": [
+          {
+            "name": "documentNavigation",
+            "phase": "phaseA",
+            "url": "https://en.wikipedia.org/w/index.php?search=camouflage+animals+military&title=Special%3ASearch&ns0=1",
+            "startedAtUtc": "2026-08-28T04:41:36.856995Z",
+            "status": "inconclusive",
+            "verified": false,
+            "error": {
+              "type": "Error",
+              "message": "Keyboard.press: Unknown key: \"Left\""
+            },
+            "elapsedMs": 6188,
+            "budgetMs": 90000,
+            "crashed": false,
+            "pageErrors": [],
+            "unexpectedPageClose": false,
+            "screenshot": {
+              "path": "artifacts/camoufox-fp4-attempt-3/screenshots/phaseA-01-documentNavigation.png",
+              "sha256": "7b488c8cd5052c6c6c2bd0411083743e9b553d45f6b0ad8a78093866dfa60237",
+              "sizeBytes": 220413
+            },
+            "pageClose": {
+              "status": "success"
+            },
+            "failureClass": "external-or-ambiguous",
+            "completedAtUtc": "2026-08-28T04:41:43.526288Z"
+          },
+          {
+            "name": "complexJavaScript",
+            "phase": "phaseA",
+            "url": "https://github.com/microsoft/playwright/issues",
+            "startedAtUtc": "2026-08-28T04:41:43.543299Z",
+            "status": "inconclusive",
+            "verified": false,
+            "error": {
+              "type": "TimeoutError",
+              "message": "Locator.wait_for: Timeout 30000ms exceeded. Call log:   - waiting for get_by_role(\"dialog\").first to be visible "
+            },
+            "elapsedMs": 38250,
+            "budgetMs": 90000,
+            "crashed": false,
+            "pageErrors": [],
+            "unexpectedPageClose": false,
+            "screenshot": {
+              "path": "artifacts/camoufox-fp4-attempt-3/screenshots/phaseA-02-complexJavaScript.png",
+              "sha256": "d2e8a590a7a366656704133f8140ca2f6157d880729ae0dd26c8173962bf41bb",
+              "sizeBytes": 161419
+            },
+            "pageClose": {
+              "status": "success"
+            },
+            "failureClass": "external-or-ambiguous",
+            "completedAtUtc": "2026-08-28T04:42:21.860663Z"
+          },
+          {
+            "name": "interactiveGraphics",
+            "phase": "phaseA",
+            "url": "https://www.openstreetmap.org/#map=12/51.5074/-0.1278",
+            "startedAtUtc": "2026-08-28T04:42:21.883383Z",
+            "status": "inconclusive",
+            "verified": false,
+            "error": {
+              "type": "TimeoutError",
+              "message": "Locator.check: Timeout 30000ms exceeded. Call log:   - waiting for locator(\"#map-ui-layer-cyclosm\")     - locator resolved to <input type=\"radio\" name=\"layer\" class=\"btn-check\" id=\"map-ui-layer-cyclosm\"/>   - attempting click action     2 × waiting for element to be visible, enabled and stable      "
+            },
+            "elapsedMs": 37547,
+            "budgetMs": 90000,
+            "crashed": false,
+            "pageErrors": [],
+            "unexpectedPageClose": false,
+            "screenshot": {
+              "path": "artifacts/camoufox-fp4-attempt-3/screenshots/phaseA-03-interactiveGraphics.png",
+              "sha256": "d08b72d9834e75da2caaf8a653420a578d4356cdc10ca0ff2b7f9bdc7bdff4ab",
+              "sizeBytes": 2650160
+            },
+            "pageClose": {
+              "status": "success"
+            },
+            "failureClass": "external-or-ambiguous",
+            "completedAtUtc": "2026-08-28T04:42:59.678625Z"
+          },
+          {
+            "name": "audioVideo",
+            "phase": "phaseA",
+            "url": "https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_keyframe_strobing_example.webm",
+            "startedAtUtc": "2026-08-28T04:42:59.703622Z",
+            "status": "inconclusive",
+            "verified": false,
+            "error": {
+              "type": "TimeoutError",
+              "message": "Page.wait_for_function: Timeout 5000ms exceeded."
+            },
+            "elapsedMs": 33203,
+            "budgetMs": 120000,
+            "crashed": false,
+            "pageErrors": [],
+            "unexpectedPageClose": false,
+            "screenshot": {
+              "path": "artifacts/camoufox-fp4-attempt-3/screenshots/phaseA-04-audioVideo.png",
+              "sha256": "059df273e03f79065bb5a66a6bde5ff7a89d6cf285560d3e84ffced7a0c0e1f2",
+              "sizeBytes": 1541978
+            },
+            "pageClose": {
+              "status": "success"
+            },
+            "failureClass": "external-or-ambiguous",
+            "completedAtUtc": "2026-08-28T04:43:33.109817Z"
+          },
+          {
+            "name": "formState",
+            "phase": "phaseA",
+            "url": "https://en.wikipedia.org/wiki/Web_browser",
+            "startedAtUtc": "2026-08-28T04:43:33.131804Z",
+            "status": "passed",
+            "verified": false,
+            "initialHttpStatus": 200,
+            "reloadHttpStatus": 200,
+            "largeCheckedBeforeReload": true,
+            "largeCheckedAfterReload": true,
+            "largeClassAfterReload": true,
+            "title": "Web browser - Wikipedia",
+            "finalUrl": "https://en.wikipedia.org/wiki/Web_browser",
+            "elapsedMs": 8047,
+            "budgetMs": 90000,
+            "crashed": false,
+            "pageErrors": [],
+            "unexpectedPageClose": false,
+            "screenshot": {
+              "path": "artifacts/camoufox-fp4-attempt-3/screenshots/phaseA-05-formState.png",
+              "sha256": "0ebb8935c5930708d4c48f545f9797b4c340cc7160f32ac598c0dc6bdbb7885f",
+              "sizeBytes": 228229
+            },
+            "pageClose": {
+              "status": "success"
+            },
+            "completedAtUtc": "2026-08-28T04:43:41.266880Z"
+          }
+        ],
+        "verified": false,
+        "completedAtUtc": "2026-08-28T04:43:41.291898Z"
+      }
+    },
+    "phaseB": {
+      "generatedAtUtc": "2026-08-28T04:43:50.739766+00:00",
+      "projection": {
+        "schema": "verisilo-camoufox-stable-signal-projection/v3",
+        "runId": "f9ad582fb45142acb66bcf6b88ebfd93",
+        "coldStartIndex": 1,
+        "artifactId": "identity-fp3-1b-formal-v3-a",
+        "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+        "observedWebsiteSignals": {
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "language": "en-US",
+          "languages": [
+            "en-US",
+            "en"
+          ],
+          "platform": "Win32",
+          "oscpu": "Windows NT 10.0; Win64; x64",
+          "doNotTrack": "unspecified",
+          "globalPrivacyControl": true,
+          "screen": {
+            "width": 4300,
+            "height": 1800,
+            "availWidth": 4300,
+            "availHeight": 1740,
+            "availTop": 0,
+            "availLeft": 0,
+            "colorDepth": 24,
+            "pixelDepth": 24
+          },
+          "devicePixelRatio": 1.5,
+          "hardwareConcurrency": 8,
+          "historyLength": 4,
+          "mediaDevices": [
+            {
+              "kind": "audioinput",
+              "label": ""
+            },
+            {
+              "kind": "videoinput",
+              "label": ""
+            }
+          ],
+          "timezone": "Asia/Hong_Kong",
+          "utcOffsetMinutes": -480,
+          "fontNegativeControls": {
+            "VeriSiloBogusFontM2": true,
+            "DefinitelyNotAFontQz": true,
+            "NoSuchTypefaceXyZ": true
+          },
+          "webglVendor": "Google Inc. (NVIDIA)",
+          "webglRenderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+          "webglSummary": {
+            "version": "WebGL 1.0",
+            "shadingLanguageVersion": "WebGL GLSL ES 1.0",
+            "maxTextureSize": 16384,
+            "maxRenderbufferSize": 16384,
+            "maxViewportDims": [
+              32767,
+              32767
+            ],
+            "aliasedLineWidthRange": [
+              1,
+              1
+            ],
+            "aliasedPointSizeRange": [
+              1,
+              1024
+            ],
+            "extensions": [
+              "ANGLE_instanced_arrays",
+              "EXT_blend_minmax",
+              "EXT_color_buffer_half_float",
+              "EXT_float_blend",
+              "EXT_frag_depth",
+              "EXT_sRGB",
+              "EXT_shader_texture_lod",
+              "EXT_texture_compression_bptc",
+              "EXT_texture_compression_rgtc",
+              "EXT_texture_filter_anisotropic",
+              "OES_element_index_uint",
+              "OES_fbo_render_mipmap",
+              "OES_standard_derivatives",
+              "OES_texture_float",
+              "OES_texture_float_linear",
+              "OES_texture_half_float",
+              "OES_texture_half_float_linear",
+              "OES_vertex_array_object",
+              "WEBGL_color_buffer_float",
+              "WEBGL_compressed_texture_s3tc",
+              "WEBGL_compressed_texture_s3tc_srgb",
+              "WEBGL_debug_renderer_info",
+              "WEBGL_debug_shaders",
+              "WEBGL_depth_texture",
+              "WEBGL_draw_buffers",
+              "WEBGL_lose_context",
+              "WEBGL_provoking_vertex"
+            ]
+          },
+          "voices": [
+            {
+              "name": "Microsoft David - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.david.english.united.states"
+            },
+            {
+              "name": "Microsoft Mark - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.mark.english.united.states"
+            },
+            {
+              "name": "Microsoft Zira - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.zira.english.united.states"
+            },
+            {
+              "name": "Microsoft David Desktop - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.david.desktop.english.united.states"
+            },
+            {
+              "name": "Microsoft Zira Desktop - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.zira.desktop.english.united.states"
+            },
+            {
+              "name": "Microsoft Hazel - English (United Kingdom)",
+              "lang": "en-GB",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.english.united.kingdom"
+            },
+            {
+              "name": "Microsoft Hazel Desktop - English (Great Britain)",
+              "lang": "en-GB",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.desktop.english.great.britain"
+            },
+            {
+              "name": "Microsoft George - English (United Kingdom)",
+              "lang": "en-GB",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.george.english.united.kingdom"
+            },
+            {
+              "name": "Microsoft Susan - English (United Kingdom)",
+              "lang": "en-GB",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.susan.english.united.kingdom"
+            },
+            {
+              "name": "Microsoft Catherine - English (Australia)",
+              "lang": "en-AU",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.catherine.english.australia"
+            },
+            {
+              "name": "Microsoft James - English (Australia)",
+              "lang": "en-AU",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.james.english.australia"
+            },
+            {
+              "name": "Microsoft Linda - English (Canada)",
+              "lang": "en-CA",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.linda.english.canada"
+            },
+            {
+              "name": "Microsoft Richard - English (Canada)",
+              "lang": "en-CA",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.richard.english.canada"
+            },
+            {
+              "name": "Microsoft Sean - English (Ireland)",
+              "lang": "en-IE",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.sean.english.ireland"
+            },
+            {
+              "name": "Microsoft Heera - English (India)",
+              "lang": "en-IN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.heera.english.india"
+            },
+            {
+              "name": "Microsoft Ravi - English (India)",
+              "lang": "en-IN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.ravi.english.india"
+            },
+            {
+              "name": "Microsoft Hedda - German (Germany)",
+              "lang": "de-DE",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.german.germany"
+            },
+            {
+              "name": "Microsoft Hedda Desktop - German",
+              "lang": "de-DE",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.desktop.german"
+            },
+            {
+              "name": "Microsoft Katja - German (Germany)",
+              "lang": "de-DE",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.katja.german.germany"
+            },
+            {
+              "name": "Microsoft Stefan - German (Germany)",
+              "lang": "de-DE",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.stefan.german.germany"
+            },
+            {
+              "name": "Microsoft Hortense - French (France)",
+              "lang": "fr-FR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.french.france"
+            },
+            {
+              "name": "Microsoft Hortense Desktop - French",
+              "lang": "fr-FR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.desktop.french"
+            },
+            {
+              "name": "Microsoft Julie - French (France)",
+              "lang": "fr-FR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.julie.french.france"
+            },
+            {
+              "name": "Microsoft Paul - French (France)",
+              "lang": "fr-FR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.paul.french.france"
+            },
+            {
+              "name": "Microsoft Helena - Spanish (Spain)",
+              "lang": "es-ES",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.helena.spanish.spain"
+            },
+            {
+              "name": "Microsoft Helena Desktop - Spanish (Spain)",
+              "lang": "es-ES",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.helena.desktop.spanish.spain"
+            },
+            {
+              "name": "Microsoft Laura - Spanish (Spain)",
+              "lang": "es-ES",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.laura.spanish.spain"
+            },
+            {
+              "name": "Microsoft Pablo - Spanish (Spain)",
+              "lang": "es-ES",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.pablo.spanish.spain"
+            },
+            {
+              "name": "Microsoft Sabina - Spanish (Mexico)",
+              "lang": "es-MX",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.spanish.mexico"
+            },
+            {
+              "name": "Microsoft Sabina Desktop - Spanish (Mexico)",
+              "lang": "es-MX",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.desktop.spanish.mexico"
+            },
+            {
+              "name": "Microsoft Raul - Spanish (Mexico)",
+              "lang": "es-MX",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.raul.spanish.mexico"
+            },
+            {
+              "name": "Microsoft Cosimo - Italian (Italy)",
+              "lang": "it-IT",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.cosimo.italian.italy"
+            },
+            {
+              "name": "Microsoft Elsa - Italian (Italy)",
+              "lang": "it-IT",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.italian.italy"
+            },
+            {
+              "name": "Microsoft Elsa Desktop - Italian (Italy)",
+              "lang": "it-IT",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.desktop.italian.italy"
+            },
+            {
+              "name": "Microsoft Daniel - Portuguese (Brazil)",
+              "lang": "pt-BR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.daniel.portuguese.brazil"
+            },
+            {
+              "name": "Microsoft Maria - Portuguese (Brazil)",
+              "lang": "pt-BR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.maria.portuguese.brazil"
+            },
+            {
+              "name": "Microsoft Maria Desktop - Portuguese(Brazil)",
+              "lang": "pt-BR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.maria.desktop.portuguese.brazil"
+            },
+            {
+              "name": "Microsoft Helia - Portuguese (Portugal)",
+              "lang": "pt-PT",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.helia.portuguese.portugal"
+            },
+            {
+              "name": "Microsoft Huihui - Chinese (Simplified, PRC)",
+              "lang": "zh-CN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.chinese.simplified.prc"
+            },
+            {
+              "name": "Microsoft Huihui Desktop - Chinese (Simplified)",
+              "lang": "zh-CN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.desktop.chinese.simplified"
+            },
+            {
+              "name": "Microsoft Kangkang - Chinese (Simplified, PRC)",
+              "lang": "zh-CN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.kangkang.chinese.simplified.prc"
+            },
+            {
+              "name": "Microsoft Yaoyao - Chinese (Simplified, PRC)",
+              "lang": "zh-CN",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.yaoyao.chinese.simplified.prc"
+            },
+            {
+              "name": "Microsoft Anna - English (United States)",
+              "lang": "en-US",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.anna.english.united.states"
+            },
+            {
+              "name": "Microsoft Frank - Dutch (Netherlands)",
+              "lang": "nl-NL",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.frank.dutch.netherlands"
+            },
+            {
+              "name": "Microsoft Adam - Polish (Poland)",
+              "lang": "pl-PL",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.adam.polish.poland"
+            },
+            {
+              "name": "Microsoft Paulina - Polish (Poland)",
+              "lang": "pl-PL",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.polish.poland"
+            },
+            {
+              "name": "Microsoft Paulina Desktop - Polish",
+              "lang": "pl-PL",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.desktop.polish"
+            },
+            {
+              "name": "Microsoft Jakub - Czech (Czech Republic)",
+              "lang": "cs-CZ",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.jakub.czech.czech.republic"
+            },
+            {
+              "name": "Microsoft Stefanos - Greek (Greece)",
+              "lang": "el-GR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.stefanos.greek.greece"
+            },
+            {
+              "name": "Microsoft Asaf - Hebrew (Israel)",
+              "lang": "he-IL",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.asaf.hebrew.israel"
+            },
+            {
+              "name": "Microsoft Naayf - Arabic (Saudi)",
+              "lang": "ar-SA",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.naayf.arabic.saudi"
+            },
+            {
+              "name": "Microsoft Tolga - Turkish (Turkey)",
+              "lang": "tr-TR",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.tolga.turkish.turkey"
+            },
+            {
+              "name": "Microsoft Sarah Mobile - English (Great Britain)",
+              "lang": "en-GB",
+              "localService": true,
+              "voiceURI": "urn:moz-tts:sapi:microsoft.sarah.mobile.english.great.britain"
+            }
+          ],
+          "audioHash": "sha256:3ab2761e31df5274b3a28691118ba4784421d73f426cc65e30a8b07681046845"
+        },
+        "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270"
+      },
+      "observedFull": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+        "appCodeName": "Mozilla",
+        "appName": "Netscape",
+        "appVersion": "5.0 (Windows)",
+        "product": "Gecko",
+        "language": "en-US",
+        "languages": [
+          "en-US",
+          "en"
+        ],
+        "platform": "Win32",
+        "oscpu": "Windows NT 10.0; Win64; x64",
+        "doNotTrack": "unspecified",
+        "globalPrivacyControl": true,
+        "screen": {
+          "width": 4300,
+          "height": 1800,
+          "availWidth": 4300,
+          "availHeight": 1740,
+          "availTop": 0,
+          "availLeft": 0,
+          "colorDepth": 24,
+          "pixelDepth": 24
+        },
+        "devicePixelRatio": 1.5,
+        "hardwareConcurrency": 8,
+        "maxTouchPoints": 0,
+        "windowGeometry": {
+          "innerWidth": 1265,
+          "innerHeight": 736,
+          "outerWidth": 1280,
+          "outerHeight": 800,
+          "screenX": 3223,
+          "screenY": 500,
+          "screenLeft": 3223,
+          "screenTop": 500
+        },
+        "historyLength": 4,
+        "bootCount": 1,
+        "mediaDevices": [
+          {
+            "kind": "audioinput",
+            "label": ""
+          },
+          {
+            "kind": "videoinput",
+            "label": ""
+          }
+        ],
+        "canvas": {
+          "rawHash": "sha256:1976f101b5e26c449263eace67cad8228f1ee6297e4e0fc15ee8a9f3e67b5d50",
+          "rawRgbaHash": "sha256:1976f101b5e26c449263eace67cad8228f1ee6297e4e0fc15ee8a9f3e67b5d50",
+          "exportHash": "sha256:aab8726bf8151dd77697b2582607f8946632d31792ea1fd6a59d607fb0a5a9c5",
+          "dataUrlHash": "sha256:aab8726bf8151dd77697b2582607f8946632d31792ea1fd6a59d607fb0a5a9c5",
+          "pngBytesHash": "sha256:304481199088b8170e8c7b9770da1e0eeaca52f1b257623f6c837a980f3fd7a4",
+          "decodedPngPixelsHash": "sha256:89a00e26351b2908ce248592dad2a8e2c6c33a19853e30a3ea3b3779d54dc17c",
+          "png": {
+            "signatureValid": true,
+            "decodeValid": true,
+            "width": 240,
+            "height": 120,
+            "mimeType": "image/png"
+          }
+        },
+        "audioHash": "sha256:3ab2761e31df5274b3a28691118ba4784421d73f426cc65e30a8b07681046845",
+        "fontUniverseWidths": {
+          "Arial|The quick brown fox jumps over the lazy dog": 315.75,
+          "Arial|VeriSiloM2 0123456789": 169.5,
+          "Arial|mmmmmmmmmmmmmmmmmmmm": 266,
+          "Arial Black|The quick brown fox jumps over the lazy dog": 315.75,
+          "Arial Black|VeriSiloM2 0123456789": 169.5,
+          "Arial Black|mmmmmmmmmmmmmmmmmmmm": 266,
+          "Arimo|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Arimo|VeriSiloM2 0123456789": 158.3000030517578,
+          "Arimo|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Calibri|The quick brown fox jumps over the lazy dog": 288.3500061035156,
+          "Calibri|VeriSiloM2 0123456789": 154.97500610351562,
+          "Calibri|mmmmmmmmmmmmmmmmmmmm": 255,
+          "Cambria|The quick brown fox jumps over the lazy dog": 304.3500061035156,
+          "Cambria|VeriSiloM2 0123456789": 166.5,
+          "Cambria|mmmmmmmmmmmmmmmmmmmm": 265.5,
+          "Comic Sans MS|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Comic Sans MS|VeriSiloM2 0123456789": 158.3000030517578,
+          "Comic Sans MS|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Consolas|The quick brown fox jumps over the lazy dog": 377.32501220703125,
+          "Consolas|VeriSiloM2 0123456789": 184.27499389648438,
+          "Consolas|mmmmmmmmmmmmmmmmmmmm": 175.5,
+          "Courier New|The quick brown fox jumps over the lazy dog": 411.7250061035156,
+          "Courier New|VeriSiloM2 0123456789": 201.0749969482422,
+          "Courier New|mmmmmmmmmmmmmmmmmmmm": 191.5,
+          "Cousine|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Cousine|VeriSiloM2 0123456789": 158.3000030517578,
+          "Cousine|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "DejaVu Sans|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "DejaVu Sans|VeriSiloM2 0123456789": 158.3000030517578,
+          "DejaVu Sans|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "DejaVu Serif|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "DejaVu Serif|VeriSiloM2 0123456789": 158.3000030517578,
+          "DejaVu Serif|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Georgia|The quick brown fox jumps over the lazy dog": 314.20001220703125,
+          "Georgia|VeriSiloM2 0123456789": 171.5,
+          "Georgia|mmmmmmmmmmmmmmmmmmmm": 281,
+          "Helvetica|The quick brown fox jumps over the lazy dog": 315.75,
+          "Helvetica|VeriSiloM2 0123456789": 169.5,
+          "Helvetica|mmmmmmmmmmmmmmmmmmmm": 266,
+          "Impact|The quick brown fox jumps over the lazy dog": 285.5249938964844,
+          "Impact|VeriSiloM2 0123456789": 153.6750030517578,
+          "Impact|mmmmmmmmmmmmmmmmmmmm": 246,
+          "Liberation Mono|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Liberation Mono|VeriSiloM2 0123456789": 158.3000030517578,
+          "Liberation Mono|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Liberation Sans|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Liberation Sans|VeriSiloM2 0123456789": 158.3000030517578,
+          "Liberation Sans|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Liberation Serif|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Liberation Serif|VeriSiloM2 0123456789": 158.3000030517578,
+          "Liberation Serif|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Lucida Console|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Lucida Console|VeriSiloM2 0123456789": 158.3000030517578,
+          "Lucida Console|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Noto Sans|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Noto Sans|VeriSiloM2 0123456789": 158.3000030517578,
+          "Noto Sans|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Noto Serif|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Noto Serif|VeriSiloM2 0123456789": 158.3000030517578,
+          "Noto Serif|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Segoe UI|The quick brown fox jumps over the lazy dog": 316.67498779296875,
+          "Segoe UI|VeriSiloM2 0123456789": 165.5500030517578,
+          "Segoe UI|mmmmmmmmmmmmmmmmmmmm": 275,
+          "Tahoma|The quick brown fox jumps over the lazy dog": 317.75,
+          "Tahoma|VeriSiloM2 0123456789": 164.75,
+          "Tahoma|mmmmmmmmmmmmmmmmmmmm": 268,
+          "Times New Roman|The quick brown fox jumps over the lazy dog": 291.8500061035156,
+          "Times New Roman|VeriSiloM2 0123456789": 158.3000030517578,
+          "Times New Roman|mmmmmmmmmmmmmmmmmmmm": 248.5,
+          "Trebuchet MS|The quick brown fox jumps over the lazy dog": 322.29998779296875,
+          "Trebuchet MS|VeriSiloM2 0123456789": 161.60000610351562,
+          "Trebuchet MS|mmmmmmmmmmmmmmmmmmmm": 265,
+          "Verdana|The quick brown fox jumps over the lazy dog": 362.7749938964844,
+          "Verdana|VeriSiloM2 0123456789": 191,
+          "Verdana|mmmmmmmmmmmmmmmmmmmm": 310.5
+        },
+        "fontNegativeControls": {
+          "VeriSiloBogusFontM2": true,
+          "DefinitelyNotAFontQz": true,
+          "NoSuchTypefaceXyZ": true
+        },
+        "injectedFonts": [
+          {
+            "family": "Arial",
+            "available": true
+          },
+          {
+            "family": "Calibri",
+            "available": true
+          },
+          {
+            "family": "Cambria Math",
+            "available": true
+          },
+          {
+            "family": "Consolas",
+            "available": true
+          },
+          {
+            "family": "Courier New",
+            "available": true
+          },
+          {
+            "family": "Georgia",
+            "available": true
+          },
+          {
+            "family": "Nirmala UI",
+            "available": true
+          },
+          {
+            "family": "Segoe UI",
+            "available": true
+          },
+          {
+            "family": "Tahoma",
+            "available": true
+          },
+          {
+            "family": "Times New Roman",
+            "available": true
+          },
+          {
+            "family": "Trebuchet MS",
+            "available": true
+          },
+          {
+            "family": "Verdana",
+            "available": true
+          },
+          {
+            "family": "Corbel Light",
+            "available": true
+          },
+          {
+            "family": "新細明體-ExtB",
+            "available": true
+          },
+          {
+            "family": "Ebrima",
+            "available": true
+          },
+          {
+            "family": "Impact",
+            "available": true
+          },
+          {
+            "family": "Yu Gothic Medium",
+            "available": true
+          },
+          {
+            "family": "Calibri Light",
+            "available": true
+          },
+          {
+            "family": "Sylfaen",
+            "available": true
+          },
+          {
+            "family": "Nirmala UI Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft Sans Serif",
+            "available": true
+          },
+          {
+            "family": "細明體-ExtB",
+            "available": true
+          },
+          {
+            "family": "Segoe Fluent Icons",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei UI",
+            "available": true
+          },
+          {
+            "family": "MingLiU_HKSCS-ExtB",
+            "available": true
+          },
+          {
+            "family": "Myanmar Text",
+            "available": true
+          },
+          {
+            "family": "Constantia",
+            "available": true
+          },
+          {
+            "family": "微軟正黑體 Light",
+            "available": true
+          },
+          {
+            "family": "Malgun Gothic Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei UI Light",
+            "available": true
+          },
+          {
+            "family": "Segoe UI Semibold",
+            "available": true
+          },
+          {
+            "family": "ＭＳ ゴシック",
+            "available": true
+          },
+          {
+            "family": "Microsoft Tai Le",
+            "available": true
+          },
+          {
+            "family": "Cambria",
+            "available": true
+          },
+          {
+            "family": "MV Boli",
+            "available": true
+          },
+          {
+            "family": "Lucida Sans Unicode",
+            "available": true
+          },
+          {
+            "family": "Yu Gothic UI Semibold",
+            "available": true
+          },
+          {
+            "family": "Leelawadee UI Semilight",
+            "available": true
+          },
+          {
+            "family": "맑은 고딕",
+            "available": true
+          },
+          {
+            "family": "SimSun",
+            "available": true
+          },
+          {
+            "family": "微軟正黑體",
+            "available": true
+          },
+          {
+            "family": "Wingdings",
+            "available": true
+          },
+          {
+            "family": "MS UI Gothic",
+            "available": true
+          },
+          {
+            "family": "Sitka Text",
+            "available": true
+          },
+          {
+            "family": "游ゴシック Light",
+            "available": true
+          },
+          {
+            "family": "Microsoft Himalaya",
+            "available": true
+          },
+          {
+            "family": "Mongolian Baiti",
+            "available": true
+          },
+          {
+            "family": "Microsoft New Tai Lue",
+            "available": true
+          },
+          {
+            "family": "Segoe UI Symbol",
+            "available": true
+          },
+          {
+            "family": "MS PGothic",
+            "available": true
+          },
+          {
+            "family": "Bahnschrift",
+            "available": true
+          },
+          {
+            "family": "游ゴシック",
+            "available": true
+          },
+          {
+            "family": "Franklin Gothic Medium",
+            "available": true
+          },
+          {
+            "family": "新宋体",
+            "available": true
+          },
+          {
+            "family": "Candara",
+            "available": true
+          },
+          {
+            "family": "맑은 고딕 Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei",
+            "available": true
+          },
+          {
+            "family": "Marlett",
+            "available": true
+          },
+          {
+            "family": "SimSun-ExtB",
+            "available": true
+          },
+          {
+            "family": "Segoe Print",
+            "available": true
+          }
+        ],
+        "hostFontNegativeControls": {},
+        "webglVendor": "Google Inc. (NVIDIA)",
+        "webglRenderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+        "webglSummary": {
+          "version": "WebGL 1.0",
+          "shadingLanguageVersion": "WebGL GLSL ES 1.0",
+          "maxTextureSize": 16384,
+          "maxRenderbufferSize": 16384,
+          "maxViewportDims": [
+            32767,
+            32767
+          ],
+          "aliasedLineWidthRange": [
+            1,
+            1
+          ],
+          "aliasedPointSizeRange": [
+            1,
+            1024
+          ],
+          "extensions": [
+            "ANGLE_instanced_arrays",
+            "EXT_blend_minmax",
+            "EXT_color_buffer_half_float",
+            "EXT_float_blend",
+            "EXT_frag_depth",
+            "EXT_sRGB",
+            "EXT_shader_texture_lod",
+            "EXT_texture_compression_bptc",
+            "EXT_texture_compression_rgtc",
+            "EXT_texture_filter_anisotropic",
+            "OES_element_index_uint",
+            "OES_fbo_render_mipmap",
+            "OES_standard_derivatives",
+            "OES_texture_float",
+            "OES_texture_float_linear",
+            "OES_texture_half_float",
+            "OES_texture_half_float_linear",
+            "OES_vertex_array_object",
+            "WEBGL_color_buffer_float",
+            "WEBGL_compressed_texture_s3tc",
+            "WEBGL_compressed_texture_s3tc_srgb",
+            "WEBGL_debug_renderer_info",
+            "WEBGL_debug_shaders",
+            "WEBGL_depth_texture",
+            "WEBGL_draw_buffers",
+            "WEBGL_lose_context",
+            "WEBGL_provoking_vertex"
+          ]
+        },
+        "webglAvailable": true,
+        "webgl2Vendor": "Google Inc. (NVIDIA)",
+        "webgl2Renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+        "webgl2Summary": {
+          "version": "WebGL 2.0",
+          "shadingLanguageVersion": "WebGL GLSL ES 3.00",
+          "maxTextureSize": 16384,
+          "maxRenderbufferSize": 16384,
+          "maxViewportDims": [
+            32767,
+            32767
+          ],
+          "aliasedLineWidthRange": [
+            1,
+            1
+          ],
+          "aliasedPointSizeRange": [
+            1,
+            1024
+          ],
+          "extensions": [
+            "EXT_color_buffer_float",
+            "EXT_float_blend",
+            "EXT_texture_compression_bptc",
+            "EXT_texture_compression_rgtc",
+            "EXT_texture_filter_anisotropic",
+            "OES_draw_buffers_indexed",
+            "OES_texture_float_linear",
+            "OVR_multiview2",
+            "WEBGL_compressed_texture_s3tc",
+            "WEBGL_compressed_texture_s3tc_srgb",
+            "WEBGL_debug_renderer_info",
+            "WEBGL_debug_shaders",
+            "WEBGL_lose_context",
+            "WEBGL_provoking_vertex"
+          ]
+        },
+        "webgl2Available": true,
+        "fonts": [
+          {
+            "family": "Arial",
+            "available": true
+          },
+          {
+            "family": "Calibri",
+            "available": true
+          },
+          {
+            "family": "Cambria Math",
+            "available": true
+          },
+          {
+            "family": "Consolas",
+            "available": true
+          },
+          {
+            "family": "Courier New",
+            "available": true
+          },
+          {
+            "family": "Georgia",
+            "available": true
+          },
+          {
+            "family": "Nirmala UI",
+            "available": true
+          },
+          {
+            "family": "Segoe UI",
+            "available": true
+          },
+          {
+            "family": "Tahoma",
+            "available": true
+          },
+          {
+            "family": "Times New Roman",
+            "available": true
+          },
+          {
+            "family": "Trebuchet MS",
+            "available": true
+          },
+          {
+            "family": "Verdana",
+            "available": true
+          },
+          {
+            "family": "Corbel Light",
+            "available": true
+          },
+          {
+            "family": "新細明體-ExtB",
+            "available": true
+          },
+          {
+            "family": "Ebrima",
+            "available": true
+          },
+          {
+            "family": "Impact",
+            "available": true
+          },
+          {
+            "family": "Yu Gothic Medium",
+            "available": true
+          },
+          {
+            "family": "Calibri Light",
+            "available": true
+          },
+          {
+            "family": "Sylfaen",
+            "available": true
+          },
+          {
+            "family": "Nirmala UI Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft Sans Serif",
+            "available": true
+          },
+          {
+            "family": "細明體-ExtB",
+            "available": true
+          },
+          {
+            "family": "Segoe Fluent Icons",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei UI",
+            "available": true
+          },
+          {
+            "family": "MingLiU_HKSCS-ExtB",
+            "available": true
+          },
+          {
+            "family": "Myanmar Text",
+            "available": true
+          },
+          {
+            "family": "Constantia",
+            "available": true
+          },
+          {
+            "family": "微軟正黑體 Light",
+            "available": true
+          },
+          {
+            "family": "Malgun Gothic Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei UI Light",
+            "available": true
+          },
+          {
+            "family": "Segoe UI Semibold",
+            "available": true
+          },
+          {
+            "family": "ＭＳ ゴシック",
+            "available": true
+          },
+          {
+            "family": "Microsoft Tai Le",
+            "available": true
+          },
+          {
+            "family": "Cambria",
+            "available": true
+          },
+          {
+            "family": "MV Boli",
+            "available": true
+          },
+          {
+            "family": "Lucida Sans Unicode",
+            "available": true
+          },
+          {
+            "family": "Yu Gothic UI Semibold",
+            "available": true
+          },
+          {
+            "family": "Leelawadee UI Semilight",
+            "available": true
+          },
+          {
+            "family": "맑은 고딕",
+            "available": true
+          },
+          {
+            "family": "SimSun",
+            "available": true
+          },
+          {
+            "family": "微軟正黑體",
+            "available": true
+          },
+          {
+            "family": "Wingdings",
+            "available": true
+          },
+          {
+            "family": "MS UI Gothic",
+            "available": true
+          },
+          {
+            "family": "Sitka Text",
+            "available": true
+          },
+          {
+            "family": "游ゴシック Light",
+            "available": true
+          },
+          {
+            "family": "Microsoft Himalaya",
+            "available": true
+          },
+          {
+            "family": "Mongolian Baiti",
+            "available": true
+          },
+          {
+            "family": "Microsoft New Tai Lue",
+            "available": true
+          },
+          {
+            "family": "Segoe UI Symbol",
+            "available": true
+          },
+          {
+            "family": "MS PGothic",
+            "available": true
+          },
+          {
+            "family": "Bahnschrift",
+            "available": true
+          },
+          {
+            "family": "游ゴシック",
+            "available": true
+          },
+          {
+            "family": "Franklin Gothic Medium",
+            "available": true
+          },
+          {
+            "family": "新宋体",
+            "available": true
+          },
+          {
+            "family": "Candara",
+            "available": true
+          },
+          {
+            "family": "맑은 고딕 Semilight",
+            "available": true
+          },
+          {
+            "family": "Microsoft JhengHei",
+            "available": true
+          },
+          {
+            "family": "Marlett",
+            "available": true
+          },
+          {
+            "family": "SimSun-ExtB",
+            "available": true
+          },
+          {
+            "family": "Segoe Print",
+            "available": true
+          }
+        ],
+        "voices": [
+          {
+            "name": "Microsoft David - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.david.english.united.states",
+            "isDefault": true
+          },
+          {
+            "name": "Microsoft Mark - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.mark.english.united.states",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Zira - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.zira.english.united.states",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft David Desktop - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.david.desktop.english.united.states",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Zira Desktop - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.zira.desktop.english.united.states",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hazel - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.english.united.kingdom",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hazel Desktop - English (Great Britain)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.desktop.english.great.britain",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft George - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.george.english.united.kingdom",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Susan - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.susan.english.united.kingdom",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Catherine - English (Australia)",
+            "lang": "en-AU",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.catherine.english.australia",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft James - English (Australia)",
+            "lang": "en-AU",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.james.english.australia",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Linda - English (Canada)",
+            "lang": "en-CA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.linda.english.canada",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Richard - English (Canada)",
+            "lang": "en-CA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.richard.english.canada",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Sean - English (Ireland)",
+            "lang": "en-IE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sean.english.ireland",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Heera - English (India)",
+            "lang": "en-IN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.heera.english.india",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Ravi - English (India)",
+            "lang": "en-IN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.ravi.english.india",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hedda - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.german.germany",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hedda Desktop - German",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.desktop.german",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Katja - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.katja.german.germany",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Stefan - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.stefan.german.germany",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hortense - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.french.france",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Hortense Desktop - French",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.desktop.french",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Julie - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.julie.french.france",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Paul - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paul.french.france",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Helena - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helena.spanish.spain",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Helena Desktop - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helena.desktop.spanish.spain",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Laura - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.laura.spanish.spain",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Pablo - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.pablo.spanish.spain",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Sabina - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.spanish.mexico",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Sabina Desktop - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.desktop.spanish.mexico",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Raul - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.raul.spanish.mexico",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Cosimo - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.cosimo.italian.italy",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Elsa - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.italian.italy",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Elsa Desktop - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.desktop.italian.italy",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Daniel - Portuguese (Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.daniel.portuguese.brazil",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Maria - Portuguese (Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.maria.portuguese.brazil",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Maria Desktop - Portuguese(Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.maria.desktop.portuguese.brazil",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Helia - Portuguese (Portugal)",
+            "lang": "pt-PT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helia.portuguese.portugal",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Huihui - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.chinese.simplified.prc",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Huihui Desktop - Chinese (Simplified)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.desktop.chinese.simplified",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Kangkang - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.kangkang.chinese.simplified.prc",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Yaoyao - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.yaoyao.chinese.simplified.prc",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Anna - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.anna.english.united.states",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Frank - Dutch (Netherlands)",
+            "lang": "nl-NL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.frank.dutch.netherlands",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Adam - Polish (Poland)",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.adam.polish.poland",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Paulina - Polish (Poland)",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.polish.poland",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Paulina Desktop - Polish",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.desktop.polish",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Jakub - Czech (Czech Republic)",
+            "lang": "cs-CZ",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.jakub.czech.czech.republic",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Stefanos - Greek (Greece)",
+            "lang": "el-GR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.stefanos.greek.greece",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Asaf - Hebrew (Israel)",
+            "lang": "he-IL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.asaf.hebrew.israel",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Naayf - Arabic (Saudi)",
+            "lang": "ar-SA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.naayf.arabic.saudi",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Tolga - Turkish (Turkey)",
+            "lang": "tr-TR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.tolga.turkish.turkey",
+            "isDefault": false
+          },
+          {
+            "name": "Microsoft Sarah Mobile - English (Great Britain)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sarah.mobile.english.great.britain",
+            "isDefault": false
+          }
+        ],
+        "webdriver": false,
+        "session": {
+          "timezone": "Asia/Hong_Kong",
+          "utcOffsetMinutes": -480,
+          "navigatorOnLine": true,
+          "windowScreenX": 3223,
+          "windowScreenY": 500,
+          "documentFontsStatus": "loaded"
+        },
+        "unavailable": {
+          "deviceMemory": null,
+          "userAgentData": null,
+          "windowChrome": null
+        }
+      },
+      "hostFontControls": [],
+      "hostFontMasking": {
+        "controlsTested": 0,
+        "allUnavailable": true,
+        "failures": []
+      },
+      "mediaDeviceReadiness": {
+        "expectedCounts": {
+          "audioinput": 1,
+          "videoinput": 1,
+          "audiooutput": 0
+        },
+        "attempts": [
+          {
+            "counts": {
+              "audioinput": 1,
+              "videoinput": 1,
+              "audiooutput": 0
+            },
+            "matched": true
+          }
+        ],
+        "matched": true,
+        "waitSeconds": 0.219,
+        "reason": "success"
+      },
+      "fontMode": "inherit",
+      "cookieEvidence": {
+        "cookieAbsentBeforeWrite": false,
+        "cookieInApi": true,
+        "cookieOnPage": true,
+        "cookieValueLooksManaged": true
+      },
+      "verified": false,
+      "evidenceClass": "observed-on-this-host",
+      "fp4CompatibilityObservation": {
+        "schema": "verisilo-camoufox-fp4-compatibility-observation/v1",
+        "matrixVersion": "fp4-ordinary-sites-v1",
+        "phase": "phaseB",
+        "status": "completed",
+        "startedAtUtc": "2026-08-28T04:43:50.755547Z",
+        "tasks": [
+          {
+            "name": "formStateReplay",
+            "phase": "phaseB",
+            "url": "https://en.wikipedia.org/wiki/Web_browser",
+            "startedAtUtc": "2026-08-28T04:43:50.759573Z",
+            "status": "passed",
+            "verified": false,
+            "initialHttpStatus": 200,
+            "stateControlAvailable": true,
+            "largeCheckedBeforeMutation": true,
+            "largeClassBeforeMutation": true,
+            "standardCheckedAfterRestore": true,
+            "largeCheckedAfterRestore": false,
+            "largeClassAfterRestore": false,
+            "title": "Web browser - Wikipedia",
+            "finalUrl": "https://en.wikipedia.org/wiki/Web_browser",
+            "elapsedMs": 4672,
+            "budgetMs": 70000,
+            "crashed": false,
+            "pageErrors": [],
+            "unexpectedPageClose": false,
+            "screenshot": {
+              "path": "artifacts/camoufox-fp4-attempt-3/screenshots/phaseB-01-formStateReplay.png",
+              "sha256": "6507cf15769d3d13a8c6864c24ae7ee3b9d31641cc6f0c7ea37cde3e181d271c",
+              "sizeBytes": 319898
+            },
+            "pageClose": {
+              "status": "success"
+            },
+            "completedAtUtc": "2026-08-28T04:43:55.532267Z"
+          }
+        ],
+        "verified": false,
+        "completedAtUtc": "2026-08-28T04:43:55.552278Z"
+      }
+    }
+  },
+  "sessions": {
+    "phaseA.running": {
+      "sessionId": "fd0244cab5364c4184adab75f4be9207",
+      "state": "running",
+      "artifactId": "identity-fp3-1b-formal-v3-a",
+      "profileId": "fp4-attempt-3",
+      "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+      "artifactDigest": "sha256:579ced5eef88462cdcde404ee443aa527d59996d4740fb761e6c7ba5b0b0d58d",
+      "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+      "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+      "exitStatus": null,
+      "failure": null,
+      "bootCountBefore": 0,
+      "bootCountAfter": 1,
+      "fontMode": "inherit",
+      "managedPids": [
+        68,
+        5280
+      ],
+      "managedIdentities": [
+        {
+          "pid": 5280,
+          "creationTime100ns": 134323656829092139,
+          "role": "supervisor"
+        },
+        {
+          "pid": 68,
+          "creationTime100ns": 134323656829219170,
+          "role": "browser"
+        }
+      ],
+      "supervisorMeta": {
+        "supervisorPid": 5280,
+        "supervisorCreationTime100ns": 134323656829092139,
+        "childPid": 68,
+        "childCreationTime100ns": 134323656829219170,
+        "jobName": "Local\\VeriSiloCamoufox-fd0244cab5364c4184adab75f4be9207",
+        "jobKillOnClose": true,
+        "jobAssignmentVerified": true,
+        "processHandleEvidence": true,
+        "profileLockOffset": 1,
+        "inheritedPipeHandles": [
+          {
+            "fd": 3,
+            "handle": 804,
+            "valid": true,
+            "flags": 1
+          },
+          {
+            "fd": 4,
+            "handle": 812,
+            "valid": true,
+            "flags": 1
+          }
+        ]
+      },
+      "jobObject": {
+        "name": "Local\\VeriSiloCamoufox-fd0244cab5364c4184adab75f4be9207",
+        "activeProcessCount": 10
+      },
+      "exitFileObserved": false,
+      "processTreeExit": null,
+      "cookieEvidence": {
+        "cookieAbsentBeforeWrite": true,
+        "cookieInApi": true,
+        "cookieOnPage": true,
+        "cookieValueLooksManaged": true
+      },
+      "cookieSqlite": null,
+      "contextClose": null,
+      "closeOutcome": null,
+      "probePort": 54552,
+      "quarantine": null
+    },
+    "phaseA.stopped": {
+      "sessionId": "fd0244cab5364c4184adab75f4be9207",
+      "state": "exited",
+      "artifactId": "identity-fp3-1b-formal-v3-a",
+      "profileId": "fp4-attempt-3",
+      "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+      "artifactDigest": "sha256:579ced5eef88462cdcde404ee443aa527d59996d4740fb761e6c7ba5b0b0d58d",
+      "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+      "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+      "exitStatus": 0,
+      "failure": null,
+      "bootCountBefore": 0,
+      "bootCountAfter": 1,
+      "fontMode": "inherit",
+      "managedPids": [],
+      "managedIdentities": [
+        {
+          "pid": 5280,
+          "creationTime100ns": 134323656829092139,
+          "role": "supervisor"
+        },
+        {
+          "pid": 68,
+          "creationTime100ns": 134323656829219170,
+          "role": "browser"
+        }
+      ],
+      "supervisorMeta": {
+        "supervisorPid": 5280,
+        "supervisorCreationTime100ns": 134323656829092139,
+        "childPid": 68,
+        "childCreationTime100ns": 134323656829219170,
+        "jobName": "Local\\VeriSiloCamoufox-fd0244cab5364c4184adab75f4be9207",
+        "jobKillOnClose": true,
+        "jobAssignmentVerified": true,
+        "processHandleEvidence": true,
+        "profileLockOffset": 1,
+        "inheritedPipeHandles": [
+          {
+            "fd": 3,
+            "handle": 804,
+            "valid": true,
+            "flags": 1
+          },
+          {
+            "fd": 4,
+            "handle": 812,
+            "valid": true,
+            "flags": 1
+          }
+        ]
+      },
+      "jobObject": {
+        "name": "Local\\VeriSiloCamoufox-fd0244cab5364c4184adab75f4be9207",
+        "activeProcessCount": null
+      },
+      "exitFileObserved": true,
+      "processTreeExit": {
+        "exited": true,
+        "managedIdentities": [
+          {
+            "pid": 5280,
+            "creationTime100ns": 134323656829092139,
+            "role": "supervisor"
+          },
+          {
+            "pid": 68,
+            "creationTime100ns": 134323656829219170,
+            "role": "browser"
+          }
+        ],
+        "remaining": [],
+        "job": {
+          "available": true,
+          "name": "Local\\VeriSiloCamoufox-fd0244cab5364c4184adab75f4be9207",
+          "activeProcessCount": 0,
+          "terminateJobObject": false
+        },
+        "sigterm": true,
+        "sigkill": false
+      },
+      "cookieEvidence": {
+        "cookieAbsentBeforeWrite": true,
+        "cookieInApi": true,
+        "cookieOnPage": true,
+        "cookieValueLooksManaged": true
+      },
+      "cookieSqlite": {
+        "fileExists": true,
+        "fileBytes": 524288,
+        "cookieNamePresent": true,
+        "sqliteReadAttempts": 1,
+        "sqliteReadMaxAttempts": 6,
+        "sqliteRetryDelayMilliseconds": 200,
+        "sqliteRetryExhausted": false,
+        "cookieRows": 1,
+        "hosts": [
+          "127.0.0.1"
+        ],
+        "valuesManaged": true
+      },
+      "contextClose": {
+        "page": {
+          "status": "success"
+        },
+        "ctx": {
+          "status": "success"
+        }
+      },
+      "closeOutcome": {
+        "status": "success",
+        "contextClose": {
+          "page": {
+            "status": "success"
+          },
+          "ctx": {
+            "status": "success"
+          }
+        },
+        "gracefulProcessExit": {
+          "status": "success"
+        },
+        "forcedJobCleanup": {
+          "status": "not_needed"
+        },
+        "sqliteEvidence": {
+          "status": "available"
+        }
+      },
+      "probePort": 54552,
+      "quarantine": null
+    },
+    "phaseB.running": {
+      "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93",
+      "state": "running",
+      "artifactId": "identity-fp3-1b-formal-v3-a",
+      "profileId": "fp4-attempt-3",
+      "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+      "artifactDigest": "sha256:579ced5eef88462cdcde404ee443aa527d59996d4740fb761e6c7ba5b0b0d58d",
+      "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+      "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+      "exitStatus": null,
+      "failure": null,
+      "bootCountBefore": 1,
+      "bootCountAfter": 2,
+      "fontMode": "inherit",
+      "managedPids": [
+        8424,
+        8852
+      ],
+      "managedIdentities": [
+        {
+          "pid": 8424,
+          "creationTime100ns": 134323658219716713,
+          "role": "supervisor"
+        },
+        {
+          "pid": 8852,
+          "creationTime100ns": 134323658219796393,
+          "role": "browser"
+        }
+      ],
+      "supervisorMeta": {
+        "supervisorPid": 8424,
+        "supervisorCreationTime100ns": 134323658219716713,
+        "childPid": 8852,
+        "childCreationTime100ns": 134323658219796393,
+        "jobName": "Local\\VeriSiloCamoufox-f9ad582fb45142acb66bcf6b88ebfd93",
+        "jobKillOnClose": true,
+        "jobAssignmentVerified": true,
+        "processHandleEvidence": true,
+        "profileLockOffset": 1,
+        "inheritedPipeHandles": [
+          {
+            "fd": 3,
+            "handle": 872,
+            "valid": true,
+            "flags": 1
+          },
+          {
+            "fd": 4,
+            "handle": 900,
+            "valid": true,
+            "flags": 1
+          }
+        ]
+      },
+      "jobObject": {
+        "name": "Local\\VeriSiloCamoufox-f9ad582fb45142acb66bcf6b88ebfd93",
+        "activeProcessCount": 10
+      },
+      "exitFileObserved": false,
+      "processTreeExit": null,
+      "cookieEvidence": {
+        "cookieAbsentBeforeWrite": false,
+        "cookieInApi": true,
+        "cookieOnPage": true,
+        "cookieValueLooksManaged": true
+      },
+      "cookieSqlite": null,
+      "contextClose": null,
+      "closeOutcome": null,
+      "probePort": 54552,
+      "quarantine": null
+    },
+    "phaseB.stopped": {
+      "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93",
+      "state": "exited",
+      "artifactId": "identity-fp3-1b-formal-v3-a",
+      "profileId": "fp4-attempt-3",
+      "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+      "artifactDigest": "sha256:579ced5eef88462cdcde404ee443aa527d59996d4740fb761e6c7ba5b0b0d58d",
+      "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+      "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+      "exitStatus": 0,
+      "failure": null,
+      "bootCountBefore": 1,
+      "bootCountAfter": 2,
+      "fontMode": "inherit",
+      "managedPids": [],
+      "managedIdentities": [
+        {
+          "pid": 8424,
+          "creationTime100ns": 134323658219716713,
+          "role": "supervisor"
+        },
+        {
+          "pid": 8852,
+          "creationTime100ns": 134323658219796393,
+          "role": "browser"
+        }
+      ],
+      "supervisorMeta": {
+        "supervisorPid": 8424,
+        "supervisorCreationTime100ns": 134323658219716713,
+        "childPid": 8852,
+        "childCreationTime100ns": 134323658219796393,
+        "jobName": "Local\\VeriSiloCamoufox-f9ad582fb45142acb66bcf6b88ebfd93",
+        "jobKillOnClose": true,
+        "jobAssignmentVerified": true,
+        "processHandleEvidence": true,
+        "profileLockOffset": 1,
+        "inheritedPipeHandles": [
+          {
+            "fd": 3,
+            "handle": 872,
+            "valid": true,
+            "flags": 1
+          },
+          {
+            "fd": 4,
+            "handle": 900,
+            "valid": true,
+            "flags": 1
+          }
+        ]
+      },
+      "jobObject": {
+        "name": "Local\\VeriSiloCamoufox-f9ad582fb45142acb66bcf6b88ebfd93",
+        "activeProcessCount": null
+      },
+      "exitFileObserved": true,
+      "processTreeExit": {
+        "exited": true,
+        "managedIdentities": [
+          {
+            "pid": 8424,
+            "creationTime100ns": 134323658219716713,
+            "role": "supervisor"
+          },
+          {
+            "pid": 8852,
+            "creationTime100ns": 134323658219796393,
+            "role": "browser"
+          }
+        ],
+        "remaining": [],
+        "job": {
+          "available": true,
+          "name": "Local\\VeriSiloCamoufox-f9ad582fb45142acb66bcf6b88ebfd93",
+          "activeProcessCount": 0,
+          "terminateJobObject": false
+        },
+        "sigterm": true,
+        "sigkill": false
+      },
+      "cookieEvidence": {
+        "cookieAbsentBeforeWrite": false,
+        "cookieInApi": true,
+        "cookieOnPage": true,
+        "cookieValueLooksManaged": true
+      },
+      "cookieSqlite": {
+        "fileExists": true,
+        "fileBytes": 524288,
+        "cookieNamePresent": true,
+        "sqliteReadAttempts": 1,
+        "sqliteReadMaxAttempts": 6,
+        "sqliteRetryDelayMilliseconds": 200,
+        "sqliteRetryExhausted": false,
+        "cookieRows": 1,
+        "hosts": [
+          "127.0.0.1"
+        ],
+        "valuesManaged": true
+      },
+      "contextClose": {
+        "page": {
+          "status": "success"
+        },
+        "ctx": {
+          "status": "success"
+        }
+      },
+      "closeOutcome": {
+        "status": "success",
+        "contextClose": {
+          "page": {
+            "status": "success"
+          },
+          "ctx": {
+            "status": "success"
+          }
+        },
+        "gracefulProcessExit": {
+          "status": "success"
+        },
+        "forcedJobCleanup": {
+          "status": "not_needed"
+        },
+        "sqliteEvidence": {
+          "status": "available"
+        }
+      },
+      "probePort": 54552,
+      "quarantine": null
+    },
+    "phaseA.postmortem": {
+      "sessionId": "fd0244cab5364c4184adab75f4be9207",
+      "state": "exited",
+      "artifactId": "identity-fp3-1b-formal-v3-a",
+      "profileId": "fp4-attempt-3",
+      "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+      "artifactDigest": "sha256:579ced5eef88462cdcde404ee443aa527d59996d4740fb761e6c7ba5b0b0d58d",
+      "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+      "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+      "exitStatus": 0,
+      "failure": null,
+      "bootCountBefore": 0,
+      "bootCountAfter": 1,
+      "fontMode": "inherit",
+      "managedPids": [],
+      "managedIdentities": [
+        {
+          "pid": 5280,
+          "creationTime100ns": 134323656829092139,
+          "role": "supervisor"
+        },
+        {
+          "pid": 68,
+          "creationTime100ns": 134323656829219170,
+          "role": "browser"
+        }
+      ],
+      "supervisorMeta": {
+        "supervisorPid": 5280,
+        "supervisorCreationTime100ns": 134323656829092139,
+        "childPid": 68,
+        "childCreationTime100ns": 134323656829219170,
+        "jobName": "Local\\VeriSiloCamoufox-fd0244cab5364c4184adab75f4be9207",
+        "jobKillOnClose": true,
+        "jobAssignmentVerified": true,
+        "processHandleEvidence": true,
+        "profileLockOffset": 1,
+        "inheritedPipeHandles": [
+          {
+            "fd": 3,
+            "handle": 804,
+            "valid": true,
+            "flags": 1
+          },
+          {
+            "fd": 4,
+            "handle": 812,
+            "valid": true,
+            "flags": 1
+          }
+        ]
+      },
+      "jobObject": {
+        "name": "Local\\VeriSiloCamoufox-fd0244cab5364c4184adab75f4be9207",
+        "activeProcessCount": null
+      },
+      "exitFileObserved": true,
+      "processTreeExit": {
+        "exited": true,
+        "managedIdentities": [
+          {
+            "pid": 5280,
+            "creationTime100ns": 134323656829092139,
+            "role": "supervisor"
+          },
+          {
+            "pid": 68,
+            "creationTime100ns": 134323656829219170,
+            "role": "browser"
+          }
+        ],
+        "remaining": [],
+        "job": {
+          "available": true,
+          "name": "Local\\VeriSiloCamoufox-fd0244cab5364c4184adab75f4be9207",
+          "activeProcessCount": 0,
+          "terminateJobObject": false
+        },
+        "sigterm": true,
+        "sigkill": false
+      },
+      "cookieEvidence": {
+        "cookieAbsentBeforeWrite": true,
+        "cookieInApi": true,
+        "cookieOnPage": true,
+        "cookieValueLooksManaged": true
+      },
+      "cookieSqlite": {
+        "fileExists": true,
+        "fileBytes": 524288,
+        "cookieNamePresent": true,
+        "sqliteReadAttempts": 1,
+        "sqliteReadMaxAttempts": 6,
+        "sqliteRetryDelayMilliseconds": 200,
+        "sqliteRetryExhausted": false,
+        "cookieRows": 1,
+        "hosts": [
+          "127.0.0.1"
+        ],
+        "valuesManaged": true
+      },
+      "contextClose": {
+        "page": {
+          "status": "success"
+        },
+        "ctx": {
+          "status": "success"
+        }
+      },
+      "closeOutcome": {
+        "status": "success",
+        "contextClose": {
+          "page": {
+            "status": "success"
+          },
+          "ctx": {
+            "status": "success"
+          }
+        },
+        "gracefulProcessExit": {
+          "status": "success"
+        },
+        "forcedJobCleanup": {
+          "status": "not_needed"
+        },
+        "sqliteEvidence": {
+          "status": "available"
+        }
+      },
+      "probePort": 54552,
+      "quarantine": null
+    },
+    "phaseB.postmortem": {
+      "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93",
+      "state": "exited",
+      "artifactId": "identity-fp3-1b-formal-v3-a",
+      "profileId": "fp4-attempt-3",
+      "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+      "artifactDigest": "sha256:579ced5eef88462cdcde404ee443aa527d59996d4740fb761e6c7ba5b0b0d58d",
+      "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+      "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+      "exitStatus": 0,
+      "failure": null,
+      "bootCountBefore": 1,
+      "bootCountAfter": 2,
+      "fontMode": "inherit",
+      "managedPids": [],
+      "managedIdentities": [
+        {
+          "pid": 8424,
+          "creationTime100ns": 134323658219716713,
+          "role": "supervisor"
+        },
+        {
+          "pid": 8852,
+          "creationTime100ns": 134323658219796393,
+          "role": "browser"
+        }
+      ],
+      "supervisorMeta": {
+        "supervisorPid": 8424,
+        "supervisorCreationTime100ns": 134323658219716713,
+        "childPid": 8852,
+        "childCreationTime100ns": 134323658219796393,
+        "jobName": "Local\\VeriSiloCamoufox-f9ad582fb45142acb66bcf6b88ebfd93",
+        "jobKillOnClose": true,
+        "jobAssignmentVerified": true,
+        "processHandleEvidence": true,
+        "profileLockOffset": 1,
+        "inheritedPipeHandles": [
+          {
+            "fd": 3,
+            "handle": 872,
+            "valid": true,
+            "flags": 1
+          },
+          {
+            "fd": 4,
+            "handle": 900,
+            "valid": true,
+            "flags": 1
+          }
+        ]
+      },
+      "jobObject": {
+        "name": "Local\\VeriSiloCamoufox-f9ad582fb45142acb66bcf6b88ebfd93",
+        "activeProcessCount": null
+      },
+      "exitFileObserved": true,
+      "processTreeExit": {
+        "exited": true,
+        "managedIdentities": [
+          {
+            "pid": 8424,
+            "creationTime100ns": 134323658219716713,
+            "role": "supervisor"
+          },
+          {
+            "pid": 8852,
+            "creationTime100ns": 134323658219796393,
+            "role": "browser"
+          }
+        ],
+        "remaining": [],
+        "job": {
+          "available": true,
+          "name": "Local\\VeriSiloCamoufox-f9ad582fb45142acb66bcf6b88ebfd93",
+          "activeProcessCount": 0,
+          "terminateJobObject": false
+        },
+        "sigterm": true,
+        "sigkill": false
+      },
+      "cookieEvidence": {
+        "cookieAbsentBeforeWrite": false,
+        "cookieInApi": true,
+        "cookieOnPage": true,
+        "cookieValueLooksManaged": true
+      },
+      "cookieSqlite": {
+        "fileExists": true,
+        "fileBytes": 524288,
+        "cookieNamePresent": true,
+        "sqliteReadAttempts": 1,
+        "sqliteReadMaxAttempts": 6,
+        "sqliteRetryDelayMilliseconds": 200,
+        "sqliteRetryExhausted": false,
+        "cookieRows": 1,
+        "hosts": [
+          "127.0.0.1"
+        ],
+        "valuesManaged": true
+      },
+      "contextClose": {
+        "page": {
+          "status": "success"
+        },
+        "ctx": {
+          "status": "success"
+        }
+      },
+      "closeOutcome": {
+        "status": "success",
+        "contextClose": {
+          "page": {
+            "status": "success"
+          },
+          "ctx": {
+            "status": "success"
+          }
+        },
+        "gracefulProcessExit": {
+          "status": "success"
+        },
+        "forcedJobCleanup": {
+          "status": "not_needed"
+        },
+        "sqliteEvidence": {
+          "status": "available"
+        }
+      },
+      "probePort": 54552,
+      "quarantine": null
+    }
+  },
+  "readErrors": [],
+  "childExitCode": 0,
+  "residualOwnedPids": [],
+  "protocolFrames": [
+    {
+      "request": {
+        "id": "fp4-1-hello",
+        "command": "hello",
+        "params": {}
+      },
+      "response": {
+        "id": "fp4-1-hello",
+        "ok": true,
+        "result": {
+          "protocol": "verisilo-camoufox-host/v1",
+          "hostVersion": "0.1.0",
+          "pythonVersion": "3.12.13",
+          "artifactRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-3-os_cr5o5\\artifacts",
+          "profileRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-3-os_cr5o5\\profiles",
+          "stateRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-3-os_cr5o5\\state",
+          "maxFrameBytes": 32768,
+          "probePortPolicy": "ephemeral",
+          "browserRelease": "v152.0.4-beta.28",
+          "assetSha256": "032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5",
+          "treeManifest": "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\artifacts\\camoufox-fp2-formal-r1-attempt-8\\formal-v3-browser-tree-manifest.json",
+          "treeManifestSha256": "8434ab9925bf0f7d95cc4ff06fe94b7dcf9963a0691f37638469d68cda58ace2",
+          "platform": "windows-x64",
+          "state": "idle",
+          "verified": false,
+          "evidenceClass": "observed-on-this-host"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "fp4-2-launch",
+        "command": "launch",
+        "params": {
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-3",
+          "expectedArtifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      },
+      "response": {
+        "id": "fp4-2-launch",
+        "ok": true,
+        "result": {
+          "sessionId": "fd0244cab5364c4184adab75f4be9207",
+          "state": "running",
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-3",
+          "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+          "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+          "bootCountBefore": 0,
+          "bootCountAfter": 1,
+          "spawnSeconds": 8.499,
+          "probeSeconds": 0.229,
+          "fontMode": "inherit",
+          "managedPids": [
+            68,
+            5280
+          ],
+          "cookieEvidence": {
+            "cookieAbsentBeforeWrite": true,
+            "cookieInApi": true,
+            "cookieOnPage": true,
+            "cookieValueLooksManaged": true
+          },
+          "probePort": 54552,
+          "verified": false,
+          "evidenceClass": "observed-on-this-host",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "fp4-3-status",
+        "command": "status",
+        "params": {
+          "sessionId": "fd0244cab5364c4184adab75f4be9207"
+        }
+      },
+      "response": {
+        "id": "fp4-3-status",
+        "ok": true,
+        "result": {
+          "state": "running",
+          "sessionId": "fd0244cab5364c4184adab75f4be9207",
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-3",
+          "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+          "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+          "exitStatus": null,
+          "exitFileObserved": false,
+          "quarantine": null,
+          "failure": null,
+          "contextClose": null,
+          "closeOutcome": null,
+          "verified": false,
+          "evidenceClass": "observed-on-this-host",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "fp4-4-close",
+        "command": "close",
+        "params": {
+          "sessionId": "fd0244cab5364c4184adab75f4be9207"
+        }
+      },
+      "response": {
+        "id": "fp4-4-close",
+        "ok": true,
+        "result": {
+          "sessionId": "fd0244cab5364c4184adab75f4be9207",
+          "state": "exited",
+          "exitStatus": 0,
+          "exitFileObserved": true,
+          "processTreeExit": {
+            "exited": true,
+            "managedIdentities": [
+              {
+                "pid": 5280,
+                "creationTime100ns": 134323656829092139,
+                "role": "supervisor"
+              },
+              {
+                "pid": 68,
+                "creationTime100ns": 134323656829219170,
+                "role": "browser"
+              }
+            ],
+            "remaining": [],
+            "job": {
+              "available": true,
+              "name": "Local\\VeriSiloCamoufox-fd0244cab5364c4184adab75f4be9207",
+              "activeProcessCount": 0,
+              "terminateJobObject": false
+            },
+            "sigterm": true,
+            "sigkill": false
+          },
+          "cookieSqlite": {
+            "fileExists": true,
+            "fileBytes": 524288,
+            "cookieNamePresent": true,
+            "sqliteReadAttempts": 1,
+            "sqliteReadMaxAttempts": 6,
+            "sqliteRetryDelayMilliseconds": 200,
+            "sqliteRetryExhausted": false,
+            "cookieRows": 1,
+            "hosts": [
+              "127.0.0.1"
+            ],
+            "valuesManaged": true
+          },
+          "contextClose": {
+            "page": {
+              "status": "success"
+            },
+            "ctx": {
+              "status": "success"
+            }
+          },
+          "closeOutcome": {
+            "status": "success",
+            "contextClose": {
+              "page": {
+                "status": "success"
+              },
+              "ctx": {
+                "status": "success"
+              }
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            }
+          },
+          "closeSeconds": 0.309
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "fp4-5-launch",
+        "command": "launch",
+        "params": {
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-3",
+          "expectedArtifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      },
+      "response": {
+        "id": "fp4-5-launch",
+        "ok": true,
+        "result": {
+          "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93",
+          "state": "running",
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-3",
+          "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+          "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+          "bootCountBefore": 1,
+          "bootCountAfter": 2,
+          "spawnSeconds": 5.918,
+          "probeSeconds": 0.179,
+          "fontMode": "inherit",
+          "managedPids": [
+            8424,
+            8852
+          ],
+          "cookieEvidence": {
+            "cookieAbsentBeforeWrite": false,
+            "cookieInApi": true,
+            "cookieOnPage": true,
+            "cookieValueLooksManaged": true
+          },
+          "probePort": 54552,
+          "verified": false,
+          "evidenceClass": "observed-on-this-host",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "fp4-6-status",
+        "command": "status",
+        "params": {
+          "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93"
+        }
+      },
+      "response": {
+        "id": "fp4-6-status",
+        "ok": true,
+        "result": {
+          "state": "running",
+          "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93",
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-3",
+          "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "configuredIdentityDigest": "sha256:0fb7a00c82a4d1752fb9a224439317bbf67339801c424c1e7e976378cb2fe07a",
+          "observedWebsiteDigest": "sha256:2e77abbed7008f44c4e630c54bfc0a525d5cbb00d3edd3f37085e340e7b52270",
+          "exitStatus": null,
+          "exitFileObserved": false,
+          "quarantine": null,
+          "failure": null,
+          "contextClose": null,
+          "closeOutcome": null,
+          "verified": false,
+          "evidenceClass": "observed-on-this-host",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "fp4-7-close",
+        "command": "close",
+        "params": {
+          "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93"
+        }
+      },
+      "response": {
+        "id": "fp4-7-close",
+        "ok": true,
+        "result": {
+          "sessionId": "f9ad582fb45142acb66bcf6b88ebfd93",
+          "state": "exited",
+          "exitStatus": 0,
+          "exitFileObserved": true,
+          "processTreeExit": {
+            "exited": true,
+            "managedIdentities": [
+              {
+                "pid": 8424,
+                "creationTime100ns": 134323658219716713,
+                "role": "supervisor"
+              },
+              {
+                "pid": 8852,
+                "creationTime100ns": 134323658219796393,
+                "role": "browser"
+              }
+            ],
+            "remaining": [],
+            "job": {
+              "available": true,
+              "name": "Local\\VeriSiloCamoufox-f9ad582fb45142acb66bcf6b88ebfd93",
+              "activeProcessCount": 0,
+              "terminateJobObject": false
+            },
+            "sigterm": true,
+            "sigkill": false
+          },
+          "cookieSqlite": {
+            "fileExists": true,
+            "fileBytes": 524288,
+            "cookieNamePresent": true,
+            "sqliteReadAttempts": 1,
+            "sqliteReadMaxAttempts": 6,
+            "sqliteRetryDelayMilliseconds": 200,
+            "sqliteRetryExhausted": false,
+            "cookieRows": 1,
+            "hosts": [
+              "127.0.0.1"
+            ],
+            "valuesManaged": true
+          },
+          "contextClose": {
+            "page": {
+              "status": "success"
+            },
+            "ctx": {
+              "status": "success"
+            }
+          },
+          "closeOutcome": {
+            "status": "success",
+            "contextClose": {
+              "page": {
+                "status": "success"
+              },
+              "ctx": {
+                "status": "success"
+              }
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            }
+          },
+          "closeSeconds": 0.394
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "fp4-8-shutdown",
+        "command": "shutdown",
+        "params": {}
+      },
+      "response": {
+        "id": "fp4-8-shutdown",
+        "ok": true,
+        "result": {
+          "state": "shutdown",
+          "sessionsClosed": 1,
+          "selfCheck": {
+            "argvMatches": [],
+            "stderrLogMatches": [],
+            "patternsChecked": 14
+          }
+        }
+      }
+    }
+  ],
+  "runtimeCleanup": {
+    "status": "removed"
+  },
+  "screenshotFilesVerified": true,
+  "adjudication": {
+    "status": "inconclusive",
+    "checks": {
+      "fixedInputsExact": true,
+      "formalBindingExact": true,
+      "phaseAArtifactBindingExact": true,
+      "phaseBArtifactBindingExact": true,
+      "routeBindingExactBothPhases": true,
+      "bootTransitionsExact": true,
+      "hostRunningBothPhases": true,
+      "phaseAObservationComplete": true,
+      "phaseBObservationComplete": true,
+      "phaseACleanClose": true,
+      "phaseBCleanClose": true,
+      "shutdownSelfCheckClean": true,
+      "exactHostChildExit": true,
+      "residualProcessTreeEmpty": true,
+      "runtimeRemovedAfterCleanExit": true,
+      "screenshotFilesExact": true,
+      "evidenceReadsComplete": true,
+      "runnerCompletedWithoutError": true,
+      "tasks": {
+        "documentNavigation": false,
+        "complexJavaScript": false,
+        "interactiveGraphics": false,
+        "audioVideo": false,
+        "formState": true,
+        "formStateReplay": true
+      }
+    },
+    "profileStateLost": false,
+    "upstreamControlRequired": false,
+    "terminal": true,
+    "precedence": "failed>inconclusive>passed"
+  }
+}
