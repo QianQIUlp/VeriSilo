@@ -76,11 +76,13 @@ For each available browser, the runner:
 
 - starts a loopback-only fixture and launches only temporary A and B
   `--user-data-dir` directories using `ProcessStartInfo.ArgumentList`;
-- writes and reads `localStorage`, `sessionStorage`, IndexedDB, and a cookie;
-  B must be empty, and a fresh A process must retain A's values;
-- snapshots every default-profile file path, SHA-256, size, and UTC mtime before
-  and after the temporary-profile cases, refusing to claim a result if another
-  browser process could mutate it;
+- writes and reads `localStorage`, `sessionStorage`, IndexedDB, a persistent
+  cookie, and a session cookie; B must be empty, while a fresh A process must
+  retain the persistent values and clear the session-scoped values;
+- snapshots only default-profile metadata (relative path, type, length,
+  creation/mtime, and attributes) before and after the temporary-profile cases;
+  it never reads default Profile file contents and refuses to claim a result if
+  another browser process could mutate that metadata;
 - holds Chromium's real Windows `lockfile` and checks that a second process does
   not expose another DevTools session for that profile;
 - configures an unreachable `127.0.0.1` proxy with
@@ -185,10 +187,12 @@ operations fail; launches the real browser through `RuntimeManager`; verifies a
 second desktop-core launch safely refuses both the real Windows Chromium
 `lockfile` and VeriSilo's `.verisilo-runtime.lock` cross-process lease; and proves
 the extension-absent run stays usable while its Companion evidence is explicitly
-empty/not requested. It then terminates only the exact PID tree recorded for
-that runtime, requires the core to recover to `stopped`, checks the Profile and
-Silo binding remain intact, and proves a separately spawned unrelated process
-survived.
+empty/not requested. Before asking `taskkill` to terminate that tree, it holds
+the exact process handle and validates the OS creation time, handle/WMI image,
+and parsed command line's single exact run-owned `--user-data-dir`, repeating
+that check immediately before termination. It then requires a consistent
+stopped/recovery-required result, checks the Profile and Silo binding remain
+intact, and proves a separately spawned unrelated process survived.
 
 The receipt contains no password or Profile bytes. It binds the formal browser,
 candidate repository/artifact ID/artifact digest/source revision, compile-time

@@ -666,6 +666,17 @@ function Wait-CdpEndpointStable {
   }
 }
 
+function Get-Sha256HexFromBytes {
+  param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+  $sha256 = [Security.Cryptography.SHA256]::Create()
+  try {
+    $digest = $sha256.ComputeHash($Bytes)
+  } finally {
+    $sha256.Dispose()
+  }
+  return ([BitConverter]::ToString($digest)).Replace('-', '')
+}
+
 function Get-TreeFingerprint {
   param([Parameter(Mandatory = $true)][string]$Path)
   if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
@@ -686,12 +697,42 @@ function Get-TreeFingerprint {
     }
   }
   $serialized = [Text.Encoding]::UTF8.GetBytes(($records -join "`n"))
-  $aggregate = [Security.Cryptography.SHA256]::HashData($serialized)
-  return [pscustomobject]@{ Hash = ([Convert]::ToHexString($aggregate)); Entries = $records.Count }
+  return [pscustomobject]@{ Hash = (Get-Sha256HexFromBytes -Bytes $serialized); Entries = $records.Count }
+}
+
+function Get-TreeMetadataFingerprint {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+    throw "Path does not exist: $Path"
+  }
+  $records = [System.Collections.Generic.List[string]]::new()
+  $root = Get-NormalizedPath $Path
+  $rootItem = Get-Item -LiteralPath $root -Force -ErrorAction Stop
+  if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "Refusing an incomplete metadata fingerprint: reparse point found at $root"
+  }
+  $records.Add("D|.|$($rootItem.CreationTimeUtc.Ticks)|$($rootItem.LastWriteTimeUtc.Ticks)|$([int]$rootItem.Attributes)")
+  foreach ($item in Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop | Sort-Object FullName) {
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Refusing an incomplete metadata fingerprint: reparse point found at $($item.FullName)"
+    }
+    $relative = $item.FullName.Substring($root.Length).TrimStart([char]'\', [char]'/' )
+    if ($item.PSIsContainer) {
+      $records.Add("D|$relative|$($item.CreationTimeUtc.Ticks)|$($item.LastWriteTimeUtc.Ticks)|$([int]$item.Attributes)")
+    } else {
+      $records.Add("F|$relative|$($item.Length)|$($item.CreationTimeUtc.Ticks)|$($item.LastWriteTimeUtc.Ticks)|$([int]$item.Attributes)")
+    }
+  }
+  $serialized = [Text.Encoding]::UTF8.GetBytes(($records -join "`n"))
+  return [pscustomobject]@{ Hash = (Get-Sha256HexFromBytes -Bytes $serialized); Entries = $records.Count }
 }
 
 function Test-DefaultProfileInvariant {
   param([Parameter(Mandatory = $true)]$Configuration, [Parameter(Mandatory = $true)][scriptblock]$Exercise)
+  if (Get-Process -Name $Configuration.ProcessName -ErrorAction SilentlyContinue) {
+    Add-Result -Name "$($Configuration.Name)_default_profile_unchanged" -Status 'BLOCKED' -Detail 'A browser process is already running. The harness stopped this browser configuration before any real acceptance case and did not close or alter that process.'
+    return
+  }
   if (-not (Test-Path -LiteralPath $Configuration.DefaultProfile -PathType Container)) {
     try {
       & $Exercise
@@ -704,23 +745,18 @@ function Test-DefaultProfileInvariant {
     }
     return
   }
-  if (Get-Process -Name $Configuration.ProcessName -ErrorAction SilentlyContinue) {
-    Add-Result -Name "$($Configuration.Name)_default_profile_unchanged" -Status 'BLOCKED' -Detail 'A browser process is already running. It could mutate the default profile, so the harness will not claim a clean before/after file-tree hash.'
-    & $Exercise
-    return
-  }
   try {
-    $before = Get-TreeFingerprint -Path $Configuration.DefaultProfile
+    $before = Get-TreeMetadataFingerprint -Path $Configuration.DefaultProfile
     & $Exercise
     if (Get-Process -Name $Configuration.ProcessName -ErrorAction SilentlyContinue) {
       Add-Result -Name "$($Configuration.Name)_default_profile_unchanged" -Status 'BLOCKED' -Detail 'A browser process appeared during the run and could have mutated the default profile; no clean before/after claim was made.'
       return
     }
-    $after = Get-TreeFingerprint -Path $Configuration.DefaultProfile
+    $after = Get-TreeMetadataFingerprint -Path $Configuration.DefaultProfile
     if ($before.Hash -ne $after.Hash -or $before.Entries -ne $after.Entries) {
-      throw "default profile file-tree hash or mtime changed ($($before.Hash) -> $($after.Hash))."
+      throw "default profile metadata changed ($($before.Hash) -> $($after.Hash))."
     }
-    Add-Result -Name "$($Configuration.Name)_default_profile_unchanged" -Status 'PASS' -Detail "SHA-256 tree fingerprint unchanged across $($before.Entries) entries."
+    Add-Result -Name "$($Configuration.Name)_default_profile_unchanged" -Status 'PASS' -Detail "Metadata-only tree fingerprint unchanged across $($before.Entries) entries; no default Profile file contents were read."
   } catch {
     Add-Result -Name "$($Configuration.Name)_default_profile_unchanged" -Status 'FAIL' -Detail $_.Exception.Message
   }
@@ -754,7 +790,7 @@ function Test-BrowserStorageIsolation {
       throw 'The restarted A browser did not close gracefully after lifecycle verification.'
     }
     $session = $null
-    Add-Result -Name "$($Configuration.Name)_temporary_A_B_storage_cookie_isolation" -Status 'PASS' -Detail 'Temporary A/B user-data-dir profiles isolated all four markers; after a full browser restart, A retained localStorage and IndexedDB while sessionStorage and the session cookie were cleared.'
+    Add-Result -Name "$($Configuration.Name)_temporary_A_B_storage_cookie_isolation" -Status 'PASS' -Detail 'Temporary A/B user-data-dir profiles isolated all five markers; after a full browser restart, A retained localStorage, the persistent cookie, and IndexedDB while sessionStorage and the session cookie were cleared.'
   } catch {
     Add-Result -Name "$($Configuration.Name)_temporary_A_B_storage_cookie_isolation" -Status 'FAIL' -Detail $_.Exception.Message
   } finally { [void](Stop-TemporaryBrowser -BrowserSession $session) }
@@ -1405,6 +1441,30 @@ function Invoke-SelfTest {
   $shortAcceptanceLeaf = New-ShortAcceptanceLeaf
   if ($shortAcceptanceLeaf -cnotmatch '^vda-[0-9a-f]{16}$') {
     throw 'Short desktop acceptance root generation self-test failed.'
+  }
+  $metadataRootA = Join-Path $script:ResolvedArtifactDirectory 'metadata-a'
+  $metadataRootB = Join-Path $script:ResolvedArtifactDirectory 'metadata-b'
+  [void](New-Item -ItemType Directory -Path $metadataRootA)
+  [void](New-Item -ItemType Directory -Path $metadataRootB)
+  $metadataFileA = Join-Path $metadataRootA 'marker.bin'
+  $metadataFileB = Join-Path $metadataRootB 'marker.bin'
+  Set-Content -LiteralPath $metadataFileA -Value 'alpha' -Encoding ascii -NoNewline
+  Set-Content -LiteralPath $metadataFileB -Value 'omega' -Encoding ascii -NoNewline
+  $metadataTimestamp = [DateTime]::SpecifyKind([DateTime]'2026-01-02T03:04:05', [DateTimeKind]::Utc)
+  foreach ($path in @($metadataFileA, $metadataFileB, $metadataRootA, $metadataRootB)) {
+    $item = Get-Item -LiteralPath $path -Force
+    $item.CreationTimeUtc = $metadataTimestamp
+    $item.LastWriteTimeUtc = $metadataTimestamp
+  }
+  $metadataA = Get-TreeMetadataFingerprint -Path $metadataRootA
+  $metadataB = Get-TreeMetadataFingerprint -Path $metadataRootB
+  if ($metadataA.Hash -cne $metadataB.Hash -or $metadataA.Entries -ne $metadataB.Entries) {
+    throw 'Metadata-only tree fingerprint depended on equal-length file contents.'
+  }
+  (Get-Item -LiteralPath $metadataFileB -Force).LastWriteTimeUtc = $metadataTimestamp.AddSeconds(1)
+  $metadataChanged = Get-TreeMetadataFingerprint -Path $metadataRootB
+  if ($metadataA.Hash -ceq $metadataChanged.Hash) {
+    throw 'Metadata-only tree fingerprint ignored a file mtime change.'
   }
   Add-Result -Name 'harness_input_safety' -Status 'PASS' -Detail 'The runner rejects default and non-temporary user-data-dir inputs before starting a browser.'
   Add-Result -Name 'harness_regression_guards' -Status 'PASS' -Detail 'Caller parameters, temporary-root boundaries, short acceptance-root generation, Windows build classification, empty events, strict CDP/Native Host response parsing, non-allowlisted origin generation, and formal extension-ID filtering passed pure self-tests.'

@@ -77,6 +77,8 @@ pub struct RuntimeManager {
     health_context: Option<RuntimeHealthContext>,
     engine_runtime: Option<EngineRuntimeProtocol>,
     profile_lease: Option<BrowserProfileLease>,
+    #[cfg(target_os = "windows")]
+    pending_stock_profile_release: Option<PathBuf>,
     record_path: Option<PathBuf>,
     record: Option<RuntimeRecord>,
     #[cfg(test)]
@@ -744,6 +746,17 @@ impl RuntimeManager {
                 .is_some_and(|record| record.state != RuntimeState::Stopped)
     }
 
+    fn stock_profile_release_pending(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            self.pending_stock_profile_release.is_some()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            false
+        }
+    }
+
     /// Reconciles a previous desktop session without terminating a process or
     /// deleting a browser-owned Profile lock. PID alone is never treated as
     /// proof: a live process and Profile lock are considered together.
@@ -946,6 +959,10 @@ impl RuntimeManager {
         self.health_context = None;
         self.engine_runtime = None;
         self.profile_lease = None;
+        #[cfg(target_os = "windows")]
+        {
+            self.pending_stock_profile_release = None;
+        }
         self.record = None;
         if let Some(path) = self.record_path.as_ref() {
             // The Vault is already committed. Stale-record cleanup is
@@ -1813,6 +1830,12 @@ impl RuntimeManager {
                 "该 Silo 当前没有可重新检查的活动或待恢复会话。".to_owned(),
             ));
         }
+        if self.stock_profile_release_pending() {
+            return Ok(self
+                .activation
+                .clone()
+                .expect("pending stock Profile release has an activation"));
+        }
         if self
             .health_context
             .as_ref()
@@ -1949,6 +1972,12 @@ impl RuntimeManager {
                 "该 Silo 当前没有可重新绑定的活动或待恢复会话。".to_owned(),
             ));
         }
+        if self.stock_profile_release_pending() {
+            return Err(LauncherError::InvalidNetwork(
+                "受管浏览器进程已退出，但 Chromium Profile 锁仍未释放；在 Silo 回到空闲前不会重绑网络。"
+                    .to_owned(),
+            ));
+        }
         if self
             .health_context
             .as_ref()
@@ -2002,6 +2031,7 @@ impl RuntimeManager {
         failure: RuntimeNetworkFailure,
         persist_runtime_record: bool,
     ) {
+        let stock_profile_release_pending = self.stock_profile_release_pending();
         let (silo_id, runtime_id, required, expected_relay, secret_revoked) = {
             let Some(context) = self.health_context.as_mut() else {
                 return;
@@ -2021,7 +2051,11 @@ impl RuntimeManager {
         let relay_closed = self.shutdown_relay_for_runtime(silo_id, runtime_id);
         let now = Utc::now();
         if let Some(activation) = self.activation.as_mut() {
-            activation.state = RuntimeState::VerificationFailed;
+            activation.state = if stock_profile_release_pending {
+                RuntimeState::RecoveryRequired
+            } else {
+                RuntimeState::VerificationFailed
+            };
             activation.updated_at = now;
             if let Some(evidence) = activation.network_evidence.as_mut() {
                 invalidate_network_evidence(evidence, failure, now);
@@ -2050,7 +2084,11 @@ impl RuntimeManager {
             ));
         }
         if persist_runtime_record {
-            self.persist_current_record(RuntimeState::VerificationFailed);
+            self.persist_current_record(if stock_profile_release_pending {
+                RuntimeState::RecoveryRequired
+            } else {
+                RuntimeState::VerificationFailed
+            });
         }
     }
 
@@ -2244,6 +2282,11 @@ impl RuntimeManager {
         cancelled: &AtomicBool,
         persist_runtime_record: bool,
     ) {
+        #[cfg(target_os = "windows")]
+        if self.child.is_none() && self.refresh_pending_stock_profile_release() {
+            return;
+        }
+
         let child_status = self
             .child
             .as_mut()
@@ -2360,6 +2403,51 @@ impl RuntimeManager {
                 }
                 return;
             }
+
+            #[cfg(target_os = "windows")]
+            if let Some((silo_id, profile_directory)) = self
+                .health_context
+                .as_ref()
+                .filter(|context| {
+                    context.silo.execution_target.is_local() && context.silo.engine.is_stock()
+                })
+                .map(|context| (context.silo.id, context.silo.engine_profile_directory()))
+            {
+                let pending_message = match chromium_profile_sentinel_exists(&profile_directory) {
+                    Ok(false) => None,
+                    Ok(true) => Some(
+                        "受管浏览器进程已退出，但 Chromium Profile 锁仍存在；VeriSilo 将继续核对，且不会启动另一个 Silo 或删除浏览器锁。"
+                            .to_owned(),
+                    ),
+                    Err(error) => Some(format!(
+                        "受管浏览器进程已退出，但无法确认 Chromium Profile 锁是否已释放：{error}。VeriSilo 将保持锁定并继续核对。"
+                    )),
+                };
+                if let Some(message) = pending_message {
+                    self.pending_stock_profile_release = Some(profile_directory);
+                    self.activation = Some(RuntimeActivation {
+                        active_silo_id: Some(silo_id),
+                        state: RuntimeState::RecoveryRequired,
+                        updated_at: Utc::now(),
+                        message: Some(message),
+                        browser_verification,
+                        engine_evidence,
+                        network_evidence,
+                    });
+                    // Exact child exit is a terminal ownership transition. It
+                    // must reach disk even when the watchdog observed it first.
+                    self.persist_current_record(RuntimeState::RecoveryRequired);
+                    return;
+                }
+            }
+
+            #[cfg(target_os = "windows")]
+            let stock_profile_release_completed =
+                self.health_context.as_ref().is_some_and(|context| {
+                    context.silo.execution_target.is_local() && context.silo.engine.is_stock()
+                });
+            #[cfg(not(target_os = "windows"))]
+            let stock_profile_release_completed = false;
             self.profile_lease = None;
             self.health_context = None;
             self.activation = Some(RuntimeActivation {
@@ -2378,7 +2466,7 @@ impl RuntimeManager {
                 engine_evidence,
                 network_evidence,
             });
-            if persist_runtime_record {
+            if persist_runtime_record || stock_profile_release_completed {
                 self.persist_current_record(RuntimeState::Stopped);
             }
             return;
@@ -2526,6 +2614,41 @@ impl RuntimeManager {
         if let Some(path) = self.record_path.as_ref() {
             let _ = write_runtime_record(path, record);
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn refresh_pending_stock_profile_release(&mut self) -> bool {
+        let Some(profile_directory) = self.pending_stock_profile_release.clone() else {
+            return false;
+        };
+        match chromium_profile_sentinel_exists(&profile_directory) {
+            Ok(false) => {
+                self.pending_stock_profile_release = None;
+                self.profile_lease = None;
+                self.health_context = None;
+                if let Some(activation) = self.activation.as_mut() {
+                    activation.active_silo_id = None;
+                    activation.state = RuntimeState::Stopped;
+                    activation.updated_at = Utc::now();
+                    activation.message = Some(
+                        "受管浏览器进程与 Chromium Profile 锁均已释放；Silo 已回到空闲。"
+                            .to_owned(),
+                    );
+                }
+                self.persist_current_record(RuntimeState::Stopped);
+            }
+            Ok(true) => self.persist_current_record(RuntimeState::RecoveryRequired),
+            Err(error) => {
+                if let Some(activation) = self.activation.as_mut() {
+                    activation.updated_at = Utc::now();
+                    activation.message = Some(format!(
+                        "无法确认 Chromium Profile 锁是否已释放：{error}。VeriSilo 将保持锁定并继续核对。"
+                    ));
+                }
+                self.persist_current_record(RuntimeState::RecoveryRequired);
+            }
+        }
+        true
     }
 }
 
@@ -6340,6 +6463,169 @@ process.stdin.on('end', () => {
         let activation = runtime.activation();
         assert!(activation.active_silo_id.is_none());
         assert!(matches!(activation.state, RuntimeState::Failed));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn stock_child_exit_waits_for_chromium_profile_release_before_stopping() {
+        let silo = test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        let profile = std::path::PathBuf::from(&silo.profile_directory);
+        let profile_lease = crate::vault::BrowserProfileLease::acquire_for_runtime(
+            &silo.all_engine_profile_directories(),
+            &profile,
+        )
+        .expect("acquire runtime Profile lease");
+        let chromium_lock = profile.join(crate::vault::CHROMIUM_PROFILE_SENTINEL_NAMES[0]);
+        fs::write(&chromium_lock, []).expect("create Chromium Profile sentinel");
+
+        let child = std::process::Command::new("cmd.exe")
+            .args(["/C", "exit", "0"])
+            .spawn()
+            .expect("spawn completed stock child fixture");
+        let pid = child.id();
+        let evidence = RuntimeNetworkEvidence::configured(&silo.network_profile, false);
+        let runtime_id = evidence.runtime_id;
+        let silo_id = silo.id;
+        let silo_for_recheck = silo.clone();
+        let record_path = profile.join("runtime").join("browser-session.json");
+        let now = Utc::now();
+        let record = RuntimeRecord {
+            silo_id,
+            pid,
+            started_at: now,
+            last_seen_at: now,
+            state: RuntimeState::Running,
+        };
+        write_runtime_record(&record_path, &record).expect("persist running stock record");
+        let mut runtime = RuntimeManager {
+            child: Some(child),
+            activation: Some(RuntimeActivation {
+                active_silo_id: Some(silo_id),
+                state: RuntimeState::Running,
+                updated_at: Utc::now(),
+                message: None,
+                browser_verification: None,
+                engine_evidence: None,
+                network_evidence: Some(evidence),
+            }),
+            health_context: Some(RuntimeHealthContext {
+                silo,
+                runtime_id,
+                compromised: false,
+                mihomo_authentication: None,
+                mihomo_guard: None,
+            }),
+            profile_lease: Some(profile_lease),
+            record_path: Some(record_path.clone()),
+            record: Some(record),
+            ..RuntimeManager::default()
+        };
+        while runtime
+            .child
+            .as_mut()
+            .expect("fixture child")
+            .try_wait()
+            .expect("query fixture child")
+            .is_none()
+        {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let waiting = runtime.activation_for_watchdog(
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        assert_eq!(waiting.state, RuntimeState::RecoveryRequired);
+        assert_eq!(waiting.active_silo_id, Some(silo_id));
+        assert!(runtime.profile_lease.is_some());
+        assert_eq!(
+            super::read_runtime_record(&record_path)
+                .expect("read pending stock record")
+                .expect("pending stock record exists")
+                .state,
+            RuntimeState::RecoveryRequired
+        );
+
+        let rechecked = runtime
+            .recheck_active(&silo_for_recheck, None, None)
+            .expect("pending stock Profile release remains recheckable");
+        assert_eq!(rechecked.state, RuntimeState::RecoveryRequired);
+        assert_eq!(rechecked.active_silo_id, Some(silo_id));
+        assert!(runtime.profile_lease.is_some());
+
+        fs::remove_file(&chromium_lock).expect("release Chromium Profile sentinel");
+        let stopped = runtime.activation();
+        assert_eq!(stopped.state, RuntimeState::Stopped);
+        assert!(stopped.active_silo_id.is_none());
+        assert!(runtime.profile_lease.is_none());
+        assert_eq!(
+            super::read_runtime_record(&record_path)
+                .expect("read stopped stock record")
+                .expect("stopped stock record exists")
+                .state,
+            RuntimeState::Stopped
+        );
+
+        let completed_child = std::process::Command::new("cmd.exe")
+            .args(["/C", "exit", "0"])
+            .spawn()
+            .expect("spawn second completed stock child fixture");
+        let second_evidence =
+            RuntimeNetworkEvidence::configured(&silo_for_recheck.network_profile, false);
+        runtime.child = Some(completed_child);
+        runtime.activation = Some(RuntimeActivation {
+            active_silo_id: Some(silo_id),
+            state: RuntimeState::Running,
+            updated_at: Utc::now(),
+            message: None,
+            browser_verification: None,
+            engine_evidence: None,
+            network_evidence: Some(second_evidence.clone()),
+        });
+        runtime.health_context = Some(RuntimeHealthContext {
+            silo: silo_for_recheck.clone(),
+            runtime_id: second_evidence.runtime_id,
+            compromised: false,
+            mihomo_authentication: None,
+            mihomo_guard: None,
+        });
+        runtime.profile_lease = Some(
+            crate::vault::BrowserProfileLease::acquire_for_runtime(
+                &silo_for_recheck.all_engine_profile_directories(),
+                &profile,
+            )
+            .expect("reacquire runtime Profile lease"),
+        );
+        runtime.persist_current_record(RuntimeState::Running);
+        while runtime
+            .child
+            .as_mut()
+            .expect("second fixture child")
+            .try_wait()
+            .expect("query second fixture child")
+            .is_none()
+        {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let stopped_by_watchdog = runtime.activation_for_watchdog(
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        assert_eq!(stopped_by_watchdog.state, RuntimeState::Stopped);
+        assert!(stopped_by_watchdog.active_silo_id.is_none());
+        assert_eq!(
+            super::read_runtime_record(&record_path)
+                .expect("read watchdog-stopped stock record")
+                .expect("watchdog-stopped stock record exists")
+                .state,
+            RuntimeState::Stopped
+        );
+
+        drop(runtime);
+        fs::remove_dir_all(profile).expect("remove stock exit fixture");
     }
 
     #[test]

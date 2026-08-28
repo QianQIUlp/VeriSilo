@@ -19,7 +19,9 @@ const options = {
   format: "esm",
   outdir,
   platform: "browser",
-  sourcemap: true,
+  // Store and local-test packages contain only executable extension assets.
+  // Watch mode keeps maps for development without shipping source maps.
+  sourcemap: process.argv.includes("--watch"),
   target: ["chrome120", "edge120"],
   legalComments: "linked",
 };
@@ -29,6 +31,9 @@ await mkdir(outdir, { recursive: true });
 await cp(resolve(root, "manifest.json"), resolve(outdir, "manifest.json"));
 await cp(resolve(root, "sidepanel.html"), resolve(outdir, "sidepanel.html"));
 await cp(resolve(root, "icons"), resolve(outdir, "icons"), {
+  recursive: true,
+});
+await cp(resolve(root, "_locales"), resolve(outdir, "_locales"), {
   recursive: true,
 });
 

@@ -27,14 +27,18 @@ const report: ObservationReport = {
 describe("report export", () => {
   it("redacts high-sensitivity signal values by default", () => {
     expect(redactObservationReport(report).signals[0]?.value).toBe(
-      "[redacted by default]",
+      "[默认隐藏]",
     );
   });
 
   it("escapes report values in the HTML export", () => {
     const html = reportAsHtml(report);
     expect(html).not.toContain("<sensitive>");
-    expect(html).toContain("关键身份");
+    expect(html).toContain("关键浏览器信号");
+    expect(html).toContain("覆盖范围有限");
+    expect(html).toContain("不是身份认证");
+    expect(html).toContain("图形绘制特征摘要");
+    expect(html).not.toContain("canvas_hash");
     expect(html).toContain("技术数据（默认已脱敏）");
   });
 
@@ -57,6 +61,16 @@ describe("report export", () => {
     });
 
     expect(html).not.toContain(renderer);
-    expect(html).toContain("[redacted by default]");
+    expect(html).toContain("[默认隐藏]");
+  });
+
+  it("exports a readable English report when English is selected", () => {
+    const html = reportAsHtml(report, "en");
+
+    expect(html).toContain('<html lang="en">');
+    expect(html).toContain("VeriSilo Local Browser Signal Report");
+    expect(html).toContain("Key browser signals");
+    expect(html).toContain("Graphics-rendering fingerprint summary");
+    expect(html).not.toContain("当前页面观测");
   });
 });

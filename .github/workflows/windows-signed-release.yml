@@ -178,7 +178,7 @@ jobs:
       - name: Build Native Messaging Host and stage immutable bundle resources
         shell: pwsh
         run: |
-          cargo build --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc --bin verisilo-native-host
+          cargo build --locked --release --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc --features native-host --bin verisilo-native-host
           node scripts/stage-windows-bundle.mjs --host apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/verisilo-native-host.exe --config artifacts/native-host/native-host-release-config.json
           node scripts/stage-windows-bundle.mjs --host apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/verisilo-native-host.exe --config artifacts/native-host/native-host-release-config.json --check
 

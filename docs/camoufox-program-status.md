@@ -29,6 +29,51 @@ Standard Silo 长期保留；近期只关闭一个 Camoufox Managed Engine 垂�
 Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、`observed`、
 `verified` 与 `unavailable` 不混用。
 
+## M3 研究结论
+
+- M3-0 在 `e96ef3f` 关闭了 fake Host package、transport、failure matrix、
+  RuntimeManager lifecycle 和 evidence 语义；它没有真实浏览器 run-id。
+- M3-WI 的 R2 十周期真实 soak 证明同一 Profile、Cookie 和 observed digest 可以在
+  一次受控序列中稳定保持，但同一 Host/test 源码的后续 Host matrix 六次只有一次通过。
+- 最后的 R2H test-only 候选为 `186484f` / tree `e33d6d6`。预声明序列的 persistence
+  与 lock-crash 各通过一次，第三项 persistence 在第二 Host `launch` 等待 stdout
+  response 120 秒后失败；没有重试、没有 evidence manifest、没有 Accepted commit。
+- 主脑终局：**M3-WI failed**。Camoufox Windows Managed 集成为 experimental，
+  productionization 暂停；不再创建 R3/R4 或新的 test-only 子 Gate。
+
+## Standard Silo Windows preview 首次执行
+
+- 主脑合同提交为 `944dff9`；产品候选为 `b93259a` / tree `76eb5f3`，只修改创建页、
+  UI contract test、样式和人工 Windows runbook。
+- 候选让 Edge-only/Chrome-only 机器自动选择首个有效浏览器，默认路径收敛到
+  Local + Direct；WSL、手工路径与网络配置进入高级设置；本机 stock Silo 运行时短周期
+  核对状态，并诚实展示 `native`、`inherit`、`unavailable`。
+- `pnpm` check/test/build、desktop Rust fmt/test 和 unsigned desktop-only build 通过；
+  起点已有的两项 WSL Clippy warning 未在本任务越界修复。既有 Windows acceptance
+  driver 缺少 `execution_target`，由 `5b09f04` 仅补 `SiloExecutionTarget::Local` 后编译通过。
+- 正式 Edge/desktop-core acceptance 没有开始。执行 Agent 错误地用裸
+  `msedge.exe --version` 探测版本，Edge 实际以默认 Profile 启动；虽从启动前零 Edge
+  进程出发并按精确根 PID 回收整个新进程树，因没有启动前 Profile 指纹，默认 Profile
+  是否被修改为 **unknown**。
+- 主脑 Gate：**failed**。没有 desktop-core receipt、browser E2E summary 或真实 preview
+  smoke，unsigned 构建不得作为 Accepted、正式 installer 或 shipped 产品使用；不自动
+  重试，不读取用户 Edge Profile，也不删除或改写现场。
+
+## Standard/Profile Isolation Windows local Preview 收口
+
+- 最终产品 checkpoint 为 `aa72eadaf8300d1cd33a2c32173c06e3e677ca89` / tree
+  `cd126770be02a33c6bb698853813512748b894c8`。原生 Windows Server 上的 source-bound
+  desktop-core acceptance、Edge A/B Profile 与冷启动持久化、默认 Profile metadata
+  前后核对及真实 Preview smoke 已通过；上节记录的历史默认 Profile 影响仍保持
+  **unknown**，本次 metadata 一致只证明本次没有新增影响。
+- 交付物是 **unsigned local Preview**，不是签名 installer、shipped release 或正式发布。
+  已验证平台是 Windows Server；正常 Windows 10/11 client release matrix 仍待补充。
+- Standard/Profile Isolation 只包含独立 Profile、网站状态持久化、单活 ownership 和本机
+  Chrome/Edge 生命周期。它不包含 Managed Identity、设备或浏览器指纹虚拟化、代理隔离、
+  WSL/Remote/Hyper-V 或整机虚拟化。
+- Camoufox 仍在独立 Managed Engine 工作树继续调查，不进入这条产品集成链。Profile
+  隔离层从本 checkpoint 起冻结；除真实回归缺陷外不再扩张。
+
 ## 当前 Gate
 
 | 能力 | 当前结论 |

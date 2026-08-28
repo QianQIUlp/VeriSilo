@@ -21,6 +21,17 @@ The inventory contains development, build, optional, target-specific, and
 transitive packages. Presence in the lockfile inventory does not by itself mean a
 component is linked into or distributed with a Windows artifact.
 
+## Bundled UI icons
+
+- **Heroicons v2.2.0:** the browser extension bundles six unmodified 24px
+  outline SVG icons from
+  <https://github.com/tailwindlabs/heroicons/tree/0435d4ca364a608cc75e2f8683d374e55abbae26/optimized/24/outline>.
+  Upstream tag `v2.2.0` resolves to commit
+  `0435d4ca364a608cc75e2f8683d374e55abbae26`. Heroicons is MIT licensed,
+  Copyright (c) Tailwind Labs, Inc. The distributed license text is retained at
+  `apps/extension/icons/ui/HEROICONS-LICENSE.txt`. These files are unmodified
+  upstream assets, not a derivative icon set.
+
 Windows release candidates also include `dependency-licenses.json`. It
 cross-checks the lockfiles against `pnpm licenses list` and `cargo metadata` for
 the Windows target, strips runner-local paths, and leaves unmatched lock entries

@@ -116,7 +116,7 @@ Build and registration are intentionally separate:
 $env:VERISILO_CHROME_EXTENSION_ID = '<published Chrome ID>'
 $env:VERISILO_EDGE_EXTENSION_ID = '<published Edge ID>'
 node scripts/prepare-native-host-release.mjs --out artifacts/native-host
-cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --release --bin verisilo-native-host
+cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --release --features native-host --bin verisilo-native-host
 pwsh -File scripts/install-native-host.ps1 `
   -HostPath '<installed-dir>\verisilo-native-host.exe' `
   -ReleaseConfigPath 'artifacts\native-host\native-host-release-config.json'
