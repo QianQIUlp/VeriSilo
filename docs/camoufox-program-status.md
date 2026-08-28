@@ -46,6 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate contract 已冻结，runtime 尚未执行**；不构成 compatibility pass |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -59,7 +60,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-0 ordinary-site compatibility Gate definition
+### FP4-1 native Windows ordinary-site discriminator
 
 FP3-1b 已在冻结 Formal-v3 candidate、Artifact v6、required SOCKS5 route 与 direct negative control
 上闭合。原生 Windows Attempt 7 直接观察到 exact route binding、香港代理出口、Artifact
@@ -67,9 +68,14 @@ timezone/locale/Geolocation、匹配出口的 ICE `srflx` address 与 clean life
 managed Host 以 Artifact 坐标设置 Playwright persistent context；不声明 Camoufox 原生 Geo provider。
 合同见 [FP3 network identity contract](camoufox-fp3-network-identity-contract.md)。
 
-按已接受架构顺序，下一项最高价值 Gate 是 **FP4 ordinary-site compatibility**。当前先定义最小
-普通站点集合、必须完成的用户任务和判败条件；尚未选择站点或生成 runtime evidence。该 Gate
-涉及新的产品验收语义及外部站点浏览器执行，需单独冻结输入后再进入。
+FP4 合同已冻结两个匿名 HTTPS 用户任务：`example.com` 到 IANA 的文档导航，以及 Wikipedia
+搜索 `Web browser`。两项任务必须在同一 fresh Profile/Host 会话内全部完成，随后 Host、浏览器
+process tree 与 Job 必须 clean close；没有重试、换站或 fallback。合同见
+[FP4 ordinary-site compatibility contract](camoufox-fp4-ordinary-site-compatibility-contract.md)。
+
+当前下一步是实现最小 evidence-only Host wrapper 和 focused adjudication check，提交并同步该
+静态输入后，使用 exact Formal-v3、FP3 Artifact v6 与 required SOCKS5 `127.0.0.1:7897` 执行
+一次原生 Windows immutable attempt。尚未生成 FP4 runtime evidence，不声明 compatibility pass。
 
 ## 后续 Gate 顺序
 
@@ -80,7 +86,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（下一 Gate，未进入）
+→ FP4 ordinary-site compatibility（合同已冻结；native discriminator 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
