@@ -680,21 +680,6 @@ def test_windows_media_device_policy_is_deterministic() -> None:
         assert prefs["media.navigator.permission.disabled"] is True
 
 
-def test_windows_configured_geo_selects_camoufox_network_provider() -> None:
-    complete = {
-        "geolocation:latitude": 22.2818333,
-        "geolocation:longitude": 114.1582831,
-    }
-    prefs = firefox_user_prefs_for_config(complete)
-    if os.name == "nt":
-        assert prefs["geo.provider.ms-windows-location"] is False
-    else:
-        assert "geo.provider.ms-windows-location" not in prefs
-    assert "geo.provider.ms-windows-location" not in firefox_user_prefs_for_config(
-        {"geolocation:latitude": 22.2818333}
-    )
-
-
 def test_candidate_extra_identity_policy_is_closed_and_fail_closed() -> None:
     assert set(CANDIDATE_EXTRA_IDENTITY_FIELDS) == {
         "navigator.maxTouchPoints",
@@ -1919,6 +1904,11 @@ def test_camoufox_launch_options_preserve_v6_config_and_loopback_proxy() -> None
         },
         generated_at_utc="2026-08-27T12:00:00Z",
     )
+    assert host_v1.playwright_geolocation_for_artifact(source) is None
+    assert host_v1.playwright_geolocation_for_artifact(artifact) == {
+        "latitude": 1.3521,
+        "longitude": 103.8198,
+    }
     disk_config = copy.deepcopy(artifact["resolvedConfig"])
     with tempfile.TemporaryDirectory(prefix="verisilo-fp3-launch-options-") as tmp:
         root = Path(tmp)

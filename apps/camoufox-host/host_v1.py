@@ -523,6 +523,18 @@ def validate_browser_proxy_server(value: Any) -> str:
     return value
 
 
+def playwright_geolocation_for_artifact(
+    artifact: dict[str, Any],
+) -> Optional[dict[str, float]]:
+    network_identity = artifact.get("networkIdentity")
+    if type(network_identity) is not dict:
+        return None
+    return {
+        "latitude": network_identity["latitude"],
+        "longitude": network_identity["longitude"],
+    }
+
+
 def validate_request(obj: dict) -> tuple[str, str, dict]:
     unknown = set(obj) - REQUEST_FIELDS
     if unknown:
@@ -988,6 +1000,9 @@ class CamoufoxHost:
                         }
                     ),
                 )
+        geolocation = playwright_geolocation_for_artifact(artifact)
+        if geolocation is not None:
+            opts["geolocation"] = geolocation
         opts["executable_path"] = str(SUPERVISOR)
 
         with _active_launch_stage("launch_persistent_context"):
