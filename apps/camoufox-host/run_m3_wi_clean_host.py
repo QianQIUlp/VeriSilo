@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Clean M3-WI Attempt 2 Host entrypoint (native Windows, evidence-only)."""
+"""Clean M3-WI Host entrypoint (native Windows, evidence-only)."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ BASE_HOST = host_v1.CamoufoxHost
 
 def main() -> int:
     if os.name != "nt":
-        raise fp3.FP3HostError("clean M3-WI Attempt 2 requires native Windows")
+        raise fp3.FP3HostError("clean M3-WI requires native Windows")
     if "--child-host" in sys.argv:
         sys.argv.remove("--child-host")
     fp3.patch_host()

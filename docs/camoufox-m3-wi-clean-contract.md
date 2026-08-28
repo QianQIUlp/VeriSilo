@@ -1,6 +1,6 @@
 # Clean M3-WI 原生 Windows Desktop / Real Host 合同
 
-- 状态：**Attempt 1 immutable Failed；Attempt 2 corrected input frozen**
+- 状态：**Attempts 1–2 immutable Failed；Attempt 3 corrected input frozen**
 - 冻结日期：2026-08-28
 - 执行分支：`codex/camoufox-m3-engine-adapter`
 - definition 基线：`02e5bad7962aabcf44839e3a69c7c5d21d7b7927`
@@ -136,9 +136,9 @@ focused test 只需证明 Profile binding 可升格、Template-derived identity 
   `68d78d0f414d90545691560858b46ed179ee163b7258306c44f0d850bcde6204`；`camoufox.exe`
   SHA-256 `b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f142a6`。
 - Host source：`apps/camoufox-host/host_v1.py`，SHA-256
-  `b3b313d4cf6d2eaadceaff4320e5a6bb8afb5d39212652b2c51474eb6809aad0`。Attempt 2 通过
+  `b3b313d4cf6d2eaadceaff4320e5a6bb8afb5d39212652b2c51474eb6809aad0`。Attempt 3 通过
   `apps/camoufox-host/run_m3_wi_clean_host.py`（SHA-256
-  `d61091e550d8901fae52344aa94577b3040698ab4c1a7425635870f2b048719e`）进入；该薄入口只复用已存在的
+  `2015e91bf0902cc6b7276aadb6e8589ca728eb0dc11791a457d0b9744bae5ee8`）进入；该薄入口只复用已存在的
   `apps/camoufox-host/run_fp3_1b_windows.py` Formal-v3 exact lock/tree 校验 hooks（SHA-256
   `73a4fe9b20a95588d8bd03335aeffddf2a93b53cd0ddf9c24301ea99d6437785`），然后恢复基础
   `host_v1.CamoufoxHost`，不使用 FP3 的 `FP3ManagedHost`，因此不执行出口、Geo、Geolocation 或
@@ -147,23 +147,28 @@ focused test 只需证明 Profile binding 可升格、Template-derived identity 
   `41f63b2c12c3102573266b4d9ac002fbd29f7f95cc3d291b8a41d09e411f8f6f`。
 - Network Policy：required unauthenticated SOCKS5 `127.0.0.1:7897`。执行前只做一次
   `Test-NetConnection 127.0.0.1 -Port 7897`；失败则不创建 attempt、不启动浏览器。
-- 尝试：`clean-m3-wi-attempt-1` 保持 immutable Failed；修正后的新 code/input 使用
-  `clean-m3-wi-attempt-2`。这不是 retry/recovery Gate，不引入 delay、sample rotation、cache
-  workaround 或 site fallback。
+- 尝试：`clean-m3-wi-attempt-1` 与 `clean-m3-wi-attempt-2` 保持 immutable Failed；修正后的新
+  code/input 使用 `clean-m3-wi-attempt-3`。这不是 retry/recovery Gate，不引入 delay、sample
+  rotation、cache workaround 或 site fallback。
 
-Attempt 2 已取得 native Windows browser authorization；本 Gate 不需要也不访问出口 IP、Geo、
+Attempt 3 沿用本 Gate 已取得的 native Windows browser authorization；本 Gate 不需要也不访问出口 IP、Geo、
 Geolocation、ICE/STUN 或 ordinary-site 外部检查服务。
 
-## Attempt 1 直接结论与修正边界
+## Attempts 1–2 直接结论与修正边界
 
 Attempt 1 的 `run-report.json` 与 `native-evidence.json` 保持不可变 Failed。它在 Phase A 的 Host hello
 前直接失败，浏览器没有启动。独立 hello-only 诊断证明基础 Host 的 `run_spike` asset allowlist 只接受
 official/旧 canvas-v1 lock，因而拒绝本合同冻结的 Formal-v3 runtime lock；该 `SystemExit` 写入已被
 launcher 丢弃的 OS stderr，最终只表现为 stdout EOF。工程 Gate 仍 open。
 
-Attempt 2 只纠正这个已证明的输入接缝：clean-only entrypoint 复用 FP3 已有的 Formal-v3 严格 lock/tree
-验证，但恢复并运行基础 `CamoufoxHost`。它不扩大共享 `run_spike` trust allowlist，不改变 Profile、
-Artifact、Engine 或 Network 生命周期，也不复用 FP3 的外部网络采集。
+Attempt 2 通过了上述 Formal-v3 Host 准备并返回了可解析 hello，但在发送 `launch` 前被严格 root binding
+拒绝，浏览器仍未启动。直接探针证明 clean test 的 Rust `join("runtime/app")` 保留 `/`，而 Python
+`Path.absolute()` 将同一路径正规化为 `\`；validator 对三个 typed roots 做精确字符串比较，因此必然
+不相等。
+
+Attempt 3 只把该 test-owned root 改为逐组件 `join("runtime").join("app")`。clean-only entrypoint 仍只
+复用 FP3 已有的 Formal-v3 严格 lock/tree 验证并恢复基础 `CamoufoxHost`；它不扩大共享 `run_spike`
+trust allowlist，不改变 Profile、Artifact、Engine 或 Network 生命周期，也不复用 FP3 外部网络采集。
 
 ## Owning seam
 
@@ -189,7 +194,7 @@ plan，`package_verification=None`，且不得进入 non-test build。plan 形�
 
 ## 唯一执行序列
 
-1. 从 clean synced Attempt 2 implementation commit 创建一个 run-owned root，复制精确 Artifact 与 sidecar；
+1. 从 clean synced Attempt 3 implementation commit 创建一个 run-owned root，复制精确 Artifact 与 sidecar；
    记录 code revision/tree/origin、合同 SHA、Python path/version 和全部冻结输入 hash。
 2. Phase A：新 `RuntimeManager` 启动同一 Silo；要求 `Running`、exact Artifact/Profile/Engine binding、
    Host status 中唯一 relay URI、`ProfileIsolation=applied`，Template-derived identity capabilities
@@ -221,7 +226,7 @@ focused test 未通过表示实现前置条件尚未满足：不创建 attempt�
 保持 open。冻结输入可用且 attempt 已开始后，任一 RuntimeManager/adapter/relay/JSONL Host binding、
 第二周期、Profile continuity 或 clean-stop 必需判据直接失败，才裁决该 attempt 为 Failed。Failed
 attempt 保持不可变；找到新且有证据的根因后，任何修复都构成新 code/input 与新 attempt，不重写
-Attempt 1，也不创建 recovery Gate。
+任何 Failed attempt，也不创建 recovery Gate。
 
 ### Inconclusive
 

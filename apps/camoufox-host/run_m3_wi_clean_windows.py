@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the immutable clean M3-WI Attempt 2 qualification."""
+"""Run the immutable clean M3-WI Attempt 3 qualification."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOST_DIR = Path(__file__).resolve().parent
 BRANCH = "codex/camoufox-m3-engine-adapter"
-ATTEMPT_ROOT = REPO_ROOT / "artifacts/camoufox-m3-wi-clean-attempt-2"
+ATTEMPT_ROOT = REPO_ROOT / "artifacts/camoufox-m3-wi-clean-attempt-3"
 CONTRACT = REPO_ROOT / "docs/camoufox-m3-wi-clean-contract.md"
-CONTRACT_SHA256 = "2486e7c132e45d082ce51b58a857e7b95b24a612a419dc6d16f2d90fb7fde793"
+CONTRACT_SHA256 = "0cbb603717578caf22a3704d6ffd9e1f07faf02baae86f6e9d5c933a395a2dbb"
 ARTIFACT = REPO_ROOT / (
     "artifacts/camoufox-fp3-1b-attempt-7/identity-fp3-1b-formal-v3-a.json"
 )
@@ -47,7 +47,7 @@ ARCHIVE_SHA256 = "032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2ab
 HOST_SOURCE = HOST_DIR / "host_v1.py"
 HOST_SOURCE_SHA256 = "b3b313d4cf6d2eaadceaff4320e5a6bb8afb5d39212652b2c51474eb6809aad0"
 HOST_ENTRYPOINT = HOST_DIR / "run_m3_wi_clean_host.py"
-HOST_ENTRYPOINT_SHA256 = "d61091e550d8901fae52344aa94577b3040698ab4c1a7425635870f2b048719e"
+HOST_ENTRYPOINT_SHA256 = "2015e91bf0902cc6b7276aadb6e8589ca728eb0dc11791a457d0b9744bae5ee8"
 FORMAL_INPUT_BINDER = HOST_DIR / "run_fp3_1b_windows.py"
 FORMAL_INPUT_BINDER_SHA256 = "73a4fe9b20a95588d8bd03335aeffddf2a93b53cd0ddf9c24301ea99d6437785"
 UV_LOCK = HOST_DIR / "uv.lock"
@@ -314,8 +314,8 @@ def execute() -> str:
         status = "inconclusive"
     report = {
         "schema": "verisilo-camoufox-m3-wi-clean-run-report/v1",
-        "attempt": 2,
-        "runId": "clean-m3-wi-attempt-2",
+        "attempt": 3,
+        "runId": "clean-m3-wi-attempt-3",
         "startedAtUtc": started_at,
         "completedAtUtc": completed_at,
         "status": status,

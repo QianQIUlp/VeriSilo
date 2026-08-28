@@ -1581,7 +1581,7 @@ fn run_m3_wi_clean_two_cycle(
 ) {
     assert_eq!(required_env("VERISILO_M3_WI_CLEAN_ALLOW_REAL_BROWSER"), "1");
     let run_dir = evidence_path.parent().expect("clean M3-WI attempt root");
-    let root = run_dir.join("runtime/app");
+    let root = run_dir.join("runtime").join("app");
     assert!(!root.exists(), "clean M3-WI runtime root already exists");
     let artifact_root = root.join("camoufox/artifacts");
     fs::create_dir_all(&artifact_root).expect("create clean M3-WI Artifact root");
