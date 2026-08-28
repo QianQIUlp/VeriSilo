@@ -47,8 +47,8 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
 | FP4 ordinary-site compatibility | **Passed on this native Windows host**；精确 V5 六项 task、Profile replay 与 clean lifecycle 全部通过，`verified:false` |
-| clean M3-WI | evidence-semantics 修正与 focused test 已闭合；Attempts 1–3 immutable Failed；Attempt 4 输入已冻结，等待 native two-cycle qualification |
-| production package/signing/UI | **未开放** |
+| clean M3-WI | **Passed on this native Windows host** at Attempt 4；真实 Desktop RuntimeManager / test-only adapter / Host / Browser 两周期闭合，`verified:false` |
+| production package/signing/UI | M3-P1 package/signing 是当前下一 Gate；signer 与可分发 package input 尚未批准，installer/UI/release 未开放 |
 
 ## 当前未证明的边界
 
@@ -56,43 +56,33 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 - 实际浏览器 DNS 路径、TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
 - FP3 不证明 Camoufox 原生 Geolocation provider 或 exhaustive native address inventory；
 - FP4 只覆盖冻结的 V5 live-site matrix，不声明 universal compatibility；login、payment 与 CAPTCHA 未测试；
-- Camoufox 通用 `IdentityTemplate` 与 Resolved Artifact binding 仍没有语义绑定；focused 修正已阻止
-  generic Host running evidence 把 Template-derived identity capability 升格为 `applied`，但真实 desktop
-  two-cycle 的 Profile continuity、typed bindings 与 clean stop 尚待 Attempt 4 直接证明；
+- clean M3-WI 使用 test-only adapter，`packageVerification=not_requested`、`verifiedAdapter=null`；它不证明
+  签名 production Host package 或非测试 adapter；
 - 没有受信 signer、签名 Host package、installer 或 production runtime；
 - Formal-v3 runtime observation 只覆盖本机绑定 candidate/Artifacts；Voices 只覆盖 A1、A2、B1
   各自三秒 top-window trace，不是 exhaustive exclusion；desktop Managed Identity 尚未 shipped。
 
 ## 当前下一任务
 
-### clean M3-WI implementation / native qualification
+### M3-P1 production package/signing → production adapter native launch
 
-FP4 authoritative result
-([lock](../apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp4-result.json)，
-SHA-256 `14c7de3a8a14b8037cf0e16ec7b5dc213294b68050665a57513dea79efd8f2de`) 已接受
-Attempt 13 的 immutable native Windows evidence：document back/forward、React route、Google Maps
-drag/zoom/satellite、media play/surface-pause/seek、同 Profile preference replay 六项全部通过；两个
-Host 生命周期均 clean exit，process tree、Job active count 与 residual PID 归零，`verified:false`。
+clean M3-WI Attempt 4 的 immutable native Windows evidence 已 Passed。两个新 RuntimeManager 使用同一
+Silo、Profile、Resolved Artifact 与 required Network Policy；Host PID 不同，boot count `0→1→2`，
+managed cookie replay 与 observed digest 稳定。每周期均为 `ProfileIsolation=applied`、Template-derived
+claims=`configured`、Network `configured/reachable/applied`，并以 exit `0`、relay closed、Job active
+count `0`、ownership released、residual PID empty 结束。外部网络 observation 未请求，整体保持
+`verified:false`。
 
-FP4 的权威产品含义（稳定解释见 [Camoufox-first 决策](camoufox-managed-engine-decision.md)）是：它只回答
-最终 fingerprint candidate 能否完成代表性 ordinary-site 核心任务，不是反检测评分、universal
-compatibility、commercial product readiness 或 desktop integration Gate。
-因此不创建 FP5；FP4 Passed 后立即转向 clean M3-WI。
+下一项最高价值 Gate 不是 FP5，也不是先做 UI/installer，而是让最终 Camoufox Host/runtime 成为受签名
+package，并由非测试 `ExternalPackageEngineAdapter` 完成一次原生 launch/close。现有 owning seam 已有
+schema-v3 package/tree binding、Windows CMS verifier、持久 engine state 和 fail-closed signer policy；
+embedded signer allowlist 当前为空。M3-P1 先冻结受权 signer/public pin 与允许分发的精确 Formal-v3
+package bytes，再要求 production adapter install/reload、`packageVerification` 同时证明 digest/signature、
+exact Host/Artifact/Profile/Engine/Network bindings 与 clean owned exit；仍不得宣称 `verified:true` 或 shipped。
 
-[clean M3-WI active contract](camoufox-m3-wi-clean-contract.md) 冻结一个最小问题：真实 desktop
-`RuntimeManager` / EngineAdapter / JSONL Host 接缝能否在同一 Silo 上完成两个顺序生命周期，并诚实
-组合 Profile、Artifact、Engine、Network 与 Evidence。Resolved Identity Artifact 是 Camoufox 的唯一
-运行时身份权威；现有通用 `IdentityTemplate` 不能成为第二权威，也不能仅凭 Host running 被冒充为
-Artifact 已应用事实。
-
-evidence-semantics 修正与 focused test 已通过：Camoufox Host running 只把直接绑定的
-`ProfileIsolation` 提升为 `applied`，Template-derived identity claims 保持 `configured`，Network
-Policy 继续走独立 Network Evidence seam。Attempt 1 因 Formal-v3 lock owning seam 错误、Attempt 2
-因 Windows root 字符串混合分隔符而在 `launch` 前失败。Attempt 3 完成了 cycle 1 launch/status/observation，
-但共享 assertion 错把 `host_v1.py` 实现源当成冻结薄入口；panic 后 exact RuntimeGuard 仍取得 clean exit、
-空 process tree 与 Job active count `0`。三份 Failed evidence 保持不可变。Attempt 4 只改为对 adapter
-实际 `host_script` typed input 做精确比较。下一步从 clean synced commit 执行合同中的唯一原生 Windows
-two-cycle attempt；不引入 retry/recovery Gate，不访问 FP3/FP4 外部检查服务。
+Signer/私钥或 CI secret、package 分发范围、再次原生浏览器启动与任何 installer/UI/release 动作属于新的
+签名/发布授权边界。本轮在记录该 Gate 后停止，不创建 packaging framework，不重复 clean M3-WI 两周期或
+FP3/FP4 matrix。
 
 ## 后续 Gate 顺序
 
@@ -106,7 +96,9 @@ Formal-v3 static source candidate（已闭合）
 → FP4 ordinary-site compatibility（已闭合）
 → clean M3-WI definition/refreeze（已闭合）
 → clean M3-WI evidence-semantics correction（已闭合）
-→ clean M3-WI Attempt 4 native two-cycle qualification（当前下一 Gate）
+→ clean M3-WI Attempt 4 native two-cycle qualification（已闭合）
+→ M3-P1 production package/signing → production adapter native launch（当前下一 Gate；需新授权）
+→ installer / Managed Silo UI / Windows release acceptance（未开放）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
@@ -132,7 +124,8 @@ Formal-v3 static source candidate（已闭合）
 | FP3 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`；SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`；**Passed on this native Windows host**；`verified:false` |
 | FP4 Attempt 13 | run `fp4-853f5fe2c6ad4238ac76776f3668f163`；report SHA-256 `de69f0083f7babfdfae5d3d1887fbf18e22e711981e2ca26e9f79e89bcc9e6a7`；V5 六项 task、Profile replay、bindings 与 lifecycle 全部通过 |
 | FP4 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp4-result.json`；SHA-256 `14c7de3a8a14b8037cf0e16ec7b5dc213294b68050665a57513dea79efd8f2de`；**Passed on this native Windows host**；`verified:false` |
-| clean M3-WI active contract | `docs/camoufox-m3-wi-clean-contract.md`；SHA-256 `acdc725dbbb1ccb0c39571cea43f6eb7ef3137429f4f8b256ec764f3be20af74`；Attempts 1–3 immutable Failed，Attempt 4 corrected input frozen |
+| clean M3-WI input contract | `docs/camoufox-m3-wi-clean-contract.md`；SHA-256 `acdc725dbbb1ccb0c39571cea43f6eb7ef3137429f4f8b256ec764f3be20af74`；Attempts 1–3 immutable Failed，Attempt 4 Passed |
+| clean M3-WI Attempt 4 | `artifacts/camoufox-m3-wi-clean-attempt-4/run-report.json`；SHA-256 `edd08b83497e09a73a0a0e29203475f1e9163b20366b2dd7c899aea8634262fe`；native evidence SHA-256 `2f292585a010dbdc3cad35bfcf26b14800bad402ed4a160c5123f41005c972ad`；revision `26ded609bf5bf52882c9ba37496f783ab2b01681`；**Passed on this native Windows host**，`verified:false` |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |
