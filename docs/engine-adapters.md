@@ -18,26 +18,24 @@ The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Wi
 
 Native Windows M2-W has accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. M3-0's accepted checkpoint implements the contract-level fake-Host slice; it explicitly forbids fabricating generic phase receipts from Host self-report and keeps `verified: false` evidence below `verified`. See [the Camoufox program status](camoufox-program-status.md).
 
-[M3-WI](camoufox-m3-wi-windows-task.md) adds a Windows-only ignored test
-harness for the real-Host integration Gate. The harness is compiled only under
-`cfg(test, target_os = "windows")`: it uses `uv run --frozen --offline` to
-resolve and verify the locked Python environment, then gives the real
-`RuntimeManager` an exact Python child plus `host_v1.py` plan. The plan has no
-package-verification receipt, signer bypass, token bootstrap, proxy arguments,
-or fallback rules. A run-owned fixed probe port is typed in the Host argv so
-two distinct Host processes can revisit the same probe origin and test real
-Profile continuity. Production timeouts and the empty trusted-signer policy
-remain unchanged; this harness cannot be selected by a release build and is
-not a signed or shipped Host package.
+The original [M3-WI](camoufox-m3-wi-windows-task.md) Windows-only ignored
+harness and its R1/R2/R2H investigations remain historical Failed /
+Inconclusive evidence, not a production fix or an accepted desktop result.
+FP1 through FP4 have since qualified the final Formal-v3 candidate on this
+native Windows host, with `verified: false`; FP4 means bounded ordinary-site
+product compatibility, not anti-detection, universal compatibility, or desktop
+integration. The [clean M3-WI contract](camoufox-m3-wi-clean-contract.md) is
+now a new frozen definition and does not revive the old matrices.
 
-That Gate is currently **Failed**. The second-Host lifecycle investigation was
-inconclusive and produced no production fix, focused regression, or post-fix
-verification, so the real Windows seam remains `experimental`. Current work
-returns to standalone Host fingerprint development in the order FP1
-deterministic Artifact projection, FP2 cross-realm consistency, FP3
-network/region coordination, and FP4 site compatibility; a clean M3-WI Gate
-will be frozen only after those stages. The old R2/R2H investigation matrices
-are historical research inputs, not an accepted desktop integration result.
+For Camoufox, the Resolved Identity Artifact is the sole runtime identity
+authority. The current generic Silo schema still carries an `IdentityTemplate`
+beside the Artifact binding, but those values are not semantically bound and
+the real Host receives only the exact Artifact ID/raw SHA/schema. Before the
+clean native attempt, the focused implementation must stop generic Host
+running evidence from promoting Template-derived identity capabilities to
+`applied`; only the directly bound Profile operation may be promoted. Network
+routing remains a separate Network Evidence transition. No Artifact parser or
+second identity projection is part of this Gate.
 
 ## Adapter and capability contract
 
@@ -58,6 +56,11 @@ phase order, exact per-capability evidence coverage, phase receipts, and
 fallback receipts. A matching site fallback restores only the explicitly
 listed experimental controls and returns `restore_then_reload`; wildcard rules
 match subdomains, not the apex host.
+
+For `camoufox-host-jsonl-v1`, a bound Host running response establishes
+`hostLaunch=observed`; it does not establish that an independent desktop
+template was applied. Artifact, Network Policy, Profile, and runtime evidence
+retain separate bindings and state transitions.
 
 The production desktop launch path now has a bounded receipt channel after its
 strict bootstrap ACK. A controlled child must emit ordered, complete
@@ -280,7 +283,8 @@ and audited work provides licensed reproducible Chromium/Camoufox release artifa
 patch sources, SBOM and license review, protected signing service and public
 certificate pin, update hosting and rollback retention, secure token transport
 integration, real Window/iframe/Dedicated Worker consistency evidence,
-site-compatibility regression results, Canvas/WebGL/font observations, TLS
+release-level compatibility coverage beyond the frozen FP4 matrix,
+Canvas/WebGL/font observations beyond the accepted bounded candidate, TLS
 ClientHello captures, and direct QUIC observations. Tests and placeholder JSON
 must never be presented as those artifacts or evidence.
 
@@ -288,4 +292,8 @@ In particular, this source tree still has no real signed engine artifact or
 signer pin. Production external-engine launch therefore remains blocked even
 though the receipt transport and fake-engine E2E harness exist.
 
-The Camoufox archive, tree manifests, Artifact fixtures, accepted Linux/Windows standalone evidence, and M3-0 contract integration do not remove these shipping blockers. The failed/inconclusive M3-WI path remains test-only and experimental; none of these artifacts is a signed production Host package or publisher identity.
+The Camoufox archive, tree manifests, Artifact fixtures, accepted Linux/Windows
+standalone evidence, FP1–FP4 qualification, and M3-0 contract integration do
+not remove these shipping blockers. The old M3-WI path remains historical and
+the clean M3-WI definition remains test-only and unexecuted; none of these
+artifacts is a signed production Host package or publisher identity.
