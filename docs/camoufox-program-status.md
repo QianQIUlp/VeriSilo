@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / media requalification pending**；Google Maps V4 已直接通过；Pause control activation 修复待 Attempt 12，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / Attempt 12 Inconclusive**；其余五项与 replay 全部通过；media Pause button pointer action 未落定，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,26 +60,24 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 native V4 media requalification
+### FP4-1 media surface pause marker
 
-Attempt 11 ([report](../artifacts/camoufox-fp4-attempt-11/run-report.json)，SHA-256
-`38bc347aa858691246bcf96b115f19888bf21281ce9284346e87670fb1242933`) 是 clean synced commit
-`9f8fb0d` 上的 immutable native Windows V4 evidence。Google Maps 已直接通过 exact Hong Kong
-search/place route、rendered canvas、一次 drag、一次 Zoom in、Default→Satellite 与四组 distinct
-canvas digests；document、React、form/replay 也通过。全部 Formal-v3、Artifact、Profile、required
-SOCKS5、boot、clean close、Host/process tree/Job 与 evidence receipts 通过。
+Attempt 12 ([report](../artifacts/camoufox-fp4-attempt-12/run-report.json)，SHA-256
+`997749f7c18811dbef889a1fc18a65f0abdd6f3440e870e4e565ff029f1de525`) 是 clean synced commit
+`77b690f` 上的 immutable native Windows V4 evidence。document、React、Google Maps、form/replay
+全部通过；Formal-v3、Artifact、Profile、required SOCKS5、boot、clean close、Host/process tree/Job
+与 evidence receipts 全部通过。
 
-唯一 Inconclusive 是 media：页面、20 秒 media、ready/play 均可用，但冻结的 Pause/seek worker 在
-同一五秒 wait 终止；截图保持 `Pause` 控件和播放态，无 crash、disconnect 或 direct product failure。
-Attempt 7/9 在同一站点直接通过，Attempt 8/10/11 的慢路径呈现同一 control 未激活特征。Attempt 11
+唯一 Inconclusive 仍是 media，但新直接状态已定位到 Pause action：20 秒 media `readyState=4`、
+`currentTime=4.958`、`paused=false`，seek 尚未执行；无 crash、disconnect 或 page error。Attempt 12
 native evidence SHA-256 为
-`f5cfd603231ec05855dc8f60d52ad5b7d6557aa0919153de3b5264cf12a76b81`，aggregate terminal
+`d569649cd016a352f2f828a7b19442f70b3548496e983b7a3a472333b756f025`，aggregate terminal
 `Inconclusive`，`verified:false`。
 
-Attempt 11 不以未变输入重跑。既有 media worker 现显式激活 Video.js control bar，再点击唯一
-`vjs-playing` Pause control，并在失败时记录 Pause 或 Progress Bar 的直接 media state；未改变站点、
-media、duration/progress/pause/seek markers、预算或其余矩阵输入。focused checks 已通过，下一步从
-clean synced HEAD 运行 Attempt 12。
+Attempt 12 不以未变输入重跑。当前最小输入把 pause user action 明确冻结为对正在播放的可见
+`video.vjs-tech` 做一次 pointer click，并继续要求 `paused=true` 与原 Progress Bar seek marker；不改
+站点、media、duration/progress/seek、预算或其余矩阵。该语义作为 V5 经 focused checks 后运行
+Attempt 13。
 
 ## 后续 Gate 顺序
 
@@ -90,7 +88,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（Google Maps 已通过；media control activation / Attempt 12 下一步）
+→ FP4 ordinary-site compatibility（其余任务已通过；V5 media surface pause / Attempt 13 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
