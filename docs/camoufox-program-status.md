@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / V4 requalification pending**；Google Maps fallback 已经 required SOCKS5 取得 HTTP 200 并冻结；media primary 不变，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / Attempt 11 Inconclusive**；Google Maps V4 已直接通过；仅 media Pause control 未完成，全部 bindings/lifecycle 通过，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,25 +60,25 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 native V4 requalification
+### FP4-1 media control activation
 
-Attempt 10 ([report](../artifacts/camoufox-fp4-attempt-10/run-report.json)，SHA-256
-`4bc4815e2dcccf8dbcd707eaaaf1d13e346733972d2930c81e4a86c5f7f878f8`) 是 clean synced commit
-`42b45b3` 上的 immutable native Windows V3 evidence。document、React、form/replay 直接通过；
-Formal-v3、Artifact、Profile、required SOCKS5、boot、clean close、Host/process tree/Job 与 evidence
-receipts 全部通过。
+Attempt 11 ([report](../artifacts/camoufox-fp4-attempt-11/run-report.json)，SHA-256
+`38bc347aa858691246bcf96b115f19888bf21281ce9284346e87670fb1242933`) 是 clean synced commit
+`9f8fb0d` 上的 immutable native Windows V4 evidence。Google Maps 已直接通过 exact Hong Kong
+search/place route、rendered canvas、一次 drag、一次 Zoom in、Default→Satellite 与四组 distinct
+canvas digests；document、React、form/replay 也通过。全部 Formal-v3、Artifact、Profile、required
+SOCKS5、boot、clean close、Host/process tree/Job 与 evidence receipts 通过。
 
-OSM 搜索直接显示第三方 `503 backend read error` 并停留伦敦，因此是外部不可判定，不是产品
-failure。media 已加载并播放，但未在预算内完成冻结的 Pause/seek 全套 marker；无 crash、disconnect
-或 direct product failure，保持 ambiguous `Inconclusive`。Attempt 10 aggregate 为 terminal
-`Inconclusive`，native evidence SHA-256
-`19036455a331e83198cfcbfd7b53ec58b1c58d8517f9a9466ba36d6d2a267ec6`，`verified:false`。
+唯一 Inconclusive 是 media：页面、20 秒 media、ready/play 均可用，但冻结的 Pause/seek worker 在
+同一五秒 wait 终止；截图保持 `Pause` 控件和播放态，无 crash、disconnect 或 direct product failure。
+Attempt 7/9 在同一站点直接通过，Attempt 8/10/11 的慢路径呈现同一 control 未激活特征。Attempt 11
+native evidence SHA-256 为
+`f5cfd603231ec05855dc8f60d52ad5b7d6557aa0919153de3b5264cf12a76b81`，aggregate terminal
+`Inconclusive`，`verified:false`。
 
-Attempt 10 不以未变输入重跑。合同预声明的 Google Maps graphics fallback 已在任何 V4 attempt
-root/browser 前经 required SOCKS5 route 取得 final HTTP 200。`fp4-ordinary-sites-v4` 只切换 graphics
-selection，并冻结当前 visible role controls、place URL、canvas、drag、Zoom in 与 Satellite selected-state
-markers。media primary 保持不变，因为它本轮可达且 Attempt 9 已直接通过，不把一次 ambiguous
-timeout 扩张成新的 workaround。focused checks 通过后从 clean synced HEAD 运行 Attempt 11。
+Attempt 11 不以未变输入重跑。当前最小修复只在既有 media worker 中显式激活 Video.js control bar，
+再点击唯一 `vjs-playing` Pause control；站点、media、duration/progress/pause/seek markers、预算与其余
+矩阵输入不变。focused checks 通过后从 clean synced HEAD 运行 Attempt 12。
 
 ## 后续 Gate 顺序
 
@@ -89,7 +89,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（V4 Google Maps fallback 已配置；native Attempt 11 下一步）
+→ FP4 ordinary-site compatibility（Google Maps 已通过；media control activation / Attempt 12 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
