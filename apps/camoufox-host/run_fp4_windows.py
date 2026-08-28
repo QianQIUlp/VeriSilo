@@ -37,7 +37,7 @@ from host_platform import process_identity_alive
 BRANCH = "codex/camoufox-m3-engine-adapter"
 MATRIX_VERSION = "fp4-ordinary-sites-v1"
 CONTRACT = REPO_ROOT / "docs/camoufox-fp4-ordinary-site-compatibility-contract.md"
-CONTRACT_SHA256 = "88959836f621ac5da300debc090a5f0c14490b3cdbb5e6c59b0fecfc8a854354"
+CONTRACT_SHA256 = "5bd350d643b5453a397fdf9c35e65b9ef512c921ef9db3ee78a616c0f07c3826"
 FP3_RESULT = HOST_DIR / "lock" / (
     "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json"
 )
@@ -47,6 +47,8 @@ SOURCE_ARTIFACT = REPO_ROOT / (
     "identity-fp3-1b-formal-v3-a.json"
 )
 SOURCE_ARTIFACT_SHA256 = "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722"
+SOURCE_ARTIFACT_SIDECAR = SOURCE_ARTIFACT.with_suffix(".json.sha256")
+SOURCE_ARTIFACT_SIDECAR_SHA256 = "e027eb101fa2783adbc697fa8b47a339e7d66bf00170eacdca7b71a8983f8b86"
 ARTIFACT_ID = "identity-fp3-1b-formal-v3-a"
 PROXY_URI = "socks5://127.0.0.1:7897"
 SCREENSHOT_ROOT_ENV = "VERISILO_FP4_SCREENSHOT_ROOT"
@@ -117,6 +119,13 @@ def write_json(path: Path, value: object) -> str:
         f"{digest}  {path.name}\n", encoding="ascii", newline="\n"
     )
     return digest
+
+
+def stage_artifact(artifact_root: Path) -> None:
+    shutil.copyfile(SOURCE_ARTIFACT, artifact_root / SOURCE_ARTIFACT.name)
+    shutil.copyfile(
+        SOURCE_ARTIFACT_SIDECAR, artifact_root / SOURCE_ARTIFACT_SIDECAR.name
+    )
 
 
 def response_status(response: Any) -> int | None:
@@ -1145,6 +1154,7 @@ def execute_attempt(attempt_root: Path, attempt: int) -> str:
             (CONTRACT, CONTRACT_SHA256),
             (FP3_RESULT, FP3_RESULT_SHA256),
             (SOURCE_ARTIFACT, SOURCE_ARTIFACT_SHA256),
+            (SOURCE_ARTIFACT_SIDECAR, SOURCE_ARTIFACT_SIDECAR_SHA256),
             (fp3.ASSET_LOCK, fp3.ASSET_LOCK_SHA256),
             (fp3.TREE_MANIFEST, fp3.TREE_MANIFEST_SHA256),
             (fp3.EXECUTABLE, fp3.EXECUTABLE_SHA256),
@@ -1170,7 +1180,7 @@ def execute_attempt(attempt_root: Path, attempt: int) -> str:
     cache_root = runtime_root / "cache"
     for path in (artifact_root, profile_root, state_root, cache_root):
         path.mkdir()
-    shutil.copyfile(SOURCE_ARTIFACT, artifact_root / SOURCE_ARTIFACT.name)
+    stage_artifact(artifact_root)
 
     stderr_path = attempt_root / "host-stderr.txt"
     native_path = attempt_root / "native-evidence.json"
@@ -1409,6 +1419,10 @@ def execute_attempt(attempt_root: Path, attempt: int) -> str:
             "sourceArtifact": {
                 "path": SOURCE_ARTIFACT.relative_to(REPO_ROOT).as_posix(),
                 "sha256": SOURCE_ARTIFACT_SHA256,
+                "sidecarPath": SOURCE_ARTIFACT_SIDECAR.relative_to(
+                    REPO_ROOT
+                ).as_posix(),
+                "sidecarSha256": SOURCE_ARTIFACT_SIDECAR_SHA256,
             },
             "runtimeAssetLock": {
                 "path": fp3.ASSET_LOCK.relative_to(REPO_ROOT).as_posix(),

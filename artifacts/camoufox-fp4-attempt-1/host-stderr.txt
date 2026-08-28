@@ -1,0 +1,6 @@
+seeding camoufox cache from verified archive (152.0.4-beta.28-032ca1a4) ...
+host: reader thread started
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"response_write","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"response_write","event":"success","durationMs":0}
+host: loop finished, closing active sessions
+host: sessions closed, playwright stopping

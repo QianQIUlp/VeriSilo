@@ -14,7 +14,7 @@ and route bindings forward; it does not rerun FP2/FP3 or add a desktop/Host prod
 ## Frozen input and availability
 
 - exact Formal-v3 browser tree already qualified by FP2 and FP3;
-- exact FP3 Artifact v6 copy and raw SHA binding;
+- exact FP3 Artifact v6 copy, raw SHA binding and its matching Host-required SHA sidecar;
 - one fresh temporary Profile reused by two sequential Host launch/close phases;
 - required unauthenticated SOCKS5 endpoint `127.0.0.1:7897`;
 - native Windows, one immutable attempt, no retry or runtime sample rotation;

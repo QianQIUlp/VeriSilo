@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import copy
+import tempfile
+from pathlib import Path
 
 import run_fp4_windows as fp4
 
@@ -222,6 +224,16 @@ def passing_evidence() -> dict:
 
 
 def main() -> None:
+    with tempfile.TemporaryDirectory(prefix="verisilo-fp4-test-") as root:
+        staged = Path(root)
+        fp4.stage_artifact(staged)
+        assert fp4.sha256_file(staged / fp4.SOURCE_ARTIFACT.name) == (
+            fp4.SOURCE_ARTIFACT_SHA256
+        )
+        assert fp4.sha256_file(staged / fp4.SOURCE_ARTIFACT_SIDECAR.name) == (
+            fp4.SOURCE_ARTIFACT_SIDECAR_SHA256
+        )
+
     evidence = passing_evidence()
     assert fp4.adjudicate_native(evidence)["status"] == "passed"
 

@@ -1,0 +1,190 @@
+{
+  "schema": "verisilo-camoufox-fp4-native-evidence/v1",
+  "status": "failed",
+  "evidenceClass": "attempted-on-this-native-windows-host",
+  "verified": false,
+  "fixedInputs": {
+    "matrixVersion": "fp4-ordinary-sites-v1",
+    "artifactId": "identity-fp3-1b-formal-v3-a",
+    "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+    "profileId": "fp4-attempt-1",
+    "requiredProxy": "socks5://127.0.0.1:7897",
+    "runtimeExecutableSha256": "b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f142a6",
+    "selectedUrls": {
+      "documentNavigation": "https://en.wikipedia.org/w/index.php?search=camouflage+animals+military&title=Special%3ASearch&ns0=1",
+      "complexJavaScript": "https://github.com/microsoft/playwright/issues",
+      "interactiveGraphics": "https://www.openstreetmap.org/#map=12/51.5074/-0.1278",
+      "audioVideo": "https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_keyframe_strobing_example.webm",
+      "formState": "https://en.wikipedia.org/wiki/Web_browser",
+      "formStateReplay": "https://en.wikipedia.org/wiki/Web_browser"
+    }
+  },
+  "responses": {
+    "phaseA": {
+      "launch": {
+        "id": "fp4-2-launch",
+        "ok": false,
+        "error": {
+          "code": "integrity_rejected",
+          "message": "artifact sidecar missing or unreadable: C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\artifacts\\identity-fp3-1b-formal-v3-a.json.sha256"
+        }
+      }
+    },
+    "phaseB": {},
+    "hello": {
+      "id": "fp4-1-hello",
+      "ok": true,
+      "result": {
+        "protocol": "verisilo-camoufox-host/v1",
+        "hostVersion": "0.1.0",
+        "pythonVersion": "3.12.13",
+        "artifactRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\artifacts",
+        "profileRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\profiles",
+        "stateRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\state",
+        "maxFrameBytes": 32768,
+        "probePortPolicy": "ephemeral",
+        "browserRelease": "v152.0.4-beta.28",
+        "assetSha256": "032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5",
+        "treeManifest": "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\artifacts\\camoufox-fp2-formal-r1-attempt-8\\formal-v3-browser-tree-manifest.json",
+        "treeManifestSha256": "8434ab9925bf0f7d95cc4ff06fe94b7dcf9963a0691f37638469d68cda58ace2",
+        "platform": "windows-x64",
+        "state": "idle",
+        "verified": false,
+        "evidenceClass": "observed-on-this-host"
+      }
+    },
+    "shutdown": {
+      "id": "fp4-3-shutdown",
+      "ok": true,
+      "result": {
+        "state": "shutdown",
+        "sessionsClosed": 0,
+        "selfCheck": {
+          "argvMatches": [],
+          "stderrLogMatches": [],
+          "patternsChecked": 14
+        }
+      }
+    }
+  },
+  "observations": {},
+  "sessions": {},
+  "readErrors": [],
+  "childExitCode": 0,
+  "residualOwnedPids": [],
+  "protocolFrames": [
+    {
+      "request": {
+        "id": "fp4-1-hello",
+        "command": "hello",
+        "params": {}
+      },
+      "response": {
+        "id": "fp4-1-hello",
+        "ok": true,
+        "result": {
+          "protocol": "verisilo-camoufox-host/v1",
+          "hostVersion": "0.1.0",
+          "pythonVersion": "3.12.13",
+          "artifactRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\artifacts",
+          "profileRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\profiles",
+          "stateRoot": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\state",
+          "maxFrameBytes": 32768,
+          "probePortPolicy": "ephemeral",
+          "browserRelease": "v152.0.4-beta.28",
+          "assetSha256": "032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5",
+          "treeManifest": "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\artifacts\\camoufox-fp2-formal-r1-attempt-8\\formal-v3-browser-tree-manifest.json",
+          "treeManifestSha256": "8434ab9925bf0f7d95cc4ff06fe94b7dcf9963a0691f37638469d68cda58ace2",
+          "platform": "windows-x64",
+          "state": "idle",
+          "verified": false,
+          "evidenceClass": "observed-on-this-host"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "fp4-2-launch",
+        "command": "launch",
+        "params": {
+          "artifactId": "identity-fp3-1b-formal-v3-a",
+          "profileId": "fp4-attempt-1",
+          "expectedArtifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+          "browserProxyServer": "socks5://127.0.0.1:7897"
+        }
+      },
+      "response": {
+        "id": "fp4-2-launch",
+        "ok": false,
+        "error": {
+          "code": "integrity_rejected",
+          "message": "artifact sidecar missing or unreadable: C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\artifacts\\identity-fp3-1b-formal-v3-a.json.sha256"
+        }
+      }
+    },
+    {
+      "request": {
+        "id": "fp4-3-shutdown",
+        "command": "shutdown",
+        "params": {}
+      },
+      "response": {
+        "id": "fp4-3-shutdown",
+        "ok": true,
+        "result": {
+          "state": "shutdown",
+          "sessionsClosed": 0,
+          "selfCheck": {
+            "argvMatches": [],
+            "stderrLogMatches": [],
+            "patternsChecked": 14
+          }
+        }
+      }
+    }
+  ],
+  "failure": {
+    "type": "FP4Error",
+    "message": "Host phaseA launch failed"
+  },
+  "runtimeCleanup": {
+    "status": "preserved-dirty-boundary",
+    "path": "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk"
+  },
+  "screenshotFilesVerified": false,
+  "adjudication": {
+    "status": "failed",
+    "checks": {
+      "fixedInputsExact": true,
+      "formalBindingExact": true,
+      "phaseAArtifactBindingExact": false,
+      "phaseBArtifactBindingExact": false,
+      "routeBindingExactBothPhases": false,
+      "bootTransitionsExact": false,
+      "hostRunningBothPhases": false,
+      "phaseAObservationComplete": false,
+      "phaseBObservationComplete": false,
+      "phaseACleanClose": false,
+      "phaseBCleanClose": false,
+      "shutdownSelfCheckClean": true,
+      "exactHostChildExit": true,
+      "residualProcessTreeEmpty": true,
+      "runtimeRemovedAfterCleanExit": false,
+      "screenshotFilesExact": false,
+      "evidenceReadsComplete": true,
+      "runnerCompletedWithoutError": false,
+      "tasks": {
+        "documentNavigation": false,
+        "complexJavaScript": false,
+        "interactiveGraphics": false,
+        "audioVideo": false,
+        "formState": false,
+        "formStateReplay": false
+      }
+    },
+    "profileStateLost": false,
+    "upstreamControlRequired": false,
+    "terminal": true,
+    "precedence": "failed>inconclusive>passed"
+  }
+}

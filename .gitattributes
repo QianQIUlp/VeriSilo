@@ -2,3 +2,4 @@
 *.ps1 text eol=crlf
 tests/fixtures/camoufox/identity-win-*.json -text
 tests/fixtures/camoufox/identity-win-*.json.sha256 -text
+artifacts/camoufox-fp4-*/** -text -diff
