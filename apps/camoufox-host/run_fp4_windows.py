@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Thread
 from typing import Any, Awaitable, Callable
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOST_DIR = Path(__file__).resolve().parent
@@ -36,9 +36,9 @@ from host_platform import process_identity_alive
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 BRANCH = "codex/camoufox-m3-engine-adapter"
-MATRIX_VERSION = "fp4-ordinary-sites-v1"
+MATRIX_VERSION = "fp4-ordinary-sites-v2"
 CONTRACT = REPO_ROOT / "docs/camoufox-fp4-ordinary-site-compatibility-contract.md"
-CONTRACT_SHA256 = "eca782c69c801b9b41b8dbf9f961db9788f6f736fd7b4fc5b7f6183b84cb887c"
+CONTRACT_SHA256 = "011ace6c3b312a16aeb42520173210243f1ba74d50b37bd2996cef00f8d02025"
 FP3_RESULT = HOST_DIR / "lock" / (
     "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json"
 )
@@ -58,7 +58,7 @@ DOCUMENT_URL = (
     "https://en.wikipedia.org/w/index.php?"
     "search=camouflage+animals+military&title=Special%3ASearch&ns0=1"
 )
-COMPLEX_JS_URL = "https://github.com/microsoft/playwright/issues"
+COMPLEX_JS_URL = "https://react.dev/reference/react"
 GRAPHICS_URL = "https://www.openstreetmap.org/#map=12/51.5074/-0.1278"
 MEDIA_URL = (
     "https://commons.wikimedia.org/wiki/"
@@ -264,58 +264,34 @@ async def complex_javascript(page: Any) -> dict[str, Any]:
     initial = await page.goto(
         COMPLEX_JS_URL, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT_MS
     )
-    await page.get_by_role(
-        "button", name="Filter by labels", exact=True
-    ).first.click()
-    dialog = page.get_by_role("dialog").first
-    await dialog.wait_for(state="visible")
-    label_filter = dialog.locator('input[aria-label="Filter labels"]').first
-    await label_filter.fill("browser-chromium")
-    await dialog.get_by_role(
-        "option", name=re.compile(r"^browser-chromium(?:\s|$)")
-    ).first.click()
-    await page.keyboard.press("Escape")
-    expected_query = "is:issue state:open label:browser-chromium"
-    await page.wait_for_function(
-        """expected => {
-          const input = document.querySelector('#repository-input');
-          return input && input.value === expected;
-        }""",
-        arg=expected_query,
+    search_button = page.locator(
+        "button:visible", has_text=re.compile(r"^\s*Search")
+    ).first
+    await search_button.click()
+    search_input = page.get_by_placeholder("Search docs", exact=True).first
+    await search_input.wait_for(state="visible")
+    await search_input.fill("useState")
+    search_input_value = await search_input.input_value()
+    result_link = page.locator(
+        'a[href^="/reference/react/useState"]:visible, '
+        'a[href^="https://react.dev/reference/react/useState"]:visible'
+    ).first
+    await result_link.wait_for(state="visible")
+    result_href = await result_link.get_attribute("href")
+    result_text = (await result_link.inner_text()).strip()
+    await result_link.click()
+    await page.wait_for_url(
+        re.compile(r"^https://react\.dev/reference/react/useState(?:[#?].*)?$"),
         timeout=NAVIGATION_TIMEOUT_MS,
-    )
-    await page.wait_for_function(
-        r"""() => [...document.querySelectorAll(
-          'a[href^="/microsoft/playwright/issues/"]'
-        )].some(a =>
-          /^\/microsoft\/playwright\/issues\/\d+$/.test(
-            new URL(a.href, location.href).pathname
-          ) && a.getClientRects().length > 0 &&
-          getComputedStyle(a).visibility !== 'hidden'
-        )""",
-        timeout=NAVIGATION_TIMEOUT_MS,
-    )
-    final_url = page.url
-    issue_count = await page.locator(
-        'a[href^="/microsoft/playwright/issues/"]'
-    ).evaluate_all(
-        r"""links => new Set(links.filter(a =>
-          a.getClientRects().length > 0 &&
-          getComputedStyle(a).visibility !== 'hidden'
-        ).map(a => new URL(a.href, location.href).pathname)
-          .filter(path => /^\/microsoft\/playwright\/issues\/\d+$/.test(path))
-        ).size"""
     )
     return {
         "initialHttpStatus": response_status(initial),
-        "queryInputValue": await page.locator("#repository-input").first.input_value(),
-        "decodedQuery": parse_qs(urlsplit(final_url).query).get("q", [""])[0],
-        "issueLinkCount": issue_count,
-        "noResultsVisible": await page.get_by_text(
-            "No results", exact=True
-        ).is_visible(),
+        "searchInputValue": search_input_value,
+        "resultHref": result_href,
+        "resultText": result_text,
+        "heading": (await page.locator("h1").first.inner_text()).strip(),
         "title": await page.title(),
-        "finalUrl": final_url,
+        "finalUrl": page.url,
     }
 
 
@@ -589,15 +565,16 @@ def document_direct_failure(task: dict[str, Any]) -> bool:
 
 
 def complex_markers_passed(task: dict[str, Any]) -> bool:
-    query = "is:issue state:open label:browser-chromium"
     return (
         http_ok(task.get("initialHttpStatus"))
-        and task.get("queryInputValue") == query
-        and task.get("decodedQuery") == query
-        and type(task.get("issueLinkCount")) is int
-        and task["issueLinkCount"] >= 1
-        and task.get("noResultsVisible") is False
-        and urlsplit(task.get("finalUrl", "")).hostname == "github.com"
+        and task.get("searchInputValue") == "useState"
+        and urlsplit(task.get("resultHref") or "").path
+        == "/reference/react/useState"
+        and "useState" in (task.get("resultText") or "")
+        and task.get("heading") == "useState"
+        and urlsplit(task.get("finalUrl") or "").hostname == "react.dev"
+        and urlsplit(task.get("finalUrl") or "").path
+        == "/reference/react/useState"
     )
 
 

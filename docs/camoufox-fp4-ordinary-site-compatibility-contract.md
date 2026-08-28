@@ -3,7 +3,7 @@
 ## Product question
 
 FP4 asks one bounded go/no-go question: can the exact Formal-v3 browser and Artifact v6 that passed
-FP2/FP3 complete the frozen `fp4-ordinary-sites-v1` capability matrix on native Windows through the
+FP2/FP3 complete the frozen `fp4-ordinary-sites-v2` capability matrix on native Windows through the
 required SOCKS5 route, preserve one non-sensitive site preference across a clean browser restart, and
 then close every owned lifecycle cleanly?
 
@@ -18,20 +18,19 @@ and route bindings forward; it does not rerun FP2/FP3 or add a desktop/Host prod
 - one fresh temporary Profile reused by two sequential Host launch/close phases;
 - required unauthenticated SOCKS5 endpoint `127.0.0.1:7897`;
 - native Windows, one immutable attempt, no retry or runtime sample rotation;
-- site matrix `fp4-ordinary-sites-v1` below.
+- site matrix `fp4-ordinary-sites-v2` below.
 
-On 2026-08-28, after `Test-NetConnection 127.0.0.1 -Port 7897` returned
-`TcpTestSucceeded=True`, every frozen primary and fallback URL below received exactly one HTTP GET
-through `socks5h://127.0.0.1:7897`. Each selected primary returned final HTTP 200, `text/html`, and
-a non-empty body. All fallbacks also returned HTTP 200 and remain predeclared only; the attempt is
-frozen to the primary column and may not switch sites after launch.
+The unchanged v1 selections retain their 2026-08-28 availability evidence. After Attempt 7 directly
+recorded GitHub dialog structure drift, the predeclared React fallback received exactly one HTTP GET
+through `socks5h://127.0.0.1:7897` and returned final HTTP 200. V2 changes only the complex-JS
+selection to React; no site may switch after launch.
 
 ## Frozen capability matrix
 
-| Capability | Selected primary and required task | Predeclared fallback |
+| Capability | Frozen selection and required task | Predeclared alternate |
 | --- | --- | --- |
 | Document/navigation | `https://en.wikipedia.org/w/index.php?search=camouflage+animals+military&title=Special%3ASearch&ns0=1`: require the search-results heading, open exact result `Military camouflage`, require its heading, scroll to the `History` section, go back to the search results, then forward to the same article | `https://en.wiktionary.org/w/index.php?search=browser+internet&title=Special%3ASearch&ns0=1` with the same search-result/article/history semantics |
-| Complex JavaScript app | `https://github.com/microsoft/playwright/issues`: open `Filter by labels`, filter/select exact label `browser-chromium`, and require the resulting query/URL plus a rendered non-empty issue result | `https://react.dev/reference/react`: open site search, filter for `useState`, and open the matching client route |
+| Complex JavaScript app | `https://react.dev/reference/react`: open site search, filter for `useState`, and open the matching client route | `https://github.com/microsoft/playwright/issues`: its former exact dialog marker drifted in Attempt 7 and is not selected |
 | Interactive graphics | `https://www.openstreetmap.org/#map=12/51.5074/-0.1278`: require completed 256px map tiles, search exact place `Hong Kong` and require results, pan, zoom from 12 to 13, open layers, select `CyclOSM`, require the checked layer and newly completed tiles | `https://www.google.com/maps?hl=en`: search exact place `Hong Kong`, require the `/place/Hong+Kong/` route and rendered map, then pan, zoom and select the Satellite layer |
 | Audio/video | `https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_keyframe_strobing_example.webm`: start the video by user action, require ready media and advancing `currentTime`, pause, seek, and require the new media time | `https://commons.wikimedia.org/wiki/File:Big_buck_bunny_720p_5mb.webm` with the same media-state markers |
 | Form/state | `https://en.wikipedia.org/wiki/Web_browser`: change the anonymous Appearance font-size preference to `Large`, require it after reload, then require it again after a clean Host/browser restart using the same Profile and restore `Standard` | `https://en.wiktionary.org/wiki/browser` with the same anonymous Appearance preference markers |
@@ -43,11 +42,9 @@ The frozen semantic markers are:
   `h1=Search results`, and forward restores the same final path/heading. The fallback clicks the first
   `.mw-search-result-heading a`, freezes its text during the task, and requires the final `h1` to equal
   that text plus the same first-`h2`, back and forward relationships;
-- complex-JS primary: exact button `Filter by labels`, dialog input `aria-label=Filter labels`, exact
-  option `browser-chromium`, decoded `q=is:issue state:open label:browser-chromium`, matching
-  `#repository-input`, and at least one rendered link matching `/microsoft/playwright/issues/[0-9]+`.
-  The fallback searches exact `useState`, opens that result, and requires final path
-  `/reference/react/useState` with `h1=useState`;
+- complex-JS selection: open the visible `Search` control, fill exact `useState`, activate a visible
+  result whose link path is `/reference/react/useState`, and require that final path with
+  `h1=useState`;
 - graphics primary: at least one `img.leaflet-tile` with `complete=true` and `naturalWidth=256` before
   interaction; `#query` is filled with exact `Hong Kong` and yields at least one
   `.search_results_entry`; one `ArrowRight` changes the map hash while preserving zoom 12; one
@@ -65,12 +62,12 @@ The frozen semantic markers are:
   `vector-feature-custom-font-size-clientpref-2` after reload and again before any Phase B mutation;
   Phase B then checks the Standard radio and records the Large marker as cleared.
 
-The fallback is not a hidden retry. A later attempt may select it only after a new pre-execution
-availability freeze establishes that the primary is unavailable and the fallback is available.
+The React selection is not a hidden retry: its availability was frozen before V2 code, attempt root
+or browser execution. Attempt 7 remains immutable and V2 is a new input.
 
 ## Execution phases and budgets
 
-Phase A launches the exact browser once, runs the five selected primary tasks in table order, captures
+Phase A launches the exact browser once, runs the five frozen tasks in table order, captures
 one bounded support screenshot for each task, verifies the state preference after reload, and closes
 the session. Phase B launches the same Artifact, Network Policy and Profile again, requires boot count
 `1 -> 2`, verifies the persisted preference, restores the default, captures the replay screenshot,

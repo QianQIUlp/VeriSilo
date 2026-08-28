@@ -64,14 +64,11 @@ def passing_evidence() -> dict:
         task(
             "complexJavaScript",
             initialHttpStatus=200,
-            queryInputValue="is:issue state:open label:browser-chromium",
-            decodedQuery="is:issue state:open label:browser-chromium",
-            issueLinkCount=3,
-            noResultsVisible=False,
-            finalUrl=(
-                "https://github.com/microsoft/playwright/issues?"
-                "q=is%3Aissue%20state%3Aopen%20label%3Abrowser-chromium"
-            ),
+            searchInputValue="useState",
+            resultHref="/reference/react/useState",
+            resultText="useState",
+            heading="useState",
+            finalUrl="https://react.dev/reference/react/useState",
         ),
         task(
             "interactiveGraphics",
@@ -299,7 +296,7 @@ def main() -> None:
         "fp4CompatibilityObservation"
     ]["tasks"][1]
     complex_task["status"] = "inconclusive"
-    complex_task["issueLinkCount"] = 0
+    complex_task["resultHref"] = None
     result = fp4.adjudicate_native(site_drift)
     assert result["status"] == "inconclusive"
     assert result["checks"]["tasks"]["complexJavaScript"] is False

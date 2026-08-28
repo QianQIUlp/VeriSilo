@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open / Attempt 7 Inconclusive**；session-history 修复已由 native back/forward 直接通过；其余五项中仅 GitHub exact dialog 出现站点结构漂移，bindings/lifecycle clean，`verified:false` |
+| FP4 ordinary-site compatibility | **Gate open / V2 requalification pending**；history 修复已直接通过；GitHub 结构漂移后，合同预声明 React fallback 已按 exact route 冻结为 V2 唯一变更，`verified:false` |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -60,7 +60,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 
 ## 当前下一任务
 
-### FP4-1 predeclared complex-JS fallback freeze
+### FP4-1 native V2 requalification
 
 FP3-1b 已在冻结 Formal-v3 candidate、Artifact v6、required SOCKS5 route 与 direct negative control
 上闭合。原生 Windows Attempt 7 直接观察到 exact route binding、香港代理出口、Artifact
@@ -106,10 +106,12 @@ search/article/back/forward，证明 backing session history 已恢复；graphic
 product failure。两阶段 Formal/Artifact/route/boot binding、截图、clean close、Host child、process
 tree、Job、shutdown self-check 与临时根移除全部通过。
 
-Attempt 7 保持 immutable，不以未变输入重跑。当前唯一下一步是在任何新 attempt root/browser 前，
-对合同预声明的 `https://react.dev/reference/react` 做一次 availability freeze；若可用，只把 complex-JS
-任务切到已冻结的 `useState` client-route markers，再生成新 attempt。不得继续猜 GitHub selector、
-重跑 upstream control、FP2/FP3，或进入 M3-WI。
+Attempt 7 保持 immutable，不以未变输入重跑。合同预声明的
+`https://react.dev/reference/react` 已在任何新 attempt root/browser 前通过 required SOCKS5 route 取得
+最终 HTTP 200。`fp4-ordinary-sites-v2` 只把 complex-JS 切到 exact `useState` search/result/client-route
+markers，其余站点、Artifact、Profile、Engine、Network 与 lifecycle 输入不变。当前唯一下一步是
+focused tests 通过并从 clean synced HEAD 运行 Attempt 8；不得继续猜 GitHub selector、重跑 upstream
+control、FP2/FP3，或进入 M3-WI。
 
 ## 后续 Gate 顺序
 
@@ -120,7 +122,7 @@ Formal-v3 static source candidate（已闭合）
 → FP3-0 configured network identity input（已闭合）
 → FP3-1a local required FixedProxy Host routing seam（已闭合）
 → FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（history repair 已直接通过；complex-JS fallback freeze 下一步）
+→ FP4 ordinary-site compatibility（V2 React fallback 已冻结；native Attempt 8 下一步）
 ```
 
 每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
