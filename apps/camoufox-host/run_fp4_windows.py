@@ -449,22 +449,38 @@ async def audio_video(page: Any) -> dict[str, Any]:
         timeout=3_000,
     )
     progressed = await media_state(video)
-    await page.get_by_role("button", name="Pause", exact=True).first.click()
-    await page.wait_for_function(
-        "() => document.querySelector('video.vjs-tech')?.paused === true",
-        timeout=5_000,
-    )
+    player = page.locator(".video-js").filter(has=video).first
+    await player.hover()
+    pause_control = player.locator("button.vjs-play-control.vjs-playing").first
+    await pause_control.wait_for(state="visible")
+    await pause_control.click()
+    try:
+        await page.wait_for_function(
+            "() => document.querySelector('video.vjs-tech')?.paused === true",
+            timeout=5_000,
+        )
+    except PlaywrightTimeoutError as exc:
+        raise FP4Error(
+            "media Pause control did not settle: "
+            + json.dumps(await media_state(video), sort_keys=True)
+        ) from exc
     paused = await media_state(video)
     progress = page.get_by_role("slider", name="Progress Bar", exact=True).first
     await progress.press("Home")
     await progress.press("ArrowRight")
-    await page.wait_for_function(
-        """() => {
-          const video = document.querySelector('video.vjs-tech');
-          return video && video.currentTime >= 4 && video.currentTime <= 6;
-        }""",
-        timeout=5_000,
-    )
+    try:
+        await page.wait_for_function(
+            """() => {
+              const video = document.querySelector('video.vjs-tech');
+              return video && video.currentTime >= 4 && video.currentTime <= 6;
+            }""",
+            timeout=5_000,
+        )
+    except PlaywrightTimeoutError as exc:
+        raise FP4Error(
+            "media Progress Bar seek did not settle: "
+            + json.dumps(await media_state(video), sort_keys=True)
+        ) from exc
     sought = await media_state(video)
     return {
         "initialHttpStatus": response_status(initial),
