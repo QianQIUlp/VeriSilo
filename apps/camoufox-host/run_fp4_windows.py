@@ -155,13 +155,17 @@ async def document_navigation(page: Any) -> dict[str, Any]:
     history = page.get_by_role("heading", name="History", exact=True).first
     await history.scroll_into_view_if_needed()
     history_visible = await history.is_visible()
-    await page.keyboard.press("Alt+ArrowLeft")
-    await page.wait_for_url(DOCUMENT_URL, timeout=NAVIGATION_TIMEOUT_MS)
+    history_length = await page.evaluate("history.length")
+    await page.evaluate("history.back()")
+    await page.wait_for_url(
+        DOCUMENT_URL, wait_until="commit", timeout=NAVIGATION_TIMEOUT_MS
+    )
     back_url = page.url
     back_heading = (await page.locator("h1").first.inner_text()).strip()
-    await page.keyboard.press("Alt+ArrowRight")
+    await page.evaluate("history.forward()")
     await page.wait_for_url(
         re.compile(r"^https://en\.wikipedia\.org/wiki/Military_camouflage(?:[#?].*)?$"),
+        wait_until="commit",
         timeout=NAVIGATION_TIMEOUT_MS,
     )
     return {
@@ -170,10 +174,11 @@ async def document_navigation(page: Any) -> dict[str, Any]:
         "articleUrl": article_url,
         "articleHeading": article_heading,
         "historyVisible": history_visible,
-        "backAction": "Alt+ArrowLeft",
+        "historyLengthAfterArticle": history_length,
+        "backAction": "history.back()",
         "backUrl": back_url,
         "backHeading": back_heading,
-        "forwardAction": "Alt+ArrowRight",
+        "forwardAction": "history.forward()",
         "forwardUrl": page.url,
         "forwardHeading": (await page.locator("h1").first.inner_text()).strip(),
         "title": await page.title(),
@@ -453,10 +458,12 @@ def document_markers_passed(task: dict[str, Any]) -> bool:
         and urlsplit(task.get("articleUrl", "")).path == "/wiki/Military_camouflage"
         and task.get("articleHeading") == "Military camouflage"
         and task.get("historyVisible") is True
-        and task.get("backAction") == "Alt+ArrowLeft"
+        and type(task.get("historyLengthAfterArticle")) is int
+        and task["historyLengthAfterArticle"] >= 2
+        and task.get("backAction") == "history.back()"
         and task.get("backUrl") == DOCUMENT_URL
         and task.get("backHeading") == "Search results"
-        and task.get("forwardAction") == "Alt+ArrowRight"
+        and task.get("forwardAction") == "history.forward()"
         and urlsplit(task.get("forwardUrl", "")).path == "/wiki/Military_camouflage"
         and task.get("forwardHeading") == "Military camouflage"
         and task.get("finalUrl") == task.get("forwardUrl")

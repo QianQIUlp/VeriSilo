@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate open**；Attempt 3 为 Inconclusive：状态及重启重放 Passed，exact bindings 与 lifecycle 全部 clean；仍无 direct product failure |
+| FP4 ordinary-site compatibility | **Gate open**；Attempt 4 为 Inconclusive：五项任务 Passed，仅文档 history traversal 未闭合；exact bindings/lifecycle clean，无 direct product failure |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -75,16 +75,16 @@ fallback。2026-08-28 的一次 SOCKS5 availability preflight 选择了全部 pr
 状态重放及最终 Host/process tree/Job clean close。合同见
 [FP4 ordinary-site compatibility contract](camoufox-fp4-ordinary-site-compatibility-contract.md)。
 
-Attempt 1 的 pre-launch sidecar Failed 与 Attempt 2 的三项 harness Inconclusive 保持 immutable，
-均不自动关闭工程 Gate。Attempt 3 ([report](../artifacts/camoufox-fp4-attempt-3/run-report.json)，
-SHA-256 `ae8d22960c2a09bad3e5c8a183aeb8f46ce0d244c44e078ac0ee9011cc7b52a8`) 再次直接证明 exact
-Formal/Artifact/route/boot 绑定、六张截图、两次 clean close、Job/process tree 清零、临时运行根
-移除与跨重启 Profile state；无 crash/page error/direct product failure。文档任务暴露 Playwright
-键名应为 `Alt+ArrowLeft/Alt+ArrowRight`；OSM 已完成搜索、pan、zoom 和 layer panel，但 hidden
-CyclOSM radio 不能由 `.check()` 模拟用户选择，改为点击关联 label。GitHub 弹层本轮未出现，媒体
-本轮 pause/seek wait 未闭合；两者在 Attempt 2 分别到达 label selection 与 Passed，仍按外部/时序
-歧义处理，不增加 retry/delay。当前下一步是在两个确定修复的 checkpoint 上生成新的不可变
-Attempt 4；不声明 compatibility pass。
+Attempt 1–3 的 Failed/Inconclusive evidence 保持 immutable，均不自动关闭工程 Gate。Attempt 4
+([report](../artifacts/camoufox-fp4-attempt-4/run-report.json)，SHA-256
+`0842de087e16dac5bfb9b9a2ce9eb5a4978adc02df331030b40baf7915a86caf`) 直接通过 complex JS、
+interactive graphics、audio/video、form state 与跨重启 replay；exact Formal/Artifact/route/boot
+绑定、六张截图、两次 clean close、Job/process tree 清零及临时运行根移除全部通过。唯一的
+document/navigation Inconclusive 来自合成 `Alt+ArrowLeft` 未触发 history traversal，页面仍停留在
+article；无 crash/page error/direct product failure。runner 改用浏览器页面原生 `history.back()` /
+`history.forward()`，并新增 `history.length >= 2` 及 exact URL/heading 关系作为判定，不加 retry 或
+delay。当前下一步是在该单点修复 checkpoint 上生成新的不可变 Attempt 5；不声明 compatibility
+pass。
 
 ## 后续 Gate 顺序
 
@@ -119,7 +119,7 @@ Formal-v3 static source candidate（已闭合）
 | FP2 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp2-result.json`；SHA-256 `caa5ed4005c3e9c392c76a5d264d3d7d4d30cb741ac675fd27803c7f5fa06fa6`；**Passed on this native Windows host**；`verified:false` |
 | FP3 Attempt 7 | run `fp3-20260828T024057905465Z`；report SHA-256 `697a190ff485814a3f310cf3977792698e9ac2aaa2bcbae625bbbf7797acc25d`；required route、出口、Geo、ICE 与 lifecycle 全部通过 |
 | FP3 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`；SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`；**Passed on this native Windows host**；`verified:false` |
-| FP4 latest attempt | Attempt 3 `artifacts/camoufox-fp4-attempt-3/run-report.json`；SHA-256 `ae8d22960c2a09bad3e5c8a183aeb8f46ce0d244c44e078ac0ee9011cc7b52a8`；Inconclusive，无 direct product failure；bindings/lifecycle clean，`verified:false` |
+| FP4 latest attempt | Attempt 4 `artifacts/camoufox-fp4-attempt-4/run-report.json`；SHA-256 `0842de087e16dac5bfb9b9a2ce9eb5a4978adc02df331030b40baf7915a86caf`；五项 Passed、文档 history Inconclusive；bindings/lifecycle clean，`verified:false` |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |
