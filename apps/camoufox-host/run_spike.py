@@ -438,6 +438,12 @@ def firefox_user_prefs_for_config(config: Optional[dict] = None) -> dict:
         # a deterministic permission path. Without this, enumerateDevices()
         # intermittently returns no fake devices on fresh Windows profiles.
         prefs["media.navigator.permission.disabled"] = True
+    if IS_WINDOWS and config and all(
+        key in config for key in ("geolocation:latitude", "geolocation:longitude")
+    ):
+        # Windows otherwise selects the OS location provider and bypasses the
+        # Camoufox-configured coordinates in its network provider.
+        prefs["geo.provider.ms-windows-location"] = False
     return prefs
 
 

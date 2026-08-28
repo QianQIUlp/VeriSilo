@@ -680,6 +680,21 @@ def test_windows_media_device_policy_is_deterministic() -> None:
         assert prefs["media.navigator.permission.disabled"] is True
 
 
+def test_windows_configured_geo_selects_camoufox_network_provider() -> None:
+    complete = {
+        "geolocation:latitude": 22.2818333,
+        "geolocation:longitude": 114.1582831,
+    }
+    prefs = firefox_user_prefs_for_config(complete)
+    if os.name == "nt":
+        assert prefs["geo.provider.ms-windows-location"] is False
+    else:
+        assert "geo.provider.ms-windows-location" not in prefs
+    assert "geo.provider.ms-windows-location" not in firefox_user_prefs_for_config(
+        {"geolocation:latitude": 22.2818333}
+    )
+
+
 def test_candidate_extra_identity_policy_is_closed_and_fail_closed() -> None:
     assert set(CANDIDATE_EXTRA_IDENTITY_FIELDS) == {
         "navigator.maxTouchPoints",

@@ -59,7 +59,7 @@ RELEASE = "v152.0.4-beta.28"
 ENGINE_REVISION = "verisilo-camoufox-152.0.4-beta.28-r1-formal-v3"
 RUNTIME_LOCK_SCHEMA = "verisilo-camoufox-fp1-r1-runtime-asset/v1"
 STUN_URL = "stun:stun.cloudflare.com:3478"
-IP_OBSERVATION_URL = "https://ipwho.is/"
+IP_OBSERVATION_URL = "https://api.country.is/"
 
 _LOCK_VIEW: dict[str, Any] | None = None
 _TREE_RECEIPT: dict[str, Any] | None = None
@@ -268,16 +268,14 @@ async ({ipUrl}) => {
   const response = await fetch(ipUrl, {cache: "no-store", credentials: "omit"});
   const payload = await response.json();
   return {
-    success: response.ok && payload?.success === true,
+    success:
+      response.ok &&
+      typeof payload?.ip === "string" &&
+      typeof payload?.country === "string",
     httpStatus: response.status,
     ip: typeof payload?.ip === "string" ? payload.ip : null,
-    type: typeof payload?.type === "string" ? payload.type : null,
     countryCode:
-      typeof payload?.country_code === "string" ? payload.country_code : null,
-    timezone:
-      typeof payload?.timezone?.id === "string" ? payload.timezone.id : null,
-    latitude: Number.isFinite(payload?.latitude) ? payload.latitude : null,
-    longitude: Number.isFinite(payload?.longitude) ? payload.longitude : null,
+      typeof payload?.country === "string" ? payload.country : null,
   };
 }
 """
