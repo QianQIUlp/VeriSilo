@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the single clean M3-WI native-Windows qualification attempt."""
+"""Run the immutable clean M3-WI Attempt 2 qualification."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOST_DIR = Path(__file__).resolve().parent
 BRANCH = "codex/camoufox-m3-engine-adapter"
-ATTEMPT_ROOT = REPO_ROOT / "artifacts/camoufox-m3-wi-clean-attempt-1"
+ATTEMPT_ROOT = REPO_ROOT / "artifacts/camoufox-m3-wi-clean-attempt-2"
 CONTRACT = REPO_ROOT / "docs/camoufox-m3-wi-clean-contract.md"
-CONTRACT_SHA256 = "617cbcd5a739e4cc799e39594f036001bdefc2996ad59dc9afe869f70aa842c0"
+CONTRACT_SHA256 = "2486e7c132e45d082ce51b58a857e7b95b24a612a419dc6d16f2d90fb7fde793"
 ARTIFACT = REPO_ROOT / (
     "artifacts/camoufox-fp3-1b-attempt-7/identity-fp3-1b-formal-v3-a.json"
 )
@@ -46,6 +46,10 @@ EXECUTABLE_SHA256 = "b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f
 ARCHIVE_SHA256 = "032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5"
 HOST_SOURCE = HOST_DIR / "host_v1.py"
 HOST_SOURCE_SHA256 = "b3b313d4cf6d2eaadceaff4320e5a6bb8afb5d39212652b2c51474eb6809aad0"
+HOST_ENTRYPOINT = HOST_DIR / "run_m3_wi_clean_host.py"
+HOST_ENTRYPOINT_SHA256 = "d61091e550d8901fae52344aa94577b3040698ab4c1a7425635870f2b048719e"
+FORMAL_INPUT_BINDER = HOST_DIR / "run_fp3_1b_windows.py"
+FORMAL_INPUT_BINDER_SHA256 = "73a4fe9b20a95588d8bd03335aeffddf2a93b53cd0ddf9c24301ea99d6437785"
 UV_LOCK = HOST_DIR / "uv.lock"
 UV_LOCK_SHA256 = "41f63b2c12c3102573266b4d9ac002fbd29f7f95cc3d291b8a41d09e411f8f6f"
 PYTHON = HOST_DIR / ".venv/Scripts/python.exe"
@@ -138,6 +142,8 @@ def static_preflight() -> tuple[str, str, str, str, str]:
         (ASSET_LOCK, ASSET_LOCK_SHA256),
         (TREE_MANIFEST, TREE_MANIFEST_SHA256),
         (EXECUTABLE, EXECUTABLE_SHA256),
+        (HOST_ENTRYPOINT, HOST_ENTRYPOINT_SHA256),
+        (FORMAL_INPUT_BINDER, FORMAL_INPUT_BINDER_SHA256),
         (HOST_SOURCE, HOST_SOURCE_SHA256),
         (UV_LOCK, UV_LOCK_SHA256),
     ):
@@ -246,7 +252,7 @@ def execute() -> str:
             "VERISILO_M3_WI_CLEAN_ARTIFACT_SHA256": ARTIFACT_SHA256,
             "VERISILO_M3_WI_CLEAN_PROXY_HOST": PROXY_HOST,
             "VERISILO_M3_WI_CLEAN_PROXY_PORT": str(PROXY_PORT),
-            "VERISILO_M3_WI_CLEAN_HOST_SCRIPT": str(HOST_SOURCE),
+            "VERISILO_M3_WI_CLEAN_HOST_SCRIPT": str(HOST_ENTRYPOINT),
             "VERISILO_M3_WI_CLEAN_ASSET_LOCK": str(ASSET_LOCK),
             "VERISILO_M3_WI_CLEAN_BROWSER_ROOT": str(BROWSER_ROOT),
             "VERISILO_M3_WI_CLEAN_TREE_MANIFEST": str(TREE_MANIFEST),
@@ -308,8 +314,8 @@ def execute() -> str:
         status = "inconclusive"
     report = {
         "schema": "verisilo-camoufox-m3-wi-clean-run-report/v1",
-        "attempt": 1,
-        "runId": "clean-m3-wi-attempt-1",
+        "attempt": 2,
+        "runId": "clean-m3-wi-attempt-2",
         "startedAtUtc": started_at,
         "completedAtUtc": completed_at,
         "status": status,
@@ -350,6 +356,14 @@ def execute() -> str:
                 "canonicalSha256": TREE_MANIFEST_CANONICAL_SHA256,
             },
             "executable": {"path": relative(EXECUTABLE), "sha256": EXECUTABLE_SHA256},
+            "hostEntrypoint": {
+                "path": relative(HOST_ENTRYPOINT),
+                "sha256": HOST_ENTRYPOINT_SHA256,
+            },
+            "formalInputBinder": {
+                "path": relative(FORMAL_INPUT_BINDER),
+                "sha256": FORMAL_INPUT_BINDER_SHA256,
+            },
             "hostSource": {"path": relative(HOST_SOURCE), "sha256": HOST_SOURCE_SHA256},
             "pythonLock": {"path": relative(UV_LOCK), "sha256": UV_LOCK_SHA256},
             "pythonRuntime": {
