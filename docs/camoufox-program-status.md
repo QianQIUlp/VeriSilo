@@ -46,7 +46,7 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
 | Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
-| FP4 ordinary-site compatibility | **Gate contract 已冻结，runtime 尚未执行**；不构成 compatibility pass |
+| FP4 ordinary-site compatibility | **`fp4-ordinary-sites-v1` 五类矩阵已冻结，runtime 尚未执行**；不构成 compatibility pass |
 | production package/signing/UI | **未开放** |
 
 ## 当前未证明的边界
@@ -68,14 +68,17 @@ timezone/locale/Geolocation、匹配出口的 ICE `srflx` address 与 clean life
 managed Host 以 Artifact 坐标设置 Playwright persistent context；不声明 Camoufox 原生 Geo provider。
 合同见 [FP3 network identity contract](camoufox-fp3-network-identity-contract.md)。
 
-FP4 合同已冻结两个匿名 HTTPS 用户任务：`example.com` 到 IANA 的文档导航，以及 Wikipedia
-搜索 `Web browser`。两项任务必须在同一 fresh Profile/Host 会话内全部完成，随后 Host、浏览器
-process tree 与 Job 必须 clean close；没有重试、换站或 fallback。合同见
+FP4 已按产品兼容性 go/no-go 重冻结 `fp4-ordinary-sites-v1`：文档/导航、复杂 JavaScript、
+交互图形、音视频、表单/状态五类普通站点任务；每类一个 selected primary 和一个预声明
+fallback。2026-08-28 的一次 SOCKS5 availability preflight 选择了全部 primary。native attempt
+不得重试或在运行时换站，并须用同一临时 Profile 完成 `0 -> 1`、clean close、`1 -> 2` 重启
+状态重放及最终 Host/process tree/Job clean close。合同见
 [FP4 ordinary-site compatibility contract](camoufox-fp4-ordinary-site-compatibility-contract.md)。
 
-当前下一步是实现最小 evidence-only Host wrapper 和 focused adjudication check，提交并同步该
-静态输入后，使用 exact Formal-v3、FP3 Artifact v6 与 required SOCKS5 `127.0.0.1:7897` 执行
-一次原生 Windows immutable attempt。尚未生成 FP4 runtime evidence，不声明 compatibility pass。
+最小 evidence-only Host wrapper 与四结果 focused adjudication check 已完成；它复用既有
+Host/FP3 binding，不新增产品 Host 命令。当前下一步是同步该静态 checkpoint 后，使用 exact
+Formal-v3、FP3 Artifact v6 与 required SOCKS5 `127.0.0.1:7897` 执行一次原生 Windows
+immutable attempt。尚未生成 FP4 runtime evidence，不声明 compatibility pass。
 
 ## 后续 Gate 顺序
 
