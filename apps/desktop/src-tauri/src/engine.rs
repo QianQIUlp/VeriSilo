@@ -9,9 +9,10 @@ use std::{
     time::{Duration as StdDuration, Instant},
 };
 
-#[cfg(target_os = "windows")]
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 use chrono::{DateTime, Duration, Utc};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;

@@ -4550,6 +4550,17 @@ process.stdin.on('end', () => {
         reservation
     }
 
+    fn fake_camoufox_host_script() -> PathBuf {
+        let launcher = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(file!());
+        fs::canonicalize(
+            launcher
+                .parent()
+                .expect("launcher source directory")
+                .join("../../../../tests/fixtures/camoufox/fake-host-v1.py"),
+        )
+        .expect("locate fake Camoufox Host fixture from launcher.rs")
+    }
+
     fn fake_camoufox_host_fixture(mode: &str) -> (PathBuf, EngineLaunchPlan, Vec<OsString>) {
         let root =
             std::env::temp_dir().join(format!("verisilo-camoufox-host-fixture-{}", Uuid::new_v4()));
@@ -4563,8 +4574,7 @@ process.stdin.on('end', () => {
         let browser_tree_manifest = br#"{"schema":"verisilo-camoufox-browser-tree-manifest/v1","treeRootLabel":"fake-camoufox","fileCount":1,"totalBytes":1,"entries":[{"path":"camoufox.exe","size":1,"sha256":"4444444444444444444444444444444444444444444444444444444444444444"}]}"#;
         fs::write(&browser_tree_manifest_path, browser_tree_manifest)
             .expect("fake browser tree manifest");
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../tests/fixtures/camoufox/fake-host-v1.py");
+        let script = fake_camoufox_host_script();
         let platform = if cfg!(target_os = "windows") {
             "windows-x64"
         } else {
@@ -4884,8 +4894,7 @@ process.stdin.on('end', () => {
         let browser_tree_manifest = br#"{"schema":"verisilo-camoufox-browser-tree-manifest/v1","treeRootLabel":"fake-camoufox","fileCount":1,"totalBytes":1,"entries":[{"path":"camoufox.exe","size":1,"sha256":"4444444444444444444444444444444444444444444444444444444444444444"}]}"#;
         fs::write(&browser_tree_manifest_path, browser_tree_manifest)
             .expect("fake RuntimeManager browser tree");
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../tests/fixtures/camoufox/fake-host-v1.py");
+        let script = fake_camoufox_host_script();
         let executable_path = PathBuf::from(if cfg!(target_os = "windows") {
             "python"
         } else {
@@ -5057,8 +5066,7 @@ process.stdin.on('end', () => {
         let browser_tree_manifest_path = root.join("browser-tree-manifest.json");
         let browser_tree_manifest = br#"{"schema":"verisilo-camoufox-browser-tree-manifest/v1","treeRootLabel":"fake-camoufox","fileCount":1,"totalBytes":1,"entries":[{"path":"camoufox.exe","size":1,"sha256":"4444444444444444444444444444444444444444444444444444444444444444"}]}"#;
         fs::write(&browser_tree_manifest_path, browser_tree_manifest).expect("fake browser tree");
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../tests/fixtures/camoufox/fake-host-v1.py");
+        let script = fake_camoufox_host_script();
         let platform = if cfg!(target_os = "windows") {
             "windows-x64"
         } else {
@@ -5544,8 +5552,7 @@ process.stdin.on('end', () => {
         let browser_tree_manifest_path = root.join("browser-tree-manifest.json");
         fs::write(&browser_tree_manifest_path, b"{\"schema\":\"fake\"}\n")
             .expect("fake browser tree");
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../tests/fixtures/camoufox/fake-host-v1.py");
+        let script = fake_camoufox_host_script();
         let python = if cfg!(target_os = "windows") {
             "python"
         } else {
