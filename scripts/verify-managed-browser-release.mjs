@@ -57,6 +57,7 @@ const requiredFiles = new Set([
 const allowedTopLevel = new Set([...requiredFiles, "sbom", "engine-package"]);
 const forbiddenPath =
   /(?:^|\/)(?:hyper[-_ ]?v|vhdx?|environment|extension|native[-_ ]?host|hooks?|wsl|sandbox|portable|updater)(?:\/|$)/iu;
+const checksumLinePattern = /^([0-9a-f]{64})  (.+)$/u;
 
 function fail(message) {
   throw new Error(message);
@@ -168,8 +169,8 @@ async function verifyChecksums(directory, files) {
     .trimEnd()
     .split("\n")
     .map((line) => {
-      const match = /^([0-9a-f]{64})  ([A-Za-z0-9._/-]+)$/u.exec(line);
-      if (match === null || match[2].includes("..")) {
+      const match = checksumLinePattern.exec(line);
+      if (match === null) {
         fail("SHA256SUMS contains a malformed entry.");
       }
       return { path: match[2], sha256: match[1] };
@@ -596,6 +597,16 @@ export async function verifyRelease(
 }
 
 function selfTest() {
+  if (
+    checksumLinePattern.exec(
+      `${"a".repeat(64)}  engine-package/browser/fonts/Academy Engraved LET Fonts.ttf`,
+    ) === null ||
+    checksumLinePattern.exec(
+      `${"b".repeat(64)}  engine-package/host/_internal/tzdata/zoneinfo/Etc/GMT+1`,
+    ) === null
+  ) {
+    fail("Managed-browser verifier self-test rejected valid package paths.");
+  }
   if (!forbiddenPath.test("environment/images/base.vhdx")) {
     fail("Managed-browser verifier self-test did not reject a VHDX path.");
   }
