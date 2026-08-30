@@ -18,7 +18,7 @@ use crate::engine::{
     SiloEngineConfig, SiteFallbackReceipt,
 };
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -46,7 +46,7 @@ impl BrowserKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserDescriptor {
     pub kind: BrowserKind,
@@ -565,7 +565,10 @@ pub struct Silo {
     pub schema_version: u32,
     pub name: String,
     pub color: String,
-    pub browser: BrowserDescriptor,
+    /// Standard and WSL Silos carry a browser descriptor. Managed Camoufox
+    /// Silos deliberately keep this null: the signed package is the browser
+    /// authority and there is no user-selected stock executable to verify.
+    pub browser: Option<BrowserDescriptor>,
     #[serde(default)]
     pub execution_target: SiloExecutionTarget,
     pub profile_directory: String,
@@ -595,6 +598,79 @@ pub struct CreateSiloInput {
     pub proxy_credentials: Option<ProxyCredentialsInput>,
     #[serde(default)]
     pub mihomo_controller_secret: Option<MihomoControllerSecretInput>,
+}
+
+/// The managed-browser command accepts only these native-owned presets. The
+/// actual identity Artifact is selected by the trusted package, never by the
+/// renderer.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ManagedIdentityPreset {
+    BalancedEnUs,
+    BalancedZhCn,
+    BalancedDeDe,
+    MatchFixedProxy,
+}
+
+impl ManagedIdentityPreset {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::BalancedEnUs => "balanced-en-us",
+            Self::BalancedZhCn => "balanced-zh-cn",
+            Self::BalancedDeDe => "balanced-de-de",
+            Self::MatchFixedProxy => "match-fixed-proxy",
+        }
+    }
+
+    pub fn requires_proxy(self) -> bool {
+        matches!(self, Self::MatchFixedProxy)
+    }
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateManagedSiloInput {
+    pub name: String,
+    pub color: String,
+    #[serde(rename = "identityPreset")]
+    pub identity_preset: ManagedIdentityPreset,
+    pub network_profile: NetworkProfile,
+    #[serde(default)]
+    pub proxy_credentials: Option<ProxyCredentialsInput>,
+}
+
+impl CreateManagedSiloInput {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        validate_silo_appearance(&self.name, &self.color)?;
+        validate_network_replacement(&self.network_profile, self.proxy_credentials.as_ref(), None)?;
+        let valid_pairing = match self.identity_preset {
+            ManagedIdentityPreset::BalancedEnUs
+            | ManagedIdentityPreset::BalancedZhCn
+            | ManagedIdentityPreset::BalancedDeDe => {
+                matches!(
+                    self.network_profile,
+                    NetworkProfile::Direct {
+                        proxy_required: false
+                    }
+                ) && self.proxy_credentials.is_none()
+            }
+            ManagedIdentityPreset::MatchFixedProxy => matches!(
+                self.network_profile,
+                NetworkProfile::FixedProxy {
+                    proxy_required: true,
+                    scheme: ProxyScheme::Http | ProxyScheme::Socks5,
+                    ..
+                }
+            ),
+        };
+        if !valid_pairing {
+            return Err(DomainError::InvalidNetwork(
+                "Managed identity presets accept direct(false) only for balanced locales, or a required HTTP/SOCKS5 FixedProxy only for match-fixed-proxy."
+                    .to_owned(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Editable Silo metadata. Identity-bearing fields intentionally do not appear
@@ -653,6 +729,12 @@ impl CreateSiloInput {
     pub fn validate(&self) -> Result<(), DomainError> {
         validate_silo_appearance(&self.name, &self.color)?;
         self.execution_target.validate()?;
+        if !self.engine.is_stock() {
+            return Err(DomainError::InvalidEngine(
+                "Managed browser Silos must be created through the managed-browser command."
+                    .to_owned(),
+            ));
+        }
         if self.execution_target.is_local() {
             validate_browser_executable(&self.executable_path)?;
         } else if !self.engine.is_stock() {
@@ -673,6 +755,10 @@ impl CreateSiloInput {
 impl UpdateSiloInput {
     pub fn validate(&self) -> Result<(), DomainError> {
         validate_silo_metadata(&self.name, &self.color, &self.executable_path)
+    }
+
+    pub fn validate_managed_metadata(&self) -> Result<(), DomainError> {
+        validate_silo_appearance(&self.name, &self.color)
     }
 
     pub fn validate_for_execution_target(
@@ -890,6 +976,26 @@ impl NetworkProfile {
 }
 
 impl Silo {
+    pub fn adapter_id(&self) -> EngineAdapterId {
+        match &self.engine {
+            SiloEngineConfig::Stock => self
+                .browser
+                .as_ref()
+                .map(|browser| self.engine.adapter_id(&browser.kind))
+                .expect("validated stock Silo must carry a browser descriptor"),
+            _ => self.engine.adapter_id(&BrowserKind::Chrome),
+        }
+    }
+
+    pub fn browser_descriptor(&self) -> Result<&BrowserDescriptor, DomainError> {
+        self.browser.as_ref().ok_or_else(|| {
+            DomainError::InvalidSilo(
+                "This Silo has no stock browser descriptor; the managed engine owns its browser."
+                    .to_owned(),
+            )
+        })
+    }
+
     pub fn engine_profile_directory(&self) -> PathBuf {
         self.engine
             .profile_directory(Path::new(&self.profile_directory))
@@ -946,11 +1052,27 @@ pub struct RuntimeActivation {
 /// `verified_adapter`; that field requires direct runtime protocol evidence.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimePackageVerification {
+    pub verifier_id: String,
+    pub artifact_sha256: String,
+    pub digest_verified: bool,
+    pub signature_verified: bool,
+    pub package_manifest_sha256: String,
+    pub package_tree_sha256: Option<String>,
+    pub host_sha256: String,
+    pub signer_certificate_sha256: String,
+    pub engine_revision: Option<String>,
+    pub verified_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeEngineEvidence {
     pub configured_adapter: EngineAdapterId,
     pub launched_adapter: Option<EngineAdapterId>,
     pub verified_adapter: Option<EngineAdapterId>,
     pub package_verification: RuntimeEvidenceState,
+    pub package_verification_details: Option<RuntimePackageVerification>,
     pub bootstrap_delivery: RuntimeEvidenceState,
     pub host_launch: RuntimeEvidenceState,
     pub runtime_receipts: RuntimeEvidenceState,
@@ -973,6 +1095,7 @@ impl RuntimeEngineEvidence {
             } else {
                 RuntimeEvidenceState::NotApplicable
             },
+            package_verification_details: None,
             bootstrap_delivery: if native_control {
                 RuntimeEvidenceState::NotRequested
             } else {
@@ -1205,16 +1328,17 @@ pub enum DomainError {
     Filesystem(#[from] std::io::Error),
 }
 
-pub fn app_data_root() -> Result<PathBuf, DomainError> {
+pub(crate) fn app_data_root_path() -> Result<PathBuf, DomainError> {
     let root = if cfg!(target_os = "windows") {
-        std::env::var_os("LOCALAPPDATA")
+        let base = std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("APPDATA").map(PathBuf::from))
             .ok_or_else(|| {
                 DomainError::InvalidSilo(
                     "Windows application data directory is unavailable.".to_owned(),
                 )
-            })?
+            })?;
+        windows_app_data_root(&base)
     } else {
         std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)
@@ -1224,11 +1348,82 @@ pub fn app_data_root() -> Result<PathBuf, DomainError> {
             .ok_or_else(|| {
                 DomainError::InvalidSilo("Application data directory is unavailable.".to_owned())
             })?
-    }
-    .join("VeriSilo");
+            .join("VeriSilo")
+    };
 
+    Ok(root)
+}
+
+pub fn app_data_root() -> Result<PathBuf, DomainError> {
+    let root = app_data_root_path()?;
+    if cfg!(target_os = "windows") {
+        let base = root.parent().ok_or_else(|| {
+            DomainError::InvalidSilo(
+                "Windows application data directory is unavailable.".to_owned(),
+            )
+        })?;
+        migrate_legacy_app_data(base)?;
+    }
     fs::create_dir_all(&root)?;
     Ok(root)
+}
+
+fn windows_app_data_root(base: &Path) -> PathBuf {
+    base.join("io.verisilo.app")
+}
+
+fn migrate_legacy_app_data(base: &Path) -> Result<(), DomainError> {
+    let current = windows_app_data_root(base);
+    let legacy = base.join("VeriSilo");
+    let legacy_metadata = match fs::symlink_metadata(&legacy) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(DomainError::Filesystem(error)),
+    };
+    if metadata_is_link_or_reparse(&legacy_metadata) || !legacy_metadata.is_dir() {
+        return Err(DomainError::InvalidSilo(
+            "Legacy VeriSilo application data is redirected or not a directory; migration stopped without changing it."
+                .to_owned(),
+        ));
+    }
+    match fs::symlink_metadata(&current) {
+        Ok(metadata) if metadata_is_link_or_reparse(&metadata) || !metadata.is_dir() => {
+            return Err(DomainError::InvalidSilo(
+                "RC1 application data path is redirected or not a directory; legacy migration stopped."
+                    .to_owned(),
+            ))
+        }
+        Ok(_) => {
+            return Err(DomainError::InvalidSilo(
+                "Both legacy and RC1 application data directories exist; migration stopped without merging or overwriting either directory."
+                    .to_owned(),
+            ))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(DomainError::Filesystem(error)),
+    }
+    fs::rename(&legacy, &current).map_err(|error| {
+        DomainError::InvalidSilo(format!(
+            "Legacy application data could not be moved atomically to the RC1 path: {error}"
+        ))
+    })?;
+    Ok(())
+}
+
+fn metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::MetadataExt;
+
+        metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
 }
 
 pub fn discover_browsers() -> Vec<BrowserCandidate> {
@@ -1630,8 +1825,9 @@ mod tests {
         WindowsSystemTool,
     };
     use super::{
-        verify_browser_descriptor, BrowserDescriptor, BrowserKind, BrowserVerificationState,
-        NetworkProfile, ProxyScheme, Silo, SiloExecutionTarget,
+        verify_browser_descriptor, windows_app_data_root, BrowserDescriptor, BrowserKind,
+        BrowserVerificationState, CreateManagedSiloInput, ManagedIdentityPreset, NetworkProfile,
+        ProxyScheme, Silo, SiloExecutionTarget,
     };
 
     fn browser_fixture(output: &str) -> std::path::PathBuf {
@@ -1945,5 +2141,94 @@ mod tests {
         assert!(arguments
             .iter()
             .all(|argument| !argument.contains("direct://")));
+    }
+
+    #[test]
+    fn managed_identity_presets_have_the_exact_rc1_wire_names() {
+        let presets = [
+            (ManagedIdentityPreset::BalancedEnUs, "balanced-en-us"),
+            (ManagedIdentityPreset::BalancedZhCn, "balanced-zh-cn"),
+            (ManagedIdentityPreset::BalancedDeDe, "balanced-de-de"),
+            (ManagedIdentityPreset::MatchFixedProxy, "match-fixed-proxy"),
+        ];
+        for (preset, expected) in presets {
+            assert_eq!(
+                serde_json::to_string(&preset).expect("preset JSON"),
+                format!("\"{expected}\"")
+            );
+            assert_eq!(
+                serde_json::from_str::<ManagedIdentityPreset>(&format!("\"{expected}\""))
+                    .expect("preset decode"),
+                preset
+            );
+        }
+        assert!(serde_json::from_str::<ManagedIdentityPreset>("\"balanced\"").is_err());
+        assert!(serde_json::from_str::<ManagedIdentityPreset>("\"privacy\"").is_err());
+    }
+
+    #[test]
+    fn managed_identity_preset_network_pairings_are_strict() {
+        let direct = NetworkProfile::Direct {
+            proxy_required: false,
+        };
+        let fixed = NetworkProfile::FixedProxy {
+            proxy_required: true,
+            scheme: ProxyScheme::Socks5,
+            host: "127.0.0.1".to_owned(),
+            port: 7890,
+            bypass_list: Vec::new(),
+            credential_reference: None,
+            external_mihomo: None,
+        };
+        for preset in [
+            ManagedIdentityPreset::BalancedEnUs,
+            ManagedIdentityPreset::BalancedZhCn,
+            ManagedIdentityPreset::BalancedDeDe,
+        ] {
+            assert!(CreateManagedSiloInput {
+                name: "managed".to_owned(),
+                color: "#4f46e5".to_owned(),
+                identity_preset: preset,
+                network_profile: direct.clone(),
+                proxy_credentials: None,
+            }
+            .validate()
+            .is_ok());
+            assert!(CreateManagedSiloInput {
+                name: "managed".to_owned(),
+                color: "#4f46e5".to_owned(),
+                identity_preset: preset,
+                network_profile: fixed.clone(),
+                proxy_credentials: None,
+            }
+            .validate()
+            .is_err());
+        }
+        assert!(CreateManagedSiloInput {
+            name: "managed".to_owned(),
+            color: "#4f46e5".to_owned(),
+            identity_preset: ManagedIdentityPreset::MatchFixedProxy,
+            network_profile: fixed,
+            proxy_credentials: None,
+        }
+        .validate()
+        .is_ok());
+    }
+
+    #[test]
+    fn windows_app_data_root_prefers_rc1_path_without_orphaning_legacy_vaults() {
+        let base = std::env::temp_dir().join(format!("verisilo-app-data-{}", Uuid::new_v4()));
+        let current = base.join("io.verisilo.app");
+        let legacy = base.join("VeriSilo");
+        assert_eq!(windows_app_data_root(&base), current.clone());
+        fs::create_dir_all(&legacy).expect("legacy app data");
+        fs::write(legacy.join("vault.json"), b"encrypted").expect("legacy Vault");
+        assert_eq!(windows_app_data_root(&base), current);
+        super::migrate_legacy_app_data(&base).expect("atomically migrate legacy app data");
+        assert!(current.join("vault.json").is_file());
+        assert!(!legacy.exists());
+        fs::create_dir_all(&legacy).expect("conflicting legacy app data");
+        assert!(super::migrate_legacy_app_data(&base).is_err());
+        fs::remove_dir_all(base).expect("remove app-data fixture");
     }
 }

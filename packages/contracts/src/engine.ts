@@ -5,6 +5,8 @@ export const ENGINE_RUNTIME_RECEIPT_VERSION = 1 as const;
 export const MAX_ENGINE_RUNTIME_RECEIPT_BYTES = 32 * 1024;
 export const CAMOUFOX_ARTIFACT_SCHEMA_V3 =
   "verisilo-camoufox-resolved-identity/v3" as const;
+export const CAMOUFOX_ARTIFACT_SCHEMA_V5 =
+  "verisilo-camoufox-resolved-identity/v5" as const;
 export const CAMOUFOX_ARTIFACT_SCHEMA_V6 =
   "verisilo-camoufox-resolved-identity/v6" as const;
 export const CAMOUFOX_ARTIFACT_SCHEMA = CAMOUFOX_ARTIFACT_SCHEMA_V3;
@@ -400,12 +402,11 @@ export type DerivedIdentityToken = z.infer<typeof derivedIdentityTokenSchema>;
 
 export const camoufoxArtifactBindingV1Schema = z
   .object({
-    artifactId: z
-      .string()
-      .regex(/^identity-[a-z0-9][a-z0-9-]{0,63}$/u),
+    artifactId: z.string().regex(/^identity-[a-z0-9][a-z0-9-]{0,63}$/u),
     artifactFileSha256: z.string().regex(/^[a-f0-9]{64}$/u),
     schema: z.union([
       z.literal(CAMOUFOX_ARTIFACT_SCHEMA_V3),
+      z.literal(CAMOUFOX_ARTIFACT_SCHEMA_V5),
       z.literal(CAMOUFOX_ARTIFACT_SCHEMA_V6),
     ]),
   })
@@ -442,9 +443,7 @@ export const siloEngineConfigSchema = z
     z
       .object({
         adapter: z.literal("camoufox"),
-        identityTemplate: identityTemplateSchema,
-        fallbackRules: z.array(siteFallbackRuleSchema).max(100),
-        /** Older persisted Camoufox configs may omit this and fail closed at launch. */
+        /** Missing bindings represent legacy Camoufox records unavailable for launch. */
         artifactBinding: camoufoxArtifactBindingV1Schema.optional(),
       })
       .strict(),
@@ -458,16 +457,6 @@ export const siloEngineConfigSchema = z
         code: z.ZodIssueCode.custom,
         path: ["identityTemplate", "browser", "family"],
         message: "Controlled Chromium requires a Chromium identity template.",
-      });
-    }
-    if (
-      config.adapter === "camoufox" &&
-      config.identityTemplate.browser.family !== "firefox"
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["identityTemplate", "browser", "family"],
-        message: "Camoufox requires a Firefox identity template.",
       });
     }
   });
@@ -511,7 +500,9 @@ export const camoufoxHostLaunchSchema = z
     profileId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/u),
     browserRelease: z
       .string()
-      .regex(/^v(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u),
+      .regex(
+        /^v(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u,
+      ),
     browserAssetSha256: z.string().regex(/^[a-f0-9]{64}$/u),
     browserTreeManifestPath: z.string().trim().min(1).max(4096),
     browserTreeManifestSha256: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -667,11 +658,15 @@ export const engineLaunchPlanSchema = z
           "Native bootstrap transport requires the Controlled Chromium adapter and both native control bindings.",
       });
     }
-    if (plan.transport === "native-bootstrap-v1" && plan.camoufoxHost !== null) {
+    if (
+      plan.transport === "native-bootstrap-v1" &&
+      plan.camoufoxHost !== null
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["camoufoxHost"],
-        message: "Native bootstrap transport cannot carry a Camoufox Host binding.",
+        message:
+          "Native bootstrap transport cannot carry a Camoufox Host binding.",
       });
     }
     if (plan.transport === "camoufox-host-jsonl-v1") {
@@ -767,9 +762,11 @@ const enginePackageManifestV2Schema = z
     }
   });
 
-const enginePackageVersionSchema = z.string().regex(
-  /^(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u,
-);
+const enginePackageVersionSchema = z
+  .string()
+  .regex(
+    /^(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u,
+  );
 
 const enginePackageSignatureSchema = signatureSchema;
 
@@ -850,7 +847,9 @@ export const camoufoxHostPackageManifestSchema = z
     hostVersion: z.string().trim().min(1).max(64),
     browserRelease: z
       .string()
-      .regex(/^v(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u),
+      .regex(
+        /^v(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u,
+      ),
     browserAssetSha256: z.string().regex(/^[a-f0-9]{64}$/u),
   })
   .strict()
@@ -859,14 +858,16 @@ export const camoufoxHostPackageManifestSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["artifactSha256"],
-        message: "Camoufox package artifactSha256 must bind the Host entrypoint.",
+        message:
+          "Camoufox package artifactSha256 must bind the Host entrypoint.",
       });
     }
     if (manifest.browserRelease !== `v${manifest.engineVersion}`) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["browserRelease"],
-        message: "Camoufox browserRelease must bind the accepted v-prefixed engine release.",
+        message:
+          "Camoufox browserRelease must bind the accepted v-prefixed engine release.",
       });
     }
     if (!manifest.capabilities.includes("identity_template")) {

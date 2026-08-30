@@ -213,6 +213,53 @@ describe("desktop product copy", () => {
     expect(appSource).not.toContain("identityTemplate.templateId");
   });
 
+  it("keeps managed-browser creation bounded and accessible", () => {
+    expect(appSource).toContain("系统浏览器");
+    expect(appSource).toContain("托管身份浏览器");
+    expect(appSource).toContain("请从托盘菜单退出");
+    expect(appSource).toContain("managedEngineReady");
+    expect(appSource).toContain(
+      "disabled={!managedEngineReady || managedStatusBusy}",
+    );
+    expect(appSource).toContain("onSubmit={(event) => void submit(event)}");
+    expect(appSource).toContain('role="alert"');
+    expect(appSource).toContain("重试");
+    expect(appSource).toContain("Direct 直连");
+    expect(appSource).toContain("HTTP");
+    expect(appSource).toContain("SOCKS5");
+    expect(appSource).not.toContain("managed-package-path");
+    expect(appSource).not.toContain("artifactFileSha256");
+  });
+
+  it("stops a running Camoufox Silo through the shared stop command", () => {
+    expect(appSource).toContain(
+      'const managedCamoufox = silo.engine.adapter === "camoufox";',
+    );
+    expect(appSource).toContain('"停止托管浏览器"');
+    expect(appSource).toContain("onStop(silo)");
+    expect(appSource).toContain("一次只运行一个 Silo");
+  });
+
+  it("keeps managed package, network, and binding evidence states distinct", () => {
+    for (const state of [
+      "configured",
+      "reachable",
+      "applied",
+      "observed",
+      "verified",
+      "unavailable",
+    ]) {
+      expect(appSource).toContain(`${state}:`);
+    }
+    expect(appSource).toContain(
+      'engineEvidence?.packageVerification === "verified"',
+    );
+    expect(appSource).toContain(
+      'engineEvidence?.verifiedAdapter === "camoufox"',
+    );
+    expect(appSource).toContain('networkEvidence.exit === "observed"');
+  });
+
   it("requires fresh approval after any remote pairing or fingerprint change", () => {
     expect(
       appSource.match(/setRemotePairingApproved\(false\)/gu)?.length ?? 0,

@@ -44,6 +44,33 @@ describe("VeriSilo contracts", () => {
     expect(silo.identityLockedAt).toBeNull();
   });
 
+  it("migrates a schema-2 Standard Silo without inventing managed identity", () => {
+    const silo = siloSchema.parse({
+      id: "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
+      schemaVersion: 2,
+      name: "Legacy Standard",
+      color: "#4f46e5",
+      browser: {
+        kind: "edge",
+        executablePath:
+          "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+        version: "150.0.0.0",
+      },
+      executionTarget: { kind: "local" },
+      profileDirectory: "C:/VeriSilo/silos/legacy-standard/browser-data",
+      networkProfile: { mode: "direct", proxyRequired: false },
+      engine: { adapter: "stock" },
+      identityLockedAt: null,
+      seedReference: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      createdAt: "2026-07-28T00:00:00.000Z",
+      archivedAt: null,
+    });
+    expect(silo.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(silo.browser?.kind).toBe("edge");
+    expect(silo.engine).toEqual({ adapter: "stock" });
+    expect(silo.executionTarget).toEqual({ kind: "local" });
+  });
+
   it("accepts local, WSL, and remote Silo execution targets", () => {
     expect(siloExecutionTargetSchema.parse({ kind: "local" })).toEqual({
       kind: "local",
@@ -94,6 +121,80 @@ describe("VeriSilo contracts", () => {
     });
     expect(silo.executionTarget).toEqual({ kind: "local" });
     expect(silo.identityLockedAt).toBeNull();
+  });
+
+  it("accepts schema-3 Camoufox with a nullable browser and binding-only engine", () => {
+    const silo = siloSchema.parse({
+      id: "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
+      schemaVersion: SCHEMA_VERSION,
+      name: "Managed",
+      color: "#4f46e5",
+      browser: null,
+      profileDirectory: "C:/VeriSilo/silos/managed/browser-data",
+      networkProfile: { mode: "direct", proxyRequired: false },
+      engine: {
+        adapter: "camoufox",
+        artifactBinding: {
+          artifactId: "identity-camoufox-m3",
+          artifactFileSha256: "a".repeat(64),
+          schema: "verisilo-camoufox-resolved-identity/v5",
+        },
+      },
+      executionTarget: { kind: "local" },
+      identityLockedAt: null,
+      seedReference: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      createdAt: "2026-07-28T00:00:00.000Z",
+      archivedAt: null,
+    });
+    expect(silo.browser).toBeNull();
+    expect(silo.engine).toEqual({
+      adapter: "camoufox",
+      artifactBinding: {
+        artifactId: "identity-camoufox-m3",
+        artifactFileSha256: "a".repeat(64),
+        schema: "verisilo-camoufox-resolved-identity/v5",
+      },
+    });
+    expect(() =>
+      siloSchema.parse({
+        ...silo,
+        browser: {
+          kind: "chrome",
+          executablePath:
+            "C:/Program Files/Google/Chrome/Application/chrome.exe",
+        },
+      }),
+    ).toThrow(/Camoufox/);
+    expect(() =>
+      siloSchema.parse({ ...silo, engine: { adapter: "stock" } }),
+    ).toThrow(/require a browser descriptor/);
+  });
+
+  it("migrates a legacy Camoufox without a binding as unavailable", () => {
+    const silo = siloSchema.parse({
+      id: "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
+      schemaVersion: 2,
+      name: "Legacy Managed",
+      color: "#4f46e5",
+      browser: {
+        kind: "chrome",
+        executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
+      },
+      executionTarget: { kind: "local" },
+      profileDirectory: "C:/VeriSilo/silos/legacy-managed/browser-data",
+      networkProfile: { mode: "direct", proxyRequired: false },
+      engine: {
+        adapter: "camoufox",
+        identityTemplate: { legacy: true },
+        fallbackRules: [{ legacy: true }],
+      },
+      identityLockedAt: null,
+      seedReference: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      createdAt: "2026-07-28T00:00:00.000Z",
+      archivedAt: null,
+    });
+    expect(silo.browser).toBeNull();
+    expect(silo.engine).toEqual({ adapter: "camoufox" });
   });
 
   it("keeps the current Silo contract strict", () => {
@@ -223,7 +324,7 @@ describe("VeriSilo contracts", () => {
         ...evidence,
         verifiedAdapter: "controlled-chromium",
       }),
-    ).toThrow(/protocol evidence/);
+    ).toThrow(/bootstrap delivery|runtime receipts/);
 
     const camoufoxEvidence = runtimeEngineEvidenceSchema.parse({
       configuredAdapter: "camoufox",
@@ -239,12 +340,67 @@ describe("VeriSilo contracts", () => {
       fallbackReceipts: [],
     });
     expect(camoufoxEvidence.hostLaunch).toBe("observed");
-    expect(() =>
+    expect(
       runtimeEngineEvidenceSchema.parse({
         ...camoufoxEvidence,
         hostLaunch: "verified",
-      }),
-    ).toThrow(/M3-0 Camoufox Host/);
+      }).hostLaunch,
+    ).toBe("verified");
+  });
+
+  it("accepts production Camoufox verification without upgrading capabilities", () => {
+    const evidence = runtimeEngineEvidenceSchema.parse({
+      configuredAdapter: "camoufox",
+      launchedAdapter: "camoufox",
+      verifiedAdapter: "camoufox",
+      packageVerification: "verified",
+      packageVerificationDetails: {
+        verifierId: "windows-cms-verifier",
+        artifactSha256: "a".repeat(64),
+        digestVerified: true,
+        signatureVerified: true,
+        packageManifestSha256: "b".repeat(64),
+        packageTreeSha256: "c".repeat(64),
+        hostSha256: "d".repeat(64),
+        signerCertificateSha256: "e".repeat(64),
+        engineRevision: "verisilo-camoufox-152.0.4-beta.28-r1-formal-v3",
+        verifiedAt: "2026-07-28T12:00:00.000Z",
+      },
+      bootstrapDelivery: "not_applicable",
+      hostLaunch: "verified",
+      runtimeReceipts: "not_applicable",
+      restoreReceipt: "not_applicable",
+      capabilities: [
+        {
+          id: "identity_template",
+          availability: "supported",
+          operation: "configured",
+          reason: "The package exposes the identity surface.",
+          verifiedAt: null,
+          evidence: [],
+        },
+      ],
+      phaseReceipts: [],
+      fallbackReceipts: [],
+    });
+    expect(evidence.verifiedAdapter).toBe("camoufox");
+    expect(evidence.capabilities[0]?.operation).toBe("configured");
+    for (const tampered of [
+      { packageVerification: "failed" as const },
+      { hostLaunch: "observed" as const },
+      { bootstrapDelivery: "verified" as const },
+      { runtimeReceipts: "verified" as const },
+      {
+        packageVerificationDetails: {
+          ...evidence.packageVerificationDetails!,
+          digestVerified: false,
+        },
+      },
+    ]) {
+      expect(() =>
+        runtimeEngineEvidenceSchema.parse({ ...evidence, ...tampered }),
+      ).toThrow();
+    }
   });
 
   it("strictly exposes sanitized ordered per-capability runtime receipts", () => {

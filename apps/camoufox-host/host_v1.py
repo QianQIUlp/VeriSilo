@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VeriSilo M2 standalone Camoufox Host v1 (stdio protocol).
+"""VeriSilo production Camoufox Host v1 (stdio protocol).
 
 Protocol: JSON Lines on stdin/stdout, one object per line, LF-terminated.
 Maximum frame size: 32 KiB (requests and responses). stdout carries ONLY
@@ -62,8 +62,6 @@ from browser_tree import (
 from browser_asset import (
     BrowserAssetError,
     SELF_BUILT_ASSET_KIND,
-    asset_kind,
-    verify_self_built_browser_root,
 )
 from host_platform import (
     IS_WINDOWS,
@@ -82,21 +80,19 @@ from host_fonts import (
     FONT_UNIVERSE,
     host_negative_control_families,
 )
-from run_identity_spike import (
+from host_probe import (
     MEDIA_READINESS_REASONS,
     MediaDeviceReadinessError,
     MediaDeviceReadinessTimeout,
     extract_observed_website_signals,
     wait_for_configured_media_devices,
 )
-from run_spike import (
+from host_runtime import (
     COOKIE_NAME,
-    UnclassifiedCandidateIdentityFieldError,
     configure_camoufox_cache,
     DownloadGuard,
-    REPO_ROOT,
-    SUPERVISOR,
-    XDG_CACHE_DIR,
+    UnclassifiedCandidateIdentityFieldError,
+    asset_kind,
     ensure_browser_asset,
     firefox_user_prefs_for_config,
     install_download_guard,
@@ -109,11 +105,19 @@ from run_spike import (
     start_xvfb,
     stop_xvfb,
     utcnow,
+    verify_self_built_browser_root,
 )
+from host_runtime import LEGACY_REPO_ROOT as REPO_ROOT
+from host_runtime import LEGACY_SUPERVISOR as SUPERVISOR
+from host_runtime import LEGACY_CACHE_DIR as XDG_CACHE_DIR
+from host_runtime import LEGACY_PROBE_FILE
+from host_runtime import LEGACY_DEFAULT_TREE_MANIFEST
+from package_contract import PackageLayout
 
 PROTOCOL = "verisilo-camoufox-host/v1"
 HOST_VERSION = "0.1.0"
 MAX_FRAME_BYTES = 32768
+PROVISION_FRAME_MAX_BYTES = 4096
 PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 LOOPBACK_SOCKS5_RE = re.compile(r"^socks5://127\.0\.0\.1:([1-9][0-9]{0,4})$")
@@ -127,7 +131,7 @@ DIAGNOSTIC_MAX_EVENTS = 20
 DIAGNOSTIC_MAX_BYTES = 3072
 DIAGNOSTIC_CLOSE_RESERVE_BYTES = 1024
 DIAGNOSTIC_MAX_LINE_BYTES = 512
-DIAGNOSTIC_STAGES = {"close"}
+DIAGNOSTIC_STAGES = {"close", "response write"}
 
 FP1_LAUNCH_STAGES = (
     "launch_options",
@@ -222,7 +226,7 @@ def _bounded_close_message(exc: BaseException) -> str:
 
 
 def _send(obj: dict) -> None:
-    with _active_launch_stage("response_write"):
+    with _StageDiagnostic("response write"), _active_launch_stage("response_write"):
         frame = json.dumps(
             obj, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8") + b"\n"
@@ -579,6 +583,84 @@ def validate_request(obj: dict) -> tuple[str, str, dict]:
     return request_id, command, params
 
 
+def read_provision_frame(stream: Any = None) -> dict:
+    """Read one bounded big-endian length-prefixed JSON provisioning frame."""
+
+    if stream is None:
+        stream = os.fdopen(os.dup(_STDIN_FD), "rb", closefd=True)
+    header = stream.read(4)
+    if len(header) != 4:
+        raise ProtocolError("provision_eof", "provision frame header is incomplete")
+    length = int.from_bytes(header, "big")
+    if length <= 0 or length > PROVISION_FRAME_MAX_BYTES:
+        raise ProtocolError("provision_frame_too_large", "provision frame exceeds 4 KiB")
+    payload = stream.read(length)
+    if len(payload) != length:
+        raise ProtocolError("provision_eof", "provision frame payload is incomplete")
+    try:
+        value = parse_frame(payload)
+    except ProtocolError:
+        # A compact binary frame is useful to native callers that already
+        # hold the seed as bytes: one preset index followed by 32 seed bytes.
+        from provision_artifact import PROVISION_PRESETS
+
+        preset_names = tuple(PROVISION_PRESETS)
+        if len(payload) != 33 or payload[0] >= len(preset_names):
+            raise
+        value = {"preset": preset_names[payload[0]], "seed": payload[1:]}
+    if set(value) != {"seed", "preset"} and set(value) != {"seed", "preset", "proxyServer"}:
+        raise ProtocolError("unknown_field", "provision request fields are not exact")
+    if type(value.get("preset")) is int:
+        from provision_artifact import PROVISION_PRESETS
+
+        names = tuple(PROVISION_PRESETS)
+        if not 0 <= value["preset"] < len(names):
+            raise ProtocolError("bad_type", "preset index is out of range")
+        value = dict(value)
+        value["preset"] = names[value["preset"]]
+    return value
+
+
+def write_provision_frame(value: dict) -> None:
+    raw = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(raw) > PROVISION_FRAME_MAX_BYTES:
+        raise ProtocolError("provision_response_too_large", "provision response exceeds 4 KiB")
+    frame = len(raw).to_bytes(4, "big") + raw
+    view = memoryview(frame)
+    while view:
+        written = os.write(_PROTOCOL_FD, view)
+        if written <= 0:
+            raise OSError("provision response write made no progress")
+        view = view[written:]
+
+
+def run_provision(host: CamoufoxHost) -> int:
+    if host.package_root is None:
+        raise ProtocolError("package_required", "provision-artifact requires --package-root")
+    from provision_artifact import ProvisionError, provision_artifact
+
+    try:
+        request = read_provision_frame()
+        result = provision_artifact(
+            request,
+            package_root=host.package_root,
+            artifact_root=host.artifact_root,
+            cache_root=host.state_root / "camoufox-cache",
+        )
+    except ProtocolError as exc:
+        write_provision_frame({"ok": False, "error": {"code": exc.code, "message": str(exc)}})
+        return 2
+    except ProvisionError as exc:
+        write_provision_frame({"ok": False, "error": {"code": "provision_rejected", "message": str(exc)}})
+        return 2
+    except Exception as exc:  # noqa: BLE001 - never expose input values
+        _log(f"provision failed: {type(exc).__name__}")
+        write_provision_frame({"ok": False, "error": {"code": "provision_failed", "message": type(exc).__name__}})
+        return 1
+    write_provision_frame({"ok": True, "result": result})
+    return 0
+
+
 # --------------------------------------------------------------------------
 # Host
 # --------------------------------------------------------------------------
@@ -619,20 +701,55 @@ class CamoufoxHost:
         artifact_root: Path,
         profile_root: Path,
         state_root: Path,
-        tree_manifest: Path,
-        display: Optional[str],
+        tree_manifest: Optional[Path] = None,
+        display: Optional[str] = None,
         probe_port: int = 0,
         asset_lock: Optional[Path] = None,
         browser_root: Optional[Path] = None,
+        package_root: Optional[Path] = None,
+        supervisor: Optional[Path] = None,
+        probe_file: Optional[Path] = None,
     ) -> None:
+        self.package_root = package_root.absolute() if package_root is not None else None
+        package_layout = PackageLayout.from_root(self.package_root) if self.package_root else None
         self.artifact_root = artifact_root.absolute()
         self.profile_root = profile_root.absolute()
         self.state_root = state_root.absolute()
-        self.tree_manifest = tree_manifest.absolute()
-        self.asset_lock_arg = asset_lock.absolute() if asset_lock is not None else None
-        self.browser_root_arg = (
-            browser_root.absolute() if browser_root is not None else None
+        self.tree_manifest = (
+            tree_manifest.absolute()
+            if tree_manifest is not None
+            else (package_layout.browser_tree if package_layout else LEGACY_DEFAULT_TREE_MANIFEST)
         )
+        self.asset_lock_arg = (
+            asset_lock.absolute()
+            if asset_lock is not None
+            else (package_layout.asset_lock if package_layout else None)
+        )
+        self.browser_root_arg = (
+            browser_root.absolute()
+            if browser_root is not None
+            else (package_layout.browser_root if package_layout else None)
+        )
+        self.supervisor = (
+            supervisor.absolute()
+            if supervisor is not None
+            else (package_layout.supervisor if package_layout else SUPERVISOR)
+        )
+        self.probe_file = (
+            probe_file.absolute()
+            if probe_file is not None
+            else (package_layout.probe if package_layout else LEGACY_PROBE_FILE)
+        )
+        if package_layout is not None:
+            for selected, expected, label in (
+                (self.asset_lock_arg, package_layout.asset_lock, "asset lock"),
+                (self.browser_root_arg, package_layout.browser_root, "browser root"),
+                (self.tree_manifest, package_layout.browser_tree, "browser tree"),
+                (self.supervisor, package_layout.supervisor, "supervisor"),
+                (self.probe_file, package_layout.probe, "probe"),
+            ):
+                if selected.resolve(strict=False) != expected.resolve(strict=False):
+                    raise SystemExit(f"package {label} must use its fixed package-relative path")
         self.display_arg = display
         self.probe_port = probe_port
         self.playwright: Any = None
@@ -648,9 +765,13 @@ class CamoufoxHost:
         ensure_no_reparse_points(self.artifact_root)
         ensure_no_reparse_points(self.profile_root)
         ensure_no_reparse_points(self.state_root)
+        if self.package_root is not None:
+            ensure_no_reparse_points(self.package_root)
         if (self.asset_lock_arg is None) != (self.browser_root_arg is None):
             raise SystemExit("asset lock and browser root must be provided together")
-        asset_lock_path = resolve_asset_lock_path(self.asset_lock_arg)
+        asset_lock_path = resolve_asset_lock_path(
+            self.asset_lock_arg, package_root=self.package_root
+        )
         lock = load_asset_lock(asset_lock_path)
         kind = asset_kind(lock)
         executable = ensure_browser_asset(
@@ -666,17 +787,22 @@ class CamoufoxHost:
             verify_tree_contents=True,
         )
         cache_root = Path(
-            os.environ.get("VERISILO_CAMOUFOX_CACHE_DIR", str(XDG_CACHE_DIR))
+            os.environ.get(
+                "VERISILO_CAMOUFOX_CACHE_DIR",
+                str(self.state_root / "camoufox-cache")
+                if self.package_root is not None
+                else str(XDG_CACHE_DIR),
+            )
         )
         install_dir = configure_camoufox_cache(cache_root)
         # The Host stdout is the strict JSONL transport. Cache seeding is a
         # startup diagnostic and must never become a protocol frame.
         with contextlib.redirect_stdout(sys.stderr):
             seed_camoufox_cache(lock, executable, install_dir=install_dir)
-        if not SUPERVISOR.exists():
-            raise SystemExit(f"missing native supervisor: {SUPERVISOR}")
+        if not self.supervisor.exists():
+            raise SystemExit(f"missing native supervisor: {self.supervisor}")
         if not IS_WINDOWS:
-            SUPERVISOR.chmod(0o755)
+            self.supervisor.chmod(0o755)
         install_download_guard()
         DownloadGuard.reset()
         self.lock = lock
@@ -914,7 +1040,7 @@ class CamoufoxHost:
         if not IS_WINDOWS and not display:
             display, xvfb = start_xvfb()
         session["xvfb"] = xvfb
-        server, probe_url = start_probe_server(self.probe_port)
+        server, probe_url = start_probe_server(self.probe_port, self.probe_file)
         session["server"] = server
         # Remember the actual probe port: later launches (same Host process,
         # or a restarted Host given this port) keep the cookie / localStorage
@@ -1003,7 +1129,7 @@ class CamoufoxHost:
         geolocation = playwright_geolocation_for_artifact(artifact)
         if geolocation is not None:
             opts["geolocation"] = geolocation
-        opts["executable_path"] = str(SUPERVISOR)
+        opts["executable_path"] = str(self.supervisor)
 
         with _active_launch_stage("launch_persistent_context"):
             session["launchAttempted"] = True
@@ -2630,17 +2756,8 @@ def main() -> int:
     parser.add_argument(
         "--tree-manifest",
         type=Path,
-        default=(
-            REPO_ROOT
-            / "tests"
-            / "fixtures"
-            / "camoufox"
-            / (
-                "browser-tree-manifest-windows.json"
-                if IS_WINDOWS
-                else "browser-tree-manifest.json"
-            )
-        ),
+        default=None,
+        help="Package-relative browser tree manifest (derived from --package-root when omitted)",
     )
     parser.add_argument(
         "--asset-lock",
@@ -2652,7 +2769,25 @@ def main() -> int:
         "--browser-root",
         type=Path,
         default=None,
-        help="Extracted self-built browser root; requires --asset-lock",
+        help="Package-relative extracted browser root (derived from --package-root when omitted)",
+    )
+    parser.add_argument(
+        "--package-root",
+        type=Path,
+        default=None,
+        help="Self-contained Camoufox Host package root",
+    )
+    parser.add_argument(
+        "--supervisor",
+        type=Path,
+        default=None,
+        help="Package-relative native exit supervisor (derived from --package-root when omitted)",
+    )
+    parser.add_argument(
+        "--probe-file",
+        type=Path,
+        default=None,
+        help="Package-relative probe asset (derived from --package-root when omitted)",
     )
     parser.add_argument("--display", default=None)
     parser.add_argument(
@@ -2663,6 +2798,11 @@ def main() -> int:
             "Probe HTTP server port (0 = ephemeral). A fixed port keeps the "
             "cookie/localStorage origin stable across Host restarts."
         ),
+    )
+    parser.add_argument(
+        "--provision-artifact",
+        action="store_true",
+        help="Read one length-prefixed seed/preset frame and write one Artifact",
     )
     args = parser.parse_args()
     args.state_root.mkdir(parents=True, exist_ok=True)
@@ -2676,7 +2816,12 @@ def main() -> int:
         probe_port=args.probe_port,
         asset_lock=args.asset_lock,
         browser_root=args.browser_root,
+        package_root=args.package_root,
+        supervisor=args.supervisor,
+        probe_file=args.probe_file,
     )
+    if args.provision_artifact:
+        return run_provision(host)
     return asyncio.run(run_host(host))
 
 

@@ -51,6 +51,27 @@ describe("desktop lifecycle command contract", () => {
     ]);
   });
 
+  it("uses the bounded managed-browser creation payload", async () => {
+    const input = {
+      name: "Private work",
+      color: "#5b5ce2",
+      identityPreset: "match-fixed-proxy" as const,
+      networkProfile: {
+        mode: "fixed_proxy" as const,
+        proxyRequired: true as const,
+        scheme: "socks5" as const,
+        host: "127.0.0.1",
+        port: 1080,
+        bypassList: [] as [],
+      },
+      proxyCredentials: { username: "user", password: "pass" },
+    };
+
+    await desktopApi.createManagedSilo(input);
+
+    expect(invokeMock.mock.calls).toEqual([["create_managed_silo", { input }]]);
+  });
+
   it("uses explicit camelCase arguments for Vault mutations", async () => {
     await desktopApi.changeVaultPassphrase("old passphrase", "new passphrase");
     await desktopApi.backupVault("C:\\Backups\\vault.backup");

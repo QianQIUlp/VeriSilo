@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VeriSilo",
+  "version": "0.1.0",
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "externalBin": null,
+    "resources": {
+      "target/verisilo-managed-browser-resources/engine-package/": "managed-browser/engine-package/"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": null
+      }
+    }
+  }
+}

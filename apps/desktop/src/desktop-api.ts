@@ -57,6 +57,41 @@ export interface CreateSiloInput {
   mihomoControllerSecret?: MihomoControllerSecretInput;
 }
 
+/**
+ * The small, user-facing set of identity presets exposed by the managed
+ * browser. The native command owns the actual template; the desktop UI only
+ * sends the selected preset name.
+ */
+export type ManagedIdentityPreset =
+  "balanced-en-us" | "balanced-zh-cn" | "balanced-de-de" | "match-fixed-proxy";
+
+export type ManagedNetworkProfile =
+  | {
+      mode: "direct";
+      proxyRequired: false;
+    }
+  | {
+      mode: "fixed_proxy";
+      proxyRequired: true;
+      scheme: "http" | "socks5";
+      host: string;
+      port: number;
+      bypassList: [];
+    };
+
+/**
+ * JSON boundary for the built-in managed browser creation command. Unlike a
+ * Standard Silo, it deliberately has no executable path, browser kind, or
+ * execution target: those are selected by the trusted native package.
+ */
+export interface CreateManagedSiloInput {
+  name: string;
+  color: string;
+  identityPreset: ManagedIdentityPreset;
+  networkProfile: ManagedNetworkProfile;
+  proxyCredentials?: ProxyCredentialsInput;
+}
+
 export interface UpdateSiloInput {
   name: string;
   color: string;
@@ -444,6 +479,8 @@ export const desktopApi = {
   listArchivedSilos: () => invoke<Silo[]>("list_archived_silos"),
   createSilo: (input: CreateSiloInput) =>
     invoke<Silo>("create_silo", { input }),
+  createManagedSilo: (input: CreateManagedSiloInput) =>
+    invoke<Silo>("create_managed_silo", { input }),
   updateSilo: (siloId: string, input: UpdateSiloInput) =>
     invoke<Silo>("update_silo", { siloId, input }),
   updateSiloConfiguration: (

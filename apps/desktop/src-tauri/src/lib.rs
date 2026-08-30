@@ -3,9 +3,11 @@ use std::{
     io::Write,
     path::PathBuf,
     sync::{Arc, Mutex, MutexGuard},
+    time::{Duration, Instant},
 };
 
 use chrono::Utc;
+use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{Menu, MenuItem},
@@ -47,15 +49,46 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+fn exit_from_tray<R: Runtime>(app: &AppHandle<R>) {
+    let state = app.state::<AppState>();
+    let local_reservation = match state.local_control.reserve() {
+        Ok(reservation) => reservation,
+        Err(_) => {
+            show_main_window(app);
+            return;
+        }
+    };
+    let mut runtime = match state.runtime.lock() {
+        Ok(runtime) => runtime,
+        Err(_) => {
+            show_main_window(app);
+            return;
+        }
+    };
+    let can_exit = match runtime.active_managed_camoufox_silo_id() {
+        Some(silo_id) => runtime.stop_managed_camoufox(silo_id).is_ok(),
+        None => true,
+    };
+    drop(runtime);
+    drop(local_reservation);
+    if can_exit {
+        let _ = native_host::clear_runtime_status_snapshot(&state.root);
+        app.exit(0);
+    } else {
+        show_main_window(app);
+    }
+}
+
 fn is_tray_primary_activation(button: MouseButton, button_state: MouseButtonState) -> bool {
     button == MouseButton::Left && button_state == MouseButtonState::Up
 }
 
 use domain::{
     app_data_root, discover_browsers as discover_installed_browsers, BrowserCandidate,
-    BrowserVerification, CreateSiloInput, NetworkProfile, ProxyScheme as SiloProxyScheme,
-    RuntimeActivation, RuntimeState, Silo, SiloExecutionTarget, SiloStorageUsage,
-    UpdateSiloEngineInput, UpdateSiloInput, UpdateSiloNetworkInput, VaultLockState, VaultStatus,
+    BrowserVerification, CreateManagedSiloInput, CreateSiloInput, ManagedIdentityPreset,
+    NetworkProfile, ProxyCredentialsInput, ProxyScheme as SiloProxyScheme, RuntimeActivation,
+    RuntimeState, Silo, SiloExecutionTarget, SiloStorageUsage, UpdateSiloEngineInput,
+    UpdateSiloInput, UpdateSiloNetworkInput, VaultLockState, VaultStatus,
 };
 use engine::{
     EngineAdapter, EngineAdapterId, EngineCapabilityId, EngineDescriptor, EngineHealth,
@@ -69,10 +102,16 @@ use environment::backend::{
     ProxyScheme as EnvironmentProxyScheme,
 };
 use environment::{EnvironmentManager, EnvironmentOperationRequest, WslStatus};
-use launcher::{managed_profiles_are_quiescent_for_vault_restore, profile_in_use, RuntimeManager};
+use launcher::{
+    managed_profiles_are_quiescent_for_vault_restore, profile_in_use, LauncherError, RuntimeManager,
+};
 use mihomo::{MihomoControllerInput, MihomoSnapshot};
+use proxy_relay::ProxyRelay;
 use runtime_watchdog::RuntimeWatchdog;
-use vault::{RemoteVaultState, VaultBackupReceipt, VaultRuntime};
+use vault::{
+    ProxyAuthentication, RemoteVaultState, StoredIdentityArtifact, VaultBackupReceipt, VaultError,
+    VaultRuntime,
+};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -380,6 +419,7 @@ fn recover_invalid_environment_runtime_record(
 
 pub struct AppState {
     root: PathBuf,
+    resource_root: PathBuf,
     // Local stock/provider lifecycle operations first reserve local_control,
     // then acquire Vault → Runtime → Environments when each is needed. A
     // command may drop an inner guard but must never reacquire an earlier one.
@@ -408,6 +448,7 @@ impl AppState {
         let environment_runtime = EnvironmentRuntimeState::load(&root);
         Self {
             root,
+            resource_root,
             local_control: LocalEnvironmentControl::default(),
             vault: Mutex::new(VaultRuntime::default()),
             runtime,
@@ -878,7 +919,7 @@ fn summarize_engine(adapter: &dyn EngineAdapter) -> EngineAdapterStatus {
 }
 
 #[tauri::command]
-fn list_engine_adapters() -> Result<Vec<EngineAdapterStatus>, String> {
+fn list_engine_adapters(state: State<'_, AppState>) -> Result<Vec<EngineAdapterStatus>, String> {
     let mut statuses = discover_installed_browsers()
         .into_iter()
         .map(|candidate| {
@@ -895,9 +936,23 @@ fn list_engine_adapters() -> Result<Vec<EngineAdapterStatus>, String> {
         engine::EngineAdapterId::ControlledChromium,
         engine::EngineAdapterId::Camoufox,
     ] {
-        let adapter = ExternalPackageEngineAdapter::production_prototype(id)
+        let mut adapter = ExternalPackageEngineAdapter::production_prototype(id)
             .map_err(|error| error.to_string())?;
-        statuses.push(summarize_engine(&adapter));
+        let mut status = summarize_engine(&adapter);
+        if id == EngineAdapterId::Camoufox {
+            if let Err(error) =
+                adapter.ensure_builtin_package(&managed_browser_package_root(&state))
+            {
+                status.health.state = engine::EngineHealthState::Unavailable;
+                status.health.message = format!(
+                    "The bundled Camoufox RC1 package is unavailable or failed verification: {error}"
+                );
+                status.health.checked_at = Utc::now();
+            } else {
+                status = summarize_engine(&adapter);
+            }
+        }
+        statuses.push(status);
     }
     Ok(statuses)
 }
@@ -911,9 +966,16 @@ fn production_external_engine(
 
 #[tauri::command]
 fn install_engine_package(
+    state: State<'_, AppState>,
     adapter_id: EngineAdapterId,
     request: EnginePackageRequest,
 ) -> Result<EngineMaintenanceReceipt, String> {
+    if adapter_id == EngineAdapterId::Camoufox {
+        let mut adapter = production_external_engine(adapter_id)?;
+        return adapter
+            .ensure_builtin_package(&managed_browser_package_root(&state))
+            .map_err(|error| error.to_string());
+    }
     production_external_engine(adapter_id)?
         .install(&request)
         .map_err(|error| error.to_string())
@@ -921,9 +983,16 @@ fn install_engine_package(
 
 #[tauri::command]
 fn update_engine_package(
+    state: State<'_, AppState>,
     adapter_id: EngineAdapterId,
     request: EnginePackageRequest,
 ) -> Result<EngineMaintenanceReceipt, String> {
+    if adapter_id == EngineAdapterId::Camoufox {
+        let mut adapter = production_external_engine(adapter_id)?;
+        return adapter
+            .ensure_builtin_package(&managed_browser_package_root(&state))
+            .map_err(|error| error.to_string());
+    }
     production_external_engine(adapter_id)?
         .update(&request)
         .map_err(|error| error.to_string())
@@ -2162,6 +2231,160 @@ fn list_archived_silos(state: State<'_, AppState>) -> Result<Vec<Silo>, String> 
         .map_err(|error| error.to_string())
 }
 
+fn managed_browser_package_root(state: &AppState) -> PathBuf {
+    state
+        .resource_root
+        .join("managed-browser")
+        .join("engine-package")
+}
+
+fn managed_vault_error(error: VaultError) -> String {
+    match error {
+        VaultError::SiloRunning => "managed_another_silo_running",
+        VaultError::SiloProfileInUse => "managed_profile_in_use",
+        VaultError::InvalidData | VaultError::SiloNotFound | VaultError::UnmanagedProfile => {
+            "managed_artifact_unavailable"
+        }
+        VaultError::Filesystem(_) => "managed_runtime_recovery_required",
+        _ => "managed_create_failed",
+    }
+    .to_owned()
+}
+
+fn managed_launcher_error(error: LauncherError) -> String {
+    match error {
+        LauncherError::AnotherSiloRunning => "managed_another_silo_running",
+        LauncherError::ProfileInUse => "managed_profile_in_use",
+        LauncherError::ProxyPreflight(_)
+        | LauncherError::ProxyRelay(_)
+        | LauncherError::InvalidNetwork(_)
+        | LauncherError::Mihomo(_) => "managed_network_mismatch",
+        LauncherError::RuntimeReceipt(_) | LauncherError::Bootstrap(_) => {
+            "managed_runtime_recovery_required"
+        }
+        LauncherError::BrowserVerification(_)
+        | LauncherError::BrowserStartup(_)
+        | LauncherError::Engine(_)
+        | LauncherError::Spawn(_) => "managed_engine_unavailable",
+    }
+    .to_owned()
+}
+
+fn managed_provision_roots(
+    root: &std::path::Path,
+    provision_id: Uuid,
+) -> engine::CamoufoxHostRoots {
+    let managed_root = root.join("silos").join(provision_id.to_string());
+    engine::CamoufoxHostRoots {
+        artifact_root: managed_root.join("identity"),
+        profile_root: managed_root.join("profiles"),
+        state_root: managed_root.join("engine-state"),
+    }
+}
+
+fn provision_managed_artifact(
+    root: &std::path::Path,
+    package_root: &std::path::Path,
+    relay_silo_id: Uuid,
+    preset: ManagedIdentityPreset,
+    network_profile: &NetworkProfile,
+    proxy_credentials: Option<&ProxyCredentialsInput>,
+    seed: &[u8; 32],
+) -> Result<engine::CamoufoxProvisionResult, String> {
+    let provision_id = Uuid::new_v4();
+    let managed_root = root.join("silos").join(provision_id.to_string());
+    let roots = managed_provision_roots(root, provision_id);
+    let relay = if matches!(network_profile, NetworkProfile::FixedProxy { .. }) {
+        let authentication = proxy_credentials.map(|credentials| {
+            ProxyAuthentication::new(credentials.username.clone(), credentials.password.clone())
+        });
+        let relay = ProxyRelay::start(
+            network_profile,
+            relay_silo_id,
+            Uuid::new_v4(),
+            authentication,
+        )
+        .map_err(|_| "managed_network_mismatch".to_owned())?;
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        relay
+            .verify_upstream_until(Instant::now() + Duration::from_secs(10), &cancelled)
+            .map_err(|_| "managed_network_mismatch".to_owned())?;
+        Some(relay)
+    } else {
+        None
+    };
+    let proxy_server = relay.as_ref().map(|relay| {
+        format!(
+            "socks5://{}:{}",
+            relay.endpoint().host,
+            relay.endpoint().port
+        )
+    });
+    let result = (|| -> Result<engine::CamoufoxProvisionResult, String> {
+        let mut adapter =
+            ExternalPackageEngineAdapter::production_prototype(EngineAdapterId::Camoufox)
+                .map_err(|_| "managed_engine_unavailable".to_owned())?;
+        adapter
+            .ensure_builtin_package(package_root)
+            .map_err(|_| "managed_engine_unavailable".to_owned())?;
+        adapter
+            .provision_camoufox_artifact(&roots, preset.as_str(), seed, proxy_server.as_deref())
+            .map_err(|_| "managed_identity_generation_failed".to_owned())
+    })();
+    let cleanup = match fs::remove_dir_all(&managed_root) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err("managed_runtime_recovery_required".to_owned()),
+    };
+    match result {
+        Ok(result) => {
+            cleanup?;
+            Ok(result)
+        }
+        Err(error) => match cleanup {
+            Ok(()) => Err(error),
+            Err(cleanup_error) => Err(cleanup_error),
+        },
+    }
+}
+
+#[tauri::command]
+fn create_managed_silo(
+    state: State<'_, AppState>,
+    input: CreateManagedSiloInput,
+) -> Result<Silo, String> {
+    let _local_reservation = state.local_control.reserve()?;
+    input
+        .validate()
+        .map_err(|_| "managed_create_failed".to_owned())?;
+    let mut vault = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    vault.record_activity().map_err(|error| error.to_string())?;
+    let package_root = managed_browser_package_root(&state);
+    let mut seed = [0_u8; 32];
+    OsRng.fill_bytes(&mut seed);
+    let result = provision_managed_artifact(
+        &state.root,
+        &package_root,
+        Uuid::new_v4(),
+        input.identity_preset,
+        &input.network_profile,
+        input.proxy_credentials.as_ref(),
+        &seed,
+    )?;
+    let artifact = StoredIdentityArtifact {
+        artifact_id: result.artifact_id,
+        schema: result.schema,
+        raw_json: result.raw_json,
+        raw_sha256: result.artifact_file_sha256,
+    };
+    vault
+        .create_managed_silo(&state.root, input, artifact, &seed)
+        .map_err(managed_vault_error)
+}
+
 #[tauri::command]
 fn create_silo(state: State<'_, AppState>, input: CreateSiloInput) -> Result<Silo, String> {
     let _local_reservation = state.local_control.reserve()?;
@@ -2234,6 +2457,74 @@ fn update_silo_configuration(
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
     let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+    drop(runtime);
+    let current = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+    if !current.engine.is_stock() && network_input.is_some() {
+        if engine_input.is_some() {
+            return Err("managed_artifact_unavailable".to_owned());
+        }
+        input
+            .validate_managed_metadata()
+            .map_err(|_| "managed_create_failed".to_owned())?;
+        if is_active {
+            return Err("managed_another_silo_running".to_owned());
+        }
+        let network_input = network_input.expect("checked managed network input");
+        network_input
+            .validate_for_execution_target(&current.execution_target)
+            .map_err(|_| "managed_network_mismatch".to_owned())?;
+        if !matches!(
+            &network_input.network_profile,
+            NetworkProfile::Direct {
+                proxy_required: false
+            } | NetworkProfile::FixedProxy {
+                proxy_required: true,
+                scheme: SiloProxyScheme::Http | SiloProxyScheme::Socks5,
+                external_mihomo: None,
+                ..
+            }
+        ) {
+            return Err("managed_network_mismatch".to_owned());
+        }
+        let current_preset = vault
+            .managed_identity_preset_for_silo(silo_id)
+            .map_err(managed_vault_error)?;
+        let preset = if network_input.network_profile.requires_proxy() {
+            ManagedIdentityPreset::MatchFixedProxy
+        } else {
+            match current_preset {
+                ManagedIdentityPreset::MatchFixedProxy => ManagedIdentityPreset::BalancedEnUs,
+                preset => preset,
+            }
+        };
+        let seed = vault
+            .identity_seed_for_silo(silo_id)
+            .map_err(managed_vault_error)?;
+        let result = provision_managed_artifact(
+            &state.root,
+            &managed_browser_package_root(&state),
+            silo_id,
+            preset,
+            &network_input.network_profile,
+            network_input.proxy_credentials.as_ref(),
+            &seed,
+        )?;
+        let artifact = StoredIdentityArtifact {
+            artifact_id: result.artifact_id,
+            schema: result.schema,
+            raw_json: result.raw_json,
+            raw_sha256: result.artifact_file_sha256,
+        };
+        return vault
+            .rebind_managed_silo_configuration(
+                &state.root,
+                silo_id,
+                Some(input),
+                network_input,
+                artifact,
+            )
+            .map_err(managed_vault_error);
+    }
     vault
         .update_silo_configuration(
             &state.root,
@@ -2278,6 +2569,61 @@ fn update_silo_network(
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
     let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+    drop(runtime);
+    let current = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+    if !current.engine.is_stock() {
+        input
+            .validate_for_execution_target(&current.execution_target)
+            .map_err(|_| "managed_network_mismatch".to_owned())?;
+        if !matches!(
+            &input.network_profile,
+            NetworkProfile::Direct {
+                proxy_required: false
+            } | NetworkProfile::FixedProxy {
+                proxy_required: true,
+                scheme: SiloProxyScheme::Http | SiloProxyScheme::Socks5,
+                external_mihomo: None,
+                ..
+            }
+        ) {
+            return Err("managed_network_mismatch".to_owned());
+        }
+        if is_active {
+            return Err("managed_another_silo_running".to_owned());
+        }
+        let current_preset = vault
+            .managed_identity_preset_for_silo(silo_id)
+            .map_err(managed_vault_error)?;
+        let preset = if input.network_profile.requires_proxy() {
+            ManagedIdentityPreset::MatchFixedProxy
+        } else {
+            match current_preset {
+                ManagedIdentityPreset::MatchFixedProxy => ManagedIdentityPreset::BalancedEnUs,
+                preset => preset,
+            }
+        };
+        let seed = vault
+            .identity_seed_for_silo(silo_id)
+            .map_err(managed_vault_error)?;
+        let result = provision_managed_artifact(
+            &state.root,
+            &managed_browser_package_root(&state),
+            silo_id,
+            preset,
+            &input.network_profile,
+            input.proxy_credentials.as_ref(),
+            &seed,
+        )?;
+        let artifact = StoredIdentityArtifact {
+            artifact_id: result.artifact_id,
+            schema: result.schema,
+            raw_json: result.raw_json,
+            raw_sha256: result.artifact_file_sha256,
+        };
+        return vault
+            .rebind_managed_silo_network(&state.root, silo_id, input, artifact)
+            .map_err(managed_vault_error);
+    }
     vault
         .update_silo_network(&state.root, silo_id, input, is_active)
         .map_err(|error| error.to_string())
@@ -2774,7 +3120,7 @@ fn stop_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActivat
             Ok(activation)
         }
         SiloExecutionTarget::Local
-            if silo.engine.adapter_id(&silo.browser.kind) == EngineAdapterId::Camoufox =>
+            if silo.adapter_id() == EngineAdapterId::Camoufox =>
         {
             drop(vault);
             let mut runtime = state
@@ -2783,7 +3129,7 @@ fn stop_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActivat
                 .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
             let activation = runtime
                 .stop_managed_camoufox(silo_id)
-                .map_err(|error| error.to_string())?;
+                .map_err(managed_launcher_error)?;
             publish_runtime_status(&state, &activation, &vault_status);
             Ok(activation)
         }
@@ -2847,6 +3193,7 @@ fn launch_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActiv
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
     vault.record_activity().map_err(|error| error.to_string())?;
     let silo = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+    let managed_camoufox = silo.adapter_id() == EngineAdapterId::Camoufox;
     let mut vault_status = vault.status(&state.root);
     match silo.execution_target.clone() {
         SiloExecutionTarget::Local => {
@@ -2873,18 +3220,22 @@ fn launch_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActiv
                 .lock()
                 .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
             if runtime.activation().active_silo_id.is_some() {
-                return Err(
-                    "Close the active browser Silo before starting another Silo.".to_owned(),
-                );
+                return Err(if managed_camoufox {
+                    "managed_another_silo_running".to_owned()
+                } else {
+                    "Close the active browser Silo before starting another Silo.".to_owned()
+                });
             }
             {
                 let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
                     "VeriSilo environment runtime state is unavailable.".to_owned()
                 })?;
                 if environment_runtime.has_active_silo() {
-                    return Err(
-                        "Stop the active Silo before starting another run location.".to_owned(),
-                    );
+                    return Err(if managed_camoufox {
+                        "managed_another_silo_running".to_owned()
+                    } else {
+                        "Stop the active Silo before starting another run location.".to_owned()
+                    });
                 }
                 environment_runtime.activation = RuntimeActivation::idle();
                 environment_runtime.wsl_distribution = None;
@@ -2897,6 +3248,11 @@ fn launch_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActiv
             let silo = vault
                 .mark_silo_identity_locked(&state.root, silo_id)
                 .map_err(|error| error.to_string())?;
+            if silo.adapter_id() == EngineAdapterId::Camoufox {
+                vault
+                    .materialize_identity_artifact(&state.root, silo_id)
+                    .map_err(managed_vault_error)?;
+            }
             vault_status = vault.status(&state.root);
             drop(vault);
             match runtime.launch_with_identity_deriver(
@@ -2916,7 +3272,11 @@ fn launch_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<RuntimeActiv
                 Err(error) => {
                     let activation = runtime.activation();
                     publish_runtime_status(&state, &activation, &vault_status);
-                    Err(error.to_string())
+                    Err(if managed_camoufox {
+                        managed_launcher_error(error)
+                    } else {
+                        error.to_string()
+                    })
                 }
             }
         }
@@ -3175,7 +3535,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     TRAY_OPEN_ID => show_main_window(app),
-                    TRAY_EXIT_ID => app.exit(0),
+                    TRAY_EXIT_ID => exit_from_tray(app),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -3238,6 +3598,7 @@ pub fn run() {
             list_silos,
             list_active_silos,
             list_archived_silos,
+            create_managed_silo,
             create_silo,
             update_silo,
             update_silo_configuration,
@@ -3270,13 +3631,15 @@ mod local_lifecycle_tests {
     use uuid::Uuid;
 
     use super::{
-        is_tray_primary_activation, verified_current_wsl_artifact, LocalEnvironmentControl,
+        is_tray_primary_activation, managed_launcher_error, managed_vault_error,
+        verified_current_wsl_artifact, LocalEnvironmentControl,
     };
     use crate::domain::{
         BrowserDescriptor, BrowserKind, CreateSiloInput, NetworkProfile, Silo, SiloExecutionTarget,
         SCHEMA_VERSION,
     };
-    use crate::vault::VaultRuntime;
+    use crate::launcher::LauncherError;
+    use crate::vault::{VaultError, VaultRuntime};
 
     fn temporary_root(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("verisilo-lib-{label}-{}", Uuid::new_v4()))
@@ -3288,12 +3651,12 @@ mod local_lifecycle_tests {
             schema_version: SCHEMA_VERSION,
             name: "WSL artifact test".to_owned(),
             color: "#5b5ce2".to_owned(),
-            browser: BrowserDescriptor {
+            browser: Some(BrowserDescriptor {
                 kind: BrowserKind::Chrome,
                 executable_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
                     .to_owned(),
                 version: Some("126.0.0.0".to_owned()),
-            },
+            }),
             execution_target: SiloExecutionTarget::Wsl {
                 distribution: distribution.to_owned(),
             },
@@ -3470,6 +3833,20 @@ mod local_lifecycle_tests {
             MouseButton::Right,
             MouseButtonState::Up
         ));
+    }
+
+    #[test]
+    fn managed_failures_return_stable_user_codes_without_internal_details() {
+        assert_eq!(
+            managed_launcher_error(LauncherError::ProxyPreflight(
+                "proxy.internal.example:1080".to_owned(),
+            )),
+            "managed_network_mismatch"
+        );
+        assert_eq!(
+            managed_vault_error(VaultError::SiloProfileInUse),
+            "managed_profile_in_use"
+        );
     }
 
     #[test]

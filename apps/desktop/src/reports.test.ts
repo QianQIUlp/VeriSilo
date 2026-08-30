@@ -12,7 +12,7 @@ import {
 
 const silo: Silo = {
   id: "11111111-1111-4111-8111-111111111111",
-  schemaVersion: 2,
+  schemaVersion: 3,
   name: "<img src=x onerror=alert('name')>",
   color: "#5b5ce2",
   browser: {

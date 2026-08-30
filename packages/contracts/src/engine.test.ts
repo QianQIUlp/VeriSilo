@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CAMOUFOX_ARTIFACT_SCHEMA_V6,
+  CAMOUFOX_ARTIFACT_SCHEMA_V5,
   camoufoxArtifactBindingV1Schema,
   camoufoxHostPackageManifestSchema,
   camoufoxHostPackageTreeManifestSchema,
@@ -213,9 +214,9 @@ describe("EngineAdapter contracts", () => {
       browserRelease: "v152.0.4-beta.28",
       browserAssetSha256: "d".repeat(64),
     };
-    expect(camoufoxHostPackageManifestSchema.parse(manifest).entrypoint.kind).toBe(
-      "camoufox-host-v1",
-    );
+    expect(
+      camoufoxHostPackageManifestSchema.parse(manifest).entrypoint.kind,
+    ).toBe("camoufox-host-v1");
     expect(enginePackageManifestSchema.parse(manifest).engineId).toBe(
       "camoufox",
     );
@@ -316,30 +317,12 @@ describe("EngineAdapter contracts", () => {
         fallbackRules: [],
       }).adapter,
     ).toBe("controlled-chromium");
-    expect(() =>
-      siloEngineConfigSchema.parse({
-        adapter: "camoufox",
-        identityTemplate: template,
-        fallbackRules: [],
-      }),
-    ).toThrow(/Firefox/);
-    const firefoxTemplate = {
-      ...template,
-      browser: {
-        ...template.browser,
-        family: "firefox" as const,
-        majorVersion: 152,
-        userAgent:
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
-        uaCh: null,
-      },
-      network: { ...template.network, proxyRequired: false },
-    };
+    expect(siloEngineConfigSchema.parse({ adapter: "camoufox" })).toEqual({
+      adapter: "camoufox",
+    });
     expect(
       siloEngineConfigSchema.parse({
         adapter: "camoufox",
-        identityTemplate: firefoxTemplate,
-        fallbackRules: [],
         artifactBinding: {
           artifactId: "identity-camoufox-m3",
           artifactFileSha256: "a".repeat(64),
@@ -347,6 +330,13 @@ describe("EngineAdapter contracts", () => {
         },
       }).artifactBinding?.artifactId,
     ).toBe("identity-camoufox-m3");
+    expect(() =>
+      siloEngineConfigSchema.parse({
+        adapter: "camoufox",
+        identityTemplate: template,
+        fallbackRules: [],
+      }),
+    ).toThrow(/Unrecognized/);
     expect(
       camoufoxArtifactBindingV1Schema.parse({
         artifactId: "identity-camoufox-m3",
@@ -354,6 +344,13 @@ describe("EngineAdapter contracts", () => {
         schema: CAMOUFOX_ARTIFACT_SCHEMA_V6,
       }).schema,
     ).toBe(CAMOUFOX_ARTIFACT_SCHEMA_V6);
+    expect(
+      camoufoxArtifactBindingV1Schema.parse({
+        artifactId: "identity-camoufox-m3",
+        artifactFileSha256: "a".repeat(64),
+        schema: CAMOUFOX_ARTIFACT_SCHEMA_V5,
+      }).schema,
+    ).toBe(CAMOUFOX_ARTIFACT_SCHEMA_V5);
     expect(() =>
       camoufoxArtifactBindingV1Schema.parse({
         artifactId: "identity-Camoufox",

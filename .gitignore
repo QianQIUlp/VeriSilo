@@ -3,6 +3,8 @@ node_modules/
 dist/
 .astro/
 coverage/
+__pycache__/
+*.pyc
 artifacts/
 .codex/
 *.tsbuildinfo

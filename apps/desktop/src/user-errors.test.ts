@@ -13,5 +13,13 @@ describe("user-facing errors", () => {
     expect(userFacingErrorMessage("raw native failure")).toBe(
       "操作没有完成。请检查当前设置后重试。",
     );
+    expect(
+      userFacingErrorMessage(
+        "managed_profile_in_use: C:\\Users\\hidden\\profile",
+      ),
+    ).toBe("此 Silo 的浏览器数据正在使用中。请关闭对应浏览器后重试。");
+    expect(userFacingErrorMessage("managed_network_mismatch")).toContain(
+      "不会回退直连",
+    );
   });
 });

@@ -522,18 +522,18 @@ fn silo_for(app_root: &Path, artifact_sha256: &str) -> Silo {
         schema_version: SCHEMA_VERSION,
         name: "m3-wi-real-host".to_owned(),
         color: "#4f46e5".to_owned(),
-        browser: BrowserDescriptor {
+        browser: Some(BrowserDescriptor {
             kind: BrowserKind::Chrome,
             executable_path: placeholder_browser.to_string_lossy().into_owned(),
             version: None,
-        },
+        }),
         execution_target: SiloExecutionTarget::Local,
         profile_directory: control_profile.to_string_lossy().into_owned(),
         network_profile: NetworkProfile::Direct {
             proxy_required: false,
         },
         engine: SiloEngineConfig::Camoufox {
-            identity_template: identity_template(),
+            identity_template: Some(identity_template()),
             fallback_rules: Vec::new(),
             artifact_binding: Some(CamoufoxArtifactBindingV1 {
                 artifact_id: ARTIFACT_ID.to_owned(),
@@ -1223,11 +1223,11 @@ fn run_fp3_1b(evidence_path: &Path, failure_context: &Mutex<Option<NativeFailure
         schema_version: SCHEMA_VERSION,
         name: "fp3-1b-required-fixed-proxy".to_owned(),
         color: "#4f46e5".to_owned(),
-        browser: BrowserDescriptor {
+        browser: Some(BrowserDescriptor {
             kind: BrowserKind::Chrome,
             executable_path: placeholder_browser.to_string_lossy().into_owned(),
             version: None,
-        },
+        }),
         execution_target: SiloExecutionTarget::Local,
         profile_directory: control_profile.to_string_lossy().into_owned(),
         network_profile: NetworkProfile::FixedProxy {
@@ -1240,7 +1240,7 @@ fn run_fp3_1b(evidence_path: &Path, failure_context: &Mutex<Option<NativeFailure
             external_mihomo: None,
         },
         engine: SiloEngineConfig::Camoufox {
-            identity_template: identity,
+            identity_template: Some(identity),
             fallback_rules: Vec::new(),
             artifact_binding: Some(CamoufoxArtifactBindingV1 {
                 artifact_id: artifact_id.clone(),
@@ -1628,11 +1628,11 @@ fn run_m3_wi_clean_two_cycle(
         schema_version: SCHEMA_VERSION,
         name: "clean-m3-wi-two-cycle".to_owned(),
         color: "#4f46e5".to_owned(),
-        browser: BrowserDescriptor {
+        browser: Some(BrowserDescriptor {
             kind: BrowserKind::Chrome,
             executable_path: placeholder_browser.to_string_lossy().into_owned(),
             version: None,
-        },
+        }),
         execution_target: SiloExecutionTarget::Local,
         profile_directory: control_profile.to_string_lossy().into_owned(),
         network_profile: NetworkProfile::FixedProxy {
@@ -1645,7 +1645,7 @@ fn run_m3_wi_clean_two_cycle(
             external_mihomo: None,
         },
         engine: SiloEngineConfig::Camoufox {
-            identity_template: compatibility_template.clone(),
+            identity_template: Some(compatibility_template.clone()),
             fallback_rules: Vec::new(),
             artifact_binding: Some(CamoufoxArtifactBindingV1 {
                 artifact_id: artifact_id.clone(),

@@ -21,6 +21,11 @@ The inventory contains development, build, optional, target-specific, and
 transitive packages. Presence in the lockfile inventory does not by itself mean a
 component is linked into or distributed with a Windows artifact.
 
+The bounded Managed Browser RC1 profile additionally inventories its locked
+Python/uv graph, PyInstaller build tool, CPython runtime, self-built Formal-v3
+Camoufox runtime, and pinned Firefox source archive. Those entries remain
+subject to the same human review and exact-artifact check.
+
 ## Bundled UI icons
 
 - **Heroicons v2.2.0:** the browser extension bundles six unmodified 24px
@@ -39,17 +44,15 @@ visible. Every entry remains marked `requiresHumanReview`; this evidence report
 does not replace review of the exact shipped dependency graph or required
 license texts and notices.
 
-## Components discussed but not bundled
+## Components discussed but not bundled in the Standard/Remote profiles
 
 - **Mihomo / Clash-compatible cores:** VeriSilo currently connects to a user's
   separately installed, user-controlled local endpoint/controller. No Mihomo or
   Clash binary, subscription, node list, configuration, or source code is bundled.
   Bundling one later requires a separate immutable-version and license review.
-- **Controlled Chromium and Camoufox:** the V0.7 source contains adapter IDs,
-  package verification/update/rollback state and launch protocol support, but no
-  Chromium/Camoufox executable, patch set, browser distribution or upstream source
-  is bundled. Enabling either requires a separately reviewed, signed, hash-locked
-  package and its own license/SBOM evidence.
+- **Controlled Chromium:** the Standard and Remote profiles contain no Chromium
+  executable or browser distribution. Enabling one requires a separately
+  reviewed, signed, hash-locked package and its own license/SBOM evidence.
 - **Hyper-V base image:** no VHD/VHDX, Windows installation, browser image, or
   image license is stored in this repository. Release plumbing can consume one
   exact same-repository Actions artifact only after a redistribution-rights
@@ -67,6 +70,21 @@ license texts and notices.
 - **FingerprintJS, CreepJS, and BrowserForge:** they are research references only
   at this stage. Their repositories are not vendored and their source code is not
   copied into the release.
+
+## Managed Browser RC1 engine package
+
+The bounded Managed Browser v0.1.0-rc1 profile embeds a self-built, signed
+Camoufox Host package containing the pinned Formal-v3 Camoufox/Firefox runtime
+and its locked Python runtime dependencies. The package is not part of the
+Standard Silo or Remote Agent profiles. The release carries a profile-specific
+SBOM and `dependency-licenses.json`; these are inventory evidence, not a legal
+conclusion. Before redistribution, maintainers must review the exact Camoufox,
+Firefox, Python, Playwright, BrowserForge, PyInstaller, and transitive license
+terms and preserve any required source, attribution, or notice materials.
+
+The RC1 package does not include Hyper-V/VHDX images, environment scripts,
+Companion extension files, Native Host binaries or registry installers, or
+installer hooks.
 
 ## VeriSilo licensing boundary
 

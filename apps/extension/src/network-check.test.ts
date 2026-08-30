@@ -91,6 +91,9 @@ describe("network check parsing", () => {
       checkedAt: "2026-07-26T00:00:00.000Z",
     });
     expect(isNetworkCheckResult(current)).toBe(true);
+    if (current.schemaVersion !== 2) {
+      throw new Error("current network check fixture must use schema v2");
+    }
 
     const legacy = {
       ...current,

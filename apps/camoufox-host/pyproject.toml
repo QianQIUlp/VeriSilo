@@ -1,7 +1,7 @@
 [project]
 name = "verisilo-camoufox-host"
 version = "0.1.0"
-description = "M0 Camoufox compatibility spike host. Spike-only; not a production EngineAdapter."
+description = "VeriSilo Managed Browser Camoufox Host runtime."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "camoufox==0.5.4",
@@ -9,6 +9,9 @@ dependencies = [
     "browserforge==1.2.4",
     "tzdata>=2025.2",
 ]
+
+[dependency-groups]
+build = ["pyinstaller==6.22.2"]
 
 [tool.uv]
 package = false

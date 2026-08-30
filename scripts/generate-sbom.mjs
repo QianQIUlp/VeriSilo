@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const managedPyInstallerVersion = "6.22.2";
 const outputFiles = [
   "dependency-inventory.json",
   "bom.cyclonedx.json",
@@ -131,6 +132,35 @@ export function parseCargoPackages(lockText) {
     });
 }
 
+export function parseUvPackages(lockText) {
+  return lockText
+    .split(/^\[\[package\]\]\s*$/mu)
+    .slice(1)
+    .map((block) => {
+      const name = parseTomlString(block, "name");
+      const version = parseTomlString(block, "version");
+      if (name === undefined || version === undefined) {
+        throw new Error("uv.lock contains a package without name/version.");
+      }
+      const digest = block.match(/\bhash = "sha256:([0-9a-f]{64})"/u)?.[1];
+      const local = /source = \{\s*(?:virtual|editable)\s*=/u.test(block);
+      const normalizedName = name.toLowerCase().replace(/[-_.]+/gu, "-");
+      return {
+        ecosystem: "pypi",
+        name,
+        version,
+        purl: `pkg:pypi/${encodeURIComponent(normalizedName)}@${encodeURIComponent(version)}`,
+        source: local
+          ? "apps/camoufox-host/pyproject.toml"
+          : "apps/camoufox-host/uv.lock",
+        local,
+        ...(digest === undefined
+          ? {}
+          : { hash: { algorithm: "SHA256", value: digest } }),
+      };
+    });
+}
+
 function sourceDate() {
   const epoch = Number(process.env.SOURCE_DATE_EPOCH ?? "0");
   if (!Number.isInteger(epoch) || epoch < 0) {
@@ -162,6 +192,47 @@ function spdxId(component) {
 }
 
 const profiles = {
+  "managed-browser-windows": {
+    inputPaths: [
+      "package.json",
+      "apps/desktop/package.json",
+      "packages/contracts/package.json",
+      "pnpm-lock.yaml",
+      "apps/desktop/src-tauri/Cargo.lock",
+      "apps/desktop/src-tauri/Cargo.toml",
+      "apps/camoufox-host/windows-supervisor/Cargo.lock",
+      "apps/camoufox-host/windows-supervisor/Cargo.toml",
+      "apps/desktop/src-tauri/tauri.conf.json",
+      "apps/desktop/src-tauri/tauri.release-reset.conf.json",
+      "apps/desktop/src-tauri/tauri.managed-browser.conf.json",
+      "apps/camoufox-host/pyproject.toml",
+      "apps/camoufox-host/uv.lock",
+      "apps/camoufox-host/lock/dependencies.json",
+      "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json",
+      "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-build-result.json",
+      "scripts/build-camoufox-host-package.py",
+    ],
+    npmManifests: [
+      "package.json",
+      "apps/desktop/package.json",
+      "packages/contracts/package.json",
+    ],
+    cargoManifests: [
+      "apps/desktop/src-tauri/Cargo.toml",
+      "apps/camoufox-host/windows-supervisor/Cargo.toml",
+    ],
+    cargoLocks: [
+      "apps/desktop/src-tauri/Cargo.lock",
+      "apps/camoufox-host/windows-supervisor/Cargo.lock",
+    ],
+    pythonLocks: ["apps/camoufox-host/uv.lock"],
+    extraComponents: [],
+    rootManifest: "package.json",
+    productLabel: "VeriSilo Managed Browser",
+    includeNpm: true,
+    scope:
+      "Runtime pnpm, desktop Cargo, uv/Python, Firefox source, and the fixed Formal-v3 Camoufox binding. The package-tree manifest separately inventories every shipped Host/browser file.",
+  },
   windows: {
     inputPaths: [
       "package.json",
@@ -191,6 +262,8 @@ const profiles = {
       "crates/verisilo-remote-backend/Cargo.lock",
     ],
     rootManifest: "package.json",
+    pythonLocks: [],
+    extraComponents: [],
     productLabel: "VeriSilo",
     includeNpm: true,
     scope:
@@ -205,6 +278,8 @@ const profiles = {
     cargoManifests: ["crates/verisilo-remote-backend/Cargo.toml"],
     cargoLocks: ["crates/verisilo-remote-backend/Cargo.lock"],
     rootManifest: "crates/verisilo-remote-backend/Cargo.toml",
+    pythonLocks: [],
+    extraComponents: [],
     productLabel: "VeriSilo Remote Agent",
     includeNpm: false,
     scope:
@@ -212,10 +287,72 @@ const profiles = {
   },
 };
 
+function managedBrowserComponents(input) {
+  const sourcePath =
+    "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json";
+  const buildPath =
+    "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-build-result.json";
+  const dependencyPath = "apps/camoufox-host/lock/dependencies.json";
+  const source = JSON.parse(input[sourcePath].content.toString("utf8"));
+  const build = JSON.parse(input[buildPath].content.toString("utf8"));
+  const dependencies = JSON.parse(
+    input[dependencyPath].content.toString("utf8"),
+  );
+  const firefox = source.firefoxSource;
+  const archive = build.archive;
+  if (
+    firefox === null ||
+    typeof firefox !== "object" ||
+    typeof firefox.version !== "string" ||
+    !/^[0-9]+\.[0-9]+\.[0-9]+$/u.test(firefox.version) ||
+    !/^[0-9a-f]{128}$/u.test(firefox.sha512 ?? "") ||
+    archive === null ||
+    typeof archive !== "object" ||
+    typeof build.engineRevision !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(archive.sha256 ?? "") ||
+    typeof dependencies.python !== "string" ||
+    !/^3\.[0-9]+\.[0-9]+$/u.test(dependencies.python)
+  ) {
+    throw new Error(
+      "Managed-browser source or runtime dependency binding is invalid.",
+    );
+  }
+  return [
+    {
+      ecosystem: "generic",
+      name: "VeriSilo Camoufox Formal-v3 runtime",
+      version: build.engineRevision,
+      purl: `pkg:generic/verisilo-camoufox@${encodeURIComponent(build.engineRevision)}`,
+      source: buildPath,
+      local: false,
+      hash: { algorithm: "SHA256", value: archive.sha256 },
+    },
+    {
+      ecosystem: "generic",
+      name: "Mozilla Firefox source",
+      version: firefox.version,
+      purl: `pkg:generic/firefox@${encodeURIComponent(firefox.version)}`,
+      source: sourcePath,
+      local: false,
+      hash: { algorithm: "SHA512", value: firefox.sha512 },
+    },
+    {
+      ecosystem: "generic",
+      name: "CPython embedded runtime",
+      version: dependencies.python,
+      purl: `pkg:generic/cpython@${encodeURIComponent(dependencies.python)}`,
+      source: dependencyPath,
+      local: false,
+    },
+  ];
+}
+
 async function buildDocuments(profileName = "windows") {
   const profile = profiles[profileName];
   if (profile === undefined) {
-    throw new Error("SBOM profile must be windows or remote-agent.");
+    throw new Error(
+      "SBOM profile must be managed-browser-windows, windows, or remote-agent.",
+    );
   }
   const { inputPaths } = profile;
   const inputEntries = await Promise.all(
@@ -297,6 +434,31 @@ async function buildDocuments(profileName = "windows") {
     }
     lockedCargoComponents.set(component.purl, component);
   }
+  const pythonComponents = profile.pythonLocks.flatMap((lockPath) => {
+    const lock = input[lockPath];
+    if (lock === undefined) {
+      throw new Error(`Missing Python lockfile input: ${lockPath}`);
+    }
+    return parseUvPackages(lock.content.toString("utf8"));
+  });
+  if (profileName === "managed-browser-windows") {
+    const pyinstallers = pythonComponents.filter(
+      (component) =>
+        component.name.toLowerCase() === "pyinstaller" && !component.local,
+    );
+    if (
+      pyinstallers.length !== 1 ||
+      pyinstallers[0]?.version !== managedPyInstallerVersion
+    ) {
+      throw new Error(
+        `Managed-browser SBOM requires exactly PyInstaller ${managedPyInstallerVersion} from uv.lock.`,
+      );
+    }
+  }
+  const extraComponents =
+    profileName === "managed-browser-windows"
+      ? managedBrowserComponents(input)
+      : profile.extraComponents;
   const components = [
     ...localNpmComponents,
     ...localCargoComponents,
@@ -304,6 +466,8 @@ async function buildDocuments(profileName = "windows") {
       ? parsePnpmPackages(pnpmLock.content.toString("utf8"))
       : []),
     ...lockedCargoComponents.values(),
+    ...pythonComponents,
+    ...extraComponents,
   ].sort((left, right) => left.purl.localeCompare(right.purl));
   const duplicate = components.find(
     (component, index) => components[index - 1]?.purl === component.purl,
@@ -467,6 +631,23 @@ function selfTest() {
   if (cargo.length !== 2 || cargo[1]?.local !== true) {
     throw new Error("Cargo parser self-test failed.");
   }
+  const uv = parseUvPackages(
+    `version = 1\n\n[[package]]\nname = "example_pkg"\nversion = "1.2.3"\nsource = { registry = "https://pypi.org/simple" }\nsdist = { hash = "sha256:${"a".repeat(64)}" }\n\n[[package]]\nname = "local"\nversion = "0.1.0"\nsource = { virtual = "." }\n`,
+  );
+  if (
+    uv.length !== 2 ||
+    uv[0]?.purl !== "pkg:pypi/example-pkg@1.2.3" ||
+    uv[0]?.hash?.value !== "a".repeat(64) ||
+    uv[1]?.local !== true
+  ) {
+    throw new Error("uv parser self-test failed.");
+  }
+  const editable = parseUvPackages(
+    `version = 1\n\n[[package]]\nname = "editable"\nversion = "0.1.0"\nsource = { editable = "." }\n`,
+  );
+  if (editable[0]?.local !== true) {
+    throw new Error("uv editable-package self-test failed.");
+  }
   process.stdout.write("SBOM parser self-test passed.\n");
 }
 
@@ -486,11 +667,13 @@ if (isMain) {
       profileIndex === -1 ? "windows" : process.argv[profileIndex + 1];
     if (outValue === undefined) {
       throw new Error(
-        "Usage: node scripts/generate-sbom.mjs --out <directory> [--profile windows|remote-agent] [--check] | --self-test",
+        "Usage: node scripts/generate-sbom.mjs --out <directory> [--profile managed-browser-windows|windows|remote-agent] [--check] | --self-test",
       );
     }
     if (profileValue === undefined || profiles[profileValue] === undefined) {
-      throw new Error("--profile must be windows or remote-agent.");
+      throw new Error(
+        "--profile must be managed-browser-windows, windows, or remote-agent.",
+      );
     }
     const outputDirectory = path.resolve(root, outValue);
     const documents = await buildDocuments(profileValue);

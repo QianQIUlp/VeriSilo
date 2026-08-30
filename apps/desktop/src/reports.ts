@@ -1,4 +1,5 @@
 import type {
+  BrowserKind,
   NativeNetworkEvidenceCoverage,
   NetworkCheckResult,
   RuntimeActivation,
@@ -44,7 +45,7 @@ export interface LocalSiloReport {
   silo: {
     name: string;
     browser: {
-      kind: Silo["browser"]["kind"];
+      kind: BrowserKind | "managed";
       version: string | null;
     };
     lifecycle: "active" | "archived";
@@ -159,8 +160,8 @@ export function buildLocalSiloReport(
     silo: {
       name: input.silo.name,
       browser: {
-        kind: input.silo.browser.kind,
-        version: input.silo.browser.version ?? null,
+        kind: input.silo.browser?.kind ?? "managed",
+        version: input.silo.browser?.version ?? null,
       },
       lifecycle: input.silo.archivedAt === null ? "active" : "archived",
       networkConfiguration: {
@@ -376,7 +377,12 @@ function buildSummary(
   selectedIsActive: boolean,
   evidence: SanitizedCompanionEvidence[],
 ): string[] {
-  const browser = silo.browser.kind === "chrome" ? "Chrome" : "Edge";
+  const browser =
+    silo.browser === null
+      ? "托管身份浏览器"
+      : silo.browser.kind === "chrome"
+        ? "Chrome"
+        : "Edge";
   const lines = [
     `${browser} Silo 配置已脱敏，不包含本机路径或代理端点。`,
     selectedIsActive
