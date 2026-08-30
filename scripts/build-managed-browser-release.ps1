@@ -270,10 +270,7 @@ runtime verdict. This generated report intentionally contains no runtime result.
 
 Invoke-Checked 'node' @('scripts/generate-sbom.mjs', '--out', (Join-Path $releasePath 'sbom'), '--profile', 'managed-browser-windows')
 Invoke-Checked 'pnpm' @('run', 'managed-browser:licenses', '--', '--out', (Join-Path $releasePath 'dependency-licenses.json'))
-& (Get-Command 'pwsh').Source -NoProfile -File (Join-Path $root 'scripts/authenticode-gate.ps1') -Check -Mode Unsigned -ReleaseDirectory $releasePath -IncludeRelativePath @('verisilo.exe', $installerName) -ReportPath (Join-Path $releasePath 'authenticode-status.json')
-if ($LASTEXITCODE -ne 0) {
-  throw 'The managed-browser outer Authenticode unsigned gate failed.'
-}
+& (Join-Path $root 'scripts/authenticode-gate.ps1') -Check -Mode Unsigned -ReleaseDirectory $releasePath -IncludeRelativePath @('verisilo.exe', $installerName) -ReportPath (Join-Path $releasePath 'authenticode-status.json')
 Invoke-Checked 'node' @('scripts/generate-release-metadata.mjs', '--dir', $releasePath, '--profile', 'managed-browser-windows')
 Invoke-Checked 'node' @('scripts/generate-release-metadata.mjs', '--dir', $releasePath, '--profile', 'managed-browser-windows', '--check')
 Invoke-Checked 'node' @($verifier, '--check', '--release', $releasePath, '--engine-package', $finalPackage, '--python', $Python)
