@@ -80,7 +80,11 @@ function Assert-EnginePackage {
   }
   $result = Invoke-JsonChecked $Python @($packageBuilder, '--check', (Resolve-Path -LiteralPath $Path).Path, '--require-signed')
   $manifest = Get-Content -LiteralPath (Join-Path $Path 'engine-package.json') -Raw | ConvertFrom-Json
-  $pins = @($env:VERISILO_ENGINE_SIGNER_SHA256 -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+  $pins = @(
+    @($env:VERISILO_ENGINE_SIGNER_SHA256 -split ',') |
+      ForEach-Object { $_.Trim() } |
+      Where-Object { $_ -ne '' }
+  )
   $invalidPin = @($pins | Where-Object { $_ -notmatch '^[0-9a-f]{64}$' }).Count -gt 0
   if ($pins.Count -eq 0 -or $invalidPin) {
     throw 'VERISILO_ENGINE_SIGNER_SHA256 must contain at least one lowercase public certificate SHA-256 pin.'
@@ -114,7 +118,11 @@ function Assert-ManagedConfig {
     throw 'Managed-browser Tauri config is not the bounded current-user profile.'
   }
   if ($RequireSigner) {
-    $pins = @($env:VERISILO_ENGINE_SIGNER_SHA256 -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+    $pins = @(
+      @($env:VERISILO_ENGINE_SIGNER_SHA256 -split ',') |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -ne '' }
+    )
     $invalidPin = @($pins | Where-Object { $_ -notmatch '^[0-9a-f]{64}$' }).Count -gt 0
     if ($pins.Count -eq 0 -or $invalidPin) {
       throw 'VERISILO_ENGINE_SIGNER_SHA256 is required to build the production managed-browser verifier.'
@@ -124,7 +132,13 @@ function Assert-ManagedConfig {
 
 function Self-Test {
   Set-Location -LiteralPath $root
-  Assert-ManagedConfig
+  $previousSignerPins = $env:VERISILO_ENGINE_SIGNER_SHA256
+  try {
+    $env:VERISILO_ENGINE_SIGNER_SHA256 = 'a' * 64
+    Assert-ManagedConfig -RequireSigner
+  } finally {
+    $env:VERISILO_ENGINE_SIGNER_SHA256 = $previousSignerPins
+  }
   Invoke-Checked $Python @($packageBuilder, '--self-test')
   Invoke-Checked 'node' @($verifier, '--self-test')
   Write-Output 'Managed-browser release orchestrator self-test passed.'
