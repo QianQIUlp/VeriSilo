@@ -45,6 +45,18 @@ pub fn compile_native_runtime_watchdog(
     Ok(())
 }
 
+/// Compile-time anchor for the managed-browser exit control owned by the
+/// Tauri tray handler omitted from this harness.
+#[doc(hidden)]
+pub fn compile_managed_camoufox_exit_control(
+    runtime: &mut launcher::RuntimeManager,
+) -> (Option<uuid::Uuid>, std::time::Duration) {
+    (
+        runtime.active_managed_camoufox_silo_id(),
+        launcher::CAMOUFOX_PRODUCTION_HOST_TIMEOUT,
+    )
+}
+
 /// Compile-time anchor for the quiescent runtime ownership transition used by
 /// the Tauri Vault restore command omitted from this harness.
 #[doc(hidden)]

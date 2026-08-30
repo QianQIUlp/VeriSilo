@@ -2809,7 +2809,7 @@ impl ExternalPackageEngineAdapter {
         if let Err(error) = write_result {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(error.into());
+            return Err(error);
         }
         let deadline = Instant::now() + CAMOUFOX_PROVISION_TIMEOUT;
         loop {

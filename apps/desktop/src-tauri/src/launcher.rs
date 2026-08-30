@@ -184,7 +184,7 @@ struct CamoufoxHostRuntime {
     closed_confirmed: bool,
     #[cfg(test)]
     real_host_integration: bool,
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "windows"))]
     launch_surface: Option<Value>,
 }
 
@@ -482,7 +482,7 @@ impl CamoufoxHostTransport {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "windows"))]
     fn close_exact_stdin(&mut self) {
         self.stdin = None;
     }
@@ -3164,7 +3164,7 @@ fn spawn_camoufox_host(
                 #[cfg(test)]
                 real_host_integration: plan.adapter.adapter_version
                     == M3_WI_REAL_HOST_ADAPTER_VERSION,
-                #[cfg(test)]
+                #[cfg(all(test, target_os = "windows"))]
                 launch_surface: (plan.adapter.adapter_version == M3_WI_REAL_HOST_ADAPTER_VERSION)
                     .then(|| {
                         json!({
@@ -3412,7 +3412,7 @@ fn apply_camoufox_host_capability_evidence(
     evidence_class: &str,
 ) -> Result<(), String> {
     let mut capabilities = plan.to_vec();
-    let host_evidence = format!("camoufox-host/v1 running; evidenceClass={}", evidence_class);
+    let host_evidence = format!("camoufox-host/v1 running; evidenceClass={evidence_class}");
     for capability in &mut capabilities {
         if capability.id == EngineCapabilityId::ProfileIsolation
             && capability.operation == EngineCapabilityOperation::Configured
