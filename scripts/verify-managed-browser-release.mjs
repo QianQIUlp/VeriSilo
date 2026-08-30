@@ -459,8 +459,11 @@ function verifyProvenance(provenance) {
     provenance.schemaVersion !== 1 ||
     provenance.build?.artifactProfile !== profile ||
     provenance.build?.signingState !== "unsigned" ||
+    provenance.build?.authenticode !== false ||
     provenance.build?.promotionState !== "LOCAL_RC1_ONLY" ||
     provenance.build?.hyperVImageSource !== null ||
+    typeof provenance.build?.runnerOs !== "string" ||
+    typeof provenance.build?.runnerArch !== "string" ||
     provenance.versions?.managedBrowser !== releaseVersion
   ) {
     fail(

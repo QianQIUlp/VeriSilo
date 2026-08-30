@@ -426,6 +426,10 @@ async function expectedProvenance(files, directory, profileName) {
       artifactProfile: profileName,
       target: process.env.VERISILO_BUILD_TARGET ?? "x86_64-pc-windows-msvc",
       signingState,
+      authenticode:
+        profileName === "remote-agent" || signingState === "not-checked"
+          ? null
+          : signingState === "signed-and-verified",
       signerCertificateSha256,
       hyperVImageSource: hyperVImageSource(profileName),
       promotionState:
@@ -440,8 +444,8 @@ async function expectedProvenance(files, directory, profileName) {
       workflow: process.env.GITHUB_WORKFLOW ?? null,
       workflowRef: process.env.GITHUB_WORKFLOW_REF ?? null,
       runId: process.env.GITHUB_RUN_ID ?? null,
-      runnerOs: process.env.RUNNER_OS ?? null,
-      runnerArch: process.env.RUNNER_ARCH ?? null,
+      runnerOs: process.env.RUNNER_OS ?? process.platform,
+      runnerArch: process.env.RUNNER_ARCH ?? process.arch,
       reproducibility: {
         hermetic: false,
         deterministicSubcomponents:
