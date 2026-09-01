@@ -62,6 +62,54 @@ describe("bilingual UI copy", () => {
     ).toBe("1707 × 960 · 1.5× scale · 16 GB memory · 4 threads");
   });
 
+  it("translates background-originated error notices", () => {
+    expect(
+      translateUiText(
+        "尚未获得当前页面的一次性访问权限。请关闭侧栏，在目标网页点击 VeriSilo 工具栏图标打开侧栏后再扫描。",
+        "en",
+      ),
+    ).toBe(
+      "The browser has not granted one-time access to the current page. Close the side panel, click the VeriSilo toolbar icon on the target page, then open the panel again before scanning.",
+    );
+    expect(translateUiText("VeriSilo 只扫描普通 HTTP(S) 页面。", "en")).toBe(
+      "VeriSilo only scans ordinary HTTP(S) pages.",
+    );
+    expect(
+      translateUiText(
+        "无法访问当前页面。请在普通 HTTP(S) 页面点击 VeriSilo 工具栏图标后重新扫描；浏览器内部页面、商店页面和 PDF 不支持扫描。",
+        "en",
+      ),
+    ).toContain(
+      "browser-internal pages, store pages, and PDFs are not supported",
+    );
+    expect(
+      translateUiText("只能为普通 HTTP(S) 页面请求站点访问权限。", "en"),
+    ).toBe("Site access can only be requested for ordinary HTTP(S) pages.");
+    expect(
+      translateUiText(
+        "此浏览器版本不支持逐站点访问请求。请从目标网页点击 VeriSilo 工具栏图标，以授予本页一次性扫描访问权限。",
+        "en",
+      ),
+    ).toContain("per-site access requests");
+    expect(
+      translateUiText(
+        "无法识别当前普通 HTTP(S) 站点，或当前站点没有可撤销的长期权限。",
+        "en",
+      ),
+    ).toContain("no revocable persistent permission");
+    expect(
+      translateUiText(
+        "尚未授权网络检查服务。VeriSilo 没有发送任何出口或 DNS 检查请求。",
+        "en",
+      ),
+    ).toBe(
+      "The network check services have not been authorized. VeriSilo has not sent any egress or DNS check request.",
+    );
+    expect(translateUiText("IP 出口：HTTP 403", "en")).toBe(
+      "IP egress: HTTP 403",
+    );
+  });
+
   it("keeps Chinese copy unchanged when Chinese is selected", () => {
     expect(translateUiText("网络检查", "zh-CN")).toBe("网络检查");
   });
