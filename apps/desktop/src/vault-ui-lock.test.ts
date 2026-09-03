@@ -44,15 +44,27 @@ describe("authoritative Vault lock UI cleanup", () => {
   });
 
   it("applies Vault status independently from browser discovery", () => {
-    expect(appSource).toContain(
-      "const browsersPromise = desktopApi.discoverBrowsers().then(",
+    const refreshStart = appSource.indexOf("const refresh = useCallback");
+    const refreshEnd = appSource.indexOf(
+      "const refreshManagedBrowserStatus",
+      refreshStart,
     );
-    expect(appSource).toContain("nextStatus = await desktopApi.status()");
-    expect(appSource).not.toContain(
+    const refreshBlock = appSource.slice(refreshStart, refreshEnd);
+
+    expect(refreshStart).toBeGreaterThan(-1);
+    expect(refreshEnd).toBeGreaterThan(refreshStart);
+    expect(refreshBlock).toContain("nextStatus = await desktopApi.status()");
+    expect(refreshBlock).not.toContain(
       "const [nextStatus, nextBrowsers] = await Promise.all",
     );
+    expect(refreshBlock.indexOf("await desktopApi.status()")).toBeLessThan(
+      refreshBlock.indexOf("desktopApi.discoverBrowsers()"),
+    );
+    expect(refreshBlock).toContain("if (includeStorageUsage)");
+    expect(
+      refreshBlock.indexOf('nextStatus.vault.state === "unlocked"'),
+    ).toBeLessThan(refreshBlock.indexOf("desktopApi.discoverBrowsers()"));
     expect(appSource).toContain('return "stale"');
-    expect(appSource).toContain('nextStatus.vault.state === "unlocked"');
     expect(appSource).toContain("scrubDesktopStatusForLockedUi(nextStatus)");
     expect(appSource).toMatch(
       /catch \(error\) \{\s+if \(\s+requestId !== refreshRequestRef\.current \|\|\s+!vaultUiSessionRef\.current\.accepts\(sessionEpoch\)/u,
@@ -81,6 +93,22 @@ describe("authoritative Vault lock UI cleanup", () => {
     );
     expect(completionBlock.slice(catchStart)).not.toContain(
       'setVaultTransition("idle")',
+    );
+  });
+
+  it("does not verify engine packages from the environments tab while locked", () => {
+    const start = appSource.indexOf("function EnvironmentWorkspace");
+    const effectStart = appSource.indexOf("useEffect(() => {", start);
+    const effectEnd = appSource.indexOf("}, [vaultLocked]);", effectStart);
+    const effectBlock = appSource.slice(effectStart, effectEnd);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(effectStart).toBeGreaterThan(start);
+    expect(effectEnd).toBeGreaterThan(effectStart);
+    expect(effectBlock).toContain("if (vaultLocked)");
+    expect(effectBlock).toContain("setEngineStatuses([])");
+    expect(effectBlock.indexOf("if (vaultLocked)")).toBeLessThan(
+      effectBlock.indexOf("desktopApi.listEngineAdapters()"),
     );
   });
 

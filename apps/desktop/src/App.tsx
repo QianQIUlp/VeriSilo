@@ -292,10 +292,6 @@ export function App() {
   const refresh = useCallback(
     async (includeStorageUsage = true): Promise<VaultRefreshResult> => {
       const requestId = ++refreshRequestRef.current;
-      const browsersPromise = desktopApi.discoverBrowsers().then(
-        (value) => ({ ok: true as const, value }),
-        (error: unknown) => ({ ok: false as const, error }),
-      );
       let nextStatus: DesktopStatus;
       try {
         nextStatus = await desktopApi.status();
@@ -323,22 +319,32 @@ export function App() {
         const sessionEpoch = vaultUiSessionRef.current.capture();
         let browserResult:
           | { ok: true; value: BrowserCandidate[] }
-          | { ok: false; error: unknown };
+          | { ok: false; error: unknown }
+          | null = null;
         let active: Silo[];
         let archived: Silo[];
         let evidence: SiloNetworkEvidence[];
         let legacyArtifacts: LegacyEnvironmentArtifact[];
         try {
-          [browserResult, [active, archived, evidence, legacyArtifacts]] =
-            await Promise.all([
-              browsersPromise,
-              Promise.all([
-                desktopApi.listActiveSilos(),
-                desktopApi.listArchivedSilos(),
-                desktopApi.listNetworkEvidence(),
-                desktopApi.listLegacyEnvironmentArtifacts(),
-              ]),
+          const listsPromise = Promise.all([
+            desktopApi.listActiveSilos(),
+            desktopApi.listArchivedSilos(),
+            desktopApi.listNetworkEvidence(),
+            desktopApi.listLegacyEnvironmentArtifacts(),
+          ]);
+          if (includeStorageUsage) {
+            const [discovered, lists] = await Promise.all([
+              desktopApi.discoverBrowsers().then(
+                (value) => ({ ok: true as const, value }),
+                (error: unknown) => ({ ok: false as const, error }),
+              ),
+              listsPromise,
             ]);
+            browserResult = discovered;
+            [active, archived, evidence, legacyArtifacts] = lists;
+          } else {
+            [active, archived, evidence, legacyArtifacts] = await listsPromise;
+          }
         } catch (error) {
           if (
             requestId !== refreshRequestRef.current ||
@@ -354,7 +360,9 @@ export function App() {
         ) {
           return "stale";
         }
-        setBrowsers(browserResult.ok ? browserResult.value : []);
+        if (browserResult !== null) {
+          setBrowsers(browserResult.ok ? browserResult.value : []);
+        }
         setSilos(active);
         setArchivedSilos(archived);
         setNetworkEvidenceHistory(evidence);
@@ -379,7 +387,7 @@ export function App() {
           }
           setStorageUsage(Object.fromEntries(usageEntries));
         }
-        if (!browserResult.ok) {
+        if (browserResult !== null && !browserResult.ok) {
           throw browserResult.error;
         }
       } else if (lockTransition) {
@@ -4760,6 +4768,13 @@ function EnvironmentWorkspace({
   const visibleEngineStatuses = engineStatuses;
 
   useEffect(() => {
+    if (vaultLocked) {
+      setEngineStatuses([]);
+      setEnvironmentStatuses([]);
+      setRemoteStatus(null);
+      setTechnologyError(null);
+      return;
+    }
     void Promise.all([
       desktopApi.listEngineAdapters(),
       desktopApi.environmentBackendStatuses(),
@@ -4777,7 +4792,7 @@ function EnvironmentWorkspace({
         setTechnologyError(null);
       })
       .catch((error: unknown) => setTechnologyError(errorMessage(error)));
-  }, []);
+  }, [vaultLocked]);
 
   useEffect(() => {
     const interval = window.setInterval(
