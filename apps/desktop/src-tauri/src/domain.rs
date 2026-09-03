@@ -1386,6 +1386,11 @@ fn migrate_legacy_app_data(base: &Path) -> Result<(), DomainError> {
                 .to_owned(),
         ));
     }
+    // Current-user NSIS installs into %LOCALAPPDATA%\VeriSilo. That is the
+    // application directory, not a legacy Vault. Leave it alone.
+    if windows_verisilo_dir_is_current_user_install(&legacy) {
+        return Ok(());
+    }
     match fs::symlink_metadata(&current) {
         Ok(metadata) if metadata_is_link_or_reparse(&metadata) || !metadata.is_dir() => {
             return Err(DomainError::InvalidSilo(
@@ -1408,6 +1413,10 @@ fn migrate_legacy_app_data(base: &Path) -> Result<(), DomainError> {
         ))
     })?;
     Ok(())
+}
+
+fn windows_verisilo_dir_is_current_user_install(path: &Path) -> bool {
+    path.join("verisilo.exe").is_file() || path.join("uninstall.exe").is_file()
 }
 
 fn metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
@@ -2230,5 +2239,21 @@ mod tests {
         fs::create_dir_all(&legacy).expect("conflicting legacy app data");
         assert!(super::migrate_legacy_app_data(&base).is_err());
         fs::remove_dir_all(base).expect("remove app-data fixture");
+    }
+
+    #[test]
+    fn windows_current_user_install_dir_is_not_migrated_as_legacy_vault() {
+        let base = std::env::temp_dir().join(format!("verisilo-install-{}", Uuid::new_v4()));
+        let current = base.join("io.verisilo.app");
+        let install = base.join("VeriSilo");
+        fs::create_dir_all(&install).expect("install dir");
+        fs::write(install.join("verisilo.exe"), b"exe").expect("installed exe");
+        fs::create_dir_all(&current).expect("rc1 data");
+        super::migrate_legacy_app_data(&base)
+            .expect("install directory must not be treated as a Vault");
+        assert!(install.join("verisilo.exe").is_file());
+        assert!(current.is_dir());
+        assert!(!current.join("verisilo.exe").exists());
+        fs::remove_dir_all(base).expect("remove install fixture");
     }
 }
