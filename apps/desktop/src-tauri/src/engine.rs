@@ -5031,7 +5031,10 @@ fn sha256_file(path: &Path) -> Result<[u8; 32], EngineError> {
     }
     let before_modified = before.modified().ok();
     let mut state = Sha256State::new();
-    let mut buffer = [0_u8; 1024 * 1024];
+    // Heap, not stack: a 1 MiB stack array overflows the default Windows
+    // thread (STATUS_STACK_OVERFLOW / 0xc00000fd) while hashing the bundled
+    // Camoufox tree from a Tauri command.
+    let mut buffer = vec![0_u8; 1024 * 1024];
     let mut total = 0_u64;
     loop {
         let read = file.read(&mut buffer)?;
@@ -5611,6 +5614,25 @@ mod tests {
     };
 
     struct TestPackageVerifier;
+
+    #[test]
+    fn sha256_file_keeps_its_read_buffer_on_the_heap() {
+        let source = include_str!("engine.rs");
+        let start = source
+            .find("fn sha256_file(")
+            .expect("sha256_file must exist");
+        let body = source
+            .get(start..start.saturating_add(1200))
+            .expect("sha256_file body");
+        assert!(
+            body.contains("vec![0_u8; 1024 * 1024]"),
+            "hashing the bundled Camoufox tree must not place a 1 MiB buffer on the stack"
+        );
+        assert!(
+            !body.contains("buffer = [0_u8;"),
+            "a 1 MiB stack array overflows Windows Tauri command threads"
+        );
+    }
 
     impl EnginePackageVerifier for TestPackageVerifier {
         fn verify(
