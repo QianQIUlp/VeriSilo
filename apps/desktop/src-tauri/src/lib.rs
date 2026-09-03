@@ -949,7 +949,14 @@ fn list_engine_adapters(state: State<'_, AppState>) -> Result<Vec<EngineAdapterS
                 );
                 status.health.checked_at = Utc::now();
             } else {
-                status = summarize_engine(&adapter);
+                // ensure_builtin_package already hashed and verified the tree.
+                // Calling health() here would hash the ~400 MiB package again.
+                status.descriptor = adapter.descriptor();
+                status.negotiation = adapter.negotiate(&EngineCapabilityId::ALL);
+                status.health.state = engine::EngineHealthState::Healthy;
+                status.health.message =
+                    "The bundled Camoufox package verified in this process.".to_owned();
+                status.health.checked_at = Utc::now();
             }
         }
         statuses.push(status);
