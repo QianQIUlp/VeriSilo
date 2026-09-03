@@ -333,6 +333,24 @@ fn trusted_windows_powershell_security_module(
     Ok((module_root, module_manifest))
 }
 
+/// Console-subsystem children (PowerShell, wsl.exe, browser `--version`)
+/// otherwise flash a visible window. Keep redirected stdio; hide the window.
+#[cfg(target_os = "windows")]
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+pub(crate) fn hide_windows_console(command: &mut Command) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = command;
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(
     tag = "mode",
@@ -1603,31 +1621,17 @@ fn browser_version_output(executable_path: &Path) -> Result<String, BrowserVerif
                 .map_err(|error| BrowserVerificationError::Probe(error.to_string()));
         }
     }
-    let mut child = Command::new(executable_path)
+    let mut command = Command::new(executable_path);
+    command
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    hide_windows_console(&mut command);
+    let child = command
         .spawn()
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(BrowserVerificationError::Probe(
-                    "检查超时；进程已结束且浏览器未启动。".to_owned(),
-                ));
-            }
-            Err(error) => return Err(BrowserVerificationError::Probe(error.to_string())),
-        }
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
+    let output = wait_child_output(child, Duration::from_secs(5))?;
     if !output.status.success() {
         return Err(BrowserVerificationError::Probe(format!(
             "进程返回 {}。",
@@ -1649,6 +1653,30 @@ fn browser_version_output(executable_path: &Path) -> Result<String, BrowserVerif
         ));
     }
     Ok(output.to_owned())
+}
+
+fn wait_child_output(
+    mut child: std::process::Child,
+    timeout: Duration,
+) -> Result<std::process::Output, BrowserVerificationError> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(BrowserVerificationError::Probe(
+                    "检查超时；进程已结束且浏览器未启动。".to_owned(),
+                ));
+            }
+            Err(error) => return Err(BrowserVerificationError::Probe(error.to_string())),
+        }
+    }
+    child
+        .wait_with_output()
+        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))
 }
 
 fn paths_match(stored: &str, resolved: &str) -> bool {
@@ -1678,14 +1706,21 @@ fn verify_windows_browser_identity(
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
     let (module_root, module_manifest) = trusted_windows_powershell_security_module(&powershell)
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
-    let output = Command::new(powershell)
+    let mut command = Command::new(powershell);
+    command
         .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
         .env(PATH_ENVIRONMENT_VARIABLE, executable_path)
         .env(MODULE_ENVIRONMENT_VARIABLE, module_manifest)
         // Do not inherit a caller-controlled or PowerShell-7-only module search path.
         .env("PSModulePath", module_root)
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    hide_windows_console(&mut command);
+    let child = command
+        .spawn()
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
+    let output = wait_child_output(child, Duration::from_secs(8))?;
     if !output.status.success() {
         return match output.status.code() {
             Some(3 | 4) => Err(BrowserVerificationError::PublisherMismatch),
@@ -1847,6 +1882,37 @@ mod tests {
         fs::write(executable.with_extension("version-output"), output)
             .expect("write version fixture");
         fs::canonicalize(executable).expect("canonical browser fixture")
+    }
+
+    #[test]
+    fn windows_identity_probe_bounds_child_lifetime() {
+        let source = include_str!("domain.rs");
+        let start = source
+            .find("fn verify_windows_browser_identity(")
+            .expect("windows identity probe");
+        let body = source
+            .get(start..start.saturating_add(2800))
+            .expect("identity probe body");
+        assert!(
+            body.contains("wait_child_output(child, Duration::from_secs(8))"),
+            "Authenticode probes must not wait unbounded on PowerShell"
+        );
+        assert!(
+            !body.contains(".output()"),
+            "Command::output has no timeout and can leak visible or hung consoles"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_console_child_processes_request_create_no_window() {
+        assert_eq!(
+            super::CREATE_NO_WINDOW,
+            0x0800_0000,
+            "CREATE_NO_WINDOW must hide PowerShell and --version consoles without discarding redirected stdio"
+        );
+        let mut command = std::process::Command::new("powershell.exe");
+        super::hide_windows_console(&mut command);
     }
 
     #[cfg(target_os = "windows")]

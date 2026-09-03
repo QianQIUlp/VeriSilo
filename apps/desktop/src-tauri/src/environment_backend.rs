@@ -379,6 +379,8 @@ impl ProcessRunner for SystemProcessRunner {
     fn run(&mut self, spec: &CommandSpec) -> Result<CommandOutput, EnvironmentBackendError> {
         let mut command = Command::new(&spec.program);
         command.args(&spec.args);
+        #[cfg(target_os = "windows")]
+        crate::domain::hide_windows_console(&mut command);
         if spec.stdin.is_some() {
             command.stdin(Stdio::piped());
         } else {

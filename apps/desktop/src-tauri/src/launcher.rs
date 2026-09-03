@@ -20,8 +20,8 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::domain::{
-    verify_browser_descriptor, BrowserVerificationState, NetworkProfile, RuntimeActivation,
-    RuntimeEngineEvidence, RuntimeEvidenceState, RuntimeNetworkEvidence,
+    hide_windows_console, verify_browser_descriptor, BrowserVerificationState, NetworkProfile,
+    RuntimeActivation, RuntimeEngineEvidence, RuntimeEvidenceState, RuntimeNetworkEvidence,
     RuntimeNetworkEvidenceProvenance, RuntimePackageVerification, RuntimeState, Silo,
 };
 #[cfg(test)]
@@ -2954,6 +2954,7 @@ fn spawn_engine_child(
                 // logs before the bound ACK has been accepted.
                 command.stderr(Stdio::null());
             }
+            hide_windows_console(&mut command);
             command.spawn()
         },
         |stdin, envelope| {
