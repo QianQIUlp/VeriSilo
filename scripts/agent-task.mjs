@@ -122,23 +122,39 @@ export const LANES = {
 // RESTRICTED: no lane (except integration) may modify these, even if a lane
 // allowlist covers them. They are shared contracts or workflow-wide truth.
 export const RESTRICTED = [
-  { glob: "packages/contracts/**", reason: "共享 DTO/协议契约：需要显式契约任务，调用方同步更新，不能由单个 lane 私改" },
-  { glob: "apps/desktop/src/desktop-api.ts", reason: "前端/后端契约接缝：随 packages/contracts 一起走显式契约任务" },
+  {
+    glob: "packages/contracts/**",
+    reason:
+      "共享 DTO/协议契约：需要显式契约任务，调用方同步更新，不能由单个 lane 私改",
+  },
+  {
+    glob: "apps/desktop/src/desktop-api.ts",
+    reason: "前端/后端契约接缝：随 packages/contracts 一起走显式契约任务",
+  },
   { glob: "package.json", reason: "根工作区配置" },
   { glob: "pnpm-lock.yaml", reason: "根依赖锁" },
   { glob: "pnpm-workspace.yaml", reason: "工作区定义" },
   { glob: "AGENTS.md", reason: "Agent 协作文档" },
-  { glob: "docs/*.md", reason: "顶层文档（状态页/北极星/工作流）属于跨面事实源" },
+  {
+    glob: "docs/*.md",
+    reason: "顶层文档（状态页/北极星/工作流）属于跨面事实源",
+  },
   { glob: ".github/**", reason: "CI/工作流配置" },
   { glob: ".gitignore", reason: "仓库级忽略规则" },
   { glob: ".prettierignore", reason: "仓库级格式规则" },
-  { glob: "scripts/agent-task.mjs", reason: "任务路由脚本本身（lanes 事实源）" },
+  {
+    glob: "scripts/agent-task.mjs",
+    reason: "任务路由脚本本身（lanes 事实源）",
+  },
   { glob: "scripts/agent-task.test.mjs", reason: "任务路由脚本测试" },
 ];
 
 // SHARED: cross-cutting by default, but a lane allowlist entry may claim it.
 export const SHARED = [
-  { glob: "scripts/**", reason: "根脚本默认跨面（host lane 的构建/验证脚本除外）" },
+  {
+    glob: "scripts/**",
+    reason: "根脚本默认跨面（host lane 的构建/验证脚本除外）",
+  },
   { glob: "docs/**", reason: "文档默认跨面（qa/acceptance evidence 除外）" },
   { glob: "apps/desktop/src-tauri/tauri.conf.json", reason: "桌面壳/打包配置" },
   { glob: "apps/desktop/vite.config.ts", reason: "共享开发服务器配置" },
@@ -192,14 +208,19 @@ export function classifyPath(path, laneId) {
   if (!lane) throw new Error(`Unknown lane: ${laneId}`);
   if (laneId === "integration") return { status: "ok", kind: "integration" };
   if (lane.deny && matchesAny(lane.deny, normalized)) {
-    return { status: "violation", kind: "deny", reason: "此路径被该 lane 显式排除" };
+    return {
+      status: "violation",
+      kind: "deny",
+      reason: "此路径被该 lane 显式排除",
+    };
   }
   for (const rule of RESTRICTED) {
     if (globToRegExp(rule.glob).test(normalized) || normalized === rule.glob) {
       return { status: "violation", kind: "restricted", reason: rule.reason };
     }
   }
-  if (matchesAny(lane.allow, normalized)) return { status: "ok", kind: "allow" };
+  if (matchesAny(lane.allow, normalized))
+    return { status: "ok", kind: "allow" };
   for (const rule of SHARED) {
     if (matchesAny([rule.glob], normalized)) {
       return { status: "violation", kind: "shared", reason: rule.reason };
@@ -236,7 +257,10 @@ export function slugify(text, max = 24) {
 }
 
 export function taskHash(text) {
-  return createHash("sha256").update(String(text), "utf8").digest("hex").slice(0, 6);
+  return createHash("sha256")
+    .update(String(text), "utf8")
+    .digest("hex")
+    .slice(0, 6);
 }
 
 export function taskNames(laneId, taskText, nameOverride) {
@@ -245,8 +269,10 @@ export function taskNames(laneId, taskText, nameOverride) {
   const branch = `${BRANCH_PREFIX}/${laneId}/${slug}-${hash}`;
   const dir = `${laneId}-${slug}-${hash}`;
   let vault = `${laneId}-${slug}-${hash}`;
-  if (vault.length > 32) vault = `${laneId}-${slug.slice(0, 24 - laneId.length)}-${hash}`;
-  if (!VAULT_NAME_RE.test(vault)) throw new Error(`Generated vault name is invalid: ${vault}`);
+  if (vault.length > 32)
+    vault = `${laneId}-${slug.slice(0, 24 - laneId.length)}-${hash}`;
+  if (!VAULT_NAME_RE.test(vault))
+    throw new Error(`Generated vault name is invalid: ${vault}`);
   return { slug, hash, branch, dir, vault };
 }
 
@@ -257,7 +283,9 @@ export function portFromHash(hash) {
 function git(args, cwd) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
   if (result.status !== 0) {
-    throw new Error(`git ${args.join(" ")} failed:\n${result.stderr || result.stdout}`);
+    throw new Error(
+      `git ${args.join(" ")} failed:\n${result.stderr || result.stdout}`,
+    );
   }
   return result.stdout.trim();
 }
@@ -277,7 +305,8 @@ function repoInfo(cwd) {
     isPrimary: gitDir === commonDir,
     head: git(["rev-parse", "HEAD"], cwd),
     branch: git(["rev-parse", "--abbrev-ref", "HEAD"], cwd),
-    dirty: git(["status", "--porcelain"], root).split("\n").filter(Boolean).length,
+    dirty: git(["status", "--porcelain"], root).split("\n").filter(Boolean)
+      .length,
   };
 }
 
@@ -317,7 +346,8 @@ function isPortFree(port) {
 
 export async function pickPort(base, claimed) {
   for (let offset = 0; offset < PORT_SCAN_LIMIT; offset += 1) {
-    const port = PORT_RANGE_START + ((base - PORT_RANGE_START + offset) % PORT_RANGE_SIZE);
+    const port =
+      PORT_RANGE_START + ((base - PORT_RANGE_START + offset) % PORT_RANGE_SIZE);
     if (claimed.has(port)) continue;
     if (await isPortFree(port)) return port;
   }
@@ -334,13 +364,17 @@ function assertPrimary(info) {
 
 async function cmdStart({ lane, task, name }) {
   if (!LANES[lane]) {
-    throw new Error(`Unknown lane: ${lane}. Known lanes: ${LANE_IDS.join(", ")}`);
+    throw new Error(
+      `Unknown lane: ${lane}. Known lanes: ${LANE_IDS.join(", ")}`,
+    );
   }
-  if (!task || !task.trim()) throw new Error("需要 --task \"<任务描述>\"");
+  if (!task || !task.trim()) throw new Error('需要 --task "<任务描述>"');
   const info = repoInfo(process.cwd());
   assertPrimary(info);
   if (info.dirty > 0) {
-    console.warn(`⚠ 主检出有 ${info.dirty} 个未提交变更；它们不会出现在新 worktree 中。请先提交到共享 baseline。`);
+    console.warn(
+      `⚠ 主检出有 ${info.dirty} 个未提交变更；它们不会出现在新 worktree 中。请先提交到共享 baseline。`,
+    );
   }
   const { branch, dir, vault } = taskNames(lane, task, name);
   const worktreePath = join(info.root, WORKTREE_ROOT_NAME, dir);
@@ -350,7 +384,9 @@ async function cmdStart({ lane, task, name }) {
     const meta = readJson(metaPath);
     if (!(await isPortFree(meta.port))) {
       const claimed = new Set(
-        existingMetas(info.root).map(({ meta: other }) => other.port).filter(Boolean),
+        existingMetas(info.root)
+          .map(({ meta: other }) => other.port)
+          .filter(Boolean),
       );
       meta.port = await pickPort(portFromHash(taskHash(meta.task)), claimed);
       writeFileSync(metaPath, `${JSON.stringify(meta, null, 2)}\n`);
@@ -362,11 +398,19 @@ async function cmdStart({ lane, task, name }) {
   }
 
   const claimedPorts = new Set(
-    existingMetas(info.root).map(({ meta }) => meta.port).filter(Boolean),
+    existingMetas(info.root)
+      .map(({ meta }) => meta.port)
+      .filter(Boolean),
   );
-  const portPromise = pickPort(portFromHash(taskNames(lane, task, name).hash), claimedPorts);
+  const portPromise = pickPort(
+    portFromHash(taskNames(lane, task, name).hash),
+    claimedPorts,
+  );
 
-  const branchExists = gitOk(["rev-parse", "--verify", "--quiet", branch], info.root);
+  const branchExists = gitOk(
+    ["rev-parse", "--verify", "--quiet", branch],
+    info.root,
+  );
   git(
     branchExists
       ? ["worktree", "add", worktreePath, branch]
@@ -388,7 +432,9 @@ async function cmdStart({ lane, task, name }) {
       createdAt: new Date().toISOString(),
     };
     writeFileSync(metaPath, `${JSON.stringify(meta, null, 2)}\n`);
-    console.log(`Created task worktree (${branchExists ? "resumed branch" : "new branch"}):`);
+    console.log(
+      `Created task worktree (${branchExists ? "resumed branch" : "new branch"}):`,
+    );
     printMeta(meta, info.root);
   });
 }
@@ -435,14 +481,21 @@ function resolveTaskContext({ lane }) {
       `未找到 ${META_FILE}。请在任务 worktree 内运行，或用 --lane <lane> 显式指定（对当前检出执行）。`,
     );
   }
-  if (!LANES[lane]) throw new Error(`Unknown lane: ${lane}. Known lanes: ${LANE_IDS.join(", ")}`);
+  if (!LANES[lane])
+    throw new Error(
+      `Unknown lane: ${lane}. Known lanes: ${LANE_IDS.join(", ")}`,
+    );
   const root = git(["rev-parse", "--show-toplevel"], process.cwd());
   return { meta: null, root, lane };
 }
 
 function changedFiles(root, baseline) {
   const files = new Set();
-  const add = (out) => out.split("\n").filter(Boolean).forEach((f) => files.add(f.trim()));
+  const add = (out) =>
+    out
+      .split("\n")
+      .filter(Boolean)
+      .forEach((f) => files.add(f.trim()));
   if (baseline) add(git(["diff", "--name-only", `${baseline}..HEAD`], root));
   add(git(["diff", "--name-only", "HEAD"], root));
   add(git(["ls-files", "--others", "--exclude-standard"], root));
@@ -459,7 +512,9 @@ async function cmdCheck({ lane }) {
     if (verdict.status === "ok") inScope.push(file);
     else violations.push({ file, ...verdict });
   }
-  console.log(`Scope check — lane ${laneId} (${LANES[laneId].label})${meta ? `, task: ${meta.task}` : ""}`);
+  console.log(
+    `Scope check — lane ${laneId} (${LANES[laneId].label})${meta ? `, task: ${meta.task}` : ""}`,
+  );
   console.log(`  in scope: ${inScope.length} file(s)`);
   if (violations.length === 0) {
     console.log("  no boundary violations. ✓");
@@ -482,7 +537,10 @@ async function cmdCheck({ lane }) {
 
 function resolvePnpm() {
   for (const candidate of ["pnpm", "corepack pnpm"]) {
-    const probe = spawnSync(candidate, ["--version"], { shell: true, encoding: "utf8" });
+    const probe = spawnSync(candidate, ["--version"], {
+      shell: true,
+      encoding: "utf8",
+    });
     if (probe.status === 0) return candidate;
   }
   return null;
@@ -490,7 +548,8 @@ function resolvePnpm() {
 
 function runCommand(command, cwd, pnpmCmd) {
   let cmd = command;
-  if (pnpmCmd && cmd.startsWith("pnpm ")) cmd = `${pnpmCmd} ${cmd.slice("pnpm ".length)}`;
+  if (pnpmCmd && cmd.startsWith("pnpm "))
+    cmd = `${pnpmCmd} ${cmd.slice("pnpm ".length)}`;
   console.log(`\n▶ ${cmd}`);
   const result = spawnSync(cmd, { shell: true, stdio: "inherit", cwd });
   return result.status === 0;
@@ -505,14 +564,18 @@ async function cmdVerify({ lane }) {
   }
   const pnpmCmd = resolvePnpm();
   if (!pnpmCmd) {
-    throw new Error("找不到 pnpm（尝试了 pnpm 与 corepack pnpm）。请在有 pnpm 的环境运行，或安装 corepack。");
+    throw new Error(
+      "找不到 pnpm（尝试了 pnpm 与 corepack pnpm）。请在有 pnpm 的环境运行，或安装 corepack。",
+    );
   }
   const failed = [];
   for (const command of config.verify) {
     if (!runCommand(command, root, pnpmCmd)) failed.push(command);
   }
   if (failed.length > 0) {
-    console.error(`\nverify FAILED (${failed.length}/${config.verify.length}):`);
+    console.error(
+      `\nverify FAILED (${failed.length}/${config.verify.length}):`,
+    );
     for (const command of failed) console.error(`  ✘ ${command}`);
     process.exitCode = 1;
     return;
@@ -577,6 +640,9 @@ async function main() {
   throw new Error(`Unknown command: ${command}`);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   await main();
 }

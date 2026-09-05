@@ -37,13 +37,13 @@ node scripts/agent-task.mjs list
 
 Lane = 责任与修改边界；Task（worktree）= 一次实际工作。**同一 lane 可以同时有任意多个任务 worktree**，互不冲突；不要假设一个 lane 只有一个分支。
 
-| Lane | 主要产物落在哪 | 任务示例 | 不选它的信号 |
-|---|---|---|---|
-| `ui` | 界面、表单、交互、文案、样式、预览 | 重新设计创建 Silo 的 UX；新增预览场景 | 需要改后端 DTO 或业务行为 |
-| `core` | 桌面业务层、领域模型、Tauri/CLI 入口、EngineAdapter 接入 | 修复创建 Silo 的 Vault 写入顺序；CLI 输出问题 | 只动前端展示，或缺陷在 Python Host |
-| `host` | Python Host、Camoufox 补丁、engine package 构建脚本 | 修复 Camoufox 启动异常（定位在 host_v1）；更新补丁系列 | 缺陷最终落在 Rust launcher/adapter —— 那是 `core` |
-| `qa` | 复现步骤、验收测试、evidence（不改产品代码） | 检查安装流程有没有 bug；对某候选回归 | 已定位修复方案 → 修复任务回 owning lane |
-| `integration` | 跨层、共享契约、汇总出候选 | NetworkProfile 加字段贯通前后端；合并本批任务出 RC | 单一层内可完成 → 用对应 lane |
+| Lane          | 主要产物落在哪                                           | 任务示例                                               | 不选它的信号                                      |
+| ------------- | -------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------- |
+| `ui`          | 界面、表单、交互、文案、样式、预览                       | 重新设计创建 Silo 的 UX；新增预览场景                  | 需要改后端 DTO 或业务行为                         |
+| `core`        | 桌面业务层、领域模型、Tauri/CLI 入口、EngineAdapter 接入 | 修复创建 Silo 的 Vault 写入顺序；CLI 输出问题          | 只动前端展示，或缺陷在 Python Host                |
+| `host`        | Python Host、Camoufox 补丁、engine package 构建脚本      | 修复 Camoufox 启动异常（定位在 host_v1）；更新补丁系列 | 缺陷最终落在 Rust launcher/adapter —— 那是 `core` |
+| `qa`          | 复现步骤、验收测试、evidence（不改产品代码）             | 检查安装流程有没有 bug；对某候选回归                   | 已定位修复方案 → 修复任务回 owning lane           |
+| `integration` | 跨层、共享契约、汇总出候选                               | NetworkProfile 加字段贯通前后端；合并本批任务出 RC     | 单一层内可完成 → 用对应 lane                      |
 
 判定规则：
 
@@ -66,13 +66,13 @@ Lane = 责任与修改边界；Task（worktree）= 一次实际工作。**同一
 
 命令以脚本 `LANES[...].verify` 为准（`verify` 子命令自动执行）：
 
-| Lane | 自动化验证 | Agent 补充义务 |
-|---|---|---|
-| `ui` | desktop check + desktop test | 用 preview 场景人工核对受影响交互；preview 是 UI 证据，不是 runtime Gate |
-| `core` | desktop cargo check + harness `application::` tests | 触到窗口/托盘/进程路径时补 owning module focused tests |
-| `host` | package contract + page command 测试 | `test_identity_artifact.py` 需 numpy（有条件则跑）；内核/包/指纹结论必须来自真实 runtime evidence |
-| `qa` | （无自动化命令） | 验证=证据：复现步骤 + 实际观察 + 针对的确切候选版本；修复回 owning lane |
-| `integration` | 递归 check/test、desktop build、两个 crate 的 cargo check/test、Host 测试、脚本自测 | 完整自动化之后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行 |
+| Lane          | 自动化验证                                                                          | Agent 补充义务                                                                                    |
+| ------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `ui`          | desktop check + desktop test                                                        | 用 preview 场景人工核对受影响交互；preview 是 UI 证据，不是 runtime Gate                          |
+| `core`        | desktop cargo check + harness `application::` tests                                 | 触到窗口/托盘/进程路径时补 owning module focused tests                                            |
+| `host`        | package contract + page command 测试                                                | `test_identity_artifact.py` 需 numpy（有条件则跑）；内核/包/指纹结论必须来自真实 runtime evidence |
+| `qa`          | （无自动化命令）                                                                    | 验证=证据：复现步骤 + 实际观察 + 针对的确切候选版本；修复回 owning lane                           |
+| `integration` | 递归 check/test、desktop build、两个 crate 的 cargo check/test、Host 测试、脚本自测 | 完整自动化之后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行                |
 
 不要把"配置声明/测试通过/编译成功"冒充尚未取得的 runtime/product Gate；lane 验证只覆盖其名称所指的范围。
 
@@ -86,14 +86,14 @@ Lane = 责任与修改边界；Task（worktree）= 一次实际工作。**同一
 
 ## 运行隔离与共享资源
 
-| 资源 | 规则 |
-|---|---|
-| Vault | 每任务独立（start 自动生成并校验 ≤32 位小写），绝不使用 `default`；通过 `--vault` 传入 dev 实例 |
-| 端口 | 每任务独立 Vite 端口（15400 起，start 探测空闲 + 跳过其他任务已声明端口） |
-| node_modules / Rust target / staging | 各工作树自有，不跨树链接 |
-| Mihomo | 同一 controller/selector group 会互相切节点：并行网络测试用独立实例或串行 |
-| engine package | 固定包只读复用；新候选写新目录，不覆盖他人正在验收的包 |
-| 安装/卸载 | 由验收任务在专用环境执行，工作树名称不隔离安装目录与系统注册 |
+| 资源                                 | 规则                                                                                            |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| Vault                                | 每任务独立（start 自动生成并校验 ≤32 位小写），绝不使用 `default`；通过 `--vault` 传入 dev 实例 |
+| 端口                                 | 每任务独立 Vite 端口（15400 起，start 探测空闲 + 跳过其他任务已声明端口）                       |
+| node_modules / Rust target / staging | 各工作树自有，不跨树链接                                                                        |
+| Mihomo                               | 同一 controller/selector group 会互相切节点：并行网络测试用独立实例或串行                       |
+| engine package                       | 固定包只读复用；新候选写新目录，不覆盖他人正在验收的包                                          |
+| 安装/卸载                            | 由验收任务在专用环境执行，工作树名称不隔离安装目录与系统注册                                    |
 
 ## 环境注意
 
