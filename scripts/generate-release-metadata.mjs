@@ -19,6 +19,48 @@ const manifestName = "SHA256SUMS";
 const provenanceName = "provenance.json";
 const excludedNames = new Set([manifestName, provenanceName]);
 const provenanceProfiles = {
+  "managed-browser-windows": {
+    inputPaths: [
+      "package.json",
+      "pnpm-lock.yaml",
+      "apps/desktop/package.json",
+      "apps/desktop/src-tauri/Cargo.toml",
+      "apps/desktop/src-tauri/Cargo.lock",
+      "apps/desktop/src-tauri/build.rs",
+      "apps/camoufox-host/windows-supervisor/Cargo.toml",
+      "apps/camoufox-host/windows-supervisor/Cargo.lock",
+      "apps/desktop/src-tauri/tauri.conf.json",
+      "apps/desktop/src-tauri/tauri.release-reset.conf.json",
+      "apps/desktop/src-tauri/tauri.unsigned.conf.json",
+      "apps/desktop/src-tauri/tauri.managed-browser.conf.json",
+      "apps/desktop/src-tauri/resources/engine-package.schema.json",
+      "apps/desktop/src-tauri/resources/camoufox-host-package-tree.schema.json",
+      "apps/desktop/src-tauri/resources/engine-trusted-signers.json",
+      "apps/camoufox-host/pyproject.toml",
+      "apps/camoufox-host/uv.lock",
+      "apps/camoufox-host/lock/dependencies.json",
+      "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json",
+      "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-build-result.json",
+      "apps/camoufox-host/host_v1.py",
+      "apps/camoufox-host/host_probe.py",
+      "apps/camoufox-host/host_runtime.py",
+      "apps/camoufox-host/browser_tree.py",
+      "apps/camoufox-host/package_contract.py",
+      "scripts/build-camoufox-host-package.py",
+      "scripts/build-managed-browser-release.ps1",
+      "scripts/new-camoufox-engine-signer.ps1",
+      "scripts/sign-camoufox-host-manifest.ps1",
+      "scripts/verify-managed-browser-release.mjs",
+      "scripts/generate-release-metadata.mjs",
+      "scripts/generate-license-report.mjs",
+      "scripts/generate-sbom.mjs",
+      "scripts/verify-release-policy.mjs",
+      "THIRD_PARTY_NOTICES.md",
+      "LICENSE",
+      "docs/managed-browser-rc1.md",
+      "docs/acceptance/managed-browser-rc1.md",
+    ],
+  },
   windows: {
     inputPaths: [
       "package.json",
@@ -201,7 +243,9 @@ function formatManifest(files) {
 async function sourceInputs(profileName) {
   const profile = provenanceProfiles[profileName];
   if (profile === undefined) {
-    throw new Error("Provenance profile must be windows or remote-agent.");
+    throw new Error(
+      "Provenance profile must be managed-browser-windows, windows, or remote-agent.",
+    );
   }
   return Promise.all(
     profile.inputPaths.map(async (relativePath) => ({
@@ -225,39 +269,51 @@ async function readVersions(profileName) {
     }
     return { remoteAgent };
   }
-  if (profileName !== "windows") {
-    throw new Error("Provenance profile must be windows or remote-agent.");
+  if (!new Set(["windows", "managed-browser-windows"]).has(profileName)) {
+    throw new Error(
+      "Provenance profile must be managed-browser-windows, windows, or remote-agent.",
+    );
   }
-  const [
-    rootPackage,
-    extensionPackage,
-    extensionManifest,
-    tauriConfig,
-    cargo,
-    remoteAgentCargo,
-  ] = await Promise.all([
+  const [rootPackage, tauriConfig, cargo] = await Promise.all([
     readFile(path.join(root, "package.json"), "utf8").then(JSON.parse),
-    readFile(path.join(root, "apps/extension/package.json"), "utf8").then(
-      JSON.parse,
-    ),
-    readFile(path.join(root, "apps/extension/manifest.json"), "utf8").then(
-      JSON.parse,
-    ),
     readFile(
       path.join(root, "apps/desktop/src-tauri/tauri.conf.json"),
       "utf8",
     ).then(JSON.parse),
     readFile(path.join(root, "apps/desktop/src-tauri/Cargo.toml"), "utf8"),
-    readFile(
-      path.join(root, "crates/verisilo-remote-backend/Cargo.toml"),
-      "utf8",
-    ),
   ]);
   const cargoVersion = cargo.match(/^version = "([^"]+)"$/mu)?.[1];
+  if (cargoVersion === undefined) {
+    throw new Error(
+      "Unable to read the desktop Cargo version from Cargo.toml.",
+    );
+  }
+  if (profileName === "managed-browser-windows") {
+    return {
+      product: rootPackage.version,
+      packageManager: rootPackage.packageManager,
+      desktop: tauriConfig.version,
+      cargo: cargoVersion,
+      managedBrowser: "v0.1.0-rc1",
+    };
+  }
+  const [extensionPackage, extensionManifest, remoteAgentCargo] =
+    await Promise.all([
+      readFile(path.join(root, "apps/extension/package.json"), "utf8").then(
+        JSON.parse,
+      ),
+      readFile(path.join(root, "apps/extension/manifest.json"), "utf8").then(
+        JSON.parse,
+      ),
+      readFile(
+        path.join(root, "crates/verisilo-remote-backend/Cargo.toml"),
+        "utf8",
+      ),
+    ]);
   const remoteAgentVersion = remoteAgentCargo.match(
     /^version = "([^"]+)"$/mu,
   )?.[1];
-  if (cargoVersion === undefined || remoteAgentVersion === undefined) {
+  if (remoteAgentVersion === undefined) {
     throw new Error(
       "Unable to read a release component version from Cargo.toml.",
     );
@@ -290,6 +346,22 @@ async function verifiedSigning(directory, profileName) {
     .then(JSON.parse)
     .catch(() => undefined);
   const signingState = report?.signingState ?? "not-checked";
+  if (profileName === "managed-browser-windows") {
+    if (report?.mode !== "Unsigned" || signingState !== "unsigned") {
+      throw new Error(
+        "Managed-browser RC1 provenance requires an explicit unsigned Authenticode report.",
+      );
+    }
+    if (
+      process.env.VERISILO_SIGNING_STATE !== undefined &&
+      process.env.VERISILO_SIGNING_STATE !== "unsigned"
+    ) {
+      throw new Error(
+        "Managed-browser RC1 must remain outer-unsigned by default.",
+      );
+    }
+    return { signingState, signerCertificateSha256: null };
+  }
   const allowed = new Set([
     "not-checked",
     "unsigned",
@@ -354,23 +426,34 @@ async function expectedProvenance(files, directory, profileName) {
       artifactProfile: profileName,
       target: process.env.VERISILO_BUILD_TARGET ?? "x86_64-pc-windows-msvc",
       signingState,
+      authenticode:
+        profileName === "remote-agent" || signingState === "not-checked"
+          ? null
+          : signingState === "signed-and-verified",
       signerCertificateSha256,
       hyperVImageSource: hyperVImageSource(profileName),
-      promotionState: profileName === "windows" ? "NOT_PROMOTABLE" : null,
+      promotionState:
+        profileName === "windows"
+          ? "NOT_PROMOTABLE"
+          : profileName === "managed-browser-windows"
+            ? "LOCAL_RC1_ONLY"
+            : null,
       node: process.version,
       packageManager: versions.packageManager ?? null,
       rustToolchain: "1.88.0",
       workflow: process.env.GITHUB_WORKFLOW ?? null,
       workflowRef: process.env.GITHUB_WORKFLOW_REF ?? null,
       runId: process.env.GITHUB_RUN_ID ?? null,
-      runnerOs: process.env.RUNNER_OS ?? null,
-      runnerArch: process.env.RUNNER_ARCH ?? null,
+      runnerOs: process.env.RUNNER_OS ?? process.platform,
+      runnerArch: process.env.RUNNER_ARCH ?? process.arch,
       reproducibility: {
         hermetic: false,
         deterministicSubcomponents:
           profileName === "windows"
             ? ["companion-zip:sorted-zip32-store-source-date-epoch"]
-            : [],
+            : profileName === "managed-browser-windows"
+              ? ["engine-package:signed-manifest-and-complete-tree"]
+              : [],
         limitations:
           profileName === "windows"
             ? [
@@ -378,7 +461,13 @@ async function expectedProvenance(files, directory, profileName) {
                 "pe-nsis-toolchain-output",
                 "authenticode-timestamp-service-when-signed",
               ]
-            : ["hosted-runner-image-and-rust-toolchain-output"],
+            : profileName === "managed-browser-windows"
+              ? [
+                  "local-windows-builder-and-pyinstaller-output",
+                  "pe-nsis-toolchain-output",
+                  "outer-authenticode-not-provided",
+                ]
+              : ["hosted-runner-image-and-rust-toolchain-output"],
       },
     },
     artifacts: files,
@@ -489,6 +578,19 @@ async function selfTest() {
         `${profileName} fixture\n`,
         "utf8",
       );
+      if (profileName === "managed-browser-windows") {
+        await writeFile(
+          path.join(candidate, "authenticode-status.json"),
+          stableJson({
+            schemaVersion: 1,
+            mode: "Unsigned",
+            signingState: "unsigned",
+            expectedSignerCertificateSha256: null,
+            files: [],
+          }),
+          "utf8",
+        );
+      }
       if (profileName === "remote-agent") {
         process.env.VERISILO_SIGNING_STATE = "unsigned";
         process.env.VERISILO_BUILD_TARGET = "x86_64-unknown-linux-gnu";
@@ -525,7 +627,7 @@ async function selfTest() {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
   process.stdout.write(
-    "Release metadata self-test passed for windows and remote-agent profiles.\n",
+    "Release metadata self-test passed for managed-browser-windows, windows, and remote-agent profiles.\n",
   );
 }
 
@@ -541,14 +643,16 @@ const profileName =
   profileIndex === -1 ? "windows" : process.argv[profileIndex + 1];
 if (directoryValue === undefined) {
   throw new Error(
-    "Usage: node scripts/generate-release-metadata.mjs --dir <release-directory> [--profile windows|remote-agent] [--check] | --self-test",
+    "Usage: node scripts/generate-release-metadata.mjs --dir <release-directory> [--profile managed-browser-windows|windows|remote-agent] [--check] | --self-test",
   );
 }
 if (
   profileName === undefined ||
   provenanceProfiles[profileName] === undefined
 ) {
-  throw new Error("Provenance profile must be windows or remote-agent.");
+  throw new Error(
+    "Provenance profile must be managed-browser-windows, windows, or remote-agent.",
+  );
 }
 const releaseDirectory = path.resolve(root, directoryValue);
 if (process.argv.includes("--check")) {

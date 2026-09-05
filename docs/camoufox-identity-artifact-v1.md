@@ -1,5 +1,7 @@
 # VeriSilo M1.1 + M2-0 + M2.0.1 + M2.0.2 + M2.0.3 — Resolved Camoufox Identity Artifact
 
+> 历史阶段报告：下表保留 M2.0.3 当时的 Gate 判定。M2-W 此后已经 Accepted，PR #10 已合入 `main`；当前阶段与下一任务以 [Camoufox 状态页](camoufox-program-status.md)为准。
+
 Status: **M2.0.3 accepted on this host — observations only,
 `verified: false` everywhere. Host v1 is a runnable Linux prototype; the
 long-term schema/version contract is now frozen and old v2 artifacts are
@@ -7,19 +9,19 @@ explicitly rejected.**
 
 ## Gate summary
 
-| Gate | 判定 |
-| --- | --- |
-| 有效 Artifact 的 Linux 重放正确性 | 通过（v3 Artifact / v2 ObservedWebsiteDigest） |
-| 稳定性与身份分离 | 通过（inherit fontMode，字体宽度不入摘要） |
-| 递归严格 Artifact 边界 | 通过（嵌套必需字段 + 未知字段 + 顶层 scalar 闭包） |
-| Schema/摘要版本冻结 | **通过（M2.0.2：v3/v2 升级 + 旧版显式拒绝）** |
-| Host 重启持久化 | 通过（固定 origin + Cookie API/页面/cookies.sqlite 三类证据） |
-| 正常生命周期与进程树清理 | 通过 |
-| 异常进程无法退出时 fail-closed | **通过（M2.0.3：全树身份确认 + 三态原子 quarantine）** |
-| 严格 Artifact JSON / RFC3339 边界 | **通过（M2.0.3）** |
-| 证据冻结到 Git | 通过（tracked fixtures + manifest + code revision） |
-| M2-W Windows 手工 Gate | **允许（下一项）** |
-| 接入 Tauri / EngineAdapter | 暂不允许 |
+| Gate                              | 判定                                                          |
+| --------------------------------- | ------------------------------------------------------------- |
+| 有效 Artifact 的 Linux 重放正确性 | 通过（v3 Artifact / v2 ObservedWebsiteDigest）                |
+| 稳定性与身份分离                  | 通过（inherit fontMode，字体宽度不入摘要）                    |
+| 递归严格 Artifact 边界            | 通过（嵌套必需字段 + 未知字段 + 顶层 scalar 闭包）            |
+| Schema/摘要版本冻结               | **通过（M2.0.2：v3/v2 升级 + 旧版显式拒绝）**                 |
+| Host 重启持久化                   | 通过（固定 origin + Cookie API/页面/cookies.sqlite 三类证据） |
+| 正常生命周期与进程树清理          | 通过                                                          |
+| 异常进程无法退出时 fail-closed    | **通过（M2.0.3：全树身份确认 + 三态原子 quarantine）**        |
+| 严格 Artifact JSON / RFC3339 边界 | **通过（M2.0.3）**                                            |
+| 证据冻结到 Git                    | 通过（tracked fixtures + manifest + code revision）           |
+| M2-W Windows 手工 Gate            | **本文当时允许；后续已 Accepted**                             |
+| 接入 Tauri / EngineAdapter        | 暂不允许                                                      |
 
 M0.1 保持“本机兼容性 Gate 通过”的收紧表述：`noCamoufoxWebdlAttemptObserved`
 只证明 `camoufox.webdl` 未触发（`outboundNetworkFullyObserved: false`），
@@ -135,9 +137,9 @@ raw 像素稳定但 seed 噪声未通过本探针场景体现；export（toDataU
 Accepted run：**`run-1786158540-228a3340`**
 （report.sha256 `b15625fd…b323d`）。
 
-| Start | disk==sent | diff | 退出码 | exit 文件 | Profile fresh | ObservedWebsiteDigest v2 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1–5 | true | 空 | 0 | 存在 | 是 | `sha256:70f71b5ca7ee287a4d5e989086a990264433129615f0ee988aa18c135385d0ff` |
+| Start | disk==sent | diff | 退出码 | exit 文件 | Profile fresh | ObservedWebsiteDigest v2                                                  |
+| ----- | ---------- | ---- | ------ | --------- | ------------- | ------------------------------------------------------------------------- |
+| 1–5   | true       | 空   | 0      | 存在      | 是            | `sha256:70f71b5ca7ee287a4d5e989086a990264433129615f0ee988aa18c135385d0ff` |
 
 5/5 摘要一致；`artifactFileSha256EveryStart` 5 次相同；`fontModeEveryStart`
 全为 `inherit`。**通过。**
@@ -146,11 +148,11 @@ Accepted run：**`run-1786158540-228a3340`**
 
 Accepted run：**`run-1786158560-43ea2bd1`**。
 
-| Artifact | canonicalDigest | ObservedWebsiteDigest v2 |
-| --- | --- | --- |
-| identity-a | `sha256:4f602179…58e8` | `sha256:70f71b5c…d0ff` |
-| identity-b | `sha256:0cb8e396…42f7` | `sha256:8559d3e0…6324` |
-| identity-c | `sha256:d6b8ad04…713f` | `sha256:f873b3dd…6de13` |
+| Artifact   | canonicalDigest        | ObservedWebsiteDigest v2 |
+| ---------- | ---------------------- | ------------------------ |
+| identity-a | `sha256:4f602179…58e8` | `sha256:70f71b5c…d0ff`   |
+| identity-b | `sha256:0cb8e396…42f7` | `sha256:8559d3e0…6324`   |
+| identity-c | `sha256:d6b8ad04…713f` | `sha256:f873b3dd…6de13`  |
 
 两两不同；退出码 0、exit 文件存在、Profile fresh、config 零变异全部满足。
 **通过。**

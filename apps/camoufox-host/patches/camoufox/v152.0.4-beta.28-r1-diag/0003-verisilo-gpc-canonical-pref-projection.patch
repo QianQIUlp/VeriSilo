@@ -1,0 +1,81 @@
+--- /dev/null
++++ b/camoucfg/GpcProjection.h
+@@ -0,0 +1,46 @@
++/* VeriSilo GPC policy-state projection (implementation contract model B).
++ *
++ * Canonical policy: artifact.policy.navigator.gpcPolicy is one of
++ *   {native, managed-opt-out}.
++ * Engine-facing ABI: MaskConfig key "navigator.globalPrivacyControl":
++ *   managed-opt-out <=> exactly true ; native <=> key absent.
++ * Explicit false never occurs post-validator; defensively any non-true value
++ * is treated as native (zero managed writes).
++ *
++ * Projection runs in the parent process exactly once, before any window or
++ * network channel exists, and writes ONLY the two canonical prefs named in
++ * the code below (enabled + functionality_enabled), both to true.
++ * PBM prefs are never written. Window/Worker/Sec-GPC all consume these prefs
++ * through Firefox native machinery afterwards (single canonical state).
++ */
++#ifndef camoucfg_GpcProjection_h
++#define camoucfg_GpcProjection_h
++
++#include "MaskConfig.hpp"
++
++#include "mozilla/Preferences.h"
++#include "nsXULAppAPI.h"
++
++#include <mutex>
++
++namespace camoucfg {
++
++inline void ProjectGpcPolicyFromMaskConfig() {
++  static std::once_flag sGpcProjectionOnce;
++  std::call_once(sGpcProjectionOnce, [] {
++    if (!XRE_IsParentProcess()) {
++      return;
++    }
++    auto value = MaskConfig::GetBool("navigator.globalPrivacyControl");
++    if (!(value.has_value() && value.value())) {
++      return;  // native policy state: zero managed pref writes
++    }
++    Preferences::SetBool("privacy.globalprivacycontrol.enabled", true);
++    Preferences::SetBool(
++        "privacy.globalprivacycontrol.functionality_enabled", true);
++  });
++}
++
++}  // namespace camoucfg
++
++#endif  // camoucfg_GpcProjection_h
+--- a/toolkit/xre/moz.build
++++ b/toolkit/xre/moz.build
+@@ -237,6 +237,7 @@
+     "../components/windowwatcher",
+     "../mozapps/update/common",
+     "../profile",
++    "/camoucfg",
+     "/config",
+     "/dom/base",
+     "/dom/commandhandler",
+--- a/toolkit/xre/nsAppRunner.cpp
++++ b/toolkit/xre/nsAppRunner.cpp
+@@ -21,6 +21,7 @@
+ #include "mozilla/Likely.h"
+ #include "mozilla/Logging.h"
+ #include "mozilla/Preferences.h"
++#include "GpcProjection.h"
+ #include "mozilla/PreferenceSheet.h"
+ #include "mozilla/Printf.h"
+ #include "mozilla/ProcessType.h"
+@@ -5536,6 +5537,11 @@
+   nsresult rv = NS_OK;
+   NS_ASSERTION(mScopedXPCOM, "Scoped xpcom not initialized.");
+ 
++  // VeriSilo GPC policy-state projection (model B): parent-only, once,
++  // managed-opt-out only; native writes nothing. Runs before any window
++  // or network channel exists.
++  camoucfg::ProjectGpcPolicyFromMaskConfig();
++
+ #if defined(XP_WIN)
+   RefPtr<mozilla::DllServices> dllServices(mozilla::DllServices::Get());
+   dllServices->StartUntrustedModulesProcessor(false);

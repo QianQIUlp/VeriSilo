@@ -1,0 +1,38 @@
+seeding camoufox cache from verified archive (152.0.4-beta.28-386fc2f4) ...
+host: reader thread started
+session adc06029016e4f5c9011b87101c6eb93: launching artifact=identity-fp4-upstream-document-control profile=fp4-upstream-document-control
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_options","event":"start","durationMs":0}
+C:\Users\qiu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\concurrent\futures\thread.py:59: LeakWarning: When using a proxy, it is heavily recommended that you pass `geoip=True`.
+  result = self.fn(*self.args, **self.kwargs)
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_options","event":"success","durationMs":26}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_persistent_context","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"launch_persistent_context","event":"success","durationMs":9622}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"supervisor_job_bind","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"supervisor_job_bind","event":"success","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"new_page","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"new_page","event":"success","durationMs":3203}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"goto","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"goto","event":"success","durationMs":80}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.fonts","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.fonts","event":"success","durationMs":37}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.media","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.media","event":"success","durationMs":233,"reason":"success"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.identity","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.identity","event":"success","durationMs":258}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"cookie","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"cookie","event":"success","durationMs":2499}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.write","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"observed.write","event":"success","durationMs":49}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"response_write","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"response_write","event":"success","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"start","durationMs":0}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"start","durationMs":0,"phase":"page.close"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"result","durationMs":7,"phase":"page.close","outcome":"success"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"start","durationMs":0,"phase":"ctx.close"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"result","durationMs":525,"phase":"ctx.close","outcome":"success"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"result","durationMs":537,"phase":"graceful-process-exit","outcome":"success"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"result","durationMs":537,"phase":"forced-job-cleanup","outcome":"not_needed"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"result","durationMs":549,"phase":"sqlite-evidence","outcome":"available"}
+stage-diagnostic {"kind":"camoufox-host-stage","stage":"close","event":"success","durationMs":892}
+host: loop finished, closing active sessions
+host: sessions closed, playwright stopping

@@ -19,14 +19,14 @@ export function describeVault(state: VaultState): string {
 
 export function describeActivation(activation: RuntimeActivation): string {
   const labels: Record<RuntimeActivation["state"], string> = {
-    idle: "没有运行中的 Silo",
-    preflight: "正在进行启动前检查",
-    launching: "正在启动浏览器",
-    running: "Silo 正在运行",
-    verification_failed: "网络安全检查未通过，已阻止本次启动",
-    recovery_required: "上次浏览会话需要确认后才能继续",
-    stopped: "Silo 已停止",
-    failed: "Silo 启动失败",
+    idle: "现在没有打开的浏览器",
+    preflight: "正在准备打开",
+    launching: "正在打开浏览器",
+    running: "浏览器正在运行",
+    verification_failed: "这次运行已经结束。请点「结束会话」，然后再打开浏览器。",
+    recovery_required: "上次浏览还没完全结束。请关掉残留窗口后再试。",
+    stopped: "浏览器已停止",
+    failed: "浏览器没有打开成功",
   };
 
   return labels[activation.state];
@@ -40,7 +40,7 @@ export function activationStatusLabel(
     preflight: "启动中",
     launching: "启动中",
     running: "运行中",
-    verification_failed: "已阻止",
+    verification_failed: "已结束",
     recovery_required: "需要确认",
     stopped: "空闲",
     failed: "启动失败",
@@ -51,11 +51,11 @@ export function activationStatusLabel(
 export function describeNetwork(profile: NetworkProfile): string {
   switch (profile.mode) {
     case "direct":
-      return "直连（不使用系统代理）";
+      return "直连，不走代理";
     case "fixed_proxy":
       return profile.externalMihomo === undefined
-        ? `${profile.scheme}://${profile.host}:${profile.port}${profile.proxyRequired ? "（必须代理）" : ""}`
-        : `Mihomo「${profile.externalMihomo.nodeName}」· ${profile.host}:${profile.port}（必须代理）`;
+        ? `${profile.scheme}://${profile.host}:${profile.port}${profile.proxyRequired ? "（必须走代理）" : ""}`
+        : `Silo 专属代理 · 本机 Clash「${profile.externalMihomo.nodeName}」`;
     case "pac":
       return `PAC：${profile.pacUrl}${profile.proxyRequired ? "（必须代理）" : ""}`;
   }

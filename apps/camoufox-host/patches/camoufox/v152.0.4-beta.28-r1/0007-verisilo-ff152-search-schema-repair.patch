@@ -1,0 +1,25 @@
+diff --git a/toolkit/components/search/SearchEngineSelector.sys.mjs b/toolkit/components/search/SearchEngineSelector.sys.mjs
+--- a/toolkit/components/search/SearchEngineSelector.sys.mjs
++++ b/toolkit/components/search/SearchEngineSelector.sys.mjs
+@@ -328,21 +328,6 @@ export class SearchEngineSelector {
+    *   could be obtained.
+    */
+   async #getConfiguration(firstTime = true) {
+-    if (true) {
+-      return [
+-        {
+-          "appliesTo": [{
+-            "default": "yes",
+-            "included": {
+-              "everywhere": true
+-            },
+-            "webExtension": {
+-              "id": "none@mozilla.org"
+-            }
+-          }],
+-        },
+-      ];
+-    }
+     let result = [];
+     let failed = false;
+     try {

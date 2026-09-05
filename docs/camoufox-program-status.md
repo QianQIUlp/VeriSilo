@@ -1,92 +1,33 @@
 # Camoufox Managed Engine 当前状态
 
-- 状态：**可变项目状态页**
-- 更新日期：2026-08-10
+- 状态：**当前路由页**
+- 更新日期：2026-08-30
+- 当前分支：`codex/camoufox-m3-engine-adapter`
+- 当前 source candidate：Formal-v3（`0000 → … → 0007`）
 
-本文只记录当前执行阶段、证据 checkpoint 和下一项任务。长期产品意图见[身份平台北极星](identity-platform-north-star.md)，路线原因见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。每次 Gate 变化后更新本文，不用本文反向改写长期决策。
+本文只保留当前事实、下一任务和关键证据索引。旧 checkpoint、失败 run、完整 hash 表与历史
+措辞由 Git、lock/result、evidence 和对应历史合同保存，不再永久追加到默认必读页。
 
-## Git 状态
+普通 Camoufox 任务读完本文后，按“当前下一任务”本节和 owning code/test 执行；只有该节
+明确指定独立 active contract 时才再读取。只有改变产品或架构时才读取
+[北极星](identity-platform-north-star.md)和
+[Camoufox-first 决策](camoufox-managed-engine-decision.md)。
 
-| 对象                        | 当前值                                                                                                      | 含义                                                                       |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `origin/main` 基线          | `8de389db366d1d9ff510b1e885fab7f49a89aad0`                                                                  | PR #10 已合并；包含 M0–M2-W standalone Host、Artifact 与 accepted evidence |
-| Linux accepted checkpoint   | `d596afd76e59ba64915b036fbc732a2c28f1ec54`                                                                  | 保持 accepted，不因 M3 失败改写                                            |
-| Windows accepted checkpoint | `1bf0854e4fac7142baef9792967851593b804912`                                                                  | M2-W standalone Windows Gate accepted                                      |
-| M3 研究分支                 | `codex/camoufox-m3-engine-adapter` / `186484feb935076766beab09595a9270f86f78ef`                             | 本地未 push；保留完整 M3-0 与失败的 M3-WI 研究历史                         |
-| M3-0 accepted checkpoint    | `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`                                                                  | fake Host / EngineAdapter contract Gate 已关闭                             |
-| M3-WI 终局 checkpoint       | `186484feb935076766beab09595a9270f86f78ef`                                                                  | R2H 第三项 persistence 失败；没有 Accepted manifest                        |
-| Standard 产品分支           | `codex/standard-silo-windows-preview` / `aa72eadaf8300d1cd33a2c32173c06e3e677ca89`                         | Profile Isolation Windows local Preview passed；unsigned，未 push          |
-| 已合并 PR                   | [#12](https://github.com/QianQIUlp/VeriSilo/pull/12) / [#10](https://github.com/QianQIUlp/VeriSilo/pull/10) | M2-W 证据与 Camoufox standalone 已进入 `main`                              |
+## 当前产品方向
 
-`d596afd` 与 `1bf0854` 是已接受的 standalone checkpoint。M3 研究分支没有 push，
-不属于 `origin/main` 或 shipped 产品；其中的真实 Windows run 只能按各自 Gate 结论解释。
+VeriSilo 要交付可持久、可重放、可验证的浏览器身份环境：
 
-## 已关闭阶段
+```text
+Silo = Persistent Profile
+     + Resolved Identity Artifact
+     + Engine Binding
+     + Network Policy
+     + Runtime Evidence
+```
 
-### M0 / M0.1：Linux 兼容性与资产固定
-
-- 固定 Camoufox、Playwright、BrowserForge、Python 和 Linux 浏览器 archive。
-- 本地 SHA-256、GitHub asset digest 和大小一致。
-- Persistent Context 三周期启动成功，Cookie/LocalStorage 保留。
-- 禁止 Camoufox webdl 自动获取缺失资产。
-- 结论只限本机兼容性；不宣称供应链签名或完整出站网络观测。
-
-### M1 / M1.1：Resolved Identity Artifact
-
-- Artifact、Policy、Projection 使用 v3，ObservedWebsiteDigest 使用 v2。
-- 每次冷启动从磁盘重新读取完整 resolved config。
-- Artifact 与 archive、BuildID、SourceStamp、properties.json 和生成器版本绑定。
-- 同一 Artifact 稳定重放，A/B/C 按预定信号分离，篡改在启动前拒绝。
-- ConfiguredIdentityDigest 与网站可见 ObservedWebsiteDigest 分离。
-
-### M2-0–M2.0.3：standalone Linux Host
-
-- stdio JSON Lines Host，支持 `hello/launch/status/close/shutdown`。
-- 严格 Artifact JSON、raw SHA、sidecar、browser tree 和不可信输入边界。
-- Persistent Profile 跨 Host 进程保留 Cookie/LocalStorage。
-- profile 独占、PID+start-time 所有权、全树退出确认和 fail-closed quarantine。
-- Linux Host 仍是 standalone prototype，没有接入 Tauri/EngineAdapter。
-
-## Linux accepted evidence
-
-| 项目              | 证据                                                                 |
-| ----------------- | -------------------------------------------------------------------- |
-| Artifact 单元测试 | `21/21`                                                              |
-| Host 集成测试     | `19/19`                                                              |
-| Stability         | `run-1786158540-228a3340`，identity-a 5/5 相同 ObservedWebsiteDigest |
-| Separation        | `run-1786158560-43ea2bd1`，A/B/C 两两不同                            |
-| Tamper            | `run-1786158573-fef25c08`，四类篡改拒绝                              |
-| M0 recheck        | `run-1786158578-047efb35`，三周期持久化、退出码 0                    |
-
-原始 Profile 和完整运行报告位于执行环境的 gitignored `artifacts/`；分支中 tracked evidence manifest 是脱敏索引。上述结果是该 Linux 主机上的 accepted execution evidence，保持 `verified: false`。
-
-## M2-W 已接受证据
-
-以下结果来自原生 Windows Server 2025 RDP 桌面，会话内保持 standalone，且全部为 `verified: false`。执行 Agent 冻结结果后，主脑对同步祖先、禁止范围、code tree、manifest 引用、tracked Artifact 字节闭环和 Linux protected hashes 做了成本受控核对，并接受 M2-W Gate。
-
-| 项目                   | 执行结果                                                                               |
-| ---------------------- | -------------------------------------------------------------------------------------- |
-| Artifact 严格单元测试  | `25/25`；包含 UTF-8/LF/no-BOM 精确字节 writer 回归                                     |
-| Windows Host 驱动      | `10/10`；summary `summary-1786258836`                                                  |
-| 跨 Host profile 持久化 | `run-1786258659-d77032e9`；两个不同 Host，bootCount `1 → 2`，Cookie/LocalStorage 保留  |
-| Job/lifecycle          | `run-1786258752-26800060`；EOF 与 forced parent exit 后 active process count 均为 `0`  |
-| 全新 cache 5 次冷启动  | `run-1786258892-4dd7e256`；5/5 digest 均为 `sha256:60f7f3…`，媒体设备计数匹配 Artifact |
-| A/B/C separation       | `run-1786258999-b077d87e`；三个 ObservedWebsiteDigest 两两不同                         |
-| Artifact tamper        | `run-1786259074-2f2ec9c1`；四种篡改全部启动前拒绝                                      |
-
-tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`。它保留旧 run 集为 `preSyncEvidence`，只把同步后、最终代码 revision 生成并通过 sidecar 校验的 run 作为 accepted evidence。
-
-## 主脑 Gate 决策
-
-- 日期：2026-08-09
-- 结论：**M2-W Accepted；三项核心 Gate 关闭**
-- Persistent Profile：通过，证据为 `run-1786258659-d77032e9`
-- Job Object / process ownership：通过，证据为 `run-1786258752-26800060`
-- Windows Artifact replay：通过，证据为 `run-1786258892-4dd7e256`
-- Evidence 完整性：三份 Artifact 的 Git blob、工作树、clean checkout、sidecar 与 manifest SHA 一致；14 个 current receipts 和 code tree 绑定一致
-- 范围：没有接入 Tauri、EngineAdapter、UI 或安装器，没有改变 Artifact v3 / ObservedWebsiteDigest v2 语义
-
-主脑没有重跑完整 Windows 测试；判定基于执行 Agent 的原生 Windows evidence，以及对远程 Git ancestry、diff scope、tracked bytes、manifest cross-reference 和 protected hashes 的最小核对。
+Standard Silo 长期保留；近期只关闭一个 Camoufox Managed Engine 垂直切片。Profile、
+Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、`observed`、
+`verified` 与 `unavailable` 不混用。
 
 ## M3 研究结论
 
@@ -97,8 +38,9 @@ tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`�
 - 最后的 R2H test-only 候选为 `186484f` / tree `e33d6d6`。预声明序列的 persistence
   与 lock-crash 各通过一次，第三项 persistence 在第二 Host `launch` 等待 stdout
   response 120 秒后失败；没有重试、没有 evidence manifest、没有 Accepted commit。
-- 主脑终局：**M3-WI failed**。Camoufox Windows Managed 集成为 experimental，
-  productionization 暂停；不再创建 R3/R4 或新的 test-only 子 Gate。
+- 该历史 investigation 当时的主脑终局为 **M3-WI failed**，Camoufox Windows Managed
+  productionization 在该 checkpoint 暂停，且不再创建 R3/R4 或新的 test-only 子 Gate；后续
+  Formal-v3、FP1–FP4 与 clean M3-WI Attempt 4 已改变当前状态，以“当前 Gate”为准。
 
 ## Standard Silo Windows preview 首次执行
 
@@ -135,66 +77,132 @@ tracked receipt 位于 `tests/fixtures/camoufox/evidence-manifest-windows.json`�
 
 ## 当前 Gate
 
-| Gate                                            | 状态                                             |
-| ----------------------------------------------- | ------------------------------------------------ |
-| Linux 资产固定、Artifact 重放与 standalone Host | **Accepted，M0–M2.0.3 关闭**                     |
-| 原生 Windows M2-W                               | **Accepted；三项核心 Gate 关闭**                 |
-| M3-0 EngineAdapter contract 集成                | **Accepted at `e96ef3f`；仅 fake Host contract** |
-| 原生 Windows M3-WI 真实桌面集成                 | **Failed；Gate 关闭，不再重试**                  |
-| Camoufox Windows Managed 产品化                 | **Experimental；暂停**                           |
-| Standard Silo Windows 用户垂直切片              | **Local Preview passed；unsigned，待 client matrix** |
+| 能力 | 当前结论 |
+| --- | --- |
+| Linux M0–M2 standalone Host / Artifact | **Accepted**；仅对应已记录平台，`verified:false` |
+| 原生 Windows M2-W | **Accepted**；Profile、Artifact replay 与 Job/process ownership Gate 已关闭 |
+| M3-0 EngineAdapter contract slice | **Accepted** at `e96ef3f`；fake Host contract，不是 shipped desktop |
+| 历史 M3-WI real Windows desktop/Host | **Failed / Inconclusive**；旧合同不复活，Camoufox Windows Managed 保持 experimental |
+| FP1 deterministic Artifact projection | **Accepted by corrected adjudication of immutable A1/A2/B1 evidence**；原 runner verdict 仍 Failed，`verified:false` |
+| 历史 FP2 candidate | **Failed / retired**；Generation 6 永久关闭 |
+| R1-diag Windows build/provenance | **Passed diagnostic-only closure**；不是 Formal 或 runtime pass |
+| actual-9000 diagnostic run | 原 runner Failed，离线裁决 Inconclusive |
+| Voices phase-anchor | v1 Failed/no observation；唯一 v2 run 直接支持 A0→A1→A2 |
+| Voices `0005` + Artifact v4 policy | **Static authoring closed**；仅为 Formal source candidate 输入，不是 runtime pass |
+| Formal source + Windows-target build/provenance | Formal-v3 **Passed build/provenance closure**；精确 runtime tree 已绑定并用于原生 Windows qualification |
+| Formal R1 runtime / FP1-R1 | **Formal R1 Passed on this native Windows host**；FP1 carry-forward 与 Formal-v3 FP2 均已闭合，`verified:false` |
+| FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
+| FP4 ordinary-site compatibility | **Passed on this native Windows host**；精确 V5 六项 task、Profile replay 与 clean lifecycle 全部通过，`verified:false` |
+| clean M3-WI | **Passed on this native Windows host** at Attempt 4；真实 Desktop RuntimeManager / test-only adapter / Host / Browser 两周期闭合，`verified:false` |
+| production package/signing/UI | **Implementation/build closed** at `804aca6803fcbbbf34c47d84d2f73e03729f3d33`；内部 CMS 签名 package、public pin、production adapter、Managed Silo UI 与 outer-unsigned current-user NSIS 已通过 release checks；production adapter 的 installed runtime launch/close 尚未通过 clean Windows 11 产品验收，结论为 **Pending / Not Run**，`verified:false` |
 
-## Git 集成历史
+## 当前未证明的边界
 
-1. [PR #11](https://github.com/QianQIUlp/VeriSilo/pull/11) 已合入 `main`，merge commit 为 `dab74e9`。
-2. `origin/main` 已以 **merge** 方式合入 Camoufox 分支，生成同步基线 `9e88c0a`；没有 rebase，也没有改写 M0–M2.0.3 或 `d596afd` 的证据历史。
-3. Windows 分支通过 merge commit `13cebd8` 合入更新后的 `origin/codex/camoufox-m0-m2-minimal`；没有 rebase、reset、cherry-pick 或历史改写。
-4. 合并后按根 `AGENTS.md` 重新阅读四份事实源；旧基线 run-id 作为 `preSyncEvidence` 保留，没有冒充新基线结果。
-5. 执行 Agent 只针对实际证据缺口修复了 Windows platformdirs cache 绑定、媒体枚举就绪、report/Artifact 精确字节 sidecar 和 evidence-side bounded Job cleanup；tracked Artifact 现为 UTF-8/LF/no-BOM 且禁用 Git 文本转换；没有接入 Tauri、EngineAdapter、UI 或安装器，也没有修改 Artifact v3 / ObservedWebsiteDigest v2 语义。
-6. 最终 tracked manifest 由 summary/report/sidecar 与严格验证后的 tracked Artifact bytes 自动派生，绑定 receipt-producing code revision `3511d12`；主脑已接受 M2-W。
-7. Windows stacked [PR #12](https://github.com/QianQIUlp/VeriSilo/pull/12) 在 7/7 checks 通过后合并。
-8. 汇总 [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10) 随后合入 `main`，merge commit 为 `8de389d`。
-9. M3 分支从 `8de389d` 创建；M3-0 accepted，M3-WI 最终 failed，分支未 push。
+- 当前 Artifact 的 `fontMode=inherit`；宿主字体可见，不声明字体隔离；
+- 实际浏览器 DNS 路径、TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
+- FP3 不证明 Camoufox 原生 Geolocation provider 或 exhaustive native address inventory；
+- FP4 只覆盖冻结的 V5 live-site matrix，不声明 universal compatibility；login、payment 与 CAPTCHA 未测试；
+- clean M3-WI 的既有 Attempt 4 仍只证明当时的 test-only adapter 路径；它不自动证明新 RC1
+  production package/adapter。RC1 已包含受 pin 的内部 CMS signer、签名 Host/runtime/browser package
+  与 production adapter，但最终发布制品中的 `packageVerification`、`verifiedAdapter` 和精确 runtime
+  bindings 尚未在 clean Windows 11 用户路径中直接验收；
+- RC1 installer 与 Desktop 外层明确为 `authenticode=false`；它是本地 unsigned RC，不是公开可信签名发布；
+- Formal-v3 runtime observation 只覆盖本机绑定 candidate/Artifacts；Voices 只覆盖 A1、A2、B1
+  各自三秒 top-window trace，不是 exhaustive exclusion；desktop Managed Identity 已构建为本地 RC，尚未
+  通过最终 Windows 用户验收或作为正式产品 shipped。
 
-下面的“M2-W 冻结目标”定义阶段目标。Windows 任务现有验收合同继续有效，但 PR #11 中的产品语义、禁止范围和证据措辞优先；若二者冲突，停止扩大实现并退回主脑裁决。
+## 当前下一任务
 
-## M2-W 冻结目标
+### VeriSilo Managed Browser v0.1 RC1 clean Windows 11 acceptance
 
-M2-W 必须在原生 Windows（不是 Linux、WSL、Wine 或模拟器）验证：
+M3-P1 的实现接缝和产品封装已进入 source revision
+`804aca6803fcbbbf34c47d84d2f73e03729f3d33`：schema-v3 package 由单 signer detached CMS SHA-256
+签名，Desktop 内嵌 public certificate pin；production `ExternalPackageEngineAdapter`、per-Silo
+Artifact/Profile/Engine roots、Managed 创建/重绑 UI、required FixedProxy relay 和 current-user NSIS
+均已实现。Rust 全测为 `202 passed / 0 failed / 5 ignored`，前端 check 与全测通过，最终 release verifier
+对 `1447` 个文件、SBOM、license evidence、provenance 与 SHA256SUMS 全部通过。发布报告仍保持
+`Pending / verified:false / runtimeAcceptance:null`。
 
-1. Windows 专属 v3 Artifact 与固定 Windows Camoufox 资产能够稳定重放；
-2. 相同 Profile 在两个 Host 进程间保持 Cookie、LocalStorage 和同源状态；
-3. Windows 文件锁、process handle/creation-time 和 Job Object 形成内核所有权，Host/父管道退出不留下孤儿浏览器。
+当前唯一 Gate 是从精确 unsigned installer
+`VeriSilo-Managed-Browser-v0.1.0-rc1-x64-setup.exe` 在 clean Windows 11 x64 标准用户环境完成：Vault、
+production package verification/adapter launch、required-proxy Silo A、Direct Silo B、Profile 与会话持久化、
+A/B isolation、single-active、proxy fail-closed、四类关闭路径、应用重启、覆盖重装、卸载保留数据和再次安装
+重开。当前构建机只从最终 `verisilo.exe` 观察到首次 Vault 页面正常渲染；这不替代上述验收。没有完整
+用户路径直接 evidence 前不得把 RC1、`verifiedAdapter` 或整体体验裁决为 Passed。
+该 frozen installer 的 SHA-256 为
+`1d4decf51b6b86eb8d6355353b4e208f2e877bee6f96d6204d85b558330381a0`；验收只使用这些精确 bytes，
+不因重新构建或替换样本改变当前候选。
 
-同时验证 reparse point、CRLF/binary stdio 和 Windows tree manifest。三项核心 Gate 任一失败都不能开放 M3。
+下一次执行只读取 [RC1 acceptance runbook](acceptance/managed-browser-rc1.md) 和 owning code；仅在发布制品
+暴露新的可复现因果失败时修改实现，不重复未变化的 FP1–FP4 历史矩阵，也不创建新的研究 Gate。
 
-## 下一阶段
+## 后续 Gate 顺序
 
-Standard/Profile Isolation Windows local Preview 已在 `aa72ead` 通过并冻结。下一步仅做
-主线集成准备与正常 Windows 10/11 client release matrix；不重复扩张 Profile 隔离层，
-不把 unsigned Preview 改写成 shipped release。Camoufox Managed Engine 继续留在独立
-工作树调查，不进入 Standard 产品集成链。
+```text
+Formal-v3 static source candidate（已闭合）
+→ fresh Windows build/provenance（已闭合）
+→ native launch discriminator + FP2 A1→A2→B1 qualification（已闭合）
+→ FP3-0 configured network identity input（已闭合）
+→ FP3-1a local required FixedProxy Host routing seam（已闭合）
+→ FP3-1b native Windows required FixedProxy discriminator（已闭合）
+→ FP4 ordinary-site compatibility（已闭合）
+→ clean M3-WI definition/refreeze（已闭合）
+→ clean M3-WI evidence-semantics correction（已闭合）
+→ clean M3-WI Attempt 4 native two-cycle qualification（已闭合）
+→ M3-P1 production package/signing + production adapter implementation（build/release checks 已闭合；runtime proof 并入 RC1 验收）
+→ Managed Silo UI + outer-unsigned self-contained NSIS（build/release checks 已闭合）
+→ clean Windows 11 A/B / proxy / persistence / lifecycle / reinstall / uninstall acceptance（当前唯一 Gate；Pending）
+```
 
-## 已知边界
+每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
+框架。
 
-- 当前 artifacts 使用 `fontMode=inherit`；宿主字体仍可见，不宣称字体隔离。
-- Canvas 不进入稳定身份 Gate；不宣称其 seed 已形成可靠跨平台身份。
-- TLS ClientHello、QUIC、跨主机复现和不可检测保持未验证或 unavailable。
-- Linux 用户态树确认覆盖父进程存活期间捕获的后代；最后枚举后的瞬时 fork 需要 Windows Job Object 等内核所有权关闭。
-- self-digest 和 SHA sidecar 是完整性门禁，不是发布者签名。
-- M3-0 与失败的 M3-WI 只存在于本地研究分支；`main` 不具备 shipped Camoufox
-  Managed Silo，且当前没有受信 signer、签名 Host package 或发布 runtime。
-- Standard Silo 的独立 Profile 不等于指纹控制；产品文案必须保持这一边界。
+## 关键证据索引
+
+| 对象 | 当前锚点 |
+| --- | --- |
+| upstream Camoufox | tag `v152.0.4-beta.28`；commit `0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d`；tree `1435d544d9b61dee7fcf74cf92462952ca43d38e` |
+| Firefox source | `799102676` bytes；SHA-512 `0c5662aba8fb897902af95dbb2fd988b196d9cf9ae8b987ae89e0a6492ac753b8d4b8bb7b3274909c2eb200ab098df356e23cd6084556467f55e69127317f39a` |
+| R1-diag closure lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-diag-v2-source.json`；SHA-256 `6b93a2425cbf8c54c542a8d134a051d51be39f32239150d2f7ae515b2f00186b` |
+| diagnostic ZIP | SHA-256 `241b656945260963ff66b4fcff8ded313bd1b45f066b000b726f950b08a8ae3d`; diagnostic only |
+| frozen 9000 | SHA-256 `1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8`; `formalCarryForward=never` |
+| Formal `0005` static candidate | patch SHA-256 `998094f061fc34e0e190c1cc48524a9514df398656a0d3bbcb1ec0cd38d54bec`；parent pre/post `c6171e…` / `c43447…` |
+| Formal-v3 source/recipe lock | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json`；SHA-256 `a32cf21852909be6ed4a3a4b10dec9310533908996dd73e465535e262f61bc53`；static candidate |
+| 最近 Windows-target build result | Formal-v3 result lock SHA-256 `4eeffbf1dc505c743871a90510f81854243f48fc9abffc4fd1459079cab3b631`；ZIP SHA-256 `032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5`；已绑定到 FP2 runtime evidence |
+| FP2 Attempt 8 | run `fp2-20260827T082048Z-9a7821e264`；report SHA-256 `86f0ae525925809757456c11fec33b5c7a20a4d6fa00d686bda903f75ca1cc53`；immutable Failed at native-DNT harness mapping；launch/Search/MediaDevices/Voices discriminator passed |
+| FP2 Attempt 9 | run `fp2-20260827T084257Z-c9d6dcc498`；report SHA-256 `590e90cb20a7c9a1341fb36a03c9a04bf7a0c36b034717fadd830d952d4339a3`；A1/A2/B1 phases passed，immutable Failed at post-sequence storage harness semantics |
+| FP2 Attempt 10 | run `fp2-20260827T090954Z-7a85050695`；report SHA-256 `d14bf5f2881ce1c48ec49cf0ba1184b940d61013a462f56218fb1569d873455b`；A1/A2/B1 execution passed，runner 保持 awaiting-main-brain 边界 |
+| FP2 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp2-result.json`；SHA-256 `caa5ed4005c3e9c392c76a5d264d3d7d4d30cb741ac675fd27803c7f5fa06fa6`；**Passed on this native Windows host**；`verified:false` |
+| FP3 Attempt 7 | run `fp3-20260828T024057905465Z`；report SHA-256 `697a190ff485814a3f310cf3977792698e9ac2aaa2bcbae625bbbf7797acc25d`；required route、出口、Geo、ICE 与 lifecycle 全部通过 |
+| FP3 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`；SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`；**Passed on this native Windows host**；`verified:false` |
+| FP4 Attempt 13 | run `fp4-853f5fe2c6ad4238ac76776f3668f163`；report SHA-256 `de69f0083f7babfdfae5d3d1887fbf18e22e711981e2ca26e9f79e89bcc9e6a7`；V5 六项 task、Profile replay、bindings 与 lifecycle 全部通过 |
+| FP4 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp4-result.json`；SHA-256 `14c7de3a8a14b8037cf0e16ec7b5dc213294b68050665a57513dea79efd8f2de`；**Passed on this native Windows host**；`verified:false` |
+| clean M3-WI input contract | `docs/camoufox-m3-wi-clean-contract.md`；SHA-256 `acdc725dbbb1ccb0c39571cea43f6eb7ef3137429f4f8b256ec764f3be20af74`；Attempts 1–3 immutable Failed，Attempt 4 Passed |
+| clean M3-WI Attempt 4 | `artifacts/camoufox-m3-wi-clean-attempt-4/run-report.json`；SHA-256 `edd08b83497e09a73a0a0e29203475f1e9163b20366b2dd7c899aea8634262fe`；native evidence SHA-256 `2f292585a010dbdc3cad35bfcf26b14800bad402ed4a160c5123f41005c972ad`；revision `26ded609bf5bf52882c9ba37496f783ab2b01681`；**Passed on this native Windows host**，`verified:false` |
+| RC1 signed engine package | `artifacts/release/managed-browser/v0.1.0-rc1/engine-package`；manifest `0967dd88729521785a376c72738bfa8c5e7d81a480ab1cf418cea9244318617a`；package tree `d3a6855f987e9c47cbfbe68a4396d42ceba44d065c64b9240b6e52906548d4f5`；browser tree `8434ab9925bf0f7d95cc4ff06fe94b7dcf9963a0691f37638469d68cda58ace2`；Host `2428d79813a0c2e715f5cd81aa3d57825d18e1c26e79c13e8678dbc720970a59`；signer pin `57f3b44cf572571e8b133c6b605b061e0d1c4d9dd75a490b14f658c292bebd93` |
+| RC1 local frozen release artifact | 本机构建且 Git-ignored，revision `804aca6803fcbbbf34c47d84d2f73e03729f3d33`；installer `434488813` bytes，SHA-256 `1d4decf51b6b86eb8d6355353b4e208f2e877bee6f96d6204d85b558330381a0`；provenance `sourceDirty=false`、`runnerOs=win32`、`authenticode=false`；release checks Passed，Windows acceptance **Pending / Not Run** |
+| FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
+| FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
+| retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |
+| final Voices design checkpoint | `594d16700c7d8f5d169eaac6cf6fd62d5a12df49` |
+
+原始 machine evidence 保留在既有本地 `artifacts/`、source locks、results 和 Git 历史中；
+状态页不再复制每个文件的 SHA/size 表。
+
+## 历史索引
+
+只在调查对应事实时读取：
+
+- [FP1 historical contract/evidence](camoufox-fp1-deterministic-artifact-projection-task.md)
+- [FP2 generation history](camoufox-fp2-cross-realm-consistency-task.md)
+- [R1-diag durable builder history](camoufox-r1-diag-durable-builder-evidence-contract.md)
+- [actual-9000 / phase-anchor execution history](camoufox-fp2-r1-diagnostic-execution-task.md)
+- [M3-WI failed investigation](camoufox-m3-wi-windows-task.md)
 
 ## 更新规则
 
-每次阶段 Gate 后，负责主脑必须更新：
+状态页在 Gate 变化时**替换**当前 Gate、下一任务和必要证据索引，不再追加完整历史章节。
+历史准确性由 Git commit、immutable claim/result、lock/manifest 和上述历史文档承担。
 
-- 日期、执行平台和代码 checkpoint；
-- 分支/PR 状态；
-- 测试计数和 accepted run-id；
-- Gate 表和下一任务；
-- 新增边界及其所属 backlog；
-- 新任务使用的明确起始 commit。
-
-状态更新不得删除历史 accepted checkpoint，也不得把计划、控制面或执行 Agent 自报结果写成已验证产品能力。
+一次普通状态更新不要求全量回归或重算稳定 artifacts；只检查改动引用和直接相关事实。
+浏览器/build/product claim 仍按 [Agent 工作模型](agent-operating-model.md) 的 L2/L3 规则执行。

@@ -5,9 +5,14 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { parseCargoPackages, parsePnpmPackages } from "./generate-sbom.mjs";
+import {
+  parseCargoPackages,
+  parsePnpmPackages,
+  parseUvPackages,
+} from "./generate-sbom.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const managedPyInstallerVersion = "6.22.2";
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -162,6 +167,8 @@ export function buildLicenseReport({
   cargoMetadata,
   pnpmLock,
   cargoLock,
+  pythonLock,
+  extraComponents = [],
   includeNpm = true,
   target = "x86_64-pc-windows-msvc",
   generatedAt = sourceDate(),
@@ -173,6 +180,10 @@ export function buildLicenseReport({
       ? parsePnpmPackages(pnpmLock).filter((entry) => !entry.local)
       : []),
     ...parseCargoPackages(cargoLock).filter((entry) => !entry.local),
+    ...(pythonLock === undefined
+      ? []
+      : parseUvPackages(pythonLock).filter((entry) => !entry.local)),
+    ...extraComponents,
   ].sort((left, right) => left.purl.localeCompare(right.purl));
   const npmEvidence = normalizeNpmLicenses(npmLicenses);
   const cargoEvidence = normalizeCargoLicenses(cargoMetadata);
@@ -211,9 +222,12 @@ export function buildLicenseReport({
     sourceRevision: revision,
     generatedAt,
     target,
-    scope: includeNpm
-      ? "Locked npm and Cargo components cross-checked against installed package metadata. Includes build/dev/optional/target-specific lock entries; it does not claim that every entry is shipped."
-      : "Locked Remote Agent Cargo components cross-checked against target-filtered package metadata. The report is candidate-specific but still requires exact-binary and legal review.",
+    scope:
+      pythonLock !== undefined
+        ? "Locked npm, Cargo, and uv/Python components with Formal-v3 runtime inputs. Installed package metadata remains evidence only; every entry still requires exact-artifact and legal review."
+        : includeNpm
+          ? "Locked npm and Cargo components cross-checked against installed package metadata. Includes build/dev/optional/target-specific lock entries; it does not claim that every entry is shipped."
+          : "Locked Remote Agent Cargo components cross-checked against target-filtered package metadata. The report is candidate-specific but still requires exact-binary and legal review.",
     legalConclusion: false,
     releaseGate:
       "Every component remains human-review-required until the exact shipped artifact and required license/notice/source obligations are approved.",
@@ -239,6 +253,66 @@ function normalizedEvidenceDigest(evidence) {
   );
 }
 
+async function managedBrowserExtraComponents() {
+  const sourcePath =
+    "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json";
+  const buildPath =
+    "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-build-result.json";
+  const dependencyPath = "apps/camoufox-host/lock/dependencies.json";
+  const [sourceRaw, buildRaw, dependencyRaw] = await Promise.all([
+    readFile(path.join(root, sourcePath)),
+    readFile(path.join(root, buildPath)),
+    readFile(path.join(root, dependencyPath)),
+  ]);
+  const source = parseJson(sourceRaw, "Formal-v3 source lock");
+  const build = parseJson(buildRaw, "Formal-v3 build result");
+  const dependencies = parseJson(dependencyRaw, "Camoufox dependency lock");
+  const firefox = source.firefoxSource;
+  const archive = build.archive;
+  if (
+    firefox === null ||
+    typeof firefox !== "object" ||
+    typeof firefox.version !== "string" ||
+    !/^[0-9]+\.[0-9]+\.[0-9]+$/u.test(firefox.version) ||
+    !/^[0-9a-f]{128}$/u.test(firefox.sha512 ?? "") ||
+    archive === null ||
+    typeof archive !== "object" ||
+    !/^[0-9a-f]{64}$/u.test(archive.sha256 ?? "") ||
+    typeof build.engineRevision !== "string" ||
+    typeof dependencies.python !== "string"
+  ) {
+    throw new Error(
+      "Managed-browser source or runtime dependency binding is invalid.",
+    );
+  }
+  return [
+    {
+      ecosystem: "generic",
+      name: "VeriSilo Camoufox Formal-v3 runtime",
+      version: build.engineRevision,
+      purl: `pkg:generic/verisilo-camoufox@${encodeURIComponent(build.engineRevision)}`,
+      source: buildPath,
+      local: false,
+    },
+    {
+      ecosystem: "generic",
+      name: "Mozilla Firefox source",
+      version: firefox.version,
+      purl: `pkg:generic/firefox@${encodeURIComponent(firefox.version)}`,
+      source: sourcePath,
+      local: false,
+    },
+    {
+      ecosystem: "generic",
+      name: "CPython embedded runtime",
+      version: dependencies.python,
+      purl: `pkg:generic/cpython@${encodeURIComponent(dependencies.python)}`,
+      source: dependencyPath,
+      local: false,
+    },
+  ];
+}
+
 async function expectedReportFromRaw(
   npmRaw,
   cargoRaw,
@@ -246,23 +320,47 @@ async function expectedReportFromRaw(
     includeNpm = true,
     target = "x86_64-pc-windows-msvc",
     cargoLockPath = "apps/desktop/src-tauri/Cargo.lock",
+    pythonLockPath,
+    extraComponents = [],
+    requiredPyInstallerVersion,
   } = {},
 ) {
-  const [pnpmLockRaw, cargoLockRaw] = await Promise.all([
+  const [pnpmLockRaw, cargoLockRaw, pythonLockRaw] = await Promise.all([
     includeNpm
       ? readFile(path.join(root, "pnpm-lock.yaml"))
       : Promise.resolve(
           Buffer.from("lockfileVersion: '9.0'\n\npackages:\n\nsnapshots:\n"),
         ),
     readFile(path.join(root, cargoLockPath)),
+    pythonLockPath === undefined
+      ? Promise.resolve(undefined)
+      : readFile(path.join(root, pythonLockPath)),
   ]);
   const npmLicenses = parseJson(npmRaw, "pnpm license evidence");
   const cargoMetadata = parseJson(cargoRaw, "Cargo license evidence");
+  if (requiredPyInstallerVersion !== undefined) {
+    const pyinstallers = parseUvPackages(
+      pythonLockRaw?.toString("utf8") ?? "",
+    ).filter(
+      (component) =>
+        component.name.toLowerCase() === "pyinstaller" && !component.local,
+    );
+    if (
+      pyinstallers.length !== 1 ||
+      pyinstallers[0]?.version !== requiredPyInstallerVersion
+    ) {
+      throw new Error(
+        `Managed-browser license evidence requires exactly PyInstaller ${requiredPyInstallerVersion} from uv.lock.`,
+      );
+    }
+  }
   return buildLicenseReport({
     npmLicenses,
     cargoMetadata,
     pnpmLock: pnpmLockRaw.toString("utf8"),
     cargoLock: cargoLockRaw.toString("utf8"),
+    pythonLock: pythonLockRaw?.toString("utf8"),
+    extraComponents,
     includeNpm,
     target,
     inputDigests: {
@@ -278,6 +376,9 @@ async function expectedReportFromRaw(
         normalizeCargoLicenses(cargoMetadata),
       ),
       cargoLockSha256: sha256(cargoLockRaw),
+      ...(pythonLockRaw === undefined
+        ? {}
+        : { pythonLockSha256: sha256(pythonLockRaw) }),
     },
   });
 }
@@ -439,6 +540,35 @@ function selfTest() {
   ) {
     throw new Error("Remote Agent license report profile self-test failed.");
   }
+  const managedReport = buildLicenseReport({
+    npmLicenses: {},
+    cargoMetadata: { packages: [] },
+    pnpmLock: "lockfileVersion: '9.0'\n\npackages:\n\nsnapshots:\n",
+    cargoLock: "version = 4\n",
+    pythonLock:
+      'version = 1\n\n[[package]]\nname = "camoufox"\nversion = "0.5.4"\nsource = { registry = "https://pypi.org/simple" }\n',
+    extraComponents: [
+      {
+        ecosystem: "generic",
+        name: "Firefox source",
+        version: "152.0.4",
+        purl: "pkg:generic/firefox@152.0.4",
+        source: "source-lock.json",
+        local: false,
+      },
+    ],
+    generatedAt: "1970-01-01T00:00:00Z",
+    revision: "unversioned-source",
+  });
+  if (
+    managedReport.coverage.lockedComponents !== 2 ||
+    managedReport.components.some((component) => component.resolved) ||
+    !managedReport.components.some(
+      (component) => component.purl === "pkg:generic/firefox@152.0.4",
+    )
+  ) {
+    throw new Error("Managed-browser Python/source license self-test failed.");
+  }
   process.stdout.write("Dependency license report self-test passed.\n");
 }
 
@@ -469,23 +599,35 @@ function valueArgument(name) {
 
 const profile = valueArgument("--profile") ?? "windows";
 const profileOptions =
-  profile === "windows"
+  profile === "managed-browser-windows"
     ? {
         includeNpm: true,
         target: "x86_64-pc-windows-msvc",
         cargoManifestPath: "apps/desktop/src-tauri/Cargo.toml",
         cargoLockPath: "apps/desktop/src-tauri/Cargo.lock",
+        pythonLockPath: "apps/camoufox-host/uv.lock",
+        extraComponents: await managedBrowserExtraComponents(),
+        requiredPyInstallerVersion: managedPyInstallerVersion,
       }
-    : profile === "remote-agent"
+    : profile === "windows"
       ? {
-          includeNpm: false,
-          target: "x86_64-unknown-linux-gnu",
-          cargoManifestPath: "crates/verisilo-remote-backend/Cargo.toml",
-          cargoLockPath: "crates/verisilo-remote-backend/Cargo.lock",
+          includeNpm: true,
+          target: "x86_64-pc-windows-msvc",
+          cargoManifestPath: "apps/desktop/src-tauri/Cargo.toml",
+          cargoLockPath: "apps/desktop/src-tauri/Cargo.lock",
         }
-      : undefined;
+      : profile === "remote-agent"
+        ? {
+            includeNpm: false,
+            target: "x86_64-unknown-linux-gnu",
+            cargoManifestPath: "crates/verisilo-remote-backend/Cargo.toml",
+            cargoLockPath: "crates/verisilo-remote-backend/Cargo.lock",
+          }
+        : undefined;
 if (profileOptions === undefined) {
-  throw new Error("--profile must be windows or remote-agent.");
+  throw new Error(
+    "--profile must be managed-browser-windows, windows, or remote-agent.",
+  );
 }
 
 const outputPath = argument("--out");

@@ -1,0 +1,174 @@
+{
+  "schema": "verisilo-camoufox-fp2-applicability/v1",
+  "taskVersion": "fp2-v1",
+  "classificationValues": [
+    "required",
+    "conditional-if-api-present",
+    "not-applicable"
+  ],
+  "surfaceOrder": [
+    "navigator",
+    "localeTimezone",
+    "screenDpr",
+    "geometry",
+    "history",
+    "canvas",
+    "audio",
+    "webgl",
+    "webgl2",
+    "fonts",
+    "voices",
+    "mediaDevices",
+    "privacySignals",
+    "maxTouchPoints",
+    "httpHeaders",
+    "workerCanvas",
+    "registrationState",
+    "storage"
+  ],
+  "realms": {
+    "top-window": {
+      "kind": "window",
+      "surfaceStatus": {
+        "navigator": "required",
+        "localeTimezone": "required",
+        "screenDpr": "required",
+        "geometry": "required",
+        "history": "required",
+        "canvas": "required",
+        "audio": "required",
+        "webgl": "required",
+        "webgl2": "required",
+        "fonts": "required",
+        "voices": "required",
+        "mediaDevices": "required",
+        "privacySignals": "required",
+        "maxTouchPoints": "required",
+        "httpHeaders": "required",
+        "workerCanvas": "not-applicable",
+        "registrationState": "required",
+        "storage": "required"
+      }
+    },
+    "same-origin-iframe": {
+      "kind": "window",
+      "surfaceStatus": {
+        "navigator": "required",
+        "localeTimezone": "required",
+        "screenDpr": "required",
+        "geometry": "required",
+        "history": "required",
+        "canvas": "required",
+        "audio": "required",
+        "webgl": "required",
+        "webgl2": "required",
+        "fonts": "required",
+        "voices": "required",
+        "mediaDevices": "required",
+        "privacySignals": "required",
+        "maxTouchPoints": "required",
+        "httpHeaders": "required",
+        "workerCanvas": "not-applicable",
+        "registrationState": "not-applicable",
+        "storage": "not-applicable"
+      }
+    },
+    "cross-origin-iframe": {
+      "kind": "window",
+      "surfaceStatus": {
+        "navigator": "required",
+        "localeTimezone": "required",
+        "screenDpr": "required",
+        "geometry": "conditional-if-api-present",
+        "history": "conditional-if-api-present",
+        "canvas": "required",
+        "audio": "required",
+        "webgl": "required",
+        "webgl2": "required",
+        "fonts": "required",
+        "voices": "conditional-if-api-present",
+        "mediaDevices": "conditional-if-api-present",
+        "privacySignals": "required",
+        "maxTouchPoints": "required",
+        "httpHeaders": "required",
+        "workerCanvas": "not-applicable",
+        "registrationState": "not-applicable",
+        "storage": "not-applicable"
+      }
+    },
+    "dedicated-worker": {
+      "kind": "worker",
+      "surfaceStatus": {
+        "navigator": "required",
+        "localeTimezone": "required",
+        "screenDpr": "not-applicable",
+        "geometry": "not-applicable",
+        "history": "not-applicable",
+        "canvas": "not-applicable",
+        "audio": "not-applicable",
+        "webgl": "conditional-if-api-present",
+        "webgl2": "conditional-if-api-present",
+        "fonts": "conditional-if-api-present",
+        "voices": "not-applicable",
+        "mediaDevices": "not-applicable",
+        "privacySignals": "conditional-if-api-present",
+        "maxTouchPoints": "conditional-if-api-present",
+        "httpHeaders": "required",
+        "workerCanvas": "conditional-if-api-present",
+        "registrationState": "not-applicable",
+        "storage": "not-applicable"
+      }
+    },
+    "shared-worker": {
+      "kind": "worker",
+      "surfaceStatus": {
+        "navigator": "required",
+        "localeTimezone": "required",
+        "screenDpr": "not-applicable",
+        "geometry": "not-applicable",
+        "history": "not-applicable",
+        "canvas": "not-applicable",
+        "audio": "not-applicable",
+        "webgl": "conditional-if-api-present",
+        "webgl2": "conditional-if-api-present",
+        "fonts": "conditional-if-api-present",
+        "voices": "not-applicable",
+        "mediaDevices": "not-applicable",
+        "privacySignals": "conditional-if-api-present",
+        "maxTouchPoints": "conditional-if-api-present",
+        "httpHeaders": "required",
+        "workerCanvas": "conditional-if-api-present",
+        "registrationState": "not-applicable",
+        "storage": "not-applicable"
+      }
+    },
+    "service-worker": {
+      "kind": "worker",
+      "surfaceStatus": {
+        "navigator": "required",
+        "localeTimezone": "required",
+        "screenDpr": "not-applicable",
+        "geometry": "not-applicable",
+        "history": "not-applicable",
+        "canvas": "not-applicable",
+        "audio": "not-applicable",
+        "webgl": "conditional-if-api-present",
+        "webgl2": "conditional-if-api-present",
+        "fonts": "conditional-if-api-present",
+        "voices": "not-applicable",
+        "mediaDevices": "not-applicable",
+        "privacySignals": "conditional-if-api-present",
+        "maxTouchPoints": "conditional-if-api-present",
+        "httpHeaders": "required",
+        "workerCanvas": "conditional-if-api-present",
+        "registrationState": "required",
+        "storage": "not-applicable"
+      }
+    }
+  },
+  "conditionalRules": {
+    "apiPresent": "A conditional surface must be observed and compared when its capability apiPresent is true; it is unavailable with a recorded reason only when false.",
+    "requiredMissing": "A required surface or required API capability missing at runtime is realm_capability_missing.",
+    "notApplicable": "A not-applicable surface is not a failed observation and must not be promoted by runtime convenience."
+  }
+}

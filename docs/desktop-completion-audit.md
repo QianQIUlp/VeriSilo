@@ -1,6 +1,6 @@
 # VeriSilo 桌面端完成度滚动审计
 
-> **历史快照提示（2026-08-09 更新）**：本文主体是 2026-07-28 的审计快照，其中对 V0.7–V0.9“无实现/只有路线”的若干表述已经落后。当前 `main` 的桌面控制面以 [`acceptance/windows-desktop-integration-matrix.md`](acceptance/windows-desktop-integration-matrix.md) 为准；尚未合入 `main` 的 Camoufox Host、v3 Artifact、Linux checkpoint、M2-W Gate 和 Draft PR #10 以 [Camoufox Managed Engine 状态](camoufox-program-status.md)为准。本文保留用于追踪原始缺口，不应单独用作当前完成度结论。
+> **历史快照提示（2026-08-10 更新）**：本文主体是 2026-07-28 的审计快照，其中对 V0.7–V0.9“无实现/只有路线”的若干表述已经落后。当前 `main` 的桌面控制面以 [`acceptance/windows-desktop-integration-matrix.md`](acceptance/windows-desktop-integration-matrix.md) 为准；Camoufox Host、v3 Artifact、Linux/Windows accepted checkpoint、M3 Gate 和 PR 状态以 [Camoufox Managed Engine 状态](camoufox-program-status.md)为准。当前事实是 M3-0 contract integration 已在 `e96ef3f` Accepted，M3-WI 仍为 Failed、调查结论 inconclusive、能力保持 `experimental`；下一顺序是 FP1→FP2→FP3→FP4→clean M3-WI，且没有可发布的签名 Camoufox package。本文保留用于追踪原始缺口，不应单独用作当前完成度结论。
 
 > 审计日期：2026-07-28
 >
@@ -51,7 +51,7 @@ git diff --stat 5910cd9..9abe37e
 - 桌面端现可在用户明确选择一个 Silo、勾选确认并点击后，把该 Silo 的非秘密元数据、启动状态和 Vault 网络证据导出为本地脱敏 JSON/HTML Blob；真实 Windows 的“另存为”对话框行为尚未验证。
 - 自动证据现覆盖模型校验、Vault 改口令/备份/恢复与 schema 迁移、Silo CRUD/受管目录边界、代理中继、Mihomo Controller、Native Host/证据 inbox、前端命令契约、SBOM/发布策略生成器和扩展构建审计。
 - 当前仍没有真实 Windows 浏览器 E2E、可发布受控浏览器制品、真实 NSIS 安装升级卸载结果或 Authenticode 签名产物。后续 `main` 已形成 EngineAdapter/EnvironmentBackend/Remote Agent 控制面；它们的协议与单测不能替代外部运行证据。
-- Camoufox standalone Host 和 v3 Artifact 已在独立分支形成 Linux 证据，但尚未合入 `main`、尚未通过 M2-W，也没有接入桌面 EngineAdapter/Tauri；分支证据不能称为 shipped 能力。
+- Camoufox standalone Host、v3 Artifact 与 Linux/Windows M0–M2-W accepted evidence 已通过 PR #10 合入 `main`；M3-0 已接受 contract-level EngineAdapter/RuntimeManager 接缝，但真实 Host 仅有 test-only M3-WI seam，且该 Gate 仍为 Failed。没有签名 production package，不能称为 shipped Managed Identity 能力。
 
 ## 2026-07-28：核心闭环第一批复核
 
@@ -178,15 +178,15 @@ PATH=/tmp/rust-1.88.0/bin:$PATH \
 
 ## V0.7：受控浏览器引擎
 
-| 要求                                                                               | 当前状态       | 当前证据                                                                                                                       | 完整验收                                                                       | 残余风险                                                                |
-| ---------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| 具备 capability negotiation 的 `EngineAdapter`                                     | **仓库内实现** | 当前 `main` 有 adapter、注册、生命周期、签名 manifest、bootstrap/receipt 和测试；见 [`engine-adapters.md`](engine-adapters.md) | 用真实签名引擎包和 Windows 浏览器运行完成端到端 Gate                           | 控制协议存在不等于 Camoufox Host 已连接或引擎行为已验证。               |
-| 可发布 stock Chrome/Edge adapter                                                   | **部分实现**   | `StockChromiumAdapter` 与既有独立 Profile launcher 已存在                                                                      | 真实 Win10/11 Chrome/Edge 回归、安装生命周期和证据矩阵                         | Stock 基线不提供受控指纹能力。                                          |
-| 受控 Chromium 实验实现                                                             | **明确延后**   | 当前不与 Camoufox 并行；重评条件记录在 [`camoufox-managed-engine-decision.md`](camoufox-managed-engine-decision.md)            | 出现明确兼容/协议/维护需求后重新做架构与资源评估                               | 当前无源码、patch、构建或制品；不能暗示正在并行实施。                   |
-| Camoufox standalone 原型                                                           | **分支内实现** | Draft PR #10 上已有固定 Linux 资产、v3 Artifact、standalone Host 和 M0–M2.0.3 evidence manifest                                | 原生 Windows M2-W 后，由 M3 完成 package entrypoint、bootstrap 和 receipt 映射 | 未进 `main`、未接 Tauri、未成为签名发布包；Linux 证据不能代替 Windows。 |
-| 约束型身份模板和每 Silo 稳定配置                                                   | **分支内实现** | v3 Artifact 严格闭包、浏览器绑定、磁盘重读、稳定/分离/tamper 证据在 Draft PR #10                                               | Windows 专属 Artifact 重放、迁移与桌面用户策略映射                             | 当前 Artifact 是内部重放制品，不等于最终用户配置模型。                  |
-| apply/verify/restore、站点回退、包更新/回滚/禁用                                   | **部分实现**   | `main` 有 EngineAdapter 控制/receipt 合约；分支 Host 有独立 launch/status/close，但两者未连接                                  | M3 冻结协议映射并完成真实 package、回滚、fallback 和 kill-switch E2E           | 不能把两套各自存在的协议称为已经集成。                                  |
-| Canvas/WebGL/字体/UA/UA-CH/语言/时区/Window/iframe/Worker/请求头/TLS/QUIC 直接证据 | **部分实现**   | Linux probe 已证明指定 ObservedWebsiteDigest 稳定与身份分离，并如实排除 Canvas/宿主字体                                        | Windows 观测、跨上下文、真实 ClientHello/QUIC 和逐字段 capability evidence     | `verified=false`；TLS/QUIC、字体隔离、Canvas 身份与不可检测均不得宣称。 |
+| 要求                                                                               | 当前状态               | 当前证据                                                                                                                                                                          | 完整验收                                                                         | 残余风险                                                                                 |
+| ---------------------------------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 具备 capability negotiation 的 `EngineAdapter`                                     | **仓库内实现**         | 当前 `main` 有 adapter、注册、生命周期、签名 manifest、bootstrap/receipt 和测试；M3-0 contract integration 已在 `e96ef3f` Accepted，见 [`engine-adapters.md`](engine-adapters.md) | 用真实签名引擎包和 Windows 浏览器运行完成端到端 Gate                             | 合同接缝成立不等于真实 Camoufox 行为已验证或已发布。                                     |
+| 可发布 stock Chrome/Edge adapter                                                   | **部分实现**           | `StockChromiumAdapter` 与既有独立 Profile launcher 已存在                                                                                                                         | 真实 Win10/11 Chrome/Edge 回归、安装生命周期和证据矩阵                           | Stock 基线不提供受控指纹能力。                                                           |
+| 受控 Chromium 实验实现                                                             | **明确延后**           | 当前不与 Camoufox 并行；重评条件记录在 [`camoufox-managed-engine-decision.md`](camoufox-managed-engine-decision.md)                                                               | 出现明确兼容/协议/维护需求后重新做架构与资源评估                                 | 当前无源码、patch、构建或制品；不能暗示正在并行实施。                                    |
+| Camoufox standalone / desktop test seam                                            | **已实现仅实验室验证** | 固定 Linux/Windows 资产、v3 Artifact、standalone Host、M0–M2-W evidence 与 M3-0 contract integration 已成立；M3-WI 真实 Host seam 仅在 Windows test build 中可用                  | FP1–FP4 后重新冻结 clean M3-WI；production package/signing 另设 Gate             | M3-WI Failed 且调查 inconclusive；仍为 `experimental`，不是桌面 E2E 或 shipped package。 |
+| 约束型身份模板和每 Silo 稳定配置                                                   | **部分实现**           | v3 Artifact 严格闭包、浏览器绑定、磁盘重读、稳定/分离/tamper 已有 Linux/Windows accepted evidence                                                                                 | M3 明确 Artifact binding、迁移与桌面用户策略映射                                 | 当前 Artifact 是内部重放制品，不等于最终用户配置模型。                                   |
+| apply/verify/restore、站点回退、包更新/回滚/禁用                                   | **部分实现**           | EngineAdapter control/receipt 合约已通过 M3-0 的专用 Host transport 接缝；真实 Host 路径仍只存在于失败的 test-only M3-WI Gate                                                     | 完成 clean M3-WI、真实 package/fallback 与发布 Gate                              | contract integration 不能升级成真实浏览器 `verified`，也不能伪造 generic receipt。       |
+| Canvas/WebGL/字体/UA/UA-CH/语言/时区/Window/iframe/Worker/请求头/TLS/QUIC 直接证据 | **部分实现**           | Linux/Windows probe 已证明指定 ObservedWebsiteDigest 稳定与身份分离，并如实排除 Canvas/宿主字体                                                                                   | FP1 确定性投影、FP2 跨 realm、FP3 网络/地区、FP4 实站兼容；TLS/QUIC 另需直接证据 | `verified=false`；TLS/QUIC、字体隔离、Canvas 身份与不可检测均不得宣称。                  |
 
 ## V0.8：本地环境后端
 
@@ -258,7 +258,7 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 - 不能声称 V0.1–V0.6 “整体完成”；当前只有若干窄能力已自动验证。
 - 不能声称代理设置等于 DNS、WebRTC、TLS 或 QUIC 全路径无泄漏。
 - 不能声称扩展扫描结果已回传桌面，或桌面已有按 Silo 证据历史。
-- 不能声称 V0.7–V0.9 已作为完整产品交付；`main` 的控制面实现、独立分支的 Camoufox Linux 原型与真实 Windows/签名发布验收必须分别表述。
+- 不能声称 V0.7–V0.9 已作为完整产品交付；M3-0 contract integration、standalone Camoufox evidence、Failed/experimental 的 M3-WI 和真实签名发布验收必须分别表述。
 - 不能声称 VM/远端环境改变了真实硬件，也不能承诺绕过风控或不可检测。
 - 不能声称已有可发布 Windows installer、生产 Native Host 注册、SBOM、可复现构建或 Authenticode 签名。
 

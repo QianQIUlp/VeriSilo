@@ -1,0 +1,23 @@
+diff --git a/build/midl.py b/build/midl.py
+--- a/build/midl.py
++++ b/build/midl.py
+@@ -102,6 +102,6 @@ def preprocess(base, input, flags):
+             except RuntimeError:
+                 pass
+-        command = preprocessor + [input]
++        command = preprocessor + [relativize(input)]
+         preprocessed = os.path.join(base, os.path.basename(input))
+         subprocess.run(command, stdout=open(preprocessed, "wb"), check=True)
+         # Read the resulting file, and search for imports, that we'll want to
+diff --git a/config/rules.mk b/config/rules.mk
+--- a/config/rules.mk
++++ b/config/rules.mk
+@@ -578 +578 @@ $(COBJS):
+-	$(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) $($(notdir $<)_FLAGS) $<
++	$(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) $($(notdir $<)_FLAGS) $(call relativize,$<)
+@@ -668 +668 @@ $(CPPOBJS):
+-	$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) $($(notdir $<)_FLAGS) $<
++	$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) $($(notdir $<)_FLAGS) $(call relativize,$<)
+@@ -795 +795 @@ endif
+-	$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py $(DEFINES) $(INCLUDES) -o $@ $<
++	$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py $(DEFINES) $(INCLUDES) -o $@ $(call relativize,$<)

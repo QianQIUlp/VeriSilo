@@ -2,12 +2,18 @@ import { z } from "zod";
 
 export const NETWORK_CHECK_ORIGINS = [
   "https://ipwho.is/*",
+  "https://api.ipify.org/*",
+  "https://api.ip.sb/*",
   "https://cloudflare-dns.com/*",
   "https://dns.google/*",
 ] as const;
 
 export const NETWORK_CHECK_ENDPOINTS = {
   ip: "https://ipwho.is/",
+  ipFallback: [
+    "https://api.ipify.org?format=json",
+    "https://api.ip.sb/geoip",
+  ],
   cloudflareDns:
     "https://cloudflare-dns.com/dns-query?name=example.com&type=A&do=true",
   googleDns:
@@ -20,24 +26,46 @@ export const NETWORK_REPUTATION_EXPLANATION =
 const nullableBoundedString = (maximum: number) =>
   z.string().trim().min(1).max(maximum).nullable();
 
-export const ipExitObservationSchema = z
-  .object({
-    address: z.string().trim().min(1).max(64),
-    version: z.enum(["IPv4", "IPv6", "unknown"]),
-    country: nullableBoundedString(100),
-    countryCode: nullableBoundedString(8),
-    region: nullableBoundedString(120),
-    city: nullableBoundedString(120),
-    asn: z
-      .string()
-      .regex(/^AS\d{1,10}$/u)
-      .nullable(),
-    organization: nullableBoundedString(160),
-    isp: nullableBoundedString(160),
-    timezone: nullableBoundedString(80),
-    networkHint: z.enum(["cloud_or_hosting", "unknown"]),
-  })
+const ipExitObservationFields = {
+  address: z.string().trim().min(1).max(64),
+  version: z.enum(["IPv4", "IPv6", "unknown"]),
+  country: nullableBoundedString(100),
+  countryCode: nullableBoundedString(8),
+  region: nullableBoundedString(120),
+  city: nullableBoundedString(120),
+  asn: z
+    .string()
+    .regex(/^AS\d{1,10}$/u)
+    .nullable(),
+  organization: nullableBoundedString(160),
+  isp: nullableBoundedString(160),
+  timezone: nullableBoundedString(80),
+  networkHint: z.enum(["cloud_or_hosting", "unknown"]),
+};
+
+const ipExitObservationV1Schema = z
+  .object(ipExitObservationFields)
   .strict();
+const coordinateLatitudeSchema = z.number().finite().min(-90).max(90);
+const coordinateLongitudeSchema = z.number().finite().min(-180).max(180);
+const ipExitObservationV2Schema = z.union([
+  z
+    .object({
+      ...ipExitObservationFields,
+      latitude: coordinateLatitudeSchema,
+      longitude: coordinateLongitudeSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...ipExitObservationFields,
+      latitude: z.null(),
+      longitude: z.null(),
+    })
+    .strict(),
+]);
+
+export const ipExitObservationSchema = ipExitObservationV2Schema;
 export type IpExitObservation = z.infer<typeof ipExitObservationSchema>;
 
 export const dnsProviderObservationSchema = z
@@ -52,47 +80,63 @@ export type DnsProviderObservation = z.infer<
   typeof dnsProviderObservationSchema
 >;
 
-export const networkCheckResultSchema = z
+const networkCheckResultFields = {
+  checkedAt: z.string().datetime(),
+  dns: z
+    .object({
+      state: z.enum([
+        "consistent",
+        "different",
+        "resolver_error",
+        "partial",
+        "failed",
+      ]),
+      dnssec: z.enum([
+        "validated",
+        "not_validated",
+        "partial",
+        "unavailable",
+      ]),
+      queryName: z.literal("example.com"),
+      providers: z
+        .array(dnsProviderObservationSchema)
+        .max(2)
+        .refine(
+          (providers) =>
+            new Set(providers.map((provider) => provider.provider)).size ===
+            providers.length,
+          "Public DoH providers must be unique.",
+        ),
+    })
+    .strict(),
+  reputation: z
+    .object({
+      state: z.literal("not_scored"),
+      explanation: z.literal(NETWORK_REPUTATION_EXPLANATION),
+    })
+    .strict(),
+  errors: z.array(z.string().max(300)).max(10),
+};
+
+const networkCheckResultV1Schema = z
   .object({
     schemaVersion: z.literal(1),
-    checkedAt: z.string().datetime(),
-    ip: ipExitObservationSchema.nullable(),
-    dns: z
-      .object({
-        state: z.enum([
-          "consistent",
-          "different",
-          "resolver_error",
-          "partial",
-          "failed",
-        ]),
-        dnssec: z.enum([
-          "validated",
-          "not_validated",
-          "partial",
-          "unavailable",
-        ]),
-        queryName: z.literal("example.com"),
-        providers: z
-          .array(dnsProviderObservationSchema)
-          .max(2)
-          .refine(
-            (providers) =>
-              new Set(providers.map((provider) => provider.provider)).size ===
-              providers.length,
-            "Public DoH providers must be unique.",
-          ),
-      })
-      .strict(),
-    reputation: z
-      .object({
-        state: z.literal("not_scored"),
-        explanation: z.literal(NETWORK_REPUTATION_EXPLANATION),
-      })
-      .strict(),
-    errors: z.array(z.string().max(300)).max(10),
+    ...networkCheckResultFields,
+    ip: ipExitObservationV1Schema.nullable(),
   })
   .strict();
+const networkCheckResultV2Schema = z
+  .object({
+    schemaVersion: z.literal(2),
+    ...networkCheckResultFields,
+    ip: ipExitObservationV2Schema.nullable(),
+  })
+  .strict();
+
+export const networkCheckResultSchema = z.discriminatedUnion("schemaVersion", [
+  networkCheckResultV1Schema,
+  networkCheckResultV2Schema,
+]);
 export type NetworkCheckResult = z.infer<typeof networkCheckResultSchema>;
 
 export interface NetworkCheckInput {
@@ -112,7 +156,7 @@ export function buildNetworkCheckResult(
     parseDnsProvider("Google", input.googleDnsPayload),
   ].filter((provider): provider is DnsProviderObservation => provider !== null);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     checkedAt: input.checkedAt ?? new Date().toISOString(),
     ip,
     dns: {
@@ -131,31 +175,49 @@ export function buildNetworkCheckResult(
 
 export function parseIpExit(value: unknown): IpExitObservation | null {
   const payload = recordValue(value);
-  const address = boundedString(payload?.ip, 64);
-  if (payload?.success !== true || address === null) {
+  if (payload === null || payload.success === false) {
+    return null;
+  }
+  const address = boundedString(payload.ip, 64);
+  if (address === null) {
     return null;
   }
   const connection = recordValue(payload.connection);
-  const timezone = recordValue(payload.timezone);
+  const timezoneRecord = recordValue(payload.timezone);
+  const timezone =
+    boundedString(timezoneRecord?.id, 80) ??
+    boundedString(payload.timezone, 80);
   const organization =
-    boundedString(connection?.org, 160) ?? boundedString(connection?.isp, 160);
+    boundedString(connection?.org, 160) ??
+    boundedString(connection?.isp, 160) ??
+    boundedString(payload?.organization, 160) ??
+    boundedString(payload?.isp, 160);
+  const latitude = boundedCoordinate(payload.latitude, -90, 90);
+  const longitude = boundedCoordinate(payload.longitude, -180, 180);
+  const coordinates =
+    latitude !== null && longitude !== null
+      ? { latitude, longitude }
+      : ({ latitude: null, longitude: null } as const);
   return {
     address,
     version:
       payload.type === "IPv4" || payload.type === "IPv6"
         ? payload.type
-        : "unknown",
+        : address.includes(":")
+          ? "IPv6"
+          : "IPv4",
     country: boundedString(payload.country, 100),
     countryCode: boundedString(payload.country_code, 8),
     region: boundedString(payload.region, 120),
     city: boundedString(payload.city, 120),
-    asn: asnLabel(connection?.asn),
+    asn: asnLabel(connection?.asn ?? payload?.asn),
     organization,
-    isp: boundedString(connection?.isp, 160),
-    timezone: boundedString(timezone?.id, 80),
+    isp: boundedString(connection?.isp, 160) ?? boundedString(payload?.isp, 160),
+    timezone,
     networkHint: hasCloudOrHostingHint(organization)
       ? "cloud_or_hosting"
       : "unknown",
+    ...coordinates,
   };
 }
 
@@ -278,6 +340,19 @@ function finiteInteger(
 ): number | null {
   return typeof value === "number" &&
     Number.isInteger(value) &&
+    value >= minimum &&
+    value <= maximum
+    ? value
+    : null;
+}
+
+function boundedCoordinate(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+): number | null {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
     value >= minimum &&
     value <= maximum
     ? value

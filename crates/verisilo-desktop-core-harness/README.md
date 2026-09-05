@@ -4,6 +4,13 @@ This development/test-only crate compiles the production desktop core modules
 directly from `apps/desktop/src-tauri/src`. It intentionally has no Tauri,
 GTK, WebKit, or application bundling dependency.
 
+It also compiles `application/`, the shared operations called by Tauri commands
+and the local HTTP API. Run its focused tests with `cargo test --offline --locked
+--manifest-path crates/verisilo-desktop-core-harness/Cargo.toml --lib application::`.
+The two-root test checks independent Vault sessions and reopening without an app
+window. See [parallel development](../../docs/development-worktrees.md) for ownership
+and isolated development commands.
+
 Run all gates with Rust 1.88:
 
 ```bash

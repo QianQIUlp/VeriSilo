@@ -1,0 +1,139 @@
+{
+  "schema": "verisilo-camoufox-fp4-run-report/v1",
+  "attempt": 1,
+  "runId": "fp4-c8a4893774be4e00b77be687fdec90fc",
+  "startedAtUtc": "2026-08-28T04:27:00.021803Z",
+  "completedAtUtc": "2026-08-28T04:27:05.306136Z",
+  "status": "failed",
+  "terminal": true,
+  "upstreamControlRequired": false,
+  "evidenceClass": "attempted-on-this-native-windows-host",
+  "verified": false,
+  "host": {
+    "platform": "Windows-2025Server-10.0.26100-SP0",
+    "python": "3.12.13"
+  },
+  "code": {
+    "branch": "codex/camoufox-m3-engine-adapter",
+    "revision": "8d0409b35fc1d562ff772832d71784d9fdfecc18",
+    "tree": "c86bcf5e2e754beb4be3ff1bb172373727c8c3c3",
+    "originRevision": "8d0409b35fc1d562ff772832d71784d9fdfecc18",
+    "runnerSha256": "64a95cf3b96302df63a99bd34c637c6506c38857ae7c5db7816f37cceb5a2c8b",
+    "contractSha256": "88959836f621ac5da300debc090a5f0c14490b3cdbb5e6c59b0fecfc8a854354"
+  },
+  "inputs": {
+    "matrixVersion": "fp4-ordinary-sites-v1",
+    "artifactId": "identity-fp3-1b-formal-v3-a",
+    "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+    "profileId": "fp4-attempt-1",
+    "requiredProxy": "socks5://127.0.0.1:7897",
+    "runtimeExecutableSha256": "b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f142a6",
+    "selectedUrls": {
+      "documentNavigation": "https://en.wikipedia.org/w/index.php?search=camouflage+animals+military&title=Special%3ASearch&ns0=1",
+      "complexJavaScript": "https://github.com/microsoft/playwright/issues",
+      "interactiveGraphics": "https://www.openstreetmap.org/#map=12/51.5074/-0.1278",
+      "audioVideo": "https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_keyframe_strobing_example.webm",
+      "formState": "https://en.wikipedia.org/wiki/Web_browser",
+      "formStateReplay": "https://en.wikipedia.org/wiki/Web_browser"
+    },
+    "fp3Result": {
+      "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json",
+      "sha256": "8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62"
+    },
+    "sourceArtifact": {
+      "path": "artifacts/camoufox-fp3-1b-attempt-7/identity-fp3-1b-formal-v3-a.json",
+      "sha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722"
+    },
+    "runtimeAssetLock": {
+      "path": "artifacts/camoufox-fp2-formal-r1-attempt-8/formal-v3-runtime-asset-lock.json",
+      "sha256": "81e73a69347272d0b770bfa3c9b3eb07449bb165efb0c16948eece2e5a0678ce"
+    },
+    "runtimeTree": {
+      "path": "artifacts/camoufox-fp2-formal-r1-attempt-8/formal-v3-browser-tree-manifest.json",
+      "rawSha256": "8434ab9925bf0f7d95cc4ff06fe94b7dcf9963a0691f37638469d68cda58ace2",
+      "canonicalSha256": "68d78d0f414d90545691560858b46ed179ee163b7258306c44f0d850bcde6204"
+    }
+  },
+  "execution": {
+    "command": [
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+      "-u",
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\apps\\camoufox-host\\run_fp4_windows.py",
+      "--child-host",
+      "--artifact-root",
+      "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\artifacts",
+      "--profile-root",
+      "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\profiles",
+      "--state-root",
+      "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-1-4rfct3gk\\state",
+      "--tree-manifest",
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\artifacts\\camoufox-fp2-formal-r1-attempt-8\\formal-v3-browser-tree-manifest.json",
+      "--asset-lock",
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\artifacts\\camoufox-fp2-formal-r1-attempt-8\\formal-v3-runtime-asset-lock.json",
+      "--browser-root",
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\artifacts\\camoufox-fp2-formal-r1-attempt-8\\browser"
+    ],
+    "childExitCode": 0
+  },
+  "nativeEvidence": {
+    "path": "artifacts/camoufox-fp4-attempt-1/native-evidence.json",
+    "sha256": "690b18e942c9446d465456becce5da7e2eb1bd5d6704c349fb8e638754b987db"
+  },
+  "adjudication": {
+    "status": "failed",
+    "checks": {
+      "fixedInputsExact": true,
+      "formalBindingExact": true,
+      "phaseAArtifactBindingExact": false,
+      "phaseBArtifactBindingExact": false,
+      "routeBindingExactBothPhases": false,
+      "bootTransitionsExact": false,
+      "hostRunningBothPhases": false,
+      "phaseAObservationComplete": false,
+      "phaseBObservationComplete": false,
+      "phaseACleanClose": false,
+      "phaseBCleanClose": false,
+      "shutdownSelfCheckClean": true,
+      "exactHostChildExit": true,
+      "residualProcessTreeEmpty": true,
+      "runtimeRemovedAfterCleanExit": false,
+      "screenshotFilesExact": false,
+      "evidenceReadsComplete": true,
+      "runnerCompletedWithoutError": false,
+      "tasks": {
+        "documentNavigation": false,
+        "complexJavaScript": false,
+        "interactiveGraphics": false,
+        "audioVideo": false,
+        "formState": false,
+        "formStateReplay": false
+      }
+    },
+    "profileStateLost": false,
+    "upstreamControlRequired": false,
+    "terminal": true,
+    "precedence": "failed>inconclusive>passed"
+  },
+  "boundaries": {
+    "universalCompatibility": "not_claimed",
+    "loginPaymentCaptcha": "not_tested",
+    "dnsTlsQuic": "unavailable",
+    "crossHostReplay": "not_tested",
+    "productionPackageRelease": "not_claimed",
+    "nextGate": "clean-m3-wi-definition-refreeze-only-after-fp4-pass"
+  },
+  "outputs": {
+    "artifacts/camoufox-fp4-attempt-1/native-evidence.json": {
+      "sha256": "690b18e942c9446d465456becce5da7e2eb1bd5d6704c349fb8e638754b987db",
+      "sizeBytes": 6848
+    },
+    "artifacts/camoufox-fp4-attempt-1/host-stderr.txt": {
+      "sha256": "df0c81ac1aa3ee2dd31f28b29b18edbfbc82603178c249ffda1594aa60d8786f",
+      "sizeBytes": 403
+    },
+    "artifacts/camoufox-fp4-attempt-1/runner-error.txt": {
+      "sha256": "d845ff69496722946a9ed86eb29e3dd18e71e5bc3c4c804f8a02e15c91a7952a",
+      "sizeBytes": 429
+    }
+  }
+}

@@ -1,0 +1,49 @@
+diff --git a/dom/media/webspeech/synth/SpeechSynthesis.cpp b/dom/media/webspeech/synth/SpeechSynthesis.cpp
+index xxxxxxxxxx..yyyyyyyyyy 100644
+--- a/dom/media/webspeech/synth/SpeechSynthesis.cpp
++++ b/dom/media/webspeech/synth/SpeechSynthesis.cpp
+@@ -14,5 +14,7 @@
+ #include "nsContentUtils.h"
+ #include "nsGlobalWindowInner.h"
++#include "mozilla/dom/BrowsingContext.h"
++#include "SpeechVoicesManager.h"
+ #include "nsIDocShell.h"
+ #include "nsISupportsPrimitives.h"
+ #include "nsSpeechTask.h"
+@@ -222,6 +224,17 @@
+ void SpeechSynthesis::GetVoices(
+     nsTArray<RefPtr<SpeechSynthesisVoice> >& aResult) {
+   aResult.Clear();
++  // Per-context speech voice filtering
++  uint32_t speechVoiceCtxId = 0;
++  {
++    nsCOMPtr<nsPIDOMWindowInner> ownerWin = GetOwnerWindow();
++    if (ownerWin) {
++      nsGlobalWindowInner* gwin = nsGlobalWindowInner::Cast(ownerWin);
++      if (BrowsingContext* bc = gwin->GetBrowsingContext()) {
++        speechVoiceCtxId = bc->OriginAttributesRef().mUserContextId;
++      }
++    }
++  }
+   uint32_t voiceCount = 0;
+   nsCOMPtr<nsPIDOMWindowInner> window = GetOwnerWindow();
+   nsCOMPtr<nsIDocShell> docShell = window ? window->GetDocShell() : nullptr;
+@@ -246,8 +259,18 @@
+     if (NS_FAILED(rv)) {
+       NS_WARNING("Failed to retrieve voice from registry");
+       continue;
+     }
+
++    // Per-context voice filtering: skip voices not in allowed list
++    if (mozilla::dom::SpeechVoicesManager::HasVoices(speechVoiceCtxId)) {
++      nsAutoString voiceName;
++      nsSynthVoiceRegistry::GetInstance()->GetVoiceName(uri, voiceName);
++      if (!mozilla::dom::SpeechVoicesManager::IsVoiceAllowed(
++              speechVoiceCtxId, voiceName)) {
++        continue;
++      }
++    }
++
+     SpeechSynthesisVoice* voice = mVoiceCache.GetWeak(uri);
+
+     if (!voice) {

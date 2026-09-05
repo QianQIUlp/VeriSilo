@@ -20,6 +20,8 @@ const ipPayload = {
     isp: "DigitalOcean, LLC",
   },
   timezone: { id: "Asia/Singapore" },
+  latitude: 1.3521,
+  longitude: 103.8198,
 };
 
 const cloudflareDnsPayload = {
@@ -50,6 +52,8 @@ describe("network check parsing", () => {
       organization: "DigitalOcean, LLC",
       timezone: "Asia/Singapore",
       networkHint: "cloud_or_hosting",
+      latitude: 1.3521,
+      longitude: 103.8198,
     });
   });
 
@@ -60,10 +64,49 @@ describe("network check parsing", () => {
       googleDnsPayload,
       checkedAt: "2026-07-26T00:00:00.000Z",
     });
+    expect(result.schemaVersion).toBe(2);
     expect(result.dns.state).toBe("consistent");
     expect(result.dns.dnssec).toBe("validated");
     expect(result.reputation.state).toBe("not_scored");
     expect(isNetworkCheckResult(result)).toBe(true);
+  });
+
+  it("keeps coordinates finite, bounded, and paired", () => {
+    expect(
+      parseIpExit({ ...ipPayload, latitude: 90, longitude: -180 }),
+    ).toMatchObject({ latitude: 90, longitude: -180 });
+    expect(
+      parseIpExit({ ...ipPayload, latitude: 91, longitude: 103.8198 }),
+    ).toMatchObject({ latitude: null, longitude: null });
+    expect(
+      parseIpExit({ ...ipPayload, latitude: 1.3521, longitude: "103.8198" }),
+    ).toMatchObject({ latitude: null, longitude: null });
+  });
+
+  it("keeps historical v1 shape separate from v2 coordinates", () => {
+    const current = buildNetworkCheckResult({
+      ipPayload,
+      cloudflareDnsPayload: null,
+      googleDnsPayload: null,
+      checkedAt: "2026-07-26T00:00:00.000Z",
+    });
+    expect(isNetworkCheckResult(current)).toBe(true);
+    if (current.schemaVersion !== 2) {
+      throw new Error("current network check fixture must use schema v2");
+    }
+
+    const legacy = {
+      ...current,
+      schemaVersion: 1 as const,
+      ip: current.ip
+        ? (({ latitude: _latitude, longitude: _longitude, ...ip }) => ip)(
+            current.ip,
+          )
+        : null,
+    };
+    expect(isNetworkCheckResult(legacy)).toBe(true);
+    expect(isNetworkCheckResult({ ...current, schemaVersion: 1 })).toBe(false);
+    expect(isNetworkCheckResult({ ...legacy, schemaVersion: 2 })).toBe(false);
   });
 
   it("rejects malformed remote payloads instead of rendering them", () => {

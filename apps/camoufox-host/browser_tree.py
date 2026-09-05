@@ -22,6 +22,9 @@ from pathlib import Path
 from host_platform import IS_WINDOWS, ensure_no_reparse_points
 
 TREE_MANIFEST_SCHEMA = "verisilo-camoufox-browser-tree-manifest/v1"
+# Firefox/Camoufox may write this into the install dir after a run. It is not
+# part of the frozen extract tree and must not fail identity provisioning.
+RUNTIME_TREE_EXTRAS = frozenset({"version.json"})
 
 
 class TreeIntegrityError(Exception):
@@ -189,7 +192,10 @@ def verify_tree(tree_root: Path, manifest: dict, error_cap: int = 20) -> dict:
             + ", ".join(irregular[:error_cap])
         )
     missing = sorted(set(expected) - set(actual_files))
-    extra = sorted(set(actual_files) - set(expected))
+    ignored_extras = {
+        name.casefold() if IS_WINDOWS else name for name in RUNTIME_TREE_EXTRAS
+    }
+    extra = sorted(set(actual_files) - set(expected) - ignored_extras)
     if missing:
         errors.append("missing files: " + ", ".join(missing[:error_cap]))
     if extra:

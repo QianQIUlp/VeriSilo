@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verisilo.local/schemas/camoufox/evidence-manifest-m3-wi-r1-windows.schema.json",
+  "title": "VeriSilo Camoufox M3-WI-R1 native-Windows evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generatedAtUtc",
+    "status",
+    "runId",
+    "startCheckpoint",
+    "receiptCommit",
+    "receiptTree",
+    "codeGitRevision",
+    "codeTreeHash",
+    "branch",
+    "integrationPath",
+    "productionPackageVerified",
+    "productionVerifierFailClosed",
+    "shipped",
+    "verified",
+    "evidenceClass",
+    "fixedInputs",
+    "receipts",
+    "r1Runtime",
+    "validation",
+    "security",
+    "failureHistory",
+    "boundaries"
+  ],
+  "properties": {
+    "schema": {
+      "const": "verisilo-camoufox-m3-wi-r1-windows-evidence-manifest/v1"
+    },
+    "generatedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "const": "execution-passed-awaiting-main-brain-gate"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^run-[0-9]+-[0-9a-f]{8}$"
+    },
+    "startCheckpoint": {
+      "const": "c2e999cdfc198231801616a67b318cfb3db75c78"
+    },
+    "receiptCommit": { "$ref": "#/$defs/gitObject" },
+    "receiptTree": { "$ref": "#/$defs/gitObject" },
+    "codeGitRevision": { "$ref": "#/$defs/gitObject" },
+    "codeTreeHash": { "$ref": "#/$defs/gitObject" },
+    "branch": { "const": "codex/camoufox-m3-engine-adapter" },
+    "integrationPath": { "const": "test-only-real-host" },
+    "productionPackageVerified": { "const": false },
+    "productionVerifierFailClosed": { "const": true },
+    "shipped": { "const": false },
+    "verified": { "const": false },
+    "evidenceClass": { "const": "observed-on-this-windows-host" },
+    "fixedInputs": {
+      "type": "object",
+      "required": ["archive", "assetLock", "browserTree", "artifact", "hostSource", "uvLock", "packages", "release", "pythonInterpreter", "schema"],
+      "properties": {
+        "archive": { "$ref": "#/$defs/fileInput" },
+        "assetLock": { "$ref": "#/$defs/fileInput" },
+        "browserTree": { "type": "object" },
+        "artifact": { "type": "object" },
+        "hostSource": { "$ref": "#/$defs/fileInput" },
+        "uvLock": { "$ref": "#/$defs/fileInput" },
+        "packages": { "type": "object" },
+        "release": { "const": "v152.0.4-beta.28" },
+        "pythonInterpreter": { "type": "object" },
+        "schema": { "$ref": "#/$defs/fileInput" }
+      },
+      "additionalProperties": false
+    },
+    "receipts": {
+      "type": "object",
+      "required": ["report", "summary", "runtime", "cycles"],
+      "properties": {
+        "report": { "$ref": "#/$defs/sidecarReceipt" },
+        "summary": { "$ref": "#/$defs/sidecarReceipt" },
+        "runtime": { "$ref": "#/$defs/fileReceipt" },
+        "cycles": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/sidecarReceipt" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "r1Runtime": {
+      "type": "object",
+      "required": ["cycleCount", "sameProfile", "observedWebsiteDigestStable", "cycles"],
+      "properties": {
+        "cycleCount": { "const": 5 },
+        "sameProfile": { "const": true },
+        "observedWebsiteDigestStable": { "const": true },
+        "cycles": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": { "type": "object" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "object",
+      "required": ["commands", "sqlite", "windowsHost", "schema"],
+      "properties": {
+        "commands": { "type": "array", "minItems": 1 },
+        "sqlite": { "type": "object" },
+        "windowsHost": { "type": "object" },
+        "schema": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "required": ["secretMatches", "targetProcessesBefore", "targetProcessesAfter", "aliveOwnedPids", "directOnly"],
+      "properties": {
+        "secretMatches": { "const": [] },
+        "targetProcessesBefore": { "const": [] },
+        "targetProcessesAfter": { "const": [] },
+        "aliveOwnedPids": { "const": [] },
+        "directOnly": { "const": true },
+        "productionPackageVerified": { "const": false }
+      },
+      "additionalProperties": false
+    },
+    "failureHistory": { "type": "object" },
+    "boundaries": {
+      "type": "object",
+      "required": ["directOnly", "proxyInjection", "uiChanged", "installerChanged", "signerChanged", "controlledChromiumChanged", "realPackageVerified"],
+      "properties": {
+        "directOnly": { "const": true },
+        "proxyInjection": { "const": false },
+        "uiChanged": { "const": false },
+        "installerChanged": { "const": false },
+        "signerChanged": { "const": false },
+        "controlledChromiumChanged": { "const": false },
+        "realPackageVerified": { "const": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "gitObject": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "fileInput": {
+      "type": "object",
+      "required": ["relativePath", "sha256"],
+      "properties": {
+        "relativePath": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": true
+    },
+    "fileReceipt": {
+      "type": "object",
+      "required": ["relativePath", "sha256"],
+      "properties": {
+        "relativePath": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "sidecarReceipt": {
+      "type": "object",
+      "required": ["relativePath", "sha256", "sidecarRelativePath", "sidecarSha256"],
+      "properties": {
+        "cycle": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "relativePath": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sidecarRelativePath": { "type": "string", "minLength": 1 },
+        "sidecarSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

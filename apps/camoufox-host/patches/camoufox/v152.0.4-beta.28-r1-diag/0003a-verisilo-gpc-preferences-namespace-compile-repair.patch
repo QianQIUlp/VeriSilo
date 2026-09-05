@@ -1,0 +1,13 @@
+--- a/camoucfg/GpcProjection.h
++++ b/camoucfg/GpcProjection.h
+@@ -35,8 +35,8 @@
+     if (!(value.has_value() && value.value())) {
+       return;  // native policy state: zero managed pref writes
+     }
+-    Preferences::SetBool("privacy.globalprivacycontrol.enabled", true);
+-    Preferences::SetBool(
++    mozilla::Preferences::SetBool("privacy.globalprivacycontrol.enabled", true);
++    mozilla::Preferences::SetBool(
+         "privacy.globalprivacycontrol.functionality_enabled", true);
+   });
+ }

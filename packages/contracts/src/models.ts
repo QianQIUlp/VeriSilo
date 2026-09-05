@@ -7,7 +7,7 @@ import {
   siloEngineConfigSchema,
 } from "./engine";
 
-export const SCHEMA_VERSION = 2 as const;
+export const SCHEMA_VERSION = 3 as const;
 export const OBSERVATION_REPORT_SCHEMA_VERSION = 1 as const;
 export const PROTOCOL_VERSION = 2 as const;
 
@@ -117,7 +117,7 @@ function validateFixedProxyProfile(
     } catch {
       // The URL schema reports the primary issue.
     }
-    const loopbackController =
+    const loopbackHttpController =
       controller !== null &&
       controller.protocol === "http:" &&
       ["127.0.0.1", "[::1]"].includes(controller.hostname) &&
@@ -127,16 +127,26 @@ function validateFixedProxyProfile(
       controller.pathname === "/" &&
       controller.search === "" &&
       controller.hash === "";
+    const clashVergePipeController =
+      controller !== null &&
+      controller.protocol === "pipe:" &&
+      controller.hostname === "verge-mihomo" &&
+      controller.port === "" &&
+      controller.username === "" &&
+      controller.password === "" &&
+      (controller.pathname === "/" || controller.pathname === "") &&
+      controller.search === "" &&
+      controller.hash === "";
     if (
       !profile.proxyRequired ||
       profile.scheme !== "socks5" ||
       !["127.0.0.1", "::1"].includes(profile.host) ||
-      !loopbackController
+      !(loopbackHttpController || clashVergePipeController)
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "An external Mihomo binding requires a fail-closed loopback SOCKS5 endpoint and a loopback HTTP controller.",
+          "An external Mihomo binding requires a fail-closed loopback SOCKS5 endpoint and a loopback HTTP controller or Clash Verge kernel pipe.",
         path: ["externalMihomo"],
       });
     }
@@ -276,11 +286,14 @@ const currentSiloSchema = z
     schemaVersion: z.literal(SCHEMA_VERSION),
     name: z.string().trim().min(1).max(64),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-    browser: z.object({
-      kind: browserKindSchema,
-      executablePath: z.string().min(1).max(4_096),
-      version: z.string().min(1).max(128).optional(),
-    }),
+    browser: z
+      .object({
+        kind: browserKindSchema,
+        executablePath: z.string().min(1).max(4_096),
+        version: z.string().min(1).max(128).optional(),
+      })
+      .strict()
+      .nullable(),
     profileDirectory: z.string().min(1).max(4_096),
     networkProfile: networkProfileSchema,
     engine: siloEngineConfigSchema.default({ adapter: "stock" }),
@@ -292,8 +305,24 @@ const currentSiloSchema = z
   })
   .strict()
   .superRefine((silo, context) => {
+    if (silo.engine.adapter === "camoufox" && silo.browser !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["browser"],
+        message:
+          "Managed Camoufox Silos must not carry a stock browser descriptor.",
+      });
+    }
+    if (silo.engine.adapter !== "camoufox" && silo.browser === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["browser"],
+        message:
+          "Stock and controlled Chromium Silos require a browser descriptor.",
+      });
+    }
     if (
-      silo.engine.adapter !== "stock" &&
+      silo.engine.adapter === "controlled-chromium" &&
       silo.engine.identityTemplate.network.proxyRequired !==
         silo.networkProfile.proxyRequired
     ) {
@@ -311,15 +340,33 @@ function migrateLegacySilo(input: unknown): unknown {
     return input;
   }
   const legacy = input as Record<string, unknown>;
-  if (legacy.schemaVersion !== 1) {
+  if (legacy.schemaVersion !== 1 && legacy.schemaVersion !== 2) {
     return input;
   }
-  return {
+  const migrated: Record<string, unknown> = {
     ...legacy,
     schemaVersion: SCHEMA_VERSION,
-    executionTarget: { kind: "local" },
-    identityLockedAt: null,
+    executionTarget: legacy.executionTarget ?? { kind: "local" },
+    identityLockedAt: legacy.identityLockedAt ?? null,
   };
+  const engine = migrated.engine;
+  if (
+    typeof engine === "object" &&
+    engine !== null &&
+    !Array.isArray(engine) &&
+    (engine as Record<string, unknown>).adapter === "camoufox"
+  ) {
+    const legacyEngine = engine as Record<string, unknown>;
+    const artifactBinding = legacyEngine.artifactBinding;
+    migrated.browser = null;
+    migrated.engine = {
+      adapter: "camoufox",
+      ...(artifactBinding === undefined || artifactBinding === null
+        ? {}
+        : { artifactBinding }),
+    };
+  }
+  return migrated;
 }
 
 export const siloSchema = z.preprocess(migrateLegacySilo, currentSiloSchema);
@@ -369,13 +416,38 @@ export const siteFallbackReceiptSchema = z
   .strict();
 export type SiteFallbackReceipt = z.infer<typeof siteFallbackReceiptSchema>;
 
+export const runtimePackageVerificationSchema = z
+  .object({
+    verifierId: z.string().trim().min(1).max(100),
+    artifactSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    digestVerified: z.boolean(),
+    signatureVerified: z.boolean(),
+    packageManifestSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    packageTreeSha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .nullable(),
+    hostSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    signerCertificateSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    engineRevision: z.string().trim().min(1).max(128).nullable(),
+    verifiedAt: z.string().datetime(),
+  })
+  .strict();
+export type RuntimePackageVerification = z.infer<
+  typeof runtimePackageVerificationSchema
+>;
+
 export const runtimeEngineEvidenceSchema = z
   .object({
     configuredAdapter: engineAdapterIdSchema,
     launchedAdapter: engineAdapterIdSchema.nullable(),
     verifiedAdapter: engineAdapterIdSchema.nullable(),
     packageVerification: runtimeEvidenceStateSchema,
+    packageVerificationDetails: runtimePackageVerificationSchema
+      .nullable()
+      .default(null),
     bootstrapDelivery: runtimeEvidenceStateSchema,
+    hostLaunch: runtimeEvidenceStateSchema,
     runtimeReceipts: runtimeEvidenceStateSchema,
     restoreReceipt: runtimeEvidenceStateSchema,
     capabilities: z.array(engineCapabilityStateSchema).max(17),
@@ -396,15 +468,60 @@ export const runtimeEngineEvidenceSchema = z
     }
     if (
       evidence.verifiedAdapter !== null &&
-      (evidence.verifiedAdapter !== evidence.launchedAdapter ||
-        evidence.bootstrapDelivery !== "verified" ||
-        evidence.runtimeReceipts !== "verified")
+      evidence.verifiedAdapter !== evidence.launchedAdapter
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["verifiedAdapter"],
         message:
-          "Runtime adapter verification requires a matching launch and verified protocol evidence.",
+          "Runtime adapter verification requires a matching launch and protocol evidence.",
+      });
+    }
+    if (
+      evidence.packageVerification === "verified" &&
+      evidence.packageVerificationDetails !== null &&
+      (!evidence.packageVerificationDetails.digestVerified ||
+        !evidence.packageVerificationDetails.signatureVerified)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["packageVerificationDetails"],
+        message:
+          "Verified package evidence must include verified digest and signature details.",
+      });
+    }
+    if (evidence.verifiedAdapter === "controlled-chromium") {
+      if (
+        evidence.bootstrapDelivery !== "verified" ||
+        evidence.runtimeReceipts !== "verified"
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["verifiedAdapter"],
+          message:
+            "Controlled Chromium verification requires verified bootstrap delivery and runtime receipts as protocol evidence.",
+        });
+      }
+    } else if (evidence.verifiedAdapter === "camoufox") {
+      if (
+        evidence.packageVerification !== "verified" ||
+        evidence.hostLaunch !== "verified" ||
+        evidence.bootstrapDelivery !== "not_applicable" ||
+        evidence.runtimeReceipts !== "not_applicable"
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["verifiedAdapter"],
+          message:
+            "Production Camoufox verification requires a verified package and Host launch with bootstrap and runtime receipts not applicable.",
+        });
+      }
+    } else if (evidence.verifiedAdapter !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["verifiedAdapter"],
+        message:
+          "Only controlled Chromium and production Camoufox can be verified adapters.",
       });
     }
     const phases = evidence.phaseReceipts.map((receipt) => receipt.phase);

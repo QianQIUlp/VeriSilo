@@ -1,28 +1,63 @@
 # VeriSilo Agent routing
 
-涉及 Silo、浏览器身份、Camoufox、EngineAdapter、环境后端或产品路线的工作，必须先按顺序阅读：
+接到一个开发/QA/集成任务时，不要向用户索要 worktree、Vault、端口或 baseline：
+按 [Agent 任务路由工作流](docs/agent-task-routing.md) 自主完成 ——
+判定 lane（`ui` / `core` / `host` / `qa` / `integration`）→
+`node scripts/agent-task.mjs start --lane <lane> --task "<任务>"` 创建隔离任务工作区
+（一律从 canonical baseline `refs/heads/baseline/dev` 分叉；baseline 只能由 integration
+用 `baseline advance` 显式推进）→ 在边界内修改 → `verify` + `check` 通过 → 提交并交给 integration。
+`check` 报两类不同问题：scope violation（worktree 内越界修改，exit 2）与
+WORKSPACE CONTAMINATION（主检出被污染，exit 3）。
+Lane 范围、修改边界与验证命令的唯一事实源是 [scripts/agent-task.mjs](scripts/agent-task.mjs) 顶部配置。
 
-1. [`docs/identity-platform-north-star.md`](docs/identity-platform-north-star.md) — 长期产品意图；
-2. [`docs/camoufox-managed-engine-decision.md`](docs/camoufox-managed-engine-decision.md) — 当前 Camoufox-first 路线及被延后的方向；
-3. [`docs/agent-operating-model.md`](docs/agent-operating-model.md) — 主脑与执行 Agent 的分工和 Gate 规则；
-4. [`docs/camoufox-program-status.md`](docs/camoufox-program-status.md) — 当前 checkpoint、阶段和下一任务。
+并行开发、工作树隔离或桌面结构调整的手工细节先读
+[模块边界与开发入口](docs/development-worktrees.md)，再读取实际 owning code/test。
 
-权威顺序是：产品北极星 → 已接受架构决策 → 任务合同 → 当前状态 → 实现与证据。状态页不能反向改写长期产品意图，单个执行任务也不能静默改变架构决策。
+## 默认读取路径
 
-当前防漂移原则：
+Camoufox / Managed Identity 普通任务先读：
 
-- Camoufox Managed Engine 的风险优先验证已经到达终局：M3-0 contract Gate
-  已关闭，原生 Windows M3-WI 因同源码多 Host 启动仍非确定而失败；不得继续拆分
-  R3/R4 或新的 test-only 子 Gate；
-- Camoufox 保留为 experimental Managed Engine 研究线，不得宣称为默认、shipped
-  或 production-ready；当前工程优先级回到原生 Windows Standard Silo 的可运行
-  用户垂直切片；
-- Profile、Identity Artifact、Engine、Network Policy 和 Evidence 是不同生命周期；
-- M2-W 必须在原生 Windows 完成，Linux/WSL/Wine 结果不能替代；
-- M2-W 通过前不接入 Tauri/EngineAdapter；
-- 不同时扩张 Controlled Chromium、WSL、VMware、Hyper-V 和 Remote；
-- 不把 `configured`、`applied`、`observed`、`verified` 或 `unavailable` 混为一谈；
-- 主脑既不能完全不审阅执行结果，也不能默认把执行 Agent 的全部劳动重做一遍。
+1. [Camoufox 当前状态](docs/camoufox-program-status.md)中的“当前下一任务”；
+2. 实际 owning code/test；只有状态页明确要求独立 active contract 时才再读取它。
 
-当前具体 Gate 以状态页为准。若状态页与实现或证据冲突，停止推进并让负责主脑解决事实源冲突，不要自行选择更方便的结论。Standard Silo 产品任务不得顺手修改
-Camoufox Host、Managed Artifact、代理、WSL、Remote、虚拟化或发布签名。
+Standard Silo、EngineAdapter 或环境后端任务先读各自 owning 文档/代码；只有它实际依赖
+当前 Camoufox Gate 时才读 Camoufox 状态页。
+
+只有任务可能改变产品语义、架构路线或长期能力边界时，才额外读取：
+
+1. [身份平台北极星](docs/identity-platform-north-star.md)；
+2. [Camoufox-first 决策](docs/camoufox-managed-engine-decision.md)。
+
+只有在委派复杂工作、创建新 Gate 或审阅外部 evidence package 时，才读取
+[Agent 协作协议](docs/agent-operating-model.md)。历史任务合同、旧 run 和 superseded
+checkpoint 不属于默认上下文；仅在调查对应事实时按状态页链接读取。
+
+若多个事实源真正冲突，权威顺序是：产品北极星 → 已接受架构决策 → 当前任务合同
+→ 当前状态 → 实现与直接证据。历史合同中的旧“当前状态”不覆盖状态页标明的新状态。
+
+## 成本与验证
+
+使用能解决当前不确定性的最低充分流程：
+
+- 文档或局部机械修改：只检查相关引用、格式和 diff；
+- 普通代码修复：检查 owning seam/callers，做最小修复和 focused tests；
+- 浏览器、引擎构建、证据 claim、发布或难回滚操作：使用冻结输入、直接 evidence 和明确停止条件；
+- 产品/架构、安全或数据边界变化：先做显式决策。
+
+不要因为历史阶段曾使用 one-shot、manifest、全量 hash 或完整回归，就把它们复制到不需要
+这些保证的新任务。稳定且相关状态未变化时复用既有证据；只有矛盾、新失败或关键输入变化
+才扩大检查。详细分级见 Agent 协作协议。
+
+Immutable/one-shot 只约束已冻结的 attempt 及其 evidence。`failed` 或 `inconclusive`
+必须保留且不得重试未变输入或选样本，但它不自动结束所属工程 Gate，也不自动创建
+recovery Gate。在原授权和风险范围内，修复已确认或证据支持的因果 blocker，完成最低
+充分验证后再生成清晰版本化的新 attempt。
+
+## 不可弱化的产品边界
+
+- Standard Silo 长期保留；近期优先关闭 Camoufox Managed Engine 的真实执行风险；
+- Profile、Identity Artifact、Engine、Network Policy 与 Evidence 保持不同生命周期；
+- 原生 Windows 专属结论不能由 Linux、WSL 或 Wine 结果替代；
+- 不同时扩张 Controlled Chromium、WSL、VMware、Hyper-V 与 Remote；
+- 不混用 `configured`、`applied`、`observed`、`verified` 与 `unavailable`；
+- 配置声明、测试通过或编译成功都不能冒充尚未取得的 runtime/product Gate。

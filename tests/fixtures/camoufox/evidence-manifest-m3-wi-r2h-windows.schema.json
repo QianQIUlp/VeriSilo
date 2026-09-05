@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verisilo.local/schemas/evidence-manifest-m3-wi-r2h-windows.schema.json",
+  "title": "VeriSilo M3-WI-R2H Windows evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generatedAtUtc",
+    "status",
+    "runId",
+    "startCheckpoint",
+    "receiptCommit",
+    "receiptTree",
+    "codeGitRevision",
+    "codeTreeHash",
+    "branch",
+    "integrationPath",
+    "productionPackageVerified",
+    "productionVerifierFailClosed",
+    "shipped",
+    "verified",
+    "evidenceClass",
+    "fixedInputs",
+    "sourceBinding",
+    "receipts",
+    "acceptanceSequence",
+    "fullHostMatrix",
+    "validation",
+    "security",
+    "failureHistory",
+    "boundaries"
+  ],
+  "properties": {
+    "schema": { "const": "verisilo-camoufox-m3-wi-r2h-windows-evidence-manifest/v1" },
+    "generatedAtUtc": { "type": "string", "format": "date-time" },
+    "status": { "const": "execution-passed-awaiting-main-brain-gate" },
+    "runId": { "type": "string", "pattern": "^run-[0-9]+-[0-9a-f]{8}$" },
+    "startCheckpoint": { "const": "ecafca9dc22d728087bc5d7de127f14c908293dd" },
+    "receiptCommit": { "$ref": "#/$defs/gitObject" },
+    "receiptTree": { "$ref": "#/$defs/gitObject" },
+    "codeGitRevision": { "$ref": "#/$defs/gitObject" },
+    "codeTreeHash": { "$ref": "#/$defs/gitObject" },
+    "branch": { "const": "codex/camoufox-m3-engine-adapter" },
+    "integrationPath": { "const": "test-only-real-host-matrix" },
+    "productionPackageVerified": { "const": false },
+    "productionVerifierFailClosed": { "const": true },
+    "shipped": { "const": false },
+    "verified": { "const": false },
+    "evidenceClass": { "const": "observed-on-this-windows-host" },
+    "fixedInputs": { "type": "object" },
+    "sourceBinding": { "type": "object" },
+    "receipts": { "type": "object" },
+    "acceptanceSequence": {
+      "type": "object",
+      "required": ["expectedOrder", "attemptCount", "passed", "selectiveRetry", "attempts"],
+      "properties": {
+        "expectedOrder": {
+          "type": "array",
+          "const": ["persistence", "lock-crash", "persistence", "lock-crash", "persistence", "lock-crash", "persistence", "lock-crash", "persistence", "lock-crash"]
+        },
+        "attemptCount": { "const": 10 },
+        "passed": { "const": true },
+        "selectiveRetry": { "const": false },
+        "attempts": { "type": "array", "minItems": 10, "maxItems": 10 }
+      },
+      "additionalProperties": true
+    },
+    "fullHostMatrix": { "type": "object" },
+    "validation": { "type": "object" },
+    "security": { "type": "object" },
+    "failureHistory": {
+      "type": "object",
+      "required": ["attemptCount", "passedAttemptCount", "failedAttemptCount", "attempts", "selectedHistoricalPass", "selectiveRetry", "acceptanceSequenceSelectiveRetry"],
+      "properties": {
+        "attemptCount": { "const": 6 },
+        "passedAttemptCount": { "const": 1 },
+        "failedAttemptCount": { "const": 5 },
+        "attempts": { "type": "array", "minItems": 6, "maxItems": 6 },
+        "selectedHistoricalPass": { "const": false },
+        "selectiveRetry": { "const": true },
+        "acceptanceSequenceSelectiveRetry": { "const": false }
+      },
+      "additionalProperties": true
+    },
+    "boundaries": { "type": "object" }
+  },
+  "$defs": {
+    "gitObject": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

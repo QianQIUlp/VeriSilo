@@ -1,0 +1,126 @@
+{
+  "schema": "verisilo-r1-diag-diagnostic-source-binding/v1",
+  "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-diag-v1",
+  "buildMode": "diagnostic",
+  "diagnosticPurpose": "fp2-r1-voices-v1-v4-discrimination",
+  "diagnosticOnly": true,
+  "formalEligible": false,
+  "status": "lock-frozen-pending-build",
+  "upstream": {
+    "repository": "https://github.com/daijro/camoufox",
+    "tag": "v152.0.4-beta.28",
+    "commit": "0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d",
+    "tree": "1435d544d9b61dee7fcf74cf92462952ca43d38e"
+  },
+  "firefoxSource": {
+    "version": "152.0.4",
+    "url": "https://archive.mozilla.org/pub/firefox/releases/152.0.4/source/firefox-152.0.4.source.tar.xz",
+    "sizeBytes": 799102676,
+    "sha512": "0c5662aba8fb897902af95dbb2fd988b196d9cf9ae8b987ae89e0a6492ac753b8d4b8bb7b3274909c2eb200ab098df356e23cd6084556467f55e69127317f39a"
+  },
+  "downstreamPatchSeries": {
+    "baseDir": "apps/camoufox-host/patches/camoufox/v152.0.4-beta.28-r1-diag",
+    "applyAfterUpstreamOrder": [
+      {
+        "id": "0003",
+        "path": "0003-verisilo-gpc-canonical-pref-projection.patch",
+        "sha256": "3a13cb7923d7cc4da4bbd0a2761d9a48e9fe5267aea98661e22c857629a8e83b",
+        "diagnosticOnly": false,
+        "formalCarryForward": "allowed-after-qualification"
+      },
+      {
+        "id": "0004",
+        "path": "0004-verisilo-remove-worker-gpc-mask-override.patch",
+        "sha256": "5598a95e1fa9bd1792bdff91731779a6ec246b8db7c494c1685dbce29adb7185",
+        "diagnosticOnly": false,
+        "formalCarryForward": "allowed-after-qualification"
+      },
+      {
+        "id": "9000",
+        "path": "9000-verisilo-voices-diagnostics-DIAGNOSTIC-ONLY.patch",
+        "sha256": "1bc478373f56d774487e20d73d847ed2de82149728d696e83627fa91b9d7b8f8",
+        "diagnosticOnly": true,
+        "formalCarryForward": "never",
+        "markerLine": "# VERISILO-DIAGNOSTIC-MARKER: v1"
+      }
+    ]
+  },
+  "upstreamSectionsSha256": {
+    "fpin-worker.patch": "87af0307e7476758ff88588da5031edbe65a7737bdfd3ab5dc23dbe40faf98b5",
+    "navspoof-worker.patch": "7e00efc1069c0f5b67cbe9d6cda6945c00016e5b93b8e341db3d380aff8f759d",
+    "voice-registry.patch": "72f66bba096e60137d25d0076b4a2738868caf07ecf02648b3f7b2904ef7585a",
+    "sv-synth.patch": "4ce167f9e973068c13759323fe06d3b16a9b5257e87032061ba396858d148930"
+  },
+  "seams": {
+    "toolkit-xre-nsAppRunner-pre": "f9c0dfb11cf20ab1864f3d5c791f88ec26e24b154474e93c0d8898f712099d11",
+    "toolkit-xre-nsAppRunner-post": "7847e88093beeff74aa8a7e89f5e5f1e3ea0d6b1f9dece21f97387940fbe8b94",
+    "xre-mozbuild-pre": "03442255ef528f22927c17f5769b089e37a79c79c9a9bec0004b2139dba4a3ba",
+    "xre-mozbuild-post": "831f388c8b16c162f21d5ab034329dd837f5e542b85fed1b8c277cbce3233131",
+    "WorkerNavigator-pre": "b927fb42169159a6e001e442c7b4c0916f46d6b3b88c4d1baf5ef5d979be7f09",
+    "WorkerNavigator-post": "693aee50dfa3ba44505656a0cdc5899753690df53ca76031b2b69c46ae0aa1d1",
+    "nsSynthVoiceRegistry-pre": "9eac4b53804588d57f4309ed0e6f8d9c971ca876473efd698d30d90a4bf18a3f",
+    "nsSynthVoiceRegistry-post": "19ccd59ce3f0601ebaf0fdf5b05e4a4c6192a03540d9cd962a8baf2999f91864",
+    "SpeechSynthesis-pre": "54611fee854db93922b3c36ad6ff014d07eaa3ea68abb49bc1bbd9392a7ce75f",
+    "SpeechSynthesis-post": "b2e908b78c2f442aaed5fafd7397855968d2503385d6bedd5db865406d6946b4",
+    "SapiService-pre": "d316d9f48c6123aed43612b0d21e8d64a2ea388c6bd40cad45b2848f42066274",
+    "SapiService-post": "42db11a25b6b089258e670c62adde8d2ecbe305c0a8a8429b14383f5987eb9e9",
+    "SpeechSynthesisParent-pre": "c6171e3689fab1789c459b924c7420786d2efed0caf2741747b910e0a3dcd61f",
+    "SpeechSynthesisParent-post": "9b978c5a833ab8250610ad8167a2961e8ae23146a5b68f7075d5c6a0d008ec84",
+    "windows-mozbuild-pre": "db7ad453391005b2e93da3816bef2453a283e42d09572faa918ff5def52a9e6f",
+    "windows-mozbuild-post": "84fb47618f1b1de47132ae6c8fcd1b7e0c2b39d400668193e6831c1b18b5ee83"
+  },
+  "gpcStartupOrderInvariant": {
+    "requirement": "pref system ready < GPC projection < first identity-visible consumer",
+    "callSiteSeamFile": "toolkit/xre/nsAppRunner.cpp",
+    "anchorFunction": "XREMain::XRE_mainRun",
+    "preconditions": [
+      "XRE_mainRun entry asserts mScopedXPCOM is initialized (ScopedXPCOM ready)",
+      "the same function already performs do_GetService preferences-service and Preferences::GetBool before any window creation"
+    ],
+    "orderingAssertions": [
+      "ProjectGpcPolicyFromMaskConfig() call block appears after the mScopedXPCOM assertion line",
+      "the call block precedes the appStartup/cmdLine declaration scope within XRE_mainRun",
+      "no content window or network channel exists in parent startup before XRE_mainRun body executes the projection"
+    ],
+    "staticProofTest": "apps/camoufox-host/test_r1_diag_source_lock.py::test_gpc_projection_ordering_within_xre_main_run",
+    "seamBinding": {
+      "pre": "f9c0dfb11cf20ab1864f3d5c791f88ec26e24b154474e93c0d8898f712099d11",
+      "post": "7847e88093beeff74aa8a7e89f5e5f1e3ea0d6b1f9dece21f97387940fbe8b94"
+    }
+  },
+  "builderImageBinding": {
+    "note": "identical frozen builder image as canvas-engine-v1 candidate; inputs differ only by patch series and build-mode gate",
+    "imageId": "sha256:dfd59e5a518c9ea2a87b5c3592a040371e8a366ee61f1bd85097773e497ac4fc",
+    "savedArchiveSha256": "f8061d1cb5a4b8e5612d6fc6a5dbbba31c6b33ff1593afb5fd1088a4745ab851",
+    "savedArchiveSizeBytes": 483576320,
+    "recipeSourceCommit": "be9eec880959650916c8f149aff4f54d872f23f6",
+    "recipeSourceTree": "ec01cbe47658351f5808ccbd0f882fb7bedcef25",
+    "recipeSourceLockSha256": "b36b4b4ae9cde8460d37432b82707ceb60b7065e1143f6ab314c032812c11b4b",
+    "dockerfileSha256": "ae3e28d39c2c996d0c70f6fbd4b182f4e1585eb79fd7fc662e50b158300e5e6d",
+    "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+    "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+    "buildxLogSha256": "960f6343f03d1941486eb286b16f75aac9e967f594838c83d6eba4ae7c3af041",
+    "buildxLogSizeBytes": 78397,
+    "buildxMetadataSha256": "b5c0aa3df155fe7fa164e06f316272b10b1e7c6710dabf7692f8cb0b7f2ab6a3",
+    "imageInspectSha256": "393efbfd448794b1abac8041618e94b8e676c3a368467257838668bce45fe191",
+    "hostToolingSha256": "a6857ad0855755e1c3fa70fbbfd42c8ed84abf4697510846f76b3c5c8127ad5b"
+  },
+  "gate": {
+    "module": "apps/camoufox-host/build/r1-diag-v1/diag_gate.py",
+    "schema": "verisilo-r1-diag-build-gate/v1",
+    "rules": {
+      "formal": "any DIAGNOSTIC-MARKED patch present -> HARD FAIL; accepted series exactly {0003,0004} with pinned SHAs; formalEligible=true",
+      "diagnostic": "series exactly the frozen trio with pinned SHAs and 9000 marker v1; diagnosticOnly=true; formalEligible=false",
+      "environmentOverrides": "none permitted; mode comes from the build recipe only"
+    }
+  },
+  "pendingAtBuildHost": [
+    "build log / patch application closure",
+    "Windows archive SHA + size",
+    "camoufox.exe SHA, BuildID, SourceStamp",
+    "extraction tree manifest SHA",
+    "diagnosticOnly=true / formalEligible=false proof artifacts",
+    "GPC startup-order runtime seam proof capture"
+  ],
+  "browserLaunches": 0
+}

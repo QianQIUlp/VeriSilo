@@ -3,6 +3,15 @@ import { z } from "zod";
 export const ENGINE_CONTRACT_VERSION = 1 as const;
 export const ENGINE_RUNTIME_RECEIPT_VERSION = 1 as const;
 export const MAX_ENGINE_RUNTIME_RECEIPT_BYTES = 32 * 1024;
+export const CAMOUFOX_ARTIFACT_SCHEMA_V3 =
+  "verisilo-camoufox-resolved-identity/v3" as const;
+export const CAMOUFOX_ARTIFACT_SCHEMA_V5 =
+  "verisilo-camoufox-resolved-identity/v5" as const;
+export const CAMOUFOX_ARTIFACT_SCHEMA_V6 =
+  "verisilo-camoufox-resolved-identity/v6" as const;
+export const CAMOUFOX_ARTIFACT_SCHEMA = CAMOUFOX_ARTIFACT_SCHEMA_V3;
+export const CAMOUFOX_HOST_PROTOCOL = "verisilo-camoufox-host/v1" as const;
+export const CAMOUFOX_HOST_ENTRYPOINT_KIND = "camoufox-host-v1" as const;
 
 export const engineAdapterIdSchema = z.enum([
   "stock-chrome",
@@ -391,6 +400,21 @@ export const derivedIdentityTokenSchema = z
   .strict();
 export type DerivedIdentityToken = z.infer<typeof derivedIdentityTokenSchema>;
 
+export const camoufoxArtifactBindingV1Schema = z
+  .object({
+    artifactId: z.string().regex(/^identity-[a-z0-9][a-z0-9-]{0,63}$/u),
+    artifactFileSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    schema: z.union([
+      z.literal(CAMOUFOX_ARTIFACT_SCHEMA_V3),
+      z.literal(CAMOUFOX_ARTIFACT_SCHEMA_V5),
+      z.literal(CAMOUFOX_ARTIFACT_SCHEMA_V6),
+    ]),
+  })
+  .strict();
+export type CamoufoxArtifactBindingV1 = z.infer<
+  typeof camoufoxArtifactBindingV1Schema
+>;
+
 export const siteFallbackRuleSchema = z
   .object({
     sitePattern: z
@@ -419,8 +443,8 @@ export const siloEngineConfigSchema = z
     z
       .object({
         adapter: z.literal("camoufox"),
-        identityTemplate: identityTemplateSchema,
-        fallbackRules: z.array(siteFallbackRuleSchema).max(100),
+        /** Missing bindings represent legacy Camoufox records unavailable for launch. */
+        artifactBinding: camoufoxArtifactBindingV1Schema.optional(),
       })
       .strict(),
   ])
@@ -433,16 +457,6 @@ export const siloEngineConfigSchema = z
         code: z.ZodIssueCode.custom,
         path: ["identityTemplate", "browser", "family"],
         message: "Controlled Chromium requires a Chromium identity template.",
-      });
-    }
-    if (
-      config.adapter === "camoufox" &&
-      config.identityTemplate.browser.family !== "firefox"
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["identityTemplate", "browser", "family"],
-        message: "Camoufox requires a Firefox identity template.",
       });
     }
   });
@@ -468,6 +482,33 @@ export const engineControlPlanSchema = z
   })
   .strict();
 export type EngineControlPlan = z.infer<typeof engineControlPlanSchema>;
+
+export const engineTransportSchema = z.enum([
+  "stock",
+  "native-bootstrap-v1",
+  "camoufox-host-jsonl-v1",
+]);
+export type EngineTransport = z.infer<typeof engineTransportSchema>;
+
+export const camoufoxHostLaunchSchema = z
+  .object({
+    protocol: z.literal(CAMOUFOX_HOST_PROTOCOL),
+    hostVersion: z.string().trim().min(1).max(64),
+    platform: z.string().trim().min(1).max(64),
+    artifactId: z.string().regex(/^identity-[a-z0-9][a-z0-9-]{0,63}$/u),
+    artifactFileSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    profileId: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/u),
+    browserRelease: z
+      .string()
+      .regex(
+        /^v(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u,
+      ),
+    browserAssetSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    browserTreeManifestPath: z.string().trim().min(1).max(4096),
+    browserTreeManifestSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict();
+export type CamoufoxHostLaunch = z.infer<typeof camoufoxHostLaunchSchema>;
 
 export const engineBootstrapPackageBindingSchema = z
   .object({
@@ -546,6 +587,7 @@ export type EngineRuntimeReceiptFrame = z.infer<
 export const engineLaunchPlanSchema = z
   .object({
     adapter: engineDescriptorSchema,
+    transport: engineTransportSchema,
     executablePath: z.string().trim().min(1).max(4_096),
     arguments: z.array(z.string().min(1).max(4_096)).max(64),
     profileDirectory: z.string().trim().min(1).max(4_096),
@@ -560,6 +602,7 @@ export const engineLaunchPlanSchema = z
       .strict()
       .nullable(),
     control: engineControlPlanSchema.nullable(),
+    camoufoxHost: camoufoxHostLaunchSchema.nullable(),
     packageVerification: z
       .object({
         verifierId: z.string().trim().min(1).max(100),
@@ -574,21 +617,72 @@ export const engineLaunchPlanSchema = z
   .strict()
   .superRefine((plan, context) => {
     const hasControlledBootstrap =
-      plan.identityDelivery !== null && plan.control !== null;
+      plan.transport === "native-bootstrap-v1" &&
+      plan.identityDelivery !== null &&
+      plan.control !== null;
     const packageVerified =
       plan.packageVerification !== null &&
       plan.packageVerification.digestVerified &&
       plan.packageVerification.signatureVerified;
-    if (
-      plan.adapter.externallyPackaged !== hasControlledBootstrap ||
-      plan.adapter.externallyPackaged !== packageVerified
-    ) {
+    if (plan.adapter.externallyPackaged !== packageVerified) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["adapter", "externallyPackaged"],
         message:
-          "Only a per-launch verified external adapter may require native stdin bootstrap.",
+          "Only a per-launch verified external adapter may use an external launch transport.",
       });
+    }
+    if (plan.transport === "stock") {
+      if (
+        plan.adapter.externallyPackaged ||
+        plan.identityDelivery !== null ||
+        plan.control !== null ||
+        plan.camoufoxHost !== null ||
+        plan.packageVerification !== null
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["transport"],
+          message: "Stock transport cannot carry controlled-engine bindings.",
+        });
+      }
+    }
+    if (
+      plan.transport === "native-bootstrap-v1" &&
+      (!hasControlledBootstrap || plan.adapter.id !== "controlled-chromium")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["transport"],
+        message:
+          "Native bootstrap transport requires the Controlled Chromium adapter and both native control bindings.",
+      });
+    }
+    if (
+      plan.transport === "native-bootstrap-v1" &&
+      plan.camoufoxHost !== null
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["camoufoxHost"],
+        message:
+          "Native bootstrap transport cannot carry a Camoufox Host binding.",
+      });
+    }
+    if (plan.transport === "camoufox-host-jsonl-v1") {
+      if (
+        plan.adapter.id !== "camoufox" ||
+        plan.identityDelivery !== null ||
+        plan.control !== null ||
+        plan.camoufoxHost === null
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["transport"],
+          message:
+            "Camoufox Host transport requires a Camoufox adapter and Host binding without generic receipts.",
+        });
+      }
     }
   });
 export type EngineLaunchPlan = z.infer<typeof engineLaunchPlanSchema>;
@@ -625,10 +719,10 @@ const externalEngineCapabilitySchema = z.enum([
   "site_fallback",
 ]);
 
-export const enginePackageManifestSchema = z
+const enginePackageManifestV2Schema = z
   .object({
     schemaVersion: z.literal(2),
-    engineId: z.enum(["controlled-chromium", "camoufox"]),
+    engineId: z.literal("controlled-chromium"),
     engineVersion: z
       .string()
       .regex(
@@ -649,10 +743,7 @@ export const enginePackageManifestSchema = z
   })
   .strict()
   .superRefine((manifest, context) => {
-    const expectedExecutable =
-      manifest.engineId === "controlled-chromium"
-        ? "bin/chromium.exe"
-        : "bin/camoufox.exe";
+    const expectedExecutable = "bin/chromium.exe";
     if (manifest.executableRelativePath !== expectedExecutable) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -670,6 +761,138 @@ export const enginePackageManifestSchema = z
       }
     }
   });
+
+const enginePackageVersionSchema = z
+  .string()
+  .regex(
+    /^(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u,
+  );
+
+const enginePackageSignatureSchema = signatureSchema;
+
+export const camoufoxHostPackageTreeManifestSchema = z
+  .object({
+    schema: z.literal("verisilo-camoufox-host-package-tree/v1"),
+    entries: z
+      .array(
+        z
+          .object({
+            path: z
+              .string()
+              .regex(/^(?![\\/])(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/u),
+            sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(65_536),
+  })
+  .strict()
+  .superRefine((manifest, context) => {
+    const paths = manifest.entries.map((entry) => entry.path);
+    if (new Set(paths).size !== paths.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["entries"],
+        message: "Package tree entries must be unique.",
+      });
+    }
+  });
+export type CamoufoxHostPackageTreeManifest = z.infer<
+  typeof camoufoxHostPackageTreeManifestSchema
+>;
+
+export const camoufoxHostPackageManifestSchema = z
+  .object({
+    schemaVersion: z.literal(3),
+    engineId: z.literal("camoufox"),
+    engineVersion: enginePackageVersionSchema,
+    channel: z.literal("experimental"),
+    platform: z.literal("windows-x64"),
+    artifactSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    signature: enginePackageSignatureSchema,
+    capabilities: z
+      .array(externalEngineCapabilitySchema)
+      .max(externalEngineCapabilitySchema.options.length)
+      .refine(
+        (capabilities) => new Set(capabilities).size === capabilities.length,
+        "Package capabilities must be unique.",
+      ),
+    entrypoint: z
+      .object({
+        kind: z.literal(CAMOUFOX_HOST_ENTRYPOINT_KIND),
+        relativePath: z
+          .string()
+          .regex(/^(?![\\/])(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/u),
+        protocol: z.literal(CAMOUFOX_HOST_PROTOCOL),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    treeManifest: z
+      .object({
+        relativePath: z
+          .string()
+          .regex(/^(?![\\/])(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/u),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    browserTreeManifest: z
+      .object({
+        relativePath: z
+          .string()
+          .regex(/^(?![\\/])(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/u),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+      })
+      .strict(),
+    hostVersion: z.string().trim().min(1).max(64),
+    browserRelease: z
+      .string()
+      .regex(
+        /^v(?:[1-9][0-9]{2})\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u,
+      ),
+    browserAssetSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict()
+  .superRefine((manifest, context) => {
+    if (manifest.artifactSha256 !== manifest.entrypoint.sha256) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["artifactSha256"],
+        message:
+          "Camoufox package artifactSha256 must bind the Host entrypoint.",
+      });
+    }
+    if (manifest.browserRelease !== `v${manifest.engineVersion}`) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["browserRelease"],
+        message:
+          "Camoufox browserRelease must bind the accepted v-prefixed engine release.",
+      });
+    }
+    if (!manifest.capabilities.includes("identity_template")) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities"],
+        message: "Camoufox Host packages must declare identity_template.",
+      });
+    }
+    if (manifest.capabilities.includes("site_fallback")) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilities"],
+        message: "Camoufox Host v1 does not implement site_fallback.",
+      });
+    }
+  });
+export type CamoufoxHostPackageManifest = z.infer<
+  typeof camoufoxHostPackageManifestSchema
+>;
+
+export const enginePackageManifestSchema = z.union([
+  enginePackageManifestV2Schema,
+  camoufoxHostPackageManifestSchema,
+]);
 export type EnginePackageManifest = z.infer<typeof enginePackageManifestSchema>;
 
 export const enginePackageRequestSchema = z

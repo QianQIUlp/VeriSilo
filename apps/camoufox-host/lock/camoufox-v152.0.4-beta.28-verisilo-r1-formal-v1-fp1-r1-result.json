@@ -1,0 +1,168 @@
+{
+  "schema": "verisilo-camoufox-fp1-r1-result/v1",
+  "status": "passed",
+  "gate": "FP1-R1 rebuilt-engine carry-forward",
+  "evidenceClass": "observed-on-this-native-windows-host",
+  "verified": false,
+  "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-formal-v1",
+  "execution": {
+    "runId": "fp1-full-20260825T130612233176Z",
+    "startedAtUtc": "2026-08-25T13:06:12.233176Z",
+    "completedAtUtc": "2026-08-25T13:07:22.130611Z",
+    "platform": {
+      "nativeWindows": true,
+      "inputDesktopAccessible": true
+    },
+    "git": {
+      "commit": "8c5258bf6333b73d86d15f411e97361073c882f3",
+      "tree": "9e35f6919a48b602cedae7030685e6d92a975355"
+    },
+    "report": {
+      "path": "artifacts/camoufox-fp1-r1/runs/fp1-full-20260825T130612233176Z/report.json",
+      "sha256": "f05f2fd812f88828f04af1d26f6910848993b3f49fe15576471ed698a133c166",
+      "sizeBytes": 26056,
+      "sha256Sidecar": {
+        "path": "artifacts/camoufox-fp1-r1/runs/fp1-full-20260825T130612233176Z/report.sha256",
+        "sha256": "715656b104588eea2e13b509574d6b6c7df50c0c331525da124ad9cd2b9c0ddf",
+        "sizeBytes": 78
+      }
+    },
+    "attemptClaim": {
+      "path": "artifacts/camoufox-fp1-r1/attempts/fp1-r1-a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc.json",
+      "sha256": "b1a37e601cb7f0095dda8c4842e61b43113918b9b71a06fb212ead14f34afd4e",
+      "sizeBytes": 829,
+      "policy": "one-candidate-one-full-attempt-no-retry-no-sample-selection"
+    }
+  },
+  "formalCandidate": {
+    "sourceCommit": "6acae1eca3c8b5ff2126da2d0f63ef003173487f",
+    "sourceTree": "a5720e135d35fd1129a226c2856683963dc436ae",
+    "sourceLock": {
+      "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-source.json",
+      "sha256": "a614f58d32adf7e8c5e787478aa4fbbfd8d28caa97dd151571df8e3b2819455c"
+    },
+    "buildResult": {
+      "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-build-result.json",
+      "sha256": "469a8af55188555175235688a7467bbb10bf5e75a446bd3cd765179da55d920e",
+      "rawBuildResultSha256": "7a3abf00be871131a7df1b77e8a14ef83c7cae54cd87dac2f5c8ff5892a91ba5"
+    },
+    "archive": {
+      "sha256": "a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc",
+      "sizeBytes": 493497411,
+      "buildId": "20260811045234",
+      "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+      "executableSha256": "7f2e3f26b4c722cefea2d6304ac436406e2d18e7ac831a0f8cd8ae4cb80307c6"
+    },
+    "runtimeTree": {
+      "verified": true,
+      "fileCount": 503,
+      "totalBytes": 982401749,
+      "manifestSha256": "6622f25821d90415da5bcd9b53d8caac171440d44cdccaf8c23495098631cdde",
+      "rawSha256": "bb15971961fbac71e72be665af2937604ab0d22c59ee29c6a61dba6bde1c0d5c"
+    },
+    "runtimeAssetLockSha256": "3a8cfb690d1aa1d77ba3956bdacb48a32e90981ef4f2ec2537c2c320e708dcc5"
+  },
+  "artifacts": {
+    "A": {
+      "rawSha256": "c5a24cfa67c8d19aaacf8f1d0359d60422e2c1348c701794e607de6d2cb0b4d3",
+      "canonicalDigest": "sha256:ace690ea2e03e78fc71055db98a0356487634fda4e6b564859a188f2b77ccde5",
+      "configuredIdentityDigest": "sha256:923d43a8a59a30505db60366838b6f244c73e80774c744d3ff43c66de74697cc"
+    },
+    "B": {
+      "rawSha256": "00b5ac31cf4dcfcc1fd9bd11f5acb3ecae8138ce3bf314f99246d6c0139380dc",
+      "canonicalDigest": "sha256:01e72e7a0e4b8e060d6f2b7e09353d55eab5d0ad3f927197d0d242dffd3863dc",
+      "configuredIdentityDigest": "sha256:2d257a0e1aa9cc281b6d53dd467fe6fabcd5149e93404ff4df2edcbb732b5b30"
+    },
+    "staticDiffKeys": [
+      "audio:seed",
+      "canvas:seed",
+      "fonts",
+      "fonts:spacing_seed",
+      "navigator.hardwareConcurrency",
+      "screen.availHeight",
+      "screen.availTop",
+      "screen.availWidth",
+      "screen.height",
+      "screen.width",
+      "window.history.length",
+      "window.screenX",
+      "window.screenY"
+    ]
+  },
+  "acceptance": {
+    "sequence": [
+      "A1",
+      "A2",
+      "B1"
+    ],
+    "a1A2": {
+      "allHardFamiliesEqual": true,
+      "correctedCanvasSixHashesEqual": true,
+      "cookiePersisted": true,
+      "localStorageBoots": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          2
+        ]
+      ],
+      "independentHosts": true
+    },
+    "aB": {
+      "fullArtifactBObserved": true,
+      "staticDiffMappedExactly": true,
+      "commonFamiliesStable": true,
+      "profileBIsolated": true,
+      "canvasRawChanged": true,
+      "canvasCrossSurfaceInputsObserved": [
+        "fonts",
+        "fonts:spacing_seed"
+      ],
+      "canvasExportHashesSeparated": true,
+      "canvasPngValid": true
+    },
+    "observationIntegrity": {
+      "observedWebsitePayloadExact": true,
+      "projectionDigestExact": true,
+      "sessionDigestExact": true,
+      "configuredMediaCountsMatched": true,
+      "referencedRawFilesVerified": 12,
+      "offlineAcceptanceRecomputed": true,
+      "protocolSequenceExact": true
+    },
+    "lifecycle": {
+      "allCleanClose": true,
+      "allExitStatusZero": true,
+      "allJobActiveProcessCountZero": true,
+      "allManagedRemainingEmpty": true,
+      "forcedJobCleanup": "not_needed",
+      "terminalProbePortBindFree": true
+    }
+  },
+  "adjudication": {
+    "runnerSelfAccepted": false,
+    "fp1R1Accepted": true,
+    "basis": "direct report and claim hashes plus independent offline recomputation of all referenced evidence and acceptance comparisons"
+  },
+  "claims": {
+    "windowsRuntimeObserved": true,
+    "fullFp1Executed": true,
+    "fp1R1Passed": true,
+    "formalR1Passed": false,
+    "fp2Entered": false,
+    "voicesFixedClaimed": false,
+    "runtimeVerified": false,
+    "crossHostReplay": false,
+    "undetectability": false,
+    "productReleased": false
+  },
+  "limitations": [
+    "Observed on this native Windows host only; no cross-host replay claim.",
+    "FP2-R1 phase, cross-realm, and replay qualification was not entered.",
+    "No Formal R1 pass, Voices fixed, runtime verified, undetectability, or product release claim."
+  ],
+  "nextGate": "FP2-R1 fresh phase/cross-realm/replay qualification"
+}

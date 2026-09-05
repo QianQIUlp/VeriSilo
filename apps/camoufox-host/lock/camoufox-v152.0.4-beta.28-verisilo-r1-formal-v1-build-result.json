@@ -1,0 +1,144 @@
+{
+  "schema": "verisilo-r1-formal-build-result/v1",
+  "status": "compiled-not-runtime-verified",
+  "evidenceClass": "compiled-not-runtime-verified",
+  "verified": false,
+  "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-formal-v1",
+  "platform": "windows-x86_64",
+  "target": "x86_64-pc-windows-msvc",
+  "runId": "r1formal-engine-20260825t060544z",
+  "formalSource": true,
+  "diagnosticOnly": false,
+  "sourceBinding": {
+    "commit": "6acae1eca3c8b5ff2126da2d0f63ef003173487f",
+    "tree": "a5720e135d35fd1129a226c2856683963dc436ae",
+    "sourceLock": {
+      "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-source.json",
+      "sha256": "a614f58d32adf7e8c5e787478aa4fbbfd8d28caa97dd151571df8e3b2819455c",
+      "sizeBytes": 30791
+    },
+    "completeAppliedPatchOrder": [
+      "0000",
+      "0001",
+      "0002",
+      "0003",
+      "0003a",
+      "0004",
+      "0005"
+    ]
+  },
+  "build": {
+    "startedAtUtc": "2026-08-25T06:07:59.139152Z",
+    "completedAtUtc": "2026-08-25T09:22:19.007252Z",
+    "mozBuildDate": "20260811045234",
+    "rustToolchain": "1.90.0",
+    "resourcesAtStart": {
+      "freeBytes": 94128267264,
+      "logicalCpu": 4,
+      "swapBytes": 25769799680
+    },
+    "buildResult": {
+      "recordType": "verisilo-camoufox-r1-formal-build-run/v1",
+      "sha256": "7a3abf00be871131a7df1b77e8a14ef83c7cae54cd87dac2f5c8ff5892a91ba5",
+      "sizeBytes": 4765
+    },
+    "hostProvenance": {
+      "recordType": "verisilo-r1-formal-build-host-provenance/v1",
+      "status": "container-passed",
+      "sha256": "675db0869b59a096009e846f74772dbb6693b3f76b96ff2d031cd3bd21174a65",
+      "sizeBytes": 5201
+    },
+    "builderImage": {
+      "imageId": "sha256:78059e03d0f92213d6317fd53a0f56287f9cc7f1a513134c95ba101dc6a8c471",
+      "baseIndexDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+      "baseLinuxAmd64ManifestDigest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467"
+    },
+    "toolchain": {
+      "compilerVersion": "14.50.35717",
+      "windowsSdkVersion": "10.0.26100.0",
+      "selectionManifest": {
+        "path": "build/vs/vs2026.yaml",
+        "sha256": "ffeef9c51797082dbfef5f6608d75638d3ca3cb11c17cef9f8deea9fde58c188",
+        "sizeBytes": 136448
+      }
+    }
+  },
+  "archive": {
+    "name": "camoufox-152.0.4-beta.28-win.x86_64.zip",
+    "sha256": "a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc",
+    "sizeBytes": 493497411,
+    "executableRelativePath": "camoufox.exe",
+    "camoufoxExeSha256": "7f2e3f26b4c722cefea2d6304ac436406e2d18e7ac831a0f8cd8ae4cb80307c6",
+    "buildId": "20260811045234",
+    "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+    "treeManifest": {
+      "name": "windows-extraction-tree.json",
+      "sha256": "9937f65aa538424cf585c87d82294d40914bc5c2dda0a888e662b779fd4af604",
+      "sizeBytes": 95902,
+      "entryCount": 514
+    }
+  },
+  "rawEvidence": {
+    "root": "artifacts/camoufox-formal-r1/r1formal-engine-20260825t060544z",
+    "files": [
+      {
+        "path": "out/build-result.json",
+        "sha256": "7a3abf00be871131a7df1b77e8a14ef83c7cae54cd87dac2f5c8ff5892a91ba5",
+        "sizeBytes": 4765
+      },
+      {
+        "path": "out/build.log",
+        "sha256": "f99a9d0badb3621b2db3a76a0268adc382cc22c50c73d14ab774e5551ddd6799",
+        "sizeBytes": 1480369
+      },
+      {
+        "path": "out/camoufox-152.0.4-beta.28-win.x86_64.zip",
+        "sha256": "a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc",
+        "sizeBytes": 493497411
+      },
+      {
+        "path": "out/windows-extraction-tree.json",
+        "sha256": "9937f65aa538424cf585c87d82294d40914bc5c2dda0a888e662b779fd4af604",
+        "sizeBytes": 95902
+      },
+      {
+        "path": "provenance/builder-context.tar",
+        "sha256": "076c574eea9a31da4e0bdd3e9796313766a72936cd31912a3c998059590a525d",
+        "sizeBytes": 51200
+      },
+      {
+        "path": "provenance/builder-image-inspect.json",
+        "sha256": "1f94c219bdeb6feb1772a4f4c2f5e14a172149b422aa871acb2976c84f827574",
+        "sizeBytes": 2505
+      },
+      {
+        "path": "provenance/buildx-metadata.json",
+        "sha256": "336c6c68ebc79af77f0ae7194b0ee7b2d810a0955cb8894f479723853a197ea2",
+        "sizeBytes": 1787
+      },
+      {
+        "path": "provenance/buildx.log",
+        "sha256": "b0097a45a919026a96c22c640b4e760c6fce2a84d69890c1dd26a0a9a0324fd9",
+        "sizeBytes": 76911
+      },
+      {
+        "path": "provenance/container.log",
+        "sha256": "f99a9d0badb3621b2db3a76a0268adc382cc22c50c73d14ab774e5551ddd6799",
+        "sizeBytes": 1480369
+      },
+      {
+        "path": "provenance/host-provenance.json",
+        "sha256": "675db0869b59a096009e846f74772dbb6693b3f76b96ff2d031cd3bd21174a65",
+        "sizeBytes": 5201
+      }
+    ]
+  },
+  "claims": {
+    "compiled": true,
+    "formalSource": true,
+    "browserLaunches": 0,
+    "formalR1Passed": false,
+    "windowsRuntimeObserved": false,
+    "runtimeVerified": false
+  }
+}

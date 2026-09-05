@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clashControllerLabel,
+  CLASH_VERGE_PIPE_URL,
+  isClashPipeController,
   isLoopbackProxyProfile,
   localMihomoProfile,
   MIHOMO_DEFAULT_MIXED_PORT,
@@ -13,9 +16,16 @@ describe("desktop proxy presets", () => {
       proxyRequired: true,
       scheme: "socks5",
       host: "127.0.0.1",
-      port: MIHOMO_DEFAULT_MIXED_PORT,
+      port: 7897,
       bypassList: [],
     });
+  });
+
+  it("labels Clash Verge's kernel pipe without exposing a fake 9097 port", () => {
+    expect(isClashPipeController(CLASH_VERGE_PIPE_URL)).toBe(true);
+    expect(clashControllerLabel(CLASH_VERGE_PIPE_URL)).toBe(
+      "Clash Verge 内核管道",
+    );
   });
 
   it("does not mislabel a remote provider as a local core", () => {

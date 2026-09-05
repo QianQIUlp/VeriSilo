@@ -1,0 +1,2770 @@
+{
+  "schema": "verisilo-camoufox-m3-wi-r2-windows-evidence-manifest/v1",
+  "generatedAtUtc": "2026-08-09T16:11:37.779989Z",
+  "status": "execution-passed-awaiting-main-brain-gate",
+  "runId": "run-1786289217-fcb3383a",
+  "startCheckpoint": "9d866b5641f7eb2ebd287a15112e8735b8e1d2ae",
+  "receiptCommit": "37fa55e13285e8a37bc7c312a0ec55436d735f40",
+  "receiptTree": "16aa8d1ca94afd4a0b0df5831318f4b592542076",
+  "codeGitRevision": "37fa55e13285e8a37bc7c312a0ec55436d735f40",
+  "codeTreeHash": "16aa8d1ca94afd4a0b0df5831318f4b592542076",
+  "finalizationCommit": "6a88d4ef664ccf31bcb4667897dcf399deb99533",
+  "finalizationTree": "4e0facb4871e3181de9e5c73be571ad758e18fc5",
+  "branch": "codex/camoufox-m3-engine-adapter",
+  "integrationPath": "test-only-real-host",
+  "productionPackageVerified": false,
+  "productionVerifierFailClosed": true,
+  "shipped": false,
+  "verified": false,
+  "evidenceClass": "observed-on-this-windows-host",
+  "fixedInputs": {
+    "archive": {
+      "relativePath": "artifacts/camoufox-m0/camoufox-152.0.4-beta.28-win.x86_64.zip",
+      "sha256": "386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d",
+      "sizeBytes": 492370020
+    },
+    "assetLock": {
+      "relativePath": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-windows-x86_64.json",
+      "sha256": "8c4713586fb43f5f518e6f76209d596323b0e57e9b1570c5e665738b21133fea"
+    },
+    "browserTree": {
+      "relativePath": "tests/fixtures/camoufox/browser-tree-manifest-windows.json",
+      "rawFileSha256": "80f46b4bc7b40cd54072f1ba89462f8715c13eb339f596c2869560db880f6a40",
+      "canonicalManifestSha256": "1c749534d139b7efcb425faf03de9cfe1d59004034a1fe1c5ba423b86239c37b",
+      "fileCount": 493,
+      "totalBytes": 979350965
+    },
+    "artifact": {
+      "relativePath": "tests/fixtures/camoufox/identity-win-a.json",
+      "rawFileSha256": "a214c21ccf4a68c97040af6e5f81b05e40903a127dea33ace6dce7d8f133279f",
+      "sidecarMatches": true
+    },
+    "hostSource": {
+      "relativePath": "apps/camoufox-host/host_v1.py",
+      "sha256": "67f62163a866a13fe814ac7d5c6aa8c0c54e0eba5923d8bd3e7a155b7e2dd1bf"
+    },
+    "uvLock": {
+      "relativePath": "apps/camoufox-host/uv.lock",
+      "sha256": "0c9b452021c4376ded748c72c8b707531cc680d677b5b7d30f53eadbc8b0592f"
+    },
+    "packages": {
+      "camoufox": "0.5.4",
+      "playwright": "1.60.0",
+      "browserforge": "1.2.4"
+    },
+    "release": "v152.0.4-beta.28",
+    "pythonInterpreter": {
+      "relativePath": "apps/camoufox-host/.venv/Scripts/python.exe",
+      "sha256": "49d21203c2d8ee40b2d77621d89318460fbd1fdd8fdfedc4973cdf964f57d448",
+      "version": "Python 3.12.11",
+      "resolvedBy": "uv run --frozen --offline"
+    },
+    "schema": {
+      "relativePath": "tests/fixtures/camoufox/evidence-manifest-m3-wi-r2-windows.schema.json",
+      "sha256": "19e3d6b2d805018ee26ff1b7606b960385d6e82f9594bcd4416b35ac509604b7"
+    }
+  },
+  "receipts": {
+    "report": {
+      "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-report.json",
+      "sha256": "12615b20117d2378a5d0dc3f2a2010e0ed79f4f2aee183a10a6996d696fc4693",
+      "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-report.sha256",
+      "sidecarSha256": "a0ef4d68cbc10f468a3175a6ed356e9e43100e0870fc1a39394efbbb2643eb6b"
+    },
+    "summary": {
+      "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-summary.json",
+      "sha256": "00a3e155716f7d654cbcc347f9f019cc9b2bc3cd820fb2afa618255e77a76b45",
+      "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-summary.sha256",
+      "sidecarSha256": "70b71db91e983ba4690d8af0fcaa63b7ff343ad4b297997e370d90296bf6c639"
+    },
+    "runtime": {
+      "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-runtime-evidence-normalized.json",
+      "sha256": "9e01ceb4edb3316fc6c62dfa6e16f6b6e53d3f73d76084185fe1eebd75487858"
+    },
+    "rawRuntime": {
+      "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-runtime-evidence.json",
+      "sha256": "62b61d57b0228649e0e1d402e3eeff3a96fda1aef201bda441f573cebeadf873"
+    },
+    "cycles": [
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-1.json",
+        "sha256": "9c0202d2b996f514e71c68fa60ad46c4a4507bd3ce14f8f0a70eb0c15f570904",
+        "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-1.sha256",
+        "sidecarSha256": "0bf2820bfae1f64ad77fc32ef089b0af8e08be288bf1ff37e9f00937d1d9cc49",
+        "cycle": 1
+      },
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-2.json",
+        "sha256": "0794470f087ec5c230e19357308fc6228e46e59fbe215a618e3e72e2159f3566",
+        "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-2.sha256",
+        "sidecarSha256": "93c55aebfd6537021eb6da3eb7e9da41e113a9058ad6ff5cf0ce24f5a7e2a14a",
+        "cycle": 2
+      },
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-3.json",
+        "sha256": "42be001195fbf1c22f4692fc3a963eb68b8205324c547637ec7191c5090c75c6",
+        "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-3.sha256",
+        "sidecarSha256": "27fbb6aca0245c9dc9f36c0df4851410f138c3768fb63a5ffc1aa3a2a3045e48",
+        "cycle": 3
+      },
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-4.json",
+        "sha256": "d95979a28867d31c43ef5644dd6ca8f36a5872d8869b10a26cf0c494fced306f",
+        "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-4.sha256",
+        "sidecarSha256": "97996442d494c338f066d23dca5f89f9ec2ce464e17ac49f1272ed99572fdb91",
+        "cycle": 4
+      },
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-5.json",
+        "sha256": "074f67e854ca19e8e2f8a73e2b83156aaac0c323853140670f4b954f61c723c6",
+        "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-5.sha256",
+        "sidecarSha256": "ccdd449532ff751472b909c99abc690fd805e05c12a66c97168c59de6cc9a2ed",
+        "cycle": 5
+      },
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-6.json",
+        "sha256": "caf8506ba3a79b086377bec0c615b2942fc3954745496a930c3a0c848caf6d0a",
+        "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-6.sha256",
+        "sidecarSha256": "c404f0c8a78cd709f0dc411852f1c2dde0c32657079f1e0060227e3b08229794",
+        "cycle": 6
+      },
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-7.json",
+        "sha256": "7ef87cbcda0663cfb742a19b221766059defdce41dfbc5d03cafc20d44fea3f9",
+        "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-7.sha256",
+        "sidecarSha256": "4e21d5d89a7dfa84c63da2cda227843c10cf330571341a9f16ab07fee4ef75ff",
+        "cycle": 7
+      },
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-8.json",
+        "sha256": "49e4fd127af786b96a2666b69a0d1c9ba1f2c6e7e7d24d9b20a011976888355c",
+        "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-8.sha256",
+        "sidecarSha256": "a17828f7f2fda76f2536f830d3837699d541da3962f7123f108a9d86937ca8d7",
+        "cycle": 8
+      },
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-9.json",
+        "sha256": "a930530cb9ccf3ea569fa2b2567c319c6635edb119d2f9904d57dc4378882fe6",
+        "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-9.sha256",
+        "sidecarSha256": "3d4e9526dd7eedee908c33b0144a6036066e32791194b0e746827cbfefbdc4ad",
+        "cycle": 9
+      },
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-10.json",
+        "sha256": "0fb3ae40699cbe7efb7a42f7117026ab670f6924d3558585f073c489cd90798f",
+        "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-10.sha256",
+        "sidecarSha256": "5de6e556666a4fe1703b7b2ab752013f042bdd69019f761403ae9aadfaf94d80",
+        "cycle": 10
+      }
+    ]
+  },
+  "r2Runtime": {
+    "cycleCount": 10,
+    "sameProfile": true,
+    "observedWebsiteDigestStable": true,
+    "closeLifecycle": {
+      "allContextCloses": true,
+      "allGracefulProcessExits": true,
+      "forcedCleanupCount": 0,
+      "sigkillCount": 0,
+      "terminateJobObjectCount": 0
+    },
+    "cycles": [
+      {
+        "cycle": 1,
+        "receipt": {
+          "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-1.json",
+          "sha256": "9c0202d2b996f514e71c68fa60ad46c4a4507bd3ce14f8f0a70eb0c15f570904",
+          "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-1.sha256",
+          "sidecarSha256": "0bf2820bfae1f64ad77fc32ef089b0af8e08be288bf1ff37e9f00937d1d9cc49",
+          "cycle": 1
+        },
+        "profileId": "silo-44444444444444448444444444444444",
+        "sessionId": "21843711bd84455a9922bfd010bbbb89",
+        "hostPid": 6080,
+        "managedPids": [
+          10944,
+          15292
+        ],
+        "bootCountBefore": 0,
+        "bootCountAfter": 1,
+        "observedWebsiteDigest": "sha256:e64c7d953832a3c8c7908432d1407caab83146ebdb9a0ddf8ed9ace8be0d3aba",
+        "launchSurface": {
+          "adapterVersion": "m3-wi-test-only-real-host",
+          "arguments": [
+            "-u",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\host_v1.py",
+            "--artifact-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\artifacts",
+            "--profile-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\profiles",
+            "--state-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\state",
+            "--tree-manifest",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json",
+            "--probe-port",
+            "58750"
+          ],
+          "executablePath": "C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+          "integrationPath": "test-only-real-host",
+          "packageVerification": null,
+          "shell": false,
+          "transport": "camoufox-host-jsonl-v1"
+        },
+        "cookieEvidence": {
+          "cookieAbsentBeforeWrite": true,
+          "cookieInApi": true,
+          "cookieOnPage": true,
+          "cookieValueLooksManaged": true
+        },
+        "pageCookie": true,
+        "cookieSqlite": {
+          "cookieNamePresent": true,
+          "cookieRows": 1,
+          "fileBytes": 524288,
+          "fileExists": true,
+          "hosts": [
+            "127.0.0.1"
+          ],
+          "sqliteReadAttempts": 1,
+          "sqliteReadMaxAttempts": 6,
+          "sqliteRetryDelayMilliseconds": 200,
+          "sqliteRetryExhausted": false,
+          "valuesManaged": true
+        },
+        "close": {
+          "closeOutcome": {
+            "contextClose": {
+              "ctx": {
+                "status": "success"
+              },
+              "page": {
+                "status": "success"
+              }
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            },
+            "status": "success"
+          },
+          "exitFile": true,
+          "exitStatus": 0,
+          "jobActiveProcessCount": 0,
+          "processTreeExited": true,
+          "sigkill": false,
+          "terminateJobObject": false
+        },
+        "stageDiagnostics": [
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 5,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 9820,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 2954,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 3261,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 10,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 649,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 663,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "graceful-process-exit",
+            "stage": "close"
+          },
+          {
+            "durationMs": 663,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "not_needed",
+            "phase": "forced-job-cleanup",
+            "stage": "close"
+          },
+          {
+            "durationMs": 680,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "available",
+            "phase": "sqlite-evidence",
+            "stage": "close"
+          },
+          {
+            "durationMs": 787,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          }
+        ],
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host"
+      },
+      {
+        "cycle": 2,
+        "receipt": {
+          "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-2.json",
+          "sha256": "0794470f087ec5c230e19357308fc6228e46e59fbe215a618e3e72e2159f3566",
+          "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-2.sha256",
+          "sidecarSha256": "93c55aebfd6537021eb6da3eb7e9da41e113a9058ad6ff5cf0ce24f5a7e2a14a",
+          "cycle": 2
+        },
+        "profileId": "silo-44444444444444448444444444444444",
+        "sessionId": "ff33961eecf749e3927e8c8e370e863e",
+        "hostPid": 14796,
+        "managedPids": [
+          9628,
+          16024
+        ],
+        "bootCountBefore": 1,
+        "bootCountAfter": 2,
+        "observedWebsiteDigest": "sha256:e64c7d953832a3c8c7908432d1407caab83146ebdb9a0ddf8ed9ace8be0d3aba",
+        "launchSurface": {
+          "adapterVersion": "m3-wi-test-only-real-host",
+          "arguments": [
+            "-u",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\host_v1.py",
+            "--artifact-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\artifacts",
+            "--profile-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\profiles",
+            "--state-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\state",
+            "--tree-manifest",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json",
+            "--probe-port",
+            "58750"
+          ],
+          "executablePath": "C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+          "integrationPath": "test-only-real-host",
+          "packageVerification": null,
+          "shell": false,
+          "transport": "camoufox-host-jsonl-v1"
+        },
+        "cookieEvidence": {
+          "cookieAbsentBeforeWrite": false,
+          "cookieInApi": true,
+          "cookieOnPage": true,
+          "cookieValueLooksManaged": true
+        },
+        "pageCookie": true,
+        "cookieSqlite": {
+          "cookieNamePresent": true,
+          "cookieRows": 1,
+          "fileBytes": 524288,
+          "fileExists": true,
+          "hosts": [
+            "127.0.0.1"
+          ],
+          "sqliteReadAttempts": 1,
+          "sqliteReadMaxAttempts": 6,
+          "sqliteRetryDelayMilliseconds": 200,
+          "sqliteRetryExhausted": false,
+          "valuesManaged": true
+        },
+        "close": {
+          "closeOutcome": {
+            "contextClose": {
+              "ctx": {
+                "status": "success"
+              },
+              "page": {
+                "status": "success"
+              }
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            },
+            "status": "success"
+          },
+          "exitFile": true,
+          "exitStatus": 0,
+          "jobActiveProcessCount": 0,
+          "processTreeExited": true,
+          "sigkill": false,
+          "terminateJobObject": false
+        },
+        "stageDiagnostics": [
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 6,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 6110,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 3242,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 427,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 7,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 411,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 424,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "graceful-process-exit",
+            "stage": "close"
+          },
+          {
+            "durationMs": 425,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "not_needed",
+            "phase": "forced-job-cleanup",
+            "stage": "close"
+          },
+          {
+            "durationMs": 435,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "available",
+            "phase": "sqlite-evidence",
+            "stage": "close"
+          },
+          {
+            "durationMs": 910,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          }
+        ],
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host"
+      },
+      {
+        "cycle": 3,
+        "receipt": {
+          "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-3.json",
+          "sha256": "42be001195fbf1c22f4692fc3a963eb68b8205324c547637ec7191c5090c75c6",
+          "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-3.sha256",
+          "sidecarSha256": "27fbb6aca0245c9dc9f36c0df4851410f138c3768fb63a5ffc1aa3a2a3045e48",
+          "cycle": 3
+        },
+        "profileId": "silo-44444444444444448444444444444444",
+        "sessionId": "f2ea2a7907f2497eb5d753cc0ffe000a",
+        "hostPid": 13152,
+        "managedPids": [
+          6620,
+          11852
+        ],
+        "bootCountBefore": 2,
+        "bootCountAfter": 3,
+        "observedWebsiteDigest": "sha256:e64c7d953832a3c8c7908432d1407caab83146ebdb9a0ddf8ed9ace8be0d3aba",
+        "launchSurface": {
+          "adapterVersion": "m3-wi-test-only-real-host",
+          "arguments": [
+            "-u",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\host_v1.py",
+            "--artifact-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\artifacts",
+            "--profile-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\profiles",
+            "--state-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\state",
+            "--tree-manifest",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json",
+            "--probe-port",
+            "58750"
+          ],
+          "executablePath": "C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+          "integrationPath": "test-only-real-host",
+          "packageVerification": null,
+          "shell": false,
+          "transport": "camoufox-host-jsonl-v1"
+        },
+        "cookieEvidence": {
+          "cookieAbsentBeforeWrite": false,
+          "cookieInApi": true,
+          "cookieOnPage": true,
+          "cookieValueLooksManaged": true
+        },
+        "pageCookie": true,
+        "cookieSqlite": {
+          "cookieNamePresent": true,
+          "cookieRows": 1,
+          "fileBytes": 524288,
+          "fileExists": true,
+          "hosts": [
+            "127.0.0.1"
+          ],
+          "sqliteReadAttempts": 1,
+          "sqliteReadMaxAttempts": 6,
+          "sqliteRetryDelayMilliseconds": 200,
+          "sqliteRetryExhausted": false,
+          "valuesManaged": true
+        },
+        "close": {
+          "closeOutcome": {
+            "contextClose": {
+              "ctx": {
+                "status": "success"
+              },
+              "page": {
+                "status": "success"
+              }
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            },
+            "status": "success"
+          },
+          "exitFile": true,
+          "exitStatus": 0,
+          "jobActiveProcessCount": 0,
+          "processTreeExited": true,
+          "sigkill": false,
+          "terminateJobObject": false
+        },
+        "stageDiagnostics": [
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 6,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 6799,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 3061,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 419,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 7,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 276,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 290,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "graceful-process-exit",
+            "stage": "close"
+          },
+          {
+            "durationMs": 290,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "not_needed",
+            "phase": "forced-job-cleanup",
+            "stage": "close"
+          },
+          {
+            "durationMs": 301,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "available",
+            "phase": "sqlite-evidence",
+            "stage": "close"
+          },
+          {
+            "durationMs": 416,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          }
+        ],
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host"
+      },
+      {
+        "cycle": 4,
+        "receipt": {
+          "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-4.json",
+          "sha256": "d95979a28867d31c43ef5644dd6ca8f36a5872d8869b10a26cf0c494fced306f",
+          "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-4.sha256",
+          "sidecarSha256": "97996442d494c338f066d23dca5f89f9ec2ce464e17ac49f1272ed99572fdb91",
+          "cycle": 4
+        },
+        "profileId": "silo-44444444444444448444444444444444",
+        "sessionId": "b553b401fd824b319173aa924549cfca",
+        "hostPid": 16128,
+        "managedPids": [
+          12048,
+          15232
+        ],
+        "bootCountBefore": 3,
+        "bootCountAfter": 4,
+        "observedWebsiteDigest": "sha256:e64c7d953832a3c8c7908432d1407caab83146ebdb9a0ddf8ed9ace8be0d3aba",
+        "launchSurface": {
+          "adapterVersion": "m3-wi-test-only-real-host",
+          "arguments": [
+            "-u",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\host_v1.py",
+            "--artifact-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\artifacts",
+            "--profile-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\profiles",
+            "--state-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\state",
+            "--tree-manifest",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json",
+            "--probe-port",
+            "58750"
+          ],
+          "executablePath": "C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+          "integrationPath": "test-only-real-host",
+          "packageVerification": null,
+          "shell": false,
+          "transport": "camoufox-host-jsonl-v1"
+        },
+        "cookieEvidence": {
+          "cookieAbsentBeforeWrite": false,
+          "cookieInApi": true,
+          "cookieOnPage": true,
+          "cookieValueLooksManaged": true
+        },
+        "pageCookie": true,
+        "cookieSqlite": {
+          "cookieNamePresent": true,
+          "cookieRows": 1,
+          "fileBytes": 524288,
+          "fileExists": true,
+          "hosts": [
+            "127.0.0.1"
+          ],
+          "sqliteReadAttempts": 1,
+          "sqliteReadMaxAttempts": 6,
+          "sqliteRetryDelayMilliseconds": 200,
+          "sqliteRetryExhausted": false,
+          "valuesManaged": true
+        },
+        "close": {
+          "closeOutcome": {
+            "contextClose": {
+              "ctx": {
+                "status": "success"
+              },
+              "page": {
+                "status": "success"
+              }
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            },
+            "status": "success"
+          },
+          "exitFile": true,
+          "exitStatus": 0,
+          "jobActiveProcessCount": 0,
+          "processTreeExited": true,
+          "sigkill": false,
+          "terminateJobObject": false
+        },
+        "stageDiagnostics": [
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 4,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 6152,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 2513,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 420,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 9,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 359,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 381,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "graceful-process-exit",
+            "stage": "close"
+          },
+          {
+            "durationMs": 381,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "not_needed",
+            "phase": "forced-job-cleanup",
+            "stage": "close"
+          },
+          {
+            "durationMs": 396,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "available",
+            "phase": "sqlite-evidence",
+            "stage": "close"
+          },
+          {
+            "durationMs": 428,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          }
+        ],
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host"
+      },
+      {
+        "cycle": 5,
+        "receipt": {
+          "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-5.json",
+          "sha256": "074f67e854ca19e8e2f8a73e2b83156aaac0c323853140670f4b954f61c723c6",
+          "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-5.sha256",
+          "sidecarSha256": "ccdd449532ff751472b909c99abc690fd805e05c12a66c97168c59de6cc9a2ed",
+          "cycle": 5
+        },
+        "profileId": "silo-44444444444444448444444444444444",
+        "sessionId": "d26c3bee67f54f1096d9ae7ddb6f5a59",
+        "hostPid": 11476,
+        "managedPids": [
+          14004,
+          16056
+        ],
+        "bootCountBefore": 4,
+        "bootCountAfter": 5,
+        "observedWebsiteDigest": "sha256:e64c7d953832a3c8c7908432d1407caab83146ebdb9a0ddf8ed9ace8be0d3aba",
+        "launchSurface": {
+          "adapterVersion": "m3-wi-test-only-real-host",
+          "arguments": [
+            "-u",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\host_v1.py",
+            "--artifact-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\artifacts",
+            "--profile-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\profiles",
+            "--state-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\state",
+            "--tree-manifest",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json",
+            "--probe-port",
+            "58750"
+          ],
+          "executablePath": "C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+          "integrationPath": "test-only-real-host",
+          "packageVerification": null,
+          "shell": false,
+          "transport": "camoufox-host-jsonl-v1"
+        },
+        "cookieEvidence": {
+          "cookieAbsentBeforeWrite": false,
+          "cookieInApi": true,
+          "cookieOnPage": true,
+          "cookieValueLooksManaged": true
+        },
+        "pageCookie": true,
+        "cookieSqlite": {
+          "cookieNamePresent": true,
+          "cookieRows": 1,
+          "fileBytes": 524288,
+          "fileExists": true,
+          "hosts": [
+            "127.0.0.1"
+          ],
+          "sqliteReadAttempts": 1,
+          "sqliteReadMaxAttempts": 6,
+          "sqliteRetryDelayMilliseconds": 200,
+          "sqliteRetryExhausted": false,
+          "valuesManaged": true
+        },
+        "close": {
+          "closeOutcome": {
+            "contextClose": {
+              "ctx": {
+                "status": "success"
+              },
+              "page": {
+                "status": "success"
+              }
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            },
+            "status": "success"
+          },
+          "exitFile": true,
+          "exitStatus": 0,
+          "jobActiveProcessCount": 0,
+          "processTreeExited": true,
+          "sigkill": false,
+          "terminateJobObject": false
+        },
+        "stageDiagnostics": [
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 5,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 6239,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 2552,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 422,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 6,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 291,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 303,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "graceful-process-exit",
+            "stage": "close"
+          },
+          {
+            "durationMs": 303,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "not_needed",
+            "phase": "forced-job-cleanup",
+            "stage": "close"
+          },
+          {
+            "durationMs": 316,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "available",
+            "phase": "sqlite-evidence",
+            "stage": "close"
+          },
+          {
+            "durationMs": 433,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          }
+        ],
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host"
+      },
+      {
+        "cycle": 6,
+        "receipt": {
+          "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-6.json",
+          "sha256": "caf8506ba3a79b086377bec0c615b2942fc3954745496a930c3a0c848caf6d0a",
+          "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-6.sha256",
+          "sidecarSha256": "c404f0c8a78cd709f0dc411852f1c2dde0c32657079f1e0060227e3b08229794",
+          "cycle": 6
+        },
+        "profileId": "silo-44444444444444448444444444444444",
+        "sessionId": "71e4c948ac7c4eafa0094c1021d48418",
+        "hostPid": 14176,
+        "managedPids": [
+          2100,
+          5496
+        ],
+        "bootCountBefore": 5,
+        "bootCountAfter": 6,
+        "observedWebsiteDigest": "sha256:e64c7d953832a3c8c7908432d1407caab83146ebdb9a0ddf8ed9ace8be0d3aba",
+        "launchSurface": {
+          "adapterVersion": "m3-wi-test-only-real-host",
+          "arguments": [
+            "-u",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\host_v1.py",
+            "--artifact-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\artifacts",
+            "--profile-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\profiles",
+            "--state-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\state",
+            "--tree-manifest",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json",
+            "--probe-port",
+            "58750"
+          ],
+          "executablePath": "C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+          "integrationPath": "test-only-real-host",
+          "packageVerification": null,
+          "shell": false,
+          "transport": "camoufox-host-jsonl-v1"
+        },
+        "cookieEvidence": {
+          "cookieAbsentBeforeWrite": false,
+          "cookieInApi": true,
+          "cookieOnPage": true,
+          "cookieValueLooksManaged": true
+        },
+        "pageCookie": true,
+        "cookieSqlite": {
+          "cookieNamePresent": true,
+          "cookieRows": 1,
+          "fileBytes": 524288,
+          "fileExists": true,
+          "hosts": [
+            "127.0.0.1"
+          ],
+          "sqliteReadAttempts": 1,
+          "sqliteReadMaxAttempts": 6,
+          "sqliteRetryDelayMilliseconds": 200,
+          "sqliteRetryExhausted": false,
+          "valuesManaged": true
+        },
+        "close": {
+          "closeOutcome": {
+            "contextClose": {
+              "ctx": {
+                "status": "success"
+              },
+              "page": {
+                "status": "success"
+              }
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            },
+            "status": "success"
+          },
+          "exitFile": true,
+          "exitStatus": 0,
+          "jobActiveProcessCount": 0,
+          "processTreeExited": true,
+          "sigkill": false,
+          "terminateJobObject": false
+        },
+        "stageDiagnostics": [
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 6,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 6139,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 2616,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 419,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 6,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 282,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 295,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "graceful-process-exit",
+            "stage": "close"
+          },
+          {
+            "durationMs": 295,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "not_needed",
+            "phase": "forced-job-cleanup",
+            "stage": "close"
+          },
+          {
+            "durationMs": 307,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "available",
+            "phase": "sqlite-evidence",
+            "stage": "close"
+          },
+          {
+            "durationMs": 444,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          }
+        ],
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host"
+      },
+      {
+        "cycle": 7,
+        "receipt": {
+          "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-7.json",
+          "sha256": "7ef87cbcda0663cfb742a19b221766059defdce41dfbc5d03cafc20d44fea3f9",
+          "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-7.sha256",
+          "sidecarSha256": "4e21d5d89a7dfa84c63da2cda227843c10cf330571341a9f16ab07fee4ef75ff",
+          "cycle": 7
+        },
+        "profileId": "silo-44444444444444448444444444444444",
+        "sessionId": "57d3bd03f4a5473fa80551adb8f4fd20",
+        "hostPid": 840,
+        "managedPids": [
+          14080,
+          15788
+        ],
+        "bootCountBefore": 6,
+        "bootCountAfter": 7,
+        "observedWebsiteDigest": "sha256:e64c7d953832a3c8c7908432d1407caab83146ebdb9a0ddf8ed9ace8be0d3aba",
+        "launchSurface": {
+          "adapterVersion": "m3-wi-test-only-real-host",
+          "arguments": [
+            "-u",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\host_v1.py",
+            "--artifact-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\artifacts",
+            "--profile-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\profiles",
+            "--state-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\state",
+            "--tree-manifest",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json",
+            "--probe-port",
+            "58750"
+          ],
+          "executablePath": "C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+          "integrationPath": "test-only-real-host",
+          "packageVerification": null,
+          "shell": false,
+          "transport": "camoufox-host-jsonl-v1"
+        },
+        "cookieEvidence": {
+          "cookieAbsentBeforeWrite": false,
+          "cookieInApi": true,
+          "cookieOnPage": true,
+          "cookieValueLooksManaged": true
+        },
+        "pageCookie": true,
+        "cookieSqlite": {
+          "cookieNamePresent": true,
+          "cookieRows": 1,
+          "fileBytes": 524288,
+          "fileExists": true,
+          "hosts": [
+            "127.0.0.1"
+          ],
+          "sqliteReadAttempts": 1,
+          "sqliteReadMaxAttempts": 6,
+          "sqliteRetryDelayMilliseconds": 200,
+          "sqliteRetryExhausted": false,
+          "valuesManaged": true
+        },
+        "close": {
+          "closeOutcome": {
+            "contextClose": {
+              "ctx": {
+                "status": "success"
+              },
+              "page": {
+                "status": "success"
+              }
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            },
+            "status": "success"
+          },
+          "exitFile": true,
+          "exitStatus": 0,
+          "jobActiveProcessCount": 0,
+          "processTreeExited": true,
+          "sigkill": false,
+          "terminateJobObject": false
+        },
+        "stageDiagnostics": [
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 5,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 5952,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 2601,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 473,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 7,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 285,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 299,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "graceful-process-exit",
+            "stage": "close"
+          },
+          {
+            "durationMs": 299,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "not_needed",
+            "phase": "forced-job-cleanup",
+            "stage": "close"
+          },
+          {
+            "durationMs": 310,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "available",
+            "phase": "sqlite-evidence",
+            "stage": "close"
+          },
+          {
+            "durationMs": 363,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          }
+        ],
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host"
+      },
+      {
+        "cycle": 8,
+        "receipt": {
+          "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-8.json",
+          "sha256": "49e4fd127af786b96a2666b69a0d1c9ba1f2c6e7e7d24d9b20a011976888355c",
+          "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-8.sha256",
+          "sidecarSha256": "a17828f7f2fda76f2536f830d3837699d541da3962f7123f108a9d86937ca8d7",
+          "cycle": 8
+        },
+        "profileId": "silo-44444444444444448444444444444444",
+        "sessionId": "c038bcde309d480a85d257376e04ef45",
+        "hostPid": 10436,
+        "managedPids": [
+          11420,
+          15468
+        ],
+        "bootCountBefore": 7,
+        "bootCountAfter": 8,
+        "observedWebsiteDigest": "sha256:e64c7d953832a3c8c7908432d1407caab83146ebdb9a0ddf8ed9ace8be0d3aba",
+        "launchSurface": {
+          "adapterVersion": "m3-wi-test-only-real-host",
+          "arguments": [
+            "-u",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\host_v1.py",
+            "--artifact-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\artifacts",
+            "--profile-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\profiles",
+            "--state-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\state",
+            "--tree-manifest",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json",
+            "--probe-port",
+            "58750"
+          ],
+          "executablePath": "C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+          "integrationPath": "test-only-real-host",
+          "packageVerification": null,
+          "shell": false,
+          "transport": "camoufox-host-jsonl-v1"
+        },
+        "cookieEvidence": {
+          "cookieAbsentBeforeWrite": false,
+          "cookieInApi": true,
+          "cookieOnPage": true,
+          "cookieValueLooksManaged": true
+        },
+        "pageCookie": true,
+        "cookieSqlite": {
+          "cookieNamePresent": true,
+          "cookieRows": 1,
+          "fileBytes": 524288,
+          "fileExists": true,
+          "hosts": [
+            "127.0.0.1"
+          ],
+          "sqliteReadAttempts": 1,
+          "sqliteReadMaxAttempts": 6,
+          "sqliteRetryDelayMilliseconds": 200,
+          "sqliteRetryExhausted": false,
+          "valuesManaged": true
+        },
+        "close": {
+          "closeOutcome": {
+            "contextClose": {
+              "ctx": {
+                "status": "success"
+              },
+              "page": {
+                "status": "success"
+              }
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            },
+            "status": "success"
+          },
+          "exitFile": true,
+          "exitStatus": 0,
+          "jobActiveProcessCount": 0,
+          "processTreeExited": true,
+          "sigkill": false,
+          "terminateJobObject": false
+        },
+        "stageDiagnostics": [
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 6,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 6392,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 2567,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 419,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 12,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 271,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 289,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "graceful-process-exit",
+            "stage": "close"
+          },
+          {
+            "durationMs": 289,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "not_needed",
+            "phase": "forced-job-cleanup",
+            "stage": "close"
+          },
+          {
+            "durationMs": 301,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "available",
+            "phase": "sqlite-evidence",
+            "stage": "close"
+          },
+          {
+            "durationMs": 440,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          }
+        ],
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host"
+      },
+      {
+        "cycle": 9,
+        "receipt": {
+          "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-9.json",
+          "sha256": "a930530cb9ccf3ea569fa2b2567c319c6635edb119d2f9904d57dc4378882fe6",
+          "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-9.sha256",
+          "sidecarSha256": "3d4e9526dd7eedee908c33b0144a6036066e32791194b0e746827cbfefbdc4ad",
+          "cycle": 9
+        },
+        "profileId": "silo-44444444444444448444444444444444",
+        "sessionId": "0fe30214182a4b258ce2214d49d026c4",
+        "hostPid": 13552,
+        "managedPids": [
+          4288,
+          11640
+        ],
+        "bootCountBefore": 8,
+        "bootCountAfter": 9,
+        "observedWebsiteDigest": "sha256:e64c7d953832a3c8c7908432d1407caab83146ebdb9a0ddf8ed9ace8be0d3aba",
+        "launchSurface": {
+          "adapterVersion": "m3-wi-test-only-real-host",
+          "arguments": [
+            "-u",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\host_v1.py",
+            "--artifact-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\artifacts",
+            "--profile-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\profiles",
+            "--state-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\state",
+            "--tree-manifest",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json",
+            "--probe-port",
+            "58750"
+          ],
+          "executablePath": "C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+          "integrationPath": "test-only-real-host",
+          "packageVerification": null,
+          "shell": false,
+          "transport": "camoufox-host-jsonl-v1"
+        },
+        "cookieEvidence": {
+          "cookieAbsentBeforeWrite": false,
+          "cookieInApi": true,
+          "cookieOnPage": true,
+          "cookieValueLooksManaged": true
+        },
+        "pageCookie": true,
+        "cookieSqlite": {
+          "cookieNamePresent": true,
+          "cookieRows": 1,
+          "fileBytes": 524288,
+          "fileExists": true,
+          "hosts": [
+            "127.0.0.1"
+          ],
+          "sqliteReadAttempts": 1,
+          "sqliteReadMaxAttempts": 6,
+          "sqliteRetryDelayMilliseconds": 200,
+          "sqliteRetryExhausted": false,
+          "valuesManaged": true
+        },
+        "close": {
+          "closeOutcome": {
+            "contextClose": {
+              "ctx": {
+                "status": "success"
+              },
+              "page": {
+                "status": "success"
+              }
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            },
+            "status": "success"
+          },
+          "exitFile": true,
+          "exitStatus": 0,
+          "jobActiveProcessCount": 0,
+          "processTreeExited": true,
+          "sigkill": false,
+          "terminateJobObject": false
+        },
+        "stageDiagnostics": [
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 5,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 6227,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 3302,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 510,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 17,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 713,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 732,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "graceful-process-exit",
+            "stage": "close"
+          },
+          {
+            "durationMs": 732,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "not_needed",
+            "phase": "forced-job-cleanup",
+            "stage": "close"
+          },
+          {
+            "durationMs": 755,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "available",
+            "phase": "sqlite-evidence",
+            "stage": "close"
+          },
+          {
+            "durationMs": 1136,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          }
+        ],
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host"
+      },
+      {
+        "cycle": 10,
+        "receipt": {
+          "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-10.json",
+          "sha256": "0fb3ae40699cbe7efb7a42f7117026ab670f6924d3558585f073c489cd90798f",
+          "sidecarRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-cycle-10.sha256",
+          "sidecarSha256": "5de6e556666a4fe1703b7b2ab752013f042bdd69019f761403ae9aadfaf94d80",
+          "cycle": 10
+        },
+        "profileId": "silo-44444444444444448444444444444444",
+        "sessionId": "eec525df243b45ca9239c0883c0d152e",
+        "hostPid": 10944,
+        "managedPids": [
+          15688,
+          16116
+        ],
+        "bootCountBefore": 9,
+        "bootCountAfter": 10,
+        "observedWebsiteDigest": "sha256:e64c7d953832a3c8c7908432d1407caab83146ebdb9a0ddf8ed9ace8be0d3aba",
+        "launchSurface": {
+          "adapterVersion": "m3-wi-test-only-real-host",
+          "arguments": [
+            "-u",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\host_v1.py",
+            "--artifact-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\artifacts",
+            "--profile-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\profiles",
+            "--state-root",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\camoufox-m3-wi-windows-gate\\runs\\run-1786289217-fcb3383a\\r2-reliability-soak\\app\\camoufox\\state",
+            "--tree-manifest",
+            "\\\\?\\C:\\Users\\qiu\\src\\VeriSilo\\tests\\fixtures\\camoufox\\browser-tree-manifest-windows.json",
+            "--probe-port",
+            "58750"
+          ],
+          "executablePath": "C:\\Users\\qiu\\src\\VeriSilo\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+          "integrationPath": "test-only-real-host",
+          "packageVerification": null,
+          "shell": false,
+          "transport": "camoufox-host-jsonl-v1"
+        },
+        "cookieEvidence": {
+          "cookieAbsentBeforeWrite": false,
+          "cookieInApi": true,
+          "cookieOnPage": true,
+          "cookieValueLooksManaged": true
+        },
+        "pageCookie": true,
+        "cookieSqlite": {
+          "cookieNamePresent": true,
+          "cookieRows": 1,
+          "fileBytes": 524288,
+          "fileExists": true,
+          "hosts": [
+            "127.0.0.1"
+          ],
+          "sqliteReadAttempts": 1,
+          "sqliteReadMaxAttempts": 6,
+          "sqliteRetryDelayMilliseconds": 200,
+          "sqliteRetryExhausted": false,
+          "valuesManaged": true
+        },
+        "close": {
+          "closeOutcome": {
+            "contextClose": {
+              "ctx": {
+                "status": "success"
+              },
+              "page": {
+                "status": "success"
+              }
+            },
+            "forcedJobCleanup": {
+              "status": "not_needed"
+            },
+            "gracefulProcessExit": {
+              "status": "success"
+            },
+            "sqliteEvidence": {
+              "status": "available"
+            },
+            "status": "success"
+          },
+          "exitFile": true,
+          "exitStatus": 0,
+          "jobActiveProcessCount": 0,
+          "processTreeExited": true,
+          "sigkill": false,
+          "terminateJobObject": false
+        },
+        "stageDiagnostics": [
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "response write"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 17,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "probe"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 15321,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "browser/context"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 7098,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "page"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 519,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "observed collection"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 17,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "page.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 0,
+            "event": "start",
+            "kind": "camoufox-host-stage",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 717,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "ctx.close",
+            "stage": "close"
+          },
+          {
+            "durationMs": 735,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "success",
+            "phase": "graceful-process-exit",
+            "stage": "close"
+          },
+          {
+            "durationMs": 735,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "not_needed",
+            "phase": "forced-job-cleanup",
+            "stage": "close"
+          },
+          {
+            "durationMs": 766,
+            "event": "result",
+            "kind": "camoufox-host-stage",
+            "outcome": "available",
+            "phase": "sqlite-evidence",
+            "stage": "close"
+          },
+          {
+            "durationMs": 1034,
+            "event": "success",
+            "kind": "camoufox-host-stage",
+            "stage": "close"
+          }
+        ],
+        "verified": false,
+        "evidenceClass": "observed-on-this-windows-host"
+      }
+    ]
+  },
+  "validation": {
+    "commands": [
+      {
+        "label": "M3-WI-R2 unique real ten-cycle soak (completed before finalization)",
+        "exitCode": 0,
+        "counts": {
+          "realCycles": 10
+        },
+        "outputSha256": "62b61d57b0228649e0e1d402e3eeff3a96fda1aef201bda441f573cebeadf873"
+      },
+      {
+        "label": "pnpm engine:verify",
+        "exitCode": 0,
+        "counts": {},
+        "outputSha256": "c2393e11edbe36d3ad4dc8b85eaffacadb7878860d7dd3f53306eadc4994d1ab"
+      },
+      {
+        "label": "Host SQLite normal/verbatim read-only regression",
+        "exitCode": 0,
+        "counts": {},
+        "outputSha256": "3bf8701d3182341bc48fe31e7e4fbaee2f96946c2f4c7c240ad913ccb60cd3c7"
+      },
+      {
+        "label": "Host fake-context typed close/ownership regression",
+        "exitCode": 0,
+        "counts": {},
+        "outputSha256": "8117604423423deed90c275cff1b34a0e576b4d4e96761c1ed373f9e3266600b"
+      },
+      {
+        "label": "Windows Host fresh empty-cache 10/10 (preserved receipt)",
+        "exitCode": 0,
+        "counts": {
+          "windowsHostTests": 10
+        },
+        "outputSha256": "49ffa038a28679b07066cbc1131cff8f5c7ae4dd11a08c783a56f088383429aa"
+      },
+      {
+        "label": "pnpm check",
+        "exitCode": 0,
+        "counts": {},
+        "outputSha256": "21e2041a0379a49beb4c40bb031e850bc74c5ed89c70389045d6d4e2a2db8cea"
+      },
+      {
+        "label": "pnpm test",
+        "exitCode": 0,
+        "counts": {
+          "jsTests": 150
+        },
+        "outputSha256": "80b99bc5806ba9c6a7cb802aa1b004bcfdd92c053f0566583003dbc455d38837"
+      },
+      {
+        "label": "pnpm build",
+        "exitCode": 0,
+        "counts": {},
+        "outputSha256": "efb027bc44fd77736adf6740ba330bc2ca77cf5e9863e175b32625f6be778631"
+      },
+      {
+        "label": "cargo fmt --check",
+        "exitCode": 0,
+        "counts": {},
+        "outputSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "cargo test --locked",
+        "exitCode": 0,
+        "counts": {
+          "passed": 185,
+          "failed": 0,
+          "ignored": 3
+        },
+        "outputSha256": "2330f337608f3a0ef0c1d970b801c06a405bbadd4abb0b7bda3e986b85901268"
+      },
+      {
+        "label": "cargo clippy --locked -D warnings",
+        "exitCode": 0,
+        "counts": {},
+        "outputSha256": "c233b69c85159f775af8791a1449ae968c0b20b465c62c47eeb99697f8b92e65"
+      },
+      {
+        "label": "Artifact 25/25",
+        "exitCode": 0,
+        "counts": {
+          "pythonTests": 25
+        },
+        "outputSha256": "defd91a02257288a64c3455e57c36bfc014b3674c08f33fc163f812677b69c33"
+      },
+      {
+        "label": "R2 schema JSON validation",
+        "exitCode": 0,
+        "counts": {},
+        "outputSha256": "4000abdec0832eee03620f57fe90ea27255506c7a9a69222a40a44bbe23c4a17"
+      }
+    ],
+    "sqlite": {
+      "cases": {
+        "nonOperationalError": {
+          "cookieNamePresent": null,
+          "errorRecorded": true,
+          "readAttempts": 1,
+          "retryExhausted": false,
+          "retrySleeps": 0
+        },
+        "operationalErrorExhausted": {
+          "cookieNamePresent": null,
+          "errorRecorded": true,
+          "readAttempts": 6,
+          "retryExhausted": true,
+          "retrySleeps": 5
+        },
+        "operationalErrorThenSuccess": {
+          "cookieNamePresent": true,
+          "readAttempts": 3,
+          "retryExhausted": false,
+          "retrySleeps": 2
+        }
+      },
+      "configuration": {
+        "delayMilliseconds": 200,
+        "exhaustedRemainsUnavailable": true,
+        "maxAttempts": 6,
+        "maxCumulativeDelayMilliseconds": 1000,
+        "operationalErrorOnly": true,
+        "readOnly": true
+      },
+      "pathCompatibility": {
+        "fileBytesUnchanged": true,
+        "fileSha256After": "c52766af8db96ed7355f3d219302a03238497d97ae9888207c4ea56466047f33",
+        "fileSha256Before": "c52766af8db96ed7355f3d219302a03238497d97ae9888207c4ea56466047f33",
+        "normalAndVerbatimReadSameCookie": true,
+        "normalAndVerbatimUriEqual": true,
+        "readOnly": true,
+        "uriForms": [
+          "C:\\",
+          "\\\\?\\C:\\"
+        ]
+      },
+      "status": "passed",
+      "outputSha256": "3bf8701d3182341bc48fe31e7e4fbaee2f96946c2f4c7c240ad913ccb60cd3c7"
+    },
+    "fakeClose": {
+      "status": "passed",
+      "caseCount": 4,
+      "directOutcomes": {
+        "exception": {
+          "exceptionType": "RuntimeError",
+          "status": "exception"
+        },
+        "success": {
+          "status": "success"
+        },
+        "timeout": {
+          "status": "timeout"
+        }
+      },
+      "ownershipCases": {
+        "normal": {
+          "state": "exited",
+          "released": true,
+          "quarantined": false,
+          "closeStatus": "success"
+        },
+        "timeout": {
+          "state": "failed",
+          "released": true,
+          "quarantined": false,
+          "closeStatus": "failed"
+        },
+        "exception": {
+          "state": "failed",
+          "released": true,
+          "quarantined": false,
+          "closeStatus": "failed"
+        },
+        "job-not-exited": {
+          "state": "quarantined",
+          "released": false,
+          "quarantined": true,
+          "closeStatus": "failed"
+        }
+      },
+      "secretFree": true,
+      "outputSha256": "8117604423423deed90c275cff1b34a0e576b4d4e96761c1ed373f9e3266600b"
+    },
+    "windowsHost": {
+      "status": "passed",
+      "testCount": 10,
+      "passed": 10,
+      "emptyCacheFirstHelloJson": true,
+      "cacheDiagnosticStderrSecretFree": true,
+      "stageDiagnosticResponseWriteOnStderr": true,
+      "outputSha256": "49ffa038a28679b07066cbc1131cff8f5c7ae4dd11a08c783a56f088383429aa",
+      "summaryRelativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/summary-1786290722.json",
+      "summarySha256": "25271ded816fab06654184a054e01fdf04d9f200da4692dbf27b3aece7f13a5e",
+      "summarySidecarRelativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/summary-1786290722.sha256",
+      "summarySidecarSha256": "88e02c59717b14c0ea546302596fb42665858cf09f6c1c75e83779859c9a2326",
+      "persistenceCookieSqlite": {
+        "cookieNamePresent": true,
+        "valuesManaged": true,
+        "readAttempts": 1,
+        "maxAttempts": 6,
+        "delayMilliseconds": 200,
+        "retryExhausted": false
+      },
+      "reports": [
+        {
+          "name": "eof-force-exit",
+          "runId": "run-1786290641-7004a6f9",
+          "relativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/run-1786290641-7004a6f9/report.json",
+          "sha256": "68e89840af28d786dad2f3345c9401d142ab3af49a8a0638048342387e98b50d"
+        },
+        {
+          "name": "lock-crash",
+          "runId": "run-1786290583-e830a54c",
+          "relativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/run-1786290583-e830a54c/report.json",
+          "sha256": "a222fbb798ef2a436999999da7c4af195e0068805f1cc40b0caeb15da7e04b08"
+        },
+        {
+          "name": "mount-point",
+          "runId": "run-1786290719-5b793504",
+          "relativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/run-1786290719-5b793504/report.json",
+          "sha256": "e2deae0474ddba283465ecb2f49e3d2ea5fda8bcb19d7295e4aeb764cfab812d"
+        },
+        {
+          "name": "persistence",
+          "runId": "run-1786290547-0c04e8e9",
+          "relativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/run-1786290547-0c04e8e9/report.json",
+          "sha256": "3f757bbb5a7ee4970586bff1a2b55134cd99a042c2753595aeb8a954f71669aa"
+        },
+        {
+          "name": "pid-reuse",
+          "runId": "run-1786290722-56e56384",
+          "relativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/run-1786290722-56e56384/report.json",
+          "sha256": "208f1e0f0b33d51dfe753094ed1b936a79d0875c4306595e742c16f9f7a2dfce"
+        },
+        {
+          "name": "protocol",
+          "runId": "run-1786290544-96fadab3",
+          "relativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/run-1786290544-96fadab3/report.json",
+          "sha256": "5742a8ea05cefd32e7e8573e97acb54db8c231f93df9770c253ab35b4d6d7d52"
+        },
+        {
+          "name": "quarantine",
+          "runId": "run-1786290638-7d27a97f",
+          "relativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/run-1786290638-7d27a97f/report.json",
+          "sha256": "c200812b6ddf0cc4c045a5672a565fffcf1d7f307dd1ecbc211fb2f4479a1c2a"
+        },
+        {
+          "name": "reparse",
+          "runId": "run-1786290715-982e8936",
+          "relativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/run-1786290715-982e8936/report.json",
+          "sha256": "c331d1b83bdc246d2f4f7d576101e7bab93fae0e8ce85f1c497d968ac3f58e16"
+        },
+        {
+          "name": "tamper",
+          "runId": "run-1786290713-b1f0100f",
+          "relativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/run-1786290713-b1f0100f/report.json",
+          "sha256": "c35c93a295d631e3fd8b3f2b6299ac0a66ff022c4969533557e94fd82325843e"
+        },
+        {
+          "name": "tree-integrity",
+          "runId": "run-1786290722-f4594537",
+          "relativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/run-1786290722-f4594537/report.json",
+          "sha256": "0607cd86f98354577e18e234a88720e883ebef919967f027717f8914088a82fa"
+        }
+      ],
+      "receiptCommit": "5aaed6837363e01775bedc75df8cb44c201cbe4b",
+      "receiptTree": "bae14481954144fccbc8b64703e4ec1c5d1cd7f4",
+      "reusedFromPriorCleanReceipt": true,
+      "emptyCacheRelativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/empty-cache",
+      "emptyCacheInitiallyAbsent": true,
+      "cacheSeededFromVerifiedArchive": true
+    },
+    "schema": {
+      "schemasParsed": 2,
+      "status": "passed"
+    }
+  },
+  "security": {
+    "secretMatches": [],
+    "targetProcessesBefore": [],
+    "targetProcessesAfter": [],
+    "aliveOwnedPids": [],
+    "directOnly": true,
+    "productionPackageVerified": false
+  },
+  "failureHistory": {
+    "startingGateCommit": "9d866b5641f7eb2ebd287a15112e8735b8e1d2ae",
+    "priorMainBrainFailedGatePreserved": true,
+    "repeatedCtxCloseTimeoutEvidence": [
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786283095-47e54391/persistence/app/camoufox/state/host-stderr.log",
+        "sha256": "575926d9cfc80100e680aa662cbab114267323fe8d828897c222e87135858727",
+        "timeoutOccurrences": 1
+      },
+      {
+        "relativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786286610-9d866b56/r1-reliability-soak/app/camoufox/state/host-stderr.log",
+        "sha256": "6f4d9f0178a1bbf32e39faf307e1bec5fafa20aa498b23e2cd177dda2e5b8bcc",
+        "timeoutOccurrences": 1
+      }
+    ],
+    "m3WiFullGateRerun": false,
+    "selectiveRetry": false,
+    "singleTenCycleSoak": true,
+    "postSoakSetupFailure": {
+      "runId": "run-1786289175-03eaf231",
+      "status": "preserved-zero-cycle-runner-setup-failure",
+      "realBrowserStarted": false
+    },
+    "r2HostMatrixAttempts": [
+      {
+        "rootRelativePath": "artifacts/r2-host-regression-fcb3383a",
+        "summaryRelativePath": "artifacts/r2-host-regression-fcb3383a/runs/summary-1786290227.json",
+        "summarySha256": "463aa841099580d44b6628b98b89040feb5fd663e543e2ea201077ce83407f80",
+        "status": "failed",
+        "failedTests": [
+          "lock-crash"
+        ],
+        "testCount": 10
+      },
+      {
+        "rootRelativePath": "artifacts/r2-host-regression-fcb3383a-1786291166-f29349c7",
+        "summaryRelativePath": "artifacts/r2-host-regression-fcb3383a-1786291166-f29349c7/runs/summary-1786291452.json",
+        "summarySha256": "c67fae39991a59abf072f0f8ccb33f670ef09a71a32eac793a9c1928c9f42469",
+        "status": "failed",
+        "failedTests": [
+          "persistence"
+        ],
+        "testCount": 10
+      },
+      {
+        "rootRelativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b",
+        "summaryRelativePath": "artifacts/r2-host-regression-fcb3383a-201cbe4b/runs/summary-1786290722.json",
+        "summarySha256": "25271ded816fab06654184a054e01fdf04d9f200da4692dbf27b3aece7f13a5e",
+        "status": "passed",
+        "failedTests": [],
+        "testCount": 10
+      },
+      {
+        "rootRelativePath": "artifacts/r2-host-regression-fcb3383a-b0730f96",
+        "summaryRelativePath": "artifacts/r2-host-regression-fcb3383a-b0730f96/runs/summary-1786291034.json",
+        "summarySha256": "8c057acaa0d067738d2ad351897a2fa8f135eb0b4b03ec840112ec71980de0e4",
+        "status": "failed",
+        "failedTests": [
+          "lock-crash"
+        ],
+        "testCount": 10
+      },
+      {
+        "rootRelativePath": "artifacts/r2-host-regression-fcb3383a-eb2b3d20",
+        "summaryRelativePath": "artifacts/r2-host-regression-fcb3383a-eb2b3d20/runs/summary-1786290515.json",
+        "summarySha256": "d6c164ddd39701aeb9e3881de8201026bd0b7a2f68d098623f1ee5dba1b3c8e7",
+        "status": "failed",
+        "failedTests": [
+          "lock-crash"
+        ],
+        "testCount": 10
+      },
+      {
+        "rootRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-final-windows-host-regression",
+        "summaryRelativePath": "artifacts/camoufox-m3-wi-windows-gate/runs/run-1786289217-fcb3383a/r2-final-windows-host-regression/runs/summary-1786289912.json",
+        "summarySha256": "5c55c8a9143920115847bbad8c3da8d992779187dbd0bbb262393eac0da8f296",
+        "status": "failed",
+        "failedTests": [
+          "eof-force-exit",
+          "lock-crash",
+          "mount-point",
+          "persistence",
+          "protocol",
+          "quarantine",
+          "reparse",
+          "tamper"
+        ],
+        "testCount": 10
+      }
+    ]
+  },
+  "boundaries": {
+    "directOnly": true,
+    "proxyInjection": false,
+    "uiChanged": false,
+    "installerChanged": false,
+    "signerChanged": false,
+    "controlledChromiumChanged": false,
+    "realPackageVerified": false
+  }
+}

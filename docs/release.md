@@ -1,5 +1,89 @@
 # Release gates
 
+## Managed Browser v0.1.0-rc1 (bounded local Windows profile)
+
+The managed-browser RC1 is a separate, local Windows x64 release profile. Its
+only top-level executables are `verisilo.exe` and the exact current-user NSIS
+installer `VeriSilo-Managed-Browser-v0.1.0-rc1-x64-setup.exe`. The installer is
+built with `--no-sign` and must carry an explicit `authenticode-status.json`
+showing `Unsigned`/`unsigned`; outer Authenticode is not silently inferred.
+
+The Formal-v3 production package is built and internally CMS-signed under
+`artifacts/build/managed-browser/`. Its public certificate SHA-256 pin is
+embedded in the Desktop verifier; the encrypted private-key PFX remains outside
+the repository. The release consumes that completed output directory from
+`scripts/build-camoufox-host-package.py`. The package builder's release check
+requires a non-empty detached single-signer SHA-256 CMS signature, exact
+Host/browser tree hashes, and the pinned Formal-v3 binding before the package is
+copied into the Tauri resource staging directory. The package is embedded under
+`managed-browser/engine-package/` and is copied into the final release as
+`engine-package/**`; Host, browser, and Python runtime files are not staged as
+loose top-level release files.
+
+Use a Windows PowerShell session with the signed package directory:
+
+```text
+uv sync --locked --project apps/camoufox-host --group build
+python scripts/build-camoufox-host-package.py --check <engine-package> --require-signed
+$env:VERISILO_ENGINE_SIGNER_SHA256 = '<lowercase DER certificate SHA-256>'
+pwsh -NoProfile -File scripts/build-managed-browser-release.ps1 -EnginePackage <engine-package>
+```
+
+The locked build group pins PyInstaller `6.22.2`; the package builder also
+checks that version and explicitly collects Camoufox, Playwright, BrowserForge,
+Apify fingerprint datapoints, language-tags and tzdata data plus their package
+metadata for the one-folder Host output. The builder then executes the frozen
+Host hello and one Direct Artifact provision from the staged package.
+
+The orchestrator writes exactly `artifacts/release/managed-browser/v0.1.0-rc1`,
+then generates the managed-browser Python/Camoufox/Firefox SBOM and license
+evidence, `SHA256SUMS`, `provenance.json`, `authenticode-status.json`, and the
+pending `windows-acceptance-report.json`/`.md`, `README.txt`, and
+`engine-package/**` files, then runs
+`scripts/verify-managed-browser-release.mjs`. The acceptance report records
+the required preservation policy for `%LOCALAPPDATA%\io.verisilo.app`. It
+remains `Pending` until a clean Windows 11 runtime run supplies external
+evidence; the build does not claim a signed outer installer, runtime/browser
+acceptance, or public promotion. Runtime confirmation belongs to the external
+acceptance run.
+
+This profile deliberately excludes Hyper-V/VHDX and environment resources,
+Companion extension files, Native Host binaries/registrations, installer
+hooks, updater/hosting infrastructure, and portable packaging. The repository
+never stores an engine signer private key. A minimal native certificate
+bootstrap procedure is available at
+`scripts/new-camoufox-engine-signer.ps1`; it writes an encrypted PFX and
+public certificate metadata outside the repository after a secure password
+prompt.
+
+For a local signing setup, run (from PowerShell) with destinations outside
+the checkout:
+
+```text
+pwsh -NoProfile -File scripts/new-camoufox-engine-signer.ps1 `
+  -PfxPath "$env:USERPROFILE\.verisilo-signing\engine-package-rc1.pfx" `
+  -MetadataPath "$env:USERPROFILE\.verisilo-signing\engine-package-rc1.json"
+```
+
+The bootstrap procedure creates a CurrentUser certificate
+with RSA-3072, the Code Signing EKU, and a ten-year validity window, then
+writes the public certificate metadata outside the repository. The PFX is
+ACL-protected for the current user. A replacement signer must not be pinned or
+claimed before its public metadata exists.
+The bootstrap password is entered with `Read-Host -AsSecureString`; it is never
+passed on a command line, placed in an environment variable, or recorded. The
+separate package signing helper also prompts with `Read-Host -AsSecureString`
+when run interactively. Build automation may instead name a password environment
+value in a protected local signing session; the helper never receives the value
+as an argument or writes it to logs. Clear any temporary automation secret after
+the signing process and publish only the DER certificate SHA-256 pin/public
+metadata.
+
+Keep one offline backup of the encrypted PFX and its public metadata, with the
+password stored separately. Losing that key requires a new signer pin and a new
+Desktop build; never copy the PFX into Git, release artifacts, logs, or the
+installer.
+
 ## Windows release candidates
 
 The manual `Windows release candidate (unsigned)` workflow remains a deliberately
@@ -270,9 +354,10 @@ therefore never become a “signed” status.
 
 ## Vault compatibility release gate
 
-Schema 7 is the only write format. Schemas 1–6 are supported import formats and
-must continue to pass the real Argon2id/AES-256-GCM fixture matrix before a
-release candidate is promoted.
+Schema 9 is the only write format. Schemas 1–8 are supported import formats;
+unlock and restore migrate each of them through schema 9. They must continue
+to pass the real Argon2id/AES-256-GCM fixture matrix before a release candidate
+is promoted.
 
 | Source schema | State that must survive migration                                            | Safe default / rejection boundary                                                          |
 | ------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -282,15 +367,17 @@ release candidate is promoted.
 | 4             | Schema 3 plus sanitized network inbox history                                | Missing runtime binding remains nil/unbound and cannot become current `verified` evidence. |
 | 5             | Schema 4 plus endpoint, pairing/replay ledger, binding, and operation result | Deletion proof and orphan receipts default absent/empty.                                   |
 | 6             | Schema 5 plus authenticated deletion proof                                   | Orphan receipts default empty.                                                             |
-| 7             | All current fields, including force-detach orphan receipts                   | Current schema; unknown or missing required fields are corruption, not migration.          |
+| 7             | Schema 6 plus force-detach orphan receipts                                   | Later Silo fields default absent; unknown or missing required fields are corruption.        |
+| 8             | Schema 7 plus execution-target and identity-lock fields                       | Legacy migration normalizes the target to local and locks identity at creation.             |
+| 9             | All current fields, including identity artifacts and orphan receipts          | Current write schema; unknown or missing required fields are corruption, not migration.     |
 
 The gate must also reject unknown envelope/payload/Silo fields, unsupported
 envelope or payload versions, a lower schema number carrying later-schema
 fields, metadata/ciphertext tampering, and the wrong passphrase without putting
 sensitive fixture values in errors. For every source schema, verify atomic
-rewrite to schema 7 and stable reopen. Separately verify a legacy encrypted
+rewrite to schema 9 and stable reopen. Separately verify a legacy encrypted
 backup through restore-and-migrate, passphrase rotation after migration, and a
-schema 7 backup/restore containing an orphan receipt. This is local persistence
+schema 9 backup/restore containing an orphan receipt. This is local persistence
 evidence only; it does not satisfy the Windows disk-failure, permissions,
 upgrade, or installer-retained-data matrix.
 
@@ -314,7 +401,7 @@ NSIS behavior, a real Chrome/Edge network path, or Windows 10/11 acceptance.
 
 - [ ] Verify `pnpm check`, `pnpm test`, `pnpm build`, `pnpm extension:verify`, `pnpm native-host:verify`, `pnpm engine:verify`, `pnpm environment:verify`, `pnpm remote-agent:verify`, and `pnpm release:self-test`.
 - [ ] Verify `pnpm desktop-core:verify` from the locked offline cache and review both Ubuntu and Windows desktop-core CI results; record the exact passed-test count for each target without treating either as Tauri or real-browser evidence.
-- [ ] Run the Vault schema 1–6 unlock/restore migration matrix plus schema 7 rotation/backup/reopen tests; inspect the plaintext envelopes to confirm that no Silo name, seed, credential, remote application credential, or orphan-receipt detail appears.
+- [ ] Run the Vault schema 1–8 unlock/restore migration matrix plus schema 9 rotation/backup/reopen tests; inspect the plaintext envelopes to confirm that no Silo name, seed, credential, remote application credential, or orphan-receipt detail appears.
 - [ ] Build the Rust desktop and Native Host using a pinned stable Rust toolchain on Windows 10 and Windows 11 x64.
 - [ ] Run the local session fixture in two Silos: log into A, close it, open B, and confirm B has no A cookie or LocalStorage; reopen A and confirm its state persists.
 - [ ] Confirm the user's default Chrome and Edge profiles were neither selected nor modified.

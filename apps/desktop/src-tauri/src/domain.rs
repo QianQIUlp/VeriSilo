@@ -18,7 +18,7 @@ use crate::engine::{
     SiloEngineConfig, SiteFallbackReceipt,
 };
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -46,7 +46,7 @@ impl BrowserKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserDescriptor {
     pub kind: BrowserKind,
@@ -296,41 +296,22 @@ pub fn trusted_windows_system_tool(tool: WindowsSystemTool) -> Result<PathBuf, D
     Ok(candidate)
 }
 
+/// Console-subsystem children (PowerShell, wsl.exe, browser `--version`)
+/// otherwise flash a visible window. Keep redirected stdio; hide the window.
 #[cfg(target_os = "windows")]
-fn trusted_windows_powershell_security_module(
-    powershell: &Path,
-) -> Result<(PathBuf, PathBuf), DomainError> {
-    use std::os::windows::fs::MetadataExt;
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
-    let powershell_root = powershell.parent().ok_or_else(|| {
-        DomainError::InvalidSilo(
-            "Windows PowerShell has no trusted installation directory.".to_owned(),
-        )
-    })?;
-    let module_root = powershell_root.join("Modules");
-    let module_directory = module_root.join("Microsoft.PowerShell.Security");
-    let module_manifest = module_directory.join("Microsoft.PowerShell.Security.psd1");
-    let canonical_root = fs::canonicalize(powershell_root)?;
-    let canonical_manifest = fs::canonicalize(&module_manifest)?;
-    if !module_root.is_dir()
-        || !module_directory.is_dir()
-        || !canonical_manifest.starts_with(&canonical_root)
-        || !canonical_manifest.is_file()
-        || [&module_root, &module_directory, &module_manifest]
-            .iter()
-            .any(|path| {
-                fs::symlink_metadata(path)
-                    .map(|metadata| metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
-                    .unwrap_or(true)
-            })
+pub(crate) fn hide_windows_console(command: &mut Command) {
+    #[cfg(target_os = "windows")]
     {
-        return Err(DomainError::InvalidSilo(
-            "The fixed Windows PowerShell security module is missing, redirected, or outside its trusted installation directory."
-                .to_owned(),
-        ));
+        use std::os::windows::process::CommandExt;
+
+        command.creation_flags(CREATE_NO_WINDOW);
     }
-    Ok((module_root, module_manifest))
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = command;
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -565,7 +546,10 @@ pub struct Silo {
     pub schema_version: u32,
     pub name: String,
     pub color: String,
-    pub browser: BrowserDescriptor,
+    /// Standard and WSL Silos carry a browser descriptor. Managed Camoufox
+    /// Silos deliberately keep this null: the signed package is the browser
+    /// authority and there is no user-selected stock executable to verify.
+    pub browser: Option<BrowserDescriptor>,
     #[serde(default)]
     pub execution_target: SiloExecutionTarget,
     pub profile_directory: String,
@@ -595,6 +579,297 @@ pub struct CreateSiloInput {
     pub proxy_credentials: Option<ProxyCredentialsInput>,
     #[serde(default)]
     pub mihomo_controller_secret: Option<MihomoControllerSecretInput>,
+}
+
+/// Locale starting points for a managed identity. The Host still owns the
+/// resolved Artifact; these names only pick language/timezone defaults.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ManagedIdentityPreset {
+    BalancedEnUs,
+    BalancedZhCn,
+    BalancedDeDe,
+    MatchFixedProxy,
+}
+
+impl ManagedIdentityPreset {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::BalancedEnUs => "balanced-en-us",
+            Self::BalancedZhCn => "balanced-zh-cn",
+            Self::BalancedDeDe => "balanced-de-de",
+            Self::MatchFixedProxy => "match-fixed-proxy",
+        }
+    }
+
+    pub fn requires_proxy(self) -> bool {
+        matches!(self, Self::MatchFixedProxy)
+    }
+
+    pub fn locale(self) -> Option<&'static str> {
+        match self {
+            Self::BalancedEnUs => Some("en-US"),
+            Self::BalancedZhCn => Some("zh-CN"),
+            Self::BalancedDeDe => Some("de-DE"),
+            Self::MatchFixedProxy => None,
+        }
+    }
+
+    pub fn from_locale(locale: &str) -> Self {
+        match locale {
+            "zh-CN" => Self::BalancedZhCn,
+            "de-DE" => Self::BalancedDeDe,
+            _ => Self::BalancedEnUs,
+        }
+    }
+}
+
+fn default_managed_screen_width() -> u32 {
+    1280
+}
+
+fn default_managed_screen_height() -> u32 {
+    800
+}
+
+fn is_supported_gpu_preset(gpu: &str) -> bool {
+    matches!(
+        gpu,
+        "auto"
+            | "nvidia-rtx-3060"
+            | "nvidia-rtx-3070"
+            | "nvidia-rtx-4060"
+            | "nvidia-rtx-4070"
+            | "nvidia-rtx-4080"
+            | "nvidia-gtx-1660"
+            | "amd-rx-6600"
+            | "amd-rx-7600"
+            | "amd-rx-7800xt"
+            | "intel-uhd-770"
+    )
+}
+
+fn is_supported_managed_timezone(timezone: &str) -> bool {
+    matches!(
+        timezone,
+        "Asia/Shanghai"
+            | "Asia/Hong_Kong"
+            | "Asia/Tokyo"
+            | "Asia/Singapore"
+            | "Europe/London"
+            | "Europe/Berlin"
+            | "Europe/Paris"
+            | "America/New_York"
+            | "America/Chicago"
+            | "America/Los_Angeles"
+            | "UTC"
+    )
+}
+
+/// Website-visible identity facts projected from a stored Artifact.
+/// Seeds, font lists, and raw Artifact JSON stay in the Vault.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedIdentityPreview {
+    pub user_agent: String,
+    pub language: String,
+    pub timezone: String,
+    pub screen_width: u32,
+    pub screen_height: u32,
+    pub hardware_concurrency: u32,
+    pub webgl_vendor: String,
+    pub webgl_renderer: String,
+    pub platform: String,
+    pub country_code: Option<String>,
+    pub public_address: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub network_bound: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ManagedIdentityIntent {
+    pub identity_preset: ManagedIdentityPreset,
+    #[serde(default)]
+    pub follow_network_exit: bool,
+    #[serde(default = "default_managed_screen_width")]
+    pub screen_width: u32,
+    #[serde(default = "default_managed_screen_height")]
+    pub screen_height: u32,
+    #[serde(default)]
+    pub hardware_concurrency: Option<u32>,
+    #[serde(default)]
+    pub gpu_preset: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+}
+
+impl ManagedIdentityIntent {
+    pub fn validate(&self, has_proxy: bool) -> Result<(), DomainError> {
+        if !(800..=7680).contains(&self.screen_width) || !(600..=4320).contains(&self.screen_height)
+        {
+            return Err(DomainError::InvalidNetwork(
+                "Managed identity screen size is out of range.".to_owned(),
+            ));
+        }
+        if let Some(cores) = self.hardware_concurrency {
+            if ![2, 4, 6, 8, 12, 16].contains(&cores) {
+                return Err(DomainError::InvalidNetwork(
+                    "Managed identity hardware concurrency is not a supported core count."
+                        .to_owned(),
+                ));
+            }
+        }
+        if let Some(gpu) = self.gpu_preset.as_deref() {
+            if !is_supported_gpu_preset(gpu) {
+                return Err(DomainError::InvalidNetwork(
+                    "Managed identity GPU profile is not supported.".to_owned(),
+                ));
+            }
+        }
+        if let Some(timezone) = self.timezone.as_deref() {
+            if !is_supported_managed_timezone(timezone) {
+                return Err(DomainError::InvalidNetwork(
+                    "Managed identity timezone is not supported.".to_owned(),
+                ));
+            }
+        }
+        if self.identity_preset.requires_proxy() && !has_proxy {
+            return Err(DomainError::InvalidNetwork(
+                "跟随出口的身份需要配置必须代理。".to_owned(),
+            ));
+        }
+        if self.follow_network_exit && !has_proxy {
+            return Err(DomainError::InvalidNetwork(
+                "跟随出口的身份需要配置必须代理。".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn follow_network_exit(&self, has_proxy: bool) -> bool {
+        has_proxy
+            && (self.follow_network_exit || self.identity_preset.requires_proxy())
+    }
+
+    pub fn host_preset(&self) -> ManagedIdentityPreset {
+        if self.identity_preset.requires_proxy() {
+            ManagedIdentityPreset::MatchFixedProxy
+        } else {
+            self.identity_preset
+        }
+    }
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateManagedSiloInput {
+    pub name: String,
+    pub color: String,
+    #[serde(rename = "identityPreset")]
+    pub identity_preset: ManagedIdentityPreset,
+    #[serde(default)]
+    pub follow_network_exit: bool,
+    #[serde(default = "default_managed_screen_width")]
+    pub screen_width: u32,
+    #[serde(default = "default_managed_screen_height")]
+    pub screen_height: u32,
+    #[serde(default)]
+    pub hardware_concurrency: Option<u32>,
+    #[serde(default)]
+    pub gpu_preset: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    pub network_profile: NetworkProfile,
+    #[serde(default)]
+    pub proxy_credentials: Option<ProxyCredentialsInput>,
+    #[serde(default)]
+    pub mihomo_controller_secret: Option<MihomoControllerSecretInput>,
+}
+
+impl CreateManagedSiloInput {
+    pub fn identity_intent(&self) -> ManagedIdentityIntent {
+        ManagedIdentityIntent {
+            identity_preset: self.identity_preset,
+            follow_network_exit: self.follow_network_exit,
+            screen_width: self.screen_width,
+            screen_height: self.screen_height,
+            hardware_concurrency: self.hardware_concurrency,
+            gpu_preset: self.gpu_preset.clone(),
+            timezone: self.timezone.clone(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), DomainError> {
+        validate_silo_appearance(&self.name, &self.color)?;
+        validate_network_replacement(
+            &self.network_profile,
+            self.proxy_credentials.as_ref(),
+            self.mihomo_controller_secret.as_ref(),
+        )?;
+        let has_proxy = matches!(
+            self.network_profile,
+            NetworkProfile::FixedProxy {
+                proxy_required: true,
+                scheme: ProxyScheme::Http | ProxyScheme::Socks5,
+                ..
+            }
+        );
+        let direct = matches!(
+            self.network_profile,
+            NetworkProfile::Direct {
+                proxy_required: false
+            }
+        );
+        if !direct && !has_proxy {
+            return Err(DomainError::InvalidNetwork(
+                "Managed identity browsers accept Direct or a required HTTP/SOCKS5 proxy, including a local Clash/Mihomo binding.".to_owned(),
+            ));
+        }
+        if direct && (self.proxy_credentials.is_some() || self.mihomo_controller_secret.is_some())
+        {
+            return Err(DomainError::InvalidNetwork(
+                "Direct managed identity browsers cannot carry proxy credentials.".to_owned(),
+            ));
+        }
+        self.identity_intent().validate(has_proxy)?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateManagedIdentityInput {
+    pub identity_preset: ManagedIdentityPreset,
+    #[serde(default)]
+    pub follow_network_exit: bool,
+    #[serde(default = "default_managed_screen_width")]
+    pub screen_width: u32,
+    #[serde(default = "default_managed_screen_height")]
+    pub screen_height: u32,
+    #[serde(default)]
+    pub hardware_concurrency: Option<u32>,
+    #[serde(default)]
+    pub gpu_preset: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
+    pub rotate_seed: bool,
+}
+
+impl UpdateManagedIdentityInput {
+    pub fn identity_intent(&self) -> ManagedIdentityIntent {
+        ManagedIdentityIntent {
+            identity_preset: self.identity_preset,
+            follow_network_exit: self.follow_network_exit,
+            screen_width: self.screen_width,
+            screen_height: self.screen_height,
+            hardware_concurrency: self.hardware_concurrency,
+            gpu_preset: self.gpu_preset.clone(),
+            timezone: self.timezone.clone(),
+        }
+    }
 }
 
 /// Editable Silo metadata. Identity-bearing fields intentionally do not appear
@@ -653,6 +928,12 @@ impl CreateSiloInput {
     pub fn validate(&self) -> Result<(), DomainError> {
         validate_silo_appearance(&self.name, &self.color)?;
         self.execution_target.validate()?;
+        if !self.engine.is_stock() {
+            return Err(DomainError::InvalidEngine(
+                "Managed browser Silos must be created through the managed-browser command."
+                    .to_owned(),
+            ));
+        }
         if self.execution_target.is_local() {
             validate_browser_executable(&self.executable_path)?;
         } else if !self.engine.is_stock() {
@@ -673,6 +954,10 @@ impl CreateSiloInput {
 impl UpdateSiloInput {
     pub fn validate(&self) -> Result<(), DomainError> {
         validate_silo_metadata(&self.name, &self.color, &self.executable_path)
+    }
+
+    pub fn validate_managed_metadata(&self) -> Result<(), DomainError> {
+        validate_silo_appearance(&self.name, &self.color)
     }
 
     pub fn validate_for_execution_target(
@@ -890,6 +1175,26 @@ impl NetworkProfile {
 }
 
 impl Silo {
+    pub fn adapter_id(&self) -> EngineAdapterId {
+        match &self.engine {
+            SiloEngineConfig::Stock => self
+                .browser
+                .as_ref()
+                .map(|browser| self.engine.adapter_id(&browser.kind))
+                .expect("validated stock Silo must carry a browser descriptor"),
+            _ => self.engine.adapter_id(&BrowserKind::Chrome),
+        }
+    }
+
+    pub fn browser_descriptor(&self) -> Result<&BrowserDescriptor, DomainError> {
+        self.browser.as_ref().ok_or_else(|| {
+            DomainError::InvalidSilo(
+                "This Silo has no stock browser descriptor; the managed engine owns its browser."
+                    .to_owned(),
+            )
+        })
+    }
+
     pub fn engine_profile_directory(&self) -> PathBuf {
         self.engine
             .profile_directory(Path::new(&self.profile_directory))
@@ -946,12 +1251,29 @@ pub struct RuntimeActivation {
 /// `verified_adapter`; that field requires direct runtime protocol evidence.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimePackageVerification {
+    pub verifier_id: String,
+    pub artifact_sha256: String,
+    pub digest_verified: bool,
+    pub signature_verified: bool,
+    pub package_manifest_sha256: String,
+    pub package_tree_sha256: Option<String>,
+    pub host_sha256: String,
+    pub signer_certificate_sha256: String,
+    pub engine_revision: Option<String>,
+    pub verified_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeEngineEvidence {
     pub configured_adapter: EngineAdapterId,
     pub launched_adapter: Option<EngineAdapterId>,
     pub verified_adapter: Option<EngineAdapterId>,
     pub package_verification: RuntimeEvidenceState,
+    pub package_verification_details: Option<RuntimePackageVerification>,
     pub bootstrap_delivery: RuntimeEvidenceState,
+    pub host_launch: RuntimeEvidenceState,
     pub runtime_receipts: RuntimeEvidenceState,
     pub restore_receipt: RuntimeEvidenceState,
     pub capabilities: Vec<EngineCapabilityState>,
@@ -961,6 +1283,8 @@ pub struct RuntimeEngineEvidence {
 
 impl RuntimeEngineEvidence {
     pub fn configured(adapter: EngineAdapterId, externally_packaged: bool) -> Self {
+        let camoufox_host = adapter == EngineAdapterId::Camoufox;
+        let native_control = externally_packaged && !camoufox_host;
         Self {
             configured_adapter: adapter,
             launched_adapter: None,
@@ -970,17 +1294,23 @@ impl RuntimeEngineEvidence {
             } else {
                 RuntimeEvidenceState::NotApplicable
             },
-            bootstrap_delivery: if externally_packaged {
+            package_verification_details: None,
+            bootstrap_delivery: if native_control {
                 RuntimeEvidenceState::NotRequested
             } else {
                 RuntimeEvidenceState::NotApplicable
             },
-            runtime_receipts: if externally_packaged {
+            host_launch: if camoufox_host {
                 RuntimeEvidenceState::NotRequested
             } else {
                 RuntimeEvidenceState::NotApplicable
             },
-            restore_receipt: if externally_packaged {
+            runtime_receipts: if native_control {
+                RuntimeEvidenceState::NotRequested
+            } else {
+                RuntimeEvidenceState::NotApplicable
+            },
+            restore_receipt: if native_control {
                 RuntimeEvidenceState::NotRequested
             } else {
                 RuntimeEvidenceState::NotApplicable
@@ -1197,18 +1527,52 @@ pub enum DomainError {
     Filesystem(#[from] std::io::Error),
 }
 
-pub fn app_data_root() -> Result<PathBuf, DomainError> {
-    let root = if cfg!(target_os = "windows") {
-        std::env::var_os("LOCALAPPDATA")
+pub const DEFAULT_VAULT_NAME: &str = "default";
+pub const VAULT_NAME_ENV: &str = "VERISILO_VAULT_NAME";
+
+pub fn validate_vault_name(value: &str) -> Result<String, DomainError> {
+    let valid = (1..=32).contains(&value.len())
+        && value
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| byte.is_ascii_lowercase() || byte.is_ascii_digit() || (index > 0 && matches!(byte, b'-' | b'_')));
+    if !valid {
+        return Err(DomainError::InvalidSilo(
+            "Vault name must be 1..32 lowercase letters, digits, '-' or '_'.".to_owned(),
+        ));
+    }
+    Ok(value.to_owned())
+}
+
+pub fn active_vault_name() -> Result<String, DomainError> {
+    match std::env::var(VAULT_NAME_ENV) {
+        Ok(value) => validate_vault_name(&value),
+        Err(std::env::VarError::NotPresent) => Ok(DEFAULT_VAULT_NAME.to_owned()),
+        Err(_) => Err(DomainError::InvalidSilo(
+            "Vault name is not valid UTF-8.".to_owned(),
+        )),
+    }
+}
+
+pub fn select_vault_name(value: &str) -> Result<(), DomainError> {
+    let value = validate_vault_name(value)?;
+    std::env::set_var(VAULT_NAME_ENV, value);
+    Ok(())
+}
+
+fn default_app_data_root_path() -> Result<PathBuf, DomainError> {
+    if cfg!(target_os = "windows") {
+        let base = std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("APPDATA").map(PathBuf::from))
             .ok_or_else(|| {
                 DomainError::InvalidSilo(
                     "Windows application data directory is unavailable.".to_owned(),
                 )
-            })?
+            })?;
+        Ok(windows_app_data_root(&base))
     } else {
-        std::env::var_os("XDG_DATA_HOME")
+        Ok(std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)
             .or_else(|| {
                 std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
@@ -1216,11 +1580,124 @@ pub fn app_data_root() -> Result<PathBuf, DomainError> {
             .ok_or_else(|| {
                 DomainError::InvalidSilo("Application data directory is unavailable.".to_owned())
             })?
+            .join("VeriSilo"))
     }
-    .join("VeriSilo");
+}
 
+fn vault_root(default_root: PathBuf, vault_name: &str) -> PathBuf {
+    if vault_name == DEFAULT_VAULT_NAME {
+        default_root
+    } else {
+        default_root.join("vaults").join(vault_name)
+    }
+}
+
+pub(crate) fn app_data_root_path() -> Result<PathBuf, DomainError> {
+    let default_root = default_app_data_root_path()?;
+    let vault_name = active_vault_name()?;
+    Ok(vault_root(default_root, &vault_name))
+}
+
+pub fn available_vault_names() -> Result<Vec<String>, DomainError> {
+    let mut names = vec![DEFAULT_VAULT_NAME.to_owned()];
+    let entries = match fs::read_dir(default_app_data_root_path()?.join("vaults")) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(names),
+        Err(error) => return Err(DomainError::Filesystem(error)),
+    };
+    for entry in entries {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            if let Some(name) = entry.file_name().to_str() {
+                if validate_vault_name(name).is_ok() {
+                    names.push(name.to_owned());
+                }
+            }
+        }
+    }
+    names[1..].sort_unstable();
+    Ok(names)
+}
+
+pub fn app_data_root() -> Result<PathBuf, DomainError> {
+    let root = app_data_root_path()?;
+    if cfg!(target_os = "windows") && active_vault_name()? == DEFAULT_VAULT_NAME {
+        let base = root.parent().ok_or_else(|| {
+            DomainError::InvalidSilo(
+                "Windows application data directory is unavailable.".to_owned(),
+            )
+        })?;
+        migrate_legacy_app_data(base)?;
+    }
     fs::create_dir_all(&root)?;
     Ok(root)
+}
+
+fn windows_app_data_root(base: &Path) -> PathBuf {
+    base.join("io.verisilo.app")
+}
+
+fn migrate_legacy_app_data(base: &Path) -> Result<(), DomainError> {
+    let current = windows_app_data_root(base);
+    let legacy = base.join("VeriSilo");
+    let legacy_metadata = match fs::symlink_metadata(&legacy) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(DomainError::Filesystem(error)),
+    };
+    if metadata_is_link_or_reparse(&legacy_metadata) || !legacy_metadata.is_dir() {
+        return Err(DomainError::InvalidSilo(
+            "Legacy VeriSilo application data is redirected or not a directory; migration stopped without changing it."
+                .to_owned(),
+        ));
+    }
+    // Current-user NSIS installs into %LOCALAPPDATA%\VeriSilo. That is the
+    // application directory, not a legacy Vault. Leave it alone.
+    if windows_verisilo_dir_is_current_user_install(&legacy) {
+        return Ok(());
+    }
+    match fs::symlink_metadata(&current) {
+        Ok(metadata) if metadata_is_link_or_reparse(&metadata) || !metadata.is_dir() => {
+            return Err(DomainError::InvalidSilo(
+                "RC1 application data path is redirected or not a directory; legacy migration stopped."
+                    .to_owned(),
+            ))
+        }
+        Ok(_) => {
+            return Err(DomainError::InvalidSilo(
+                "Both legacy and RC1 application data directories exist; migration stopped without merging or overwriting either directory."
+                    .to_owned(),
+            ))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(DomainError::Filesystem(error)),
+    }
+    fs::rename(&legacy, &current).map_err(|error| {
+        DomainError::InvalidSilo(format!(
+            "Legacy application data could not be moved atomically to the RC1 path: {error}"
+        ))
+    })?;
+    Ok(())
+}
+
+fn windows_verisilo_dir_is_current_user_install(path: &Path) -> bool {
+    path.join("verisilo.exe").is_file() || path.join("uninstall.exe").is_file()
+}
+
+fn metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::MetadataExt;
+
+        metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
 }
 
 pub fn discover_browsers() -> Vec<BrowserCandidate> {
@@ -1281,10 +1758,7 @@ pub fn inspect_browser_executable(
         BrowserKind::Chrome => "Google Chrome ",
         BrowserKind::Edge => "Microsoft Edge ",
     };
-    let output = match verify_windows_browser_identity(kind, &resolved_path)? {
-        Some(version) => format!("{prefix}{version}"),
-        None => browser_version_output(&resolved_path)?,
-    };
+    let output = browser_identity_output(kind, prefix, &resolved_path)?;
     let version = output
         .strip_prefix(prefix)
         .map(str::trim)
@@ -1381,6 +1855,25 @@ pub fn verify_browser_descriptor(descriptor: &BrowserDescriptor) -> BrowserVerif
     }
 }
 
+fn browser_identity_output(
+    _kind: &BrowserKind,
+    prefix: &str,
+    executable_path: &Path,
+) -> Result<String, BrowserVerificationError> {
+    #[cfg(test)]
+    if executable_path.with_extension("version-output").is_file() {
+        return browser_version_output(executable_path);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(version) = windows_file_product_version(executable_path) {
+            return Ok(format!("{prefix}{version}"));
+        }
+    }
+    let _ = prefix;
+    browser_version_output(executable_path)
+}
+
 fn browser_version_output(executable_path: &Path) -> Result<String, BrowserVerificationError> {
     #[cfg(test)]
     {
@@ -1391,31 +1884,17 @@ fn browser_version_output(executable_path: &Path) -> Result<String, BrowserVerif
                 .map_err(|error| BrowserVerificationError::Probe(error.to_string()));
         }
     }
-    let mut child = Command::new(executable_path)
+    let mut command = Command::new(executable_path);
+    command
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    hide_windows_console(&mut command);
+    let child = command
         .spawn()
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(BrowserVerificationError::Probe(
-                    "检查超时；进程已结束且浏览器未启动。".to_owned(),
-                ));
-            }
-            Err(error) => return Err(BrowserVerificationError::Probe(error.to_string())),
-        }
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
+    let output = wait_child_output(child, Duration::from_secs(5))?;
     if !output.status.success() {
         return Err(BrowserVerificationError::Probe(format!(
             "进程返回 {}。",
@@ -1439,6 +1918,30 @@ fn browser_version_output(executable_path: &Path) -> Result<String, BrowserVerif
     Ok(output.to_owned())
 }
 
+fn wait_child_output(
+    mut child: std::process::Child,
+    timeout: Duration,
+) -> Result<std::process::Output, BrowserVerificationError> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(BrowserVerificationError::Probe(
+                    "检查超时；进程已结束且浏览器未启动。".to_owned(),
+                ));
+            }
+            Err(error) => return Err(BrowserVerificationError::Probe(error.to_string())),
+        }
+    }
+    child
+        .wait_with_output()
+        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))
+}
+
 fn paths_match(stored: &str, resolved: &str) -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -1451,109 +1954,91 @@ fn paths_match(stored: &str, resolved: &str) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn verify_windows_browser_identity(
-    kind: &BrowserKind,
-    executable_path: &Path,
-) -> Result<Option<String>, BrowserVerificationError> {
-    #[cfg(test)]
-    if executable_path.with_extension("version-output").is_file() {
-        return Ok(None);
+fn windows_file_product_version(path: &Path) -> Result<String, BrowserVerificationError> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "version")]
+    extern "system" {
+        fn GetFileVersionInfoSizeW(filename: *const u16, handle: *mut u32) -> u32;
+        fn GetFileVersionInfoW(filename: *const u16, handle: u32, len: u32, data: *mut u8) -> i32;
+        fn VerQueryValueW(
+            block: *const u8,
+            sub_block: *const u16,
+            buffer: *mut *mut u8,
+            len: *mut u32,
+        ) -> i32;
     }
-    const PATH_ENVIRONMENT_VARIABLE: &str = "VERISILO_BROWSER_VERIFICATION_PATH";
-    const MODULE_ENVIRONMENT_VARIABLE: &str = "VERISILO_POWERSHELL_SECURITY_MODULE";
-    const SCRIPT: &str = "$ErrorActionPreference = 'Stop'; try { $m = [Environment]::GetEnvironmentVariable('VERISILO_POWERSHELL_SECURITY_MODULE', 'Process'); if ([string]::IsNullOrWhiteSpace($m)) { exit 7 }; Import-Module -Name $m -Force -ErrorAction Stop; $p = [Environment]::GetEnvironmentVariable('VERISILO_BROWSER_VERIFICATION_PATH', 'Process'); if ([string]::IsNullOrWhiteSpace($p)) { exit 2 }; $s = Get-AuthenticodeSignature -LiteralPath $p; if ($s.Status -ne 'Valid' -or $null -eq $s.SignerCertificate) { exit 3 }; $n = $s.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false); if ([string]::IsNullOrWhiteSpace($n)) { exit 4 }; $v = [Diagnostics.FileVersionInfo]::GetVersionInfo($p); if ($null -eq $v -or [string]::IsNullOrWhiteSpace($v.ProductName) -or [string]::IsNullOrWhiteSpace($v.ProductVersion)) { exit 5 }; [Console]::Out.Write($n); [Console]::Out.Write([char]10); [Console]::Out.Write($v.ProductName); [Console]::Out.Write([char]10); [Console]::Out.Write($v.ProductVersion) } catch { $id = [string]$_.FullyQualifiedErrorId; if ([string]::IsNullOrWhiteSpace($id)) { $id = $_.Exception.GetType().FullName }; [Console]::Error.Write($id); exit 6 }";
-    let powershell = trusted_windows_system_tool(WindowsSystemTool::PowerShell)
-        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
-    let (module_root, module_manifest) = trusted_windows_powershell_security_module(&powershell)
-        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
-    let output = Command::new(powershell)
-        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-        .env(PATH_ENVIRONMENT_VARIABLE, executable_path)
-        .env(MODULE_ENVIRONMENT_VARIABLE, module_manifest)
-        // Do not inherit a caller-controlled or PowerShell-7-only module search path.
-        .env("PSModulePath", module_root)
-        .output()
-        .map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
-    if !output.status.success() {
-        return match output.status.code() {
-            Some(3 | 4) => Err(BrowserVerificationError::PublisherMismatch),
-            code => Err(BrowserVerificationError::Probe(format!(
-                "Windows browser signature or version metadata probe failed with exit code {}{}.",
-                code.map_or_else(|| "unavailable".to_owned(), |value| value.to_string()),
-                windows_probe_failure_detail(&output.stderr)
-                    .map(|detail| format!(" ({detail})"))
-                    .unwrap_or_default()
-            ))),
-        };
+
+    #[repr(C)]
+    struct VsFixedFileInfo {
+        signature: u32,
+        struc_version: u32,
+        file_version_ms: u32,
+        file_version_ls: u32,
+        product_version_ms: u32,
+        product_version_ls: u32,
     }
-    let identity = std::str::from_utf8(&output.stdout).map_err(|_| {
-        BrowserVerificationError::Probe(
-            "Windows browser identity metadata is not UTF-8.".to_owned(),
-        )
-    })?;
-    let fields = identity
-        .split('\n')
-        .map(|field| field.trim_end_matches('\r'))
-        .collect::<Vec<_>>();
-    if fields.len() != 3 || fields.iter().any(|field| field.trim() != *field) {
+
+    let wide = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<u16>>();
+    let mut handle = 0_u32;
+    let size = unsafe { GetFileVersionInfoSizeW(wide.as_ptr(), &mut handle) };
+    if size == 0 {
         return Err(BrowserVerificationError::Probe(
-            "Windows browser identity metadata has an invalid shape.".to_owned(),
+            "Windows file version resource is missing.".to_owned(),
         ));
     }
-    let (expected_publisher, expected_product) = match kind {
-        BrowserKind::Chrome => ("Google LLC", "Google Chrome"),
-        BrowserKind::Edge => ("Microsoft Corporation", "Microsoft Edge"),
+    let mut buffer = vec![0_u8; size as usize];
+    if unsafe { GetFileVersionInfoW(wide.as_ptr(), 0, size, buffer.as_mut_ptr()) } == 0 {
+        return Err(BrowserVerificationError::Probe(
+            "Windows file version resource could not be read.".to_owned(),
+        ));
+    }
+    let root: Vec<u16> = "\\\0".encode_utf16().collect();
+    let mut info_ptr: *mut u8 = std::ptr::null_mut();
+    let mut info_len = 0_u32;
+    let queried = unsafe {
+        VerQueryValueW(
+            buffer.as_ptr(),
+            root.as_ptr(),
+            &mut info_ptr,
+            &mut info_len,
+        )
     };
-    if fields[0] != expected_publisher {
-        return Err(BrowserVerificationError::PublisherMismatch);
+    if queried == 0
+        || info_ptr.is_null()
+        || (info_len as usize) < std::mem::size_of::<VsFixedFileInfo>()
+    {
+        return Err(BrowserVerificationError::Probe(
+            "Windows file version resource is incomplete.".to_owned(),
+        ));
     }
-    if fields[1] != expected_product {
-        return Err(BrowserVerificationError::KindMismatch);
+    let info = unsafe { &*(info_ptr as *const VsFixedFileInfo) };
+    if info.signature != 0xFEEF_04BD {
+        return Err(BrowserVerificationError::Probe(
+            "Windows file version signature is invalid.".to_owned(),
+        ));
     }
-    let version = fields[2];
-    if version.is_empty()
-        || version.len() > 128
+    let version = format!(
+        "{}.{}.{}.{}",
+        info.product_version_ms >> 16,
+        info.product_version_ms & 0xFFFF,
+        info.product_version_ls >> 16,
+        info.product_version_ls & 0xFFFF
+    );
+    if version.len() > 128
         || !version.chars().all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_')
         })
     {
         return Err(BrowserVerificationError::Probe(
-            "Windows browser product version metadata is invalid.".to_owned(),
+            "Windows product version metadata is invalid.".to_owned(),
         ));
     }
-    Ok(Some(version.to_owned()))
-}
-
-#[cfg(target_os = "windows")]
-fn windows_probe_failure_detail(stderr: &[u8]) -> Option<String> {
-    let decoded = String::from_utf8_lossy(stderr);
-    let printable = decoded
-        .chars()
-        .map(|character| {
-            if character.is_control() {
-                ' '
-            } else {
-                character
-            }
-        })
-        .collect::<String>();
-    let compact = printable.split_whitespace().collect::<Vec<_>>().join(" ");
-    if compact.is_empty() {
-        return None;
-    }
-    let mut bounded = compact.chars().take(240).collect::<String>();
-    if compact.chars().count() > 240 {
-        bounded.push('…');
-    }
-    Some(bounded)
-}
-
-#[cfg(not(target_os = "windows"))]
-fn verify_windows_browser_identity(
-    _kind: &BrowserKind,
-    _executable_path: &Path,
-) -> Result<Option<String>, BrowserVerificationError> {
-    Ok(None)
+    Ok(version)
 }
 
 fn is_hex_color(color: &str) -> bool {
@@ -1570,6 +2055,10 @@ fn is_loopback_host(host: &str) -> bool {
     matches!(normalized.as_str(), "127.0.0.1" | "::1")
 }
 
+fn is_allowed_clash_pipe(host: &str) -> bool {
+    host == "verge-mihomo"
+}
+
 fn validate_mihomo_binding(binding: &ExternalMihomoBinding) -> Result<(), DomainError> {
     if binding.controller_url.len() > 2_048 {
         return Err(DomainError::InvalidNetwork(
@@ -1580,17 +2069,26 @@ fn validate_mihomo_binding(binding: &ExternalMihomoBinding) -> Result<(), Domain
         DomainError::InvalidNetwork("The Mihomo controller URL is invalid.".to_owned())
     })?;
     let controller_host = controller.host_str().unwrap_or_default();
-    if controller.scheme() != "http"
-        || !is_loopback_host(controller_host)
-        || controller.port().is_none()
-        || !controller.username().is_empty()
-        || controller.password().is_some()
-        || controller.path() != "/"
-        || controller.query().is_some()
-        || controller.fragment().is_some()
-    {
+    let pipe_controller = cfg!(windows)
+        && controller.scheme() == "pipe"
+        && is_allowed_clash_pipe(controller_host)
+        && controller.port().is_none()
+        && controller.username().is_empty()
+        && controller.password().is_none()
+        && (controller.path() == "/" || controller.path().is_empty())
+        && controller.query().is_none()
+        && controller.fragment().is_none();
+    let loopback_http = controller.scheme() == "http"
+        && is_loopback_host(controller_host)
+        && controller.port().is_some()
+        && controller.username().is_empty()
+        && controller.password().is_none()
+        && controller.path() == "/"
+        && controller.query().is_none()
+        && controller.fragment().is_none();
+    if !pipe_controller && !loopback_http {
         return Err(DomainError::InvalidNetwork(
-            "The Mihomo controller must be an explicit loopback HTTP URL such as http://127.0.0.1:9090/."
+            "The Mihomo controller must be a loopback HTTP URL such as http://127.0.0.1:9090/, or the Clash Verge kernel pipe."
                 .to_owned(),
         ));
     }
@@ -1616,15 +2114,25 @@ mod tests {
     use uuid::Uuid;
 
     #[cfg(target_os = "windows")]
+    use super::{trusted_windows_system_tool, WindowsSystemTool};
     use super::{
-        trusted_windows_powershell_security_module, trusted_windows_system_tool,
-        verify_windows_browser_identity, windows_probe_failure_detail, BrowserVerificationError,
-        WindowsSystemTool,
+        validate_vault_name, vault_root, verify_browser_descriptor, windows_app_data_root,
+        BrowserDescriptor, BrowserKind, BrowserVerificationState, CreateManagedSiloInput,
+        ManagedIdentityPreset, NetworkProfile, ProxyScheme, Silo, SiloExecutionTarget,
     };
-    use super::{
-        verify_browser_descriptor, BrowserDescriptor, BrowserKind, BrowserVerificationState,
-        NetworkProfile, ProxyScheme, Silo, SiloExecutionTarget,
-    };
+
+    #[test]
+    fn named_vaults_are_validated_and_isolated_below_the_default_root() {
+        let root = std::path::PathBuf::from("data");
+        assert_eq!(vault_root(root.clone(), "default"), root);
+        assert_eq!(
+            vault_root(root, "agent_1"),
+            std::path::PathBuf::from("data/vaults/agent_1")
+        );
+        assert!(validate_vault_name("agent_1").is_ok());
+        assert!(validate_vault_name("Agent").is_err());
+        assert!(validate_vault_name("../agent").is_err());
+    }
 
     fn browser_fixture(output: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!("verisilo-browser-test-{}", Uuid::new_v4()));
@@ -1634,6 +2142,32 @@ mod tests {
         fs::write(executable.with_extension("version-output"), output)
             .expect("write version fixture");
         fs::canonicalize(executable).expect("canonical browser fixture")
+    }
+
+    #[test]
+    fn browser_discovery_does_not_spawn_powershell() {
+        let source = include_str!("domain.rs");
+        let start = source
+            .find("pub fn inspect_browser_executable(")
+            .expect("inspect_browser_executable");
+        let body = source
+            .get(start..start.saturating_add(2500))
+            .expect("inspect body");
+        assert!(source.contains("fn windows_file_product_version("));
+        assert!(body.contains("browser_identity_output"));
+        assert!(!body.contains("Command::new"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_console_child_processes_request_create_no_window() {
+        assert_eq!(
+            super::CREATE_NO_WINDOW,
+            0x0800_0000,
+            "CREATE_NO_WINDOW must hide PowerShell and --version consoles without discarding redirected stdio"
+        );
+        let mut command = std::process::Command::new("powershell.exe");
+        super::hide_windows_console(&mut command);
     }
 
     #[cfg(target_os = "windows")]
@@ -1649,41 +2183,6 @@ mod tests {
             "trusted tools must not be returned with an extended-length prefix: {rendered}"
         );
 
-        let (module_root, module_manifest) =
-            trusted_windows_powershell_security_module(&powershell)
-                .expect("resolve fixed Windows PowerShell security module");
-        assert!(module_root.is_dir());
-        assert!(module_manifest.is_file());
-        assert_eq!(
-            module_manifest.file_name().and_then(|name| name.to_str()),
-            Some("Microsoft.PowerShell.Security.psd1")
-        );
-        assert!(!module_manifest.to_string_lossy().starts_with(r"\\?\"));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_probe_failure_diagnostics_are_bounded_and_control_free() {
-        let raw = format!("probe\r\n\u{1b}[31m{}", "x".repeat(300));
-        let detail = windows_probe_failure_detail(raw.as_bytes()).expect("probe diagnostic");
-
-        assert!(detail.starts_with("probe [31m"));
-        assert!(detail.ends_with('…'));
-        assert!(detail.chars().count() <= 241);
-        assert!(!detail.chars().any(char::is_control));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_identity_probe_loads_the_fixed_security_module() {
-        let powershell = trusted_windows_system_tool(WindowsSystemTool::PowerShell)
-            .expect("resolve trusted Windows PowerShell");
-        let result = verify_windows_browser_identity(&BrowserKind::Edge, &powershell);
-
-        assert!(
-            !matches!(result, Err(BrowserVerificationError::Probe(_))),
-            "the fixed security module should load from the trusted installation: {result:?}"
-        );
     }
 
     #[test]
@@ -1937,5 +2436,147 @@ mod tests {
         assert!(arguments
             .iter()
             .all(|argument| !argument.contains("direct://")));
+    }
+
+    #[test]
+    fn managed_identity_presets_have_the_exact_rc1_wire_names() {
+        let presets = [
+            (ManagedIdentityPreset::BalancedEnUs, "balanced-en-us"),
+            (ManagedIdentityPreset::BalancedZhCn, "balanced-zh-cn"),
+            (ManagedIdentityPreset::BalancedDeDe, "balanced-de-de"),
+            (ManagedIdentityPreset::MatchFixedProxy, "match-fixed-proxy"),
+        ];
+        for (preset, expected) in presets {
+            assert_eq!(
+                serde_json::to_string(&preset).expect("preset JSON"),
+                format!("\"{expected}\"")
+            );
+            assert_eq!(
+                serde_json::from_str::<ManagedIdentityPreset>(&format!("\"{expected}\""))
+                    .expect("preset decode"),
+                preset
+            );
+        }
+        assert!(serde_json::from_str::<ManagedIdentityPreset>("\"balanced\"").is_err());
+        assert!(serde_json::from_str::<ManagedIdentityPreset>("\"privacy\"").is_err());
+    }
+
+    #[test]
+    fn managed_identity_accepts_locale_with_required_proxy() {
+        let direct = NetworkProfile::Direct {
+            proxy_required: false,
+        };
+        let fixed = NetworkProfile::FixedProxy {
+            proxy_required: true,
+            scheme: ProxyScheme::Socks5,
+            host: "127.0.0.1".to_owned(),
+            port: 7890,
+            bypass_list: Vec::new(),
+            credential_reference: None,
+            external_mihomo: None,
+        };
+        for preset in [
+            ManagedIdentityPreset::BalancedEnUs,
+            ManagedIdentityPreset::BalancedZhCn,
+            ManagedIdentityPreset::BalancedDeDe,
+        ] {
+            assert!(CreateManagedSiloInput {
+                name: "managed".to_owned(),
+                color: "#4f46e5".to_owned(),
+                identity_preset: preset,
+                follow_network_exit: false,
+                screen_width: 1280,
+                screen_height: 800,
+                hardware_concurrency: None,
+                gpu_preset: None,
+                timezone: None,
+                network_profile: direct.clone(),
+                proxy_credentials: None,
+                mihomo_controller_secret: None,
+            }
+            .validate()
+            .is_ok());
+            assert!(CreateManagedSiloInput {
+                name: "managed".to_owned(),
+                color: "#4f46e5".to_owned(),
+                identity_preset: preset,
+                follow_network_exit: true,
+                screen_width: 1920,
+                screen_height: 1080,
+                hardware_concurrency: Some(8),
+                gpu_preset: Some("nvidia-rtx-3060".to_owned()),
+                timezone: Some("Asia/Tokyo".to_owned()),
+                network_profile: fixed.clone(),
+                proxy_credentials: None,
+                mihomo_controller_secret: None,
+            }
+            .validate()
+            .is_ok());
+        }
+        assert!(CreateManagedSiloInput {
+            name: "managed".to_owned(),
+            color: "#4f46e5".to_owned(),
+            identity_preset: ManagedIdentityPreset::MatchFixedProxy,
+            follow_network_exit: true,
+            screen_width: 1280,
+            screen_height: 800,
+            hardware_concurrency: None,
+            gpu_preset: None,
+            timezone: None,
+            network_profile: direct,
+            proxy_credentials: None,
+            mihomo_controller_secret: None,
+        }
+        .validate()
+        .is_err());
+        assert!(CreateManagedSiloInput {
+            name: "managed".to_owned(),
+            color: "#4f46e5".to_owned(),
+            identity_preset: ManagedIdentityPreset::MatchFixedProxy,
+            follow_network_exit: true,
+            screen_width: 1280,
+            screen_height: 800,
+            hardware_concurrency: None,
+            gpu_preset: None,
+            timezone: None,
+            network_profile: fixed,
+            proxy_credentials: None,
+            mihomo_controller_secret: None,
+        }
+        .validate()
+        .is_ok());
+    }
+
+    #[test]
+    fn windows_app_data_root_prefers_rc1_path_without_orphaning_legacy_vaults() {
+        let base = std::env::temp_dir().join(format!("verisilo-app-data-{}", Uuid::new_v4()));
+        let current = base.join("io.verisilo.app");
+        let legacy = base.join("VeriSilo");
+        assert_eq!(windows_app_data_root(&base), current.clone());
+        fs::create_dir_all(&legacy).expect("legacy app data");
+        fs::write(legacy.join("vault.json"), b"encrypted").expect("legacy Vault");
+        assert_eq!(windows_app_data_root(&base), current);
+        super::migrate_legacy_app_data(&base).expect("atomically migrate legacy app data");
+        assert!(current.join("vault.json").is_file());
+        assert!(!legacy.exists());
+        fs::create_dir_all(&legacy).expect("conflicting legacy app data");
+        assert!(super::migrate_legacy_app_data(&base).is_err());
+        fs::remove_dir_all(base).expect("remove app-data fixture");
+    }
+
+    #[test]
+    fn windows_current_user_install_dir_is_not_migrated_as_legacy_vault() {
+        let base = std::env::temp_dir().join(format!("verisilo-install-{}", Uuid::new_v4()));
+        let current = base.join("io.verisilo.app");
+        let install = base.join("VeriSilo");
+        fs::create_dir_all(&install).expect("install dir");
+        fs::write(install.join("verisilo.exe"), b"exe").expect("installed exe");
+        fs::create_dir_all(&current).expect("rc1 data");
+        super::migrate_legacy_app_data(&base)
+            .expect("install directory must not be treated as a Vault");
+        assert!(install.join("verisilo.exe").is_file());
+        assert!(current.is_dir());
+        assert!(!current.join("verisilo.exe").exists());
+        fs::remove_dir_all(base).expect("remove install fixture");
     }
 }

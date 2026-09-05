@@ -13,6 +13,14 @@ on:
       - "apps/desktop/src-tauri/resources/hyperv-image-manifest.schema.json"
       - "scripts/download-windows-candidate.ps1"
       - "scripts/generate-release-metadata.mjs"
+      - "scripts/generate-sbom.mjs"
+      - "scripts/generate-license-report.mjs"
+      - "scripts/build-camoufox-host-package.py"
+      - "scripts/build-managed-browser-release.ps1"
+      - "scripts/new-camoufox-engine-signer.ps1"
+      - "scripts/sign-camoufox-host-manifest.ps1"
+      - "scripts/verify-managed-browser-release.mjs"
+      - "apps/desktop/src-tauri/tauri.managed-browser.conf.json"
       - "scripts/package-extension-zip.mjs"
       - "scripts/stage-hyperv-image.ps1"
       - "scripts/stage-windows-bundle.mjs"
@@ -36,6 +44,14 @@ on:
       - "apps/desktop/src-tauri/resources/hyperv-image-manifest.schema.json"
       - "scripts/download-windows-candidate.ps1"
       - "scripts/generate-release-metadata.mjs"
+      - "scripts/generate-sbom.mjs"
+      - "scripts/generate-license-report.mjs"
+      - "scripts/build-camoufox-host-package.py"
+      - "scripts/build-managed-browser-release.ps1"
+      - "scripts/new-camoufox-engine-signer.ps1"
+      - "scripts/sign-camoufox-host-manifest.ps1"
+      - "scripts/verify-managed-browser-release.mjs"
+      - "apps/desktop/src-tauri/tauri.managed-browser.conf.json"
       - "scripts/package-extension-zip.mjs"
       - "scripts/stage-hyperv-image.ps1"
       - "scripts/stage-windows-bundle.mjs"
@@ -64,6 +80,8 @@ jobs:
       - run: node scripts/verify-hyperv-image.mjs --self-test
       - run: node scripts/verify-windows-promotion-candidate.mjs --self-test
       - run: node scripts/write-windows-promotion-attestation.mjs --self-test
+      - run: node scripts/verify-managed-browser-release.mjs --self-test
+      - run: python scripts/build-camoufox-host-package.py --self-test
 
   runner-input-safety:
     runs-on: windows-latest
@@ -78,3 +96,6 @@ jobs:
       - name: Verify Windows candidate extraction input safety
         shell: pwsh
         run: pwsh -NoProfile -File .\scripts\download-windows-candidate.ps1 -SelfTest
+      - name: Verify managed-browser release tooling
+        shell: pwsh
+        run: pwsh -NoProfile -File .\scripts\build-managed-browser-release.ps1 -SelfTest

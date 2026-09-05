@@ -1,0 +1,161 @@
+{
+  "schema": "verisilo-camoufox-fp4-run-report/v1",
+  "attempt": 13,
+  "runId": "fp4-853f5fe2c6ad4238ac76776f3668f163",
+  "startedAtUtc": "2026-08-28T07:38:43.351309Z",
+  "completedAtUtc": "2026-08-28T07:40:10.073431Z",
+  "status": "passed",
+  "terminal": true,
+  "upstreamControlRequired": false,
+  "evidenceClass": "observed-on-this-native-windows-host",
+  "verified": false,
+  "host": {
+    "platform": "Windows-2025Server-10.0.26100-SP0",
+    "python": "3.12.13"
+  },
+  "code": {
+    "branch": "codex/camoufox-m3-engine-adapter",
+    "revision": "71830712c54348b13ed5274417625c52b5fcf57d",
+    "tree": "e78de02c66c102d8e0155c69827d025f0a7751a8",
+    "originRevision": "71830712c54348b13ed5274417625c52b5fcf57d",
+    "runnerSha256": "46252fe1e7a4b279795f302fb323656b717bb1ec820850b8034c2f5f77e301c5",
+    "contractSha256": "db7fe9c0df74a102ac98affaf99b0612256390b47decb504cbc75378a15471ce"
+  },
+  "inputs": {
+    "matrixVersion": "fp4-ordinary-sites-v5",
+    "artifactId": "identity-fp3-1b-formal-v3-a",
+    "artifactFileSha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+    "profileId": "fp4-attempt-13",
+    "requiredProxy": "socks5://127.0.0.1:7897",
+    "runtimeExecutableSha256": "b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f142a6",
+    "selectedUrls": {
+      "documentNavigation": "https://en.wikipedia.org/w/index.php?search=camouflage+animals+military&title=Special%3ASearch&ns0=1",
+      "complexJavaScript": "https://react.dev/reference/react",
+      "interactiveGraphics": "https://www.google.com/maps?hl=en",
+      "audioVideo": "https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_keyframe_strobing_example.webm",
+      "formState": "https://en.wikipedia.org/wiki/Web_browser",
+      "formStateReplay": "https://en.wikipedia.org/wiki/Web_browser"
+    },
+    "fp3Result": {
+      "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json",
+      "sha256": "8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62"
+    },
+    "sourceArtifact": {
+      "path": "artifacts/camoufox-fp3-1b-attempt-7/identity-fp3-1b-formal-v3-a.json",
+      "sha256": "8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722",
+      "sidecarPath": "artifacts/camoufox-fp3-1b-attempt-7/identity-fp3-1b-formal-v3-a.json.sha256",
+      "sidecarSha256": "e027eb101fa2783adbc697fa8b47a339e7d66bf00170eacdca7b71a8983f8b86"
+    },
+    "runtimeAssetLock": {
+      "path": "artifacts/camoufox-fp2-formal-r1-attempt-8/formal-v3-runtime-asset-lock.json",
+      "sha256": "81e73a69347272d0b770bfa3c9b3eb07449bb165efb0c16948eece2e5a0678ce"
+    },
+    "runtimeTree": {
+      "path": "artifacts/camoufox-fp2-formal-r1-attempt-8/formal-v3-browser-tree-manifest.json",
+      "rawSha256": "8434ab9925bf0f7d95cc4ff06fe94b7dcf9963a0691f37638469d68cda58ace2",
+      "canonicalSha256": "68d78d0f414d90545691560858b46ed179ee163b7258306c44f0d850bcde6204"
+    }
+  },
+  "execution": {
+    "command": [
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\apps\\camoufox-host\\.venv\\Scripts\\python.exe",
+      "-u",
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\apps\\camoufox-host\\run_fp4_windows.py",
+      "--child-host",
+      "--artifact-root",
+      "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-13-ljrtdzgf\\artifacts",
+      "--profile-root",
+      "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-13-ljrtdzgf\\profiles",
+      "--state-root",
+      "C:\\Users\\qiu\\AppData\\Local\\Temp\\verisilo-fp4-13-ljrtdzgf\\state",
+      "--tree-manifest",
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\artifacts\\camoufox-fp2-formal-r1-attempt-8\\formal-v3-browser-tree-manifest.json",
+      "--asset-lock",
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\artifacts\\camoufox-fp2-formal-r1-attempt-8\\formal-v3-runtime-asset-lock.json",
+      "--browser-root",
+      "C:\\Users\\qiu\\src\\VeriSilo-camoufox-lifecycle\\artifacts\\camoufox-fp2-formal-r1-attempt-8\\browser"
+    ],
+    "childExitCode": 0
+  },
+  "nativeEvidence": {
+    "path": "artifacts/camoufox-fp4-attempt-13/native-evidence.json",
+    "sha256": "6ae88bbb920565493f79ed189ba657405e46916784ade03c0cac4a37dc040018"
+  },
+  "adjudication": {
+    "status": "passed",
+    "checks": {
+      "fixedInputsExact": true,
+      "formalBindingExact": true,
+      "phaseAArtifactBindingExact": true,
+      "phaseBArtifactBindingExact": true,
+      "routeBindingExactBothPhases": true,
+      "bootTransitionsExact": true,
+      "hostRunningBothPhases": true,
+      "phaseAObservationComplete": true,
+      "phaseBObservationComplete": true,
+      "phaseACleanClose": true,
+      "phaseBCleanClose": true,
+      "shutdownSelfCheckClean": true,
+      "exactHostChildExit": true,
+      "residualProcessTreeEmpty": true,
+      "runtimeRemovedAfterCleanExit": true,
+      "screenshotFilesExact": true,
+      "evidenceReadsComplete": true,
+      "runnerCompletedWithoutError": true,
+      "tasks": {
+        "documentNavigation": true,
+        "complexJavaScript": true,
+        "interactiveGraphics": true,
+        "audioVideo": true,
+        "formState": true,
+        "formStateReplay": true
+      }
+    },
+    "profileStateLost": false,
+    "upstreamControlRequired": false,
+    "terminal": true,
+    "precedence": "failed>inconclusive>passed"
+  },
+  "boundaries": {
+    "universalCompatibility": "not_claimed",
+    "loginPaymentCaptcha": "not_tested",
+    "dnsTlsQuic": "unavailable",
+    "crossHostReplay": "not_tested",
+    "productionPackageRelease": "not_claimed",
+    "nextGate": "clean-m3-wi-definition-refreeze-only-after-fp4-pass"
+  },
+  "outputs": {
+    "artifacts/camoufox-fp4-attempt-13/native-evidence.json": {
+      "sha256": "6ae88bbb920565493f79ed189ba657405e46916784ade03c0cac4a37dc040018",
+      "sizeBytes": 162617
+    },
+    "artifacts/camoufox-fp4-attempt-13/host-stderr.txt": {
+      "sha256": "4084a325963213ad2765bd9a1c143beef0c527d389cb2ccd044e1cea79341a33",
+      "sizeBytes": 6726
+    },
+    "artifacts/camoufox-fp4-attempt-13/screenshots/phaseA-01-documentNavigation.png": {
+      "sha256": "61d70b9a8366083a062e4d05f436ff1e6f826ff097edf3d15ffb29ebc0e5a999",
+      "sizeBytes": 202504
+    },
+    "artifacts/camoufox-fp4-attempt-13/screenshots/phaseA-02-complexJavaScript.png": {
+      "sha256": "f3dfec7e48856d462e1281ceea2096def114dbd951fc7c25f1e6d67e87aba261",
+      "sizeBytes": 129185
+    },
+    "artifacts/camoufox-fp4-attempt-13/screenshots/phaseA-03-interactiveGraphics.png": {
+      "sha256": "de27a32cad7a175468784b7cc154ec3d89b510bdef75a9897c0f8e6a08be3607",
+      "sizeBytes": 847136
+    },
+    "artifacts/camoufox-fp4-attempt-13/screenshots/phaseA-04-audioVideo.png": {
+      "sha256": "c88048084a7b83065ae16fceb6dc3692fd086fe4fae4cc611534c7c491e94d41",
+      "sizeBytes": 801367
+    },
+    "artifacts/camoufox-fp4-attempt-13/screenshots/phaseA-05-formState.png": {
+      "sha256": "df645d9bab9e3eabf0fa45cfdc56344f4ed85e16813c8783e1bd39879a7e9275",
+      "sizeBytes": 228009
+    },
+    "artifacts/camoufox-fp4-attempt-13/screenshots/phaseB-01-formStateReplay.png": {
+      "sha256": "8d8fb47bc5dfcf99246b21c2858e4ce028aead02142c7c3226c3f7056642e469",
+      "sizeBytes": 332198
+    }
+  }
+}

@@ -35,12 +35,14 @@ import contextlib
 import copy
 from functools import partial
 import json
+import math
 import os
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from identity_policy import (
     ARTIFACT_SCHEMA,
@@ -121,6 +123,16 @@ def reassemble_camou_config(env: dict) -> dict:
 def extract_observed_website_signals(
     observed: dict, font_mode: str = "inherit"
 ) -> dict:
+    # ObservedWebsiteDigest v2 predates the FP1 ``isDefault`` voice probe.
+    # Keep its exact payload stable while the richer value remains available
+    # in observedFull for the FP1 per-field comparison.
+    digest_voices = [
+        {
+            key: voice.get(key)
+            for key in ("name", "lang", "localService", "voiceURI")
+        }
+        for voice in observed["voices"]
+    ]
     signals = {
         "userAgent": observed["userAgent"],
         "language": observed["language"],
@@ -140,7 +152,7 @@ def extract_observed_website_signals(
         "webglVendor": observed["webglVendor"],
         "webglRenderer": observed["webglRenderer"],
         "webglSummary": observed["webglSummary"],
-        "voices": observed["voices"],
+        "voices": digest_voices,
         "audioHash": observed["audioHash"],
     }
     # In inherit mode font widths are host-bound (the host font set can leak
@@ -173,42 +185,255 @@ def observed_media_device_counts(devices: list[dict]) -> dict[str, int]:
     return counts
 
 
+MEDIA_READINESS_TIMEOUT_SECONDS = 8.0
+MEDIA_READINESS_POLL_MS = 250
+MEDIA_READINESS_REASONS = frozenset(
+    {
+        "success",
+        "enumerate_timeout",
+        "readiness_timeout",
+        "count_mismatch",
+        "playwright_exception",
+        "unavailable",
+    }
+)
+
+_MEDIA_ENUMERATE_SCRIPT = """async ({timeoutMs}) => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+        return {reason: "unavailable", attempts: []};
+    }
+    let enumeration;
+    try {
+        enumeration = navigator.mediaDevices.enumerateDevices();
+    } catch (_) {
+        return {reason: "unavailable", attempts: []};
+    }
+    const sample = await new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(value);
+        };
+        const timer = setTimeout(
+            () => finish({reason: "enumerate_timeout", attempts: []}),
+            timeoutMs,
+        );
+        Promise.resolve(enumeration).then(
+            (devices) => {
+                try {
+                    finish({
+                        reason: "success",
+                        attempts: [
+                            devices.map((device) => ({kind: device.kind})),
+                        ],
+                    });
+                } catch (_) {
+                    finish({reason: "unavailable", attempts: []});
+                }
+            },
+            () => finish({reason: "unavailable", attempts: []}),
+        );
+    });
+    return sample;
+}"""
+
+
+class MediaDeviceReadinessTimeout(TimeoutError):
+    """A Playwright media RPC exceeded the bounded Host-side wait."""
+
+    def __init__(self, reason: str):
+        if reason not in {"enumerate_timeout", "readiness_timeout"}:
+            raise ValueError("invalid media timeout reason")
+        self.reason = reason
+        super().__init__(f"media readiness failed: {reason}")
+
+
+class MediaDeviceReadinessError(RuntimeError):
+    """A Playwright media RPC failed without exposing exception text."""
+
+    def __init__(self, exception_class: str):
+        self.reason = "playwright_exception"
+        self.exception_class = re.sub(
+            r"[^A-Za-z0-9_.-]", "_", exception_class
+        )[:64]
+        super().__init__("media readiness failed: playwright_exception")
+
+
+async def _bounded_media_rpc(
+    awaitable: Any,
+    timeout_seconds: float,
+    timeout_reason: str,
+    cancel_settle_seconds: float,
+) -> Any:
+    """Bound one Playwright await without trusting cooperative cancellation."""
+
+    def consume_result(done_task: asyncio.Task[Any]) -> None:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            done_task.result()
+
+    async def cancel_bounded() -> None:
+        task.cancel()
+        done, _pending = await asyncio.wait(
+            {task}, timeout=max(0.0, cancel_settle_seconds)
+        )
+        if task in done:
+            consume_result(task)
+        else:
+            task.add_done_callback(consume_result)
+
+    task = asyncio.create_task(awaitable)
+    try:
+        done, _pending = await asyncio.wait(
+            {task}, timeout=max(0.001, timeout_seconds)
+        )
+    except asyncio.CancelledError:
+        task.cancel()
+        task.add_done_callback(consume_result)
+        raise
+    except BaseException:
+        await cancel_bounded()
+        raise
+    if task not in done:
+        await cancel_bounded()
+        raise MediaDeviceReadinessTimeout(timeout_reason)
+    try:
+        return task.result()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        raise MediaDeviceReadinessError(type(exc).__name__) from exc
+
+
+def _parse_media_attempts(value: Any, max_attempts: int) -> list[dict]:
+    if not isinstance(value, list) or len(value) > max_attempts:
+        raise MediaDeviceReadinessError("InvalidMediaDeviceResponse")
+    attempts: list[dict] = []
+    for devices in value:
+        if not isinstance(devices, list):
+            raise MediaDeviceReadinessError("InvalidMediaDeviceResponse")
+        normalized: list[dict] = []
+        for device in devices:
+            if not isinstance(device, dict) or set(device) != {"kind"}:
+                raise MediaDeviceReadinessError("InvalidMediaDeviceResponse")
+            kind = device.get("kind")
+            if not isinstance(kind, str):
+                raise MediaDeviceReadinessError("InvalidMediaDeviceResponse")
+            normalized.append({"kind": kind})
+        observed = observed_media_device_counts(normalized)
+        attempts.append({"counts": observed, "matched": False})
+    return attempts
+
+
+def _parse_media_rpc_result(value: Any, max_attempts: int) -> tuple[str, list[dict]]:
+    if not isinstance(value, dict) or set(value) != {"reason", "attempts"}:
+        raise MediaDeviceReadinessError("InvalidMediaDeviceResponse")
+    reason = value.get("reason")
+    if reason not in MEDIA_READINESS_REASONS - {
+        "readiness_timeout",
+        "playwright_exception",
+    }:
+        raise MediaDeviceReadinessError("InvalidMediaDeviceResponse")
+    attempts = _parse_media_attempts(value.get("attempts"), max_attempts)
+    if (reason == "success") != (len(attempts) == 1):
+        raise MediaDeviceReadinessError("InvalidMediaDeviceResponse")
+    return reason, attempts
+
+
+def _media_readiness_result(
+    reason: str,
+    expected: dict[str, int],
+    attempts: list[dict],
+    started: float,
+    clock: Callable[[], float],
+) -> dict:
+    for attempt in attempts:
+        attempt["matched"] = attempt["counts"] == expected
+    result: dict[str, Any] = {
+        "expectedCounts": expected,
+        "attempts": attempts,
+        "matched": reason == "success" and bool(attempts) and attempts[-1]["matched"],
+        "waitSeconds": round(max(0.0, clock() - started), 3),
+        "reason": reason,
+    }
+    return result
+
+
 async def wait_for_configured_media_devices(
-    page: Any, config: dict, timeout_seconds: float = 8.0
+    page: Any,
+    config: dict,
+    timeout_seconds: float = MEDIA_READINESS_TIMEOUT_SECONDS,
+    *,
+    clock: Callable[[], float] = time.monotonic,
+    poll_interval_ms: int = MEDIA_READINESS_POLL_MS,
+    readiness_wait: Callable[[float], Awaitable[Any]] = asyncio.sleep,
 ) -> dict:
     """Bounded readiness wait before the full website observation.
 
     A fresh Windows Firefox process can expose the configured fake media
     backend a short time after the first enumerateDevices() call. This wait
     does not change the digest payload: the subsequent complete probe remains
-    authoritative and must independently match the Artifact counts.
+    authoritative and must independently match the Artifact counts. Browser-
+    side enumerate timeout/unavailability remains optional readiness evidence;
+    a Python channel timeout or exception is unsafe for page reuse and raises
+    a typed, secret-free failure so the Host enters its existing cleanup path.
     """
 
     expected = expected_media_device_counts(config)
-    deadline = time.monotonic() + timeout_seconds
+    if timeout_seconds <= 0:
+        raise ValueError("media readiness timeout must be positive")
+    if not isinstance(poll_interval_ms, int) or poll_interval_ms <= 0:
+        raise ValueError("media readiness poll interval must be a positive integer")
+    started = clock()
+    deadline = started + timeout_seconds
+    max_attempts = math.ceil(
+        timeout_seconds / (poll_interval_ms / 1_000)
+    ) + 1
     attempts: list[dict] = []
-    while True:
-        devices = await page.evaluate(
-            """async () => {
-                if (!navigator.mediaDevices?.enumerateDevices) return [];
-                return (await navigator.mediaDevices.enumerateDevices()).map(
-                    device => ({kind: device.kind, label: device.label})
-                );
-            }"""
+    while len(attempts) < max_attempts:
+        remaining = deadline - clock()
+        margin_seconds = poll_interval_ms / 1_000
+        if remaining <= margin_seconds * 2:
+            break
+        channel_timeout = remaining - margin_seconds
+        enumerate_timeout_ms = max(
+            1, int((channel_timeout - margin_seconds) * 1_000)
         )
-        observed = observed_media_device_counts(devices)
-        attempts.append({"counts": observed, "matched": observed == expected})
-        if observed == expected or time.monotonic() >= deadline:
-            return {
-                "expectedCounts": expected,
-                "attempts": attempts,
-                "matched": observed == expected,
-                "waitSeconds": round(
-                    max(0.0, timeout_seconds - max(0.0, deadline - time.monotonic())),
-                    3,
-                ),
-            }
-        await page.wait_for_timeout(250)
+        value = await _bounded_media_rpc(
+            page.evaluate(
+                _MEDIA_ENUMERATE_SCRIPT,
+                {"timeoutMs": enumerate_timeout_ms},
+            ),
+            channel_timeout,
+            "enumerate_timeout",
+            margin_seconds,
+        )
+        reason, current_attempts = _parse_media_rpc_result(value, 1)
+        attempts.extend(current_attempts)
+        if reason != "success":
+            return _media_readiness_result(
+                reason, expected, attempts, started, clock
+            )
+        if attempts[-1]["counts"] == expected:
+            return _media_readiness_result(
+                "success", expected, attempts, started, clock
+            )
+
+        remaining = deadline - clock()
+        if remaining <= margin_seconds * 2:
+            break
+        wait_seconds = min(margin_seconds, remaining - margin_seconds)
+        await _bounded_media_rpc(
+            readiness_wait(wait_seconds),
+            min(remaining - margin_seconds, wait_seconds + margin_seconds),
+            "readiness_timeout",
+            margin_seconds,
+        )
+
+    return _media_readiness_result(
+        "count_mismatch", expected, attempts, started, clock
+    )
 
 
 async def close_identity_context_bounded(

@@ -1,0 +1,223 @@
+{
+  "schema": "verisilo-camoufox-fp2-relations/v1",
+  "taskVersion": "fp2-v1",
+  "windowFamily": ["top-window", "same-origin-iframe", "cross-origin-iframe"],
+  "workerFamily": ["dedicated-worker", "shared-worker", "service-worker"],
+  "fieldClassifications": {
+    "navigator.doNotTrack": "native-observed",
+    "devicePixelRatio": "host-bound",
+    "navigator.globalPrivacyControl": "policy-conditional"
+  },
+  "identityOwnedWindowFields": [
+    "navigator.userAgent",
+    "navigator.platform",
+    "navigator.hardwareConcurrency",
+    "navigator.language",
+    "navigator.languages",
+    "navigator.globalPrivacyControl",
+    "locale.timeZone",
+    "locale.utcOffsetMinutes",
+    "screen.width",
+    "screen.height",
+    "screen.availWidth",
+    "screen.availHeight",
+    "screen.availTop",
+    "screen.availLeft",
+    "screen.colorDepth",
+    "screen.pixelDepth",
+    "canvas.rawHash",
+    "canvas.rawRgbaHash",
+    "canvas.decodedPngPixelsHash",
+    "canvas.pngBytesHash",
+    "canvas.dataUrlHash",
+    "canvas.exportHash",
+    "audio.audioHash",
+    "webgl.webglVendor",
+    "webgl.webglRenderer",
+    "webgl.webglSummary",
+    "webgl2.webglVendor",
+    "webgl2.webglRenderer",
+    "webgl2.webglSummary",
+    "fonts.injectedFonts",
+    "fonts.fontUniverseWidths",
+    "voices",
+    "mediaDevices.counts",
+    "maxTouchPoints"
+  ],
+  "contextOwnedWindowFields": [
+    "geometry.innerWidth",
+    "geometry.innerHeight",
+    "geometry.outerWidth",
+    "geometry.outerHeight",
+    "geometry.screenX",
+    "geometry.screenY",
+    "geometry.screenLeft",
+    "geometry.screenTop",
+    "historyLength"
+  ],
+  "sameArtifact": {
+    "windowFamilyExactAcross": [
+      "navigator",
+      "locale",
+      "screen",
+      "devicePixelRatio",
+      "canvas",
+      "audio",
+      "webgl",
+      "webgl2",
+      "fonts",
+      "voices",
+      "mediaDevices",
+      "privacySignals",
+      "maxTouchPoints",
+      "httpIdentityHeaders"
+    ],
+    "windowContextStableWithinRealmType": ["geometry", "history"],
+    "workerRequiredExactAcross": [
+      "navigator.userAgent",
+      "navigator.platform",
+      "navigator.hardwareConcurrency",
+      "navigator.language",
+      "navigator.languages",
+      "locale.timeZone",
+      "locale.utcOffsetMinutes",
+      "httpIdentityHeaders"
+    ],
+    "workerConditionalExactAcrossWhenPresent": [
+      "workerCanvas",
+      "webgl",
+      "webgl2",
+      "fonts",
+      "privacySignals",
+      "maxTouchPoints"
+    ]
+  },
+  "headers": {
+    "sameMethod": "GET",
+    "sameCache": "no-store",
+    "sameCredentials": "omit",
+    "identityHeaders": [
+      "user-agent",
+      "accept-language",
+      "accept-encoding",
+      "dnt",
+      "sec-gpc"
+    ],
+    "contextHeaders": [
+      "origin",
+      "referer",
+      "sec-fetch-site",
+      "sec-fetch-mode",
+      "sec-fetch-dest",
+      "accept",
+      "cookie"
+    ],
+    "acceptLanguageMapping": {
+      "primaryToken": "navigator.language",
+      "tokenOrder": "navigator.languages",
+      "comparison": "case-insensitive BCP47 token equality after removing quality parameters"
+    },
+    "acceptEncodingMapping": "exact equality with resolvedConfig[headers.Accept-Encoding]",
+    "privacyHeaderMapping": {
+      "dnt": "navigator.doNotTrack when the Artifact value is configured",
+      "sec-gpc": "navigator.globalPrivacyControl when the Artifact value is configured"
+    }
+  },
+  "canvas": {
+    "windowToWindow": "exact-equal",
+    "workerWhenApplicable": "exact-equal within the same Artifact; full-B raw/raw-RGBA/decoded pixels may differ when fonts or fonts:spacing_seed changed with matching window font/width evidence; PNG/export remains canvas:seed-related",
+    "fullArtifactB": {
+      "export": "expected-different when canvas:seed differs",
+      "raw": "same-Artifact exact; full-B window/worker raw family may change only when fonts or fonts:spacing_seed changed with matching window font/width evidence; raw change is otherwise unexplained drift"
+    },
+    "pngContract": [
+      "signature-valid",
+      "decode-valid",
+      "width=240",
+      "height=120",
+      "mime=image/png"
+    ],
+    "sceneInput": "The same deterministic drawing scene is used in every window realm; the Artifact font list is the declared font input and is recorded only through redacted family/width evidence."
+  },
+  "artifactDiffMapping": {
+    "audio:seed": {
+      "realms": ["top-window", "same-origin-iframe", "cross-origin-iframe"],
+      "observation": "audio.audioHash",
+      "relation": "expected-different"
+    },
+    "canvas:seed": {
+      "realms": [
+        "top-window",
+        "same-origin-iframe",
+        "cross-origin-iframe",
+        "dedicated-worker",
+        "shared-worker",
+        "service-worker"
+      ],
+      "observation": "canvas export surface when applicable",
+      "relation": "deterministically-related"
+    },
+    "fonts": {
+      "realms": ["top-window", "same-origin-iframe", "cross-origin-iframe"],
+      "observation": "fonts.injectedFonts",
+      "relation": "expected-different"
+    },
+    "fonts:spacing_seed": {
+      "realms": ["top-window", "same-origin-iframe", "cross-origin-iframe"],
+      "observation": "fonts.fontUniverseWidths",
+      "relation": "expected-different"
+    },
+    "navigator.hardwareConcurrency": {
+      "realms": [
+        "top-window",
+        "same-origin-iframe",
+        "cross-origin-iframe",
+        "dedicated-worker",
+        "shared-worker",
+        "service-worker"
+      ],
+      "observation": "navigator.hardwareConcurrency",
+      "relation": "expected-different"
+    },
+    "screen.availHeight": {
+      "realms": ["top-window", "same-origin-iframe", "cross-origin-iframe"],
+      "observation": "screen.availHeight",
+      "relation": "expected-different"
+    },
+    "screen.availTop": {
+      "realms": ["top-window", "same-origin-iframe", "cross-origin-iframe"],
+      "observation": "screen.availTop",
+      "relation": "expected-different"
+    },
+    "screen.availWidth": {
+      "realms": ["top-window", "same-origin-iframe", "cross-origin-iframe"],
+      "observation": "screen.availWidth",
+      "relation": "expected-different"
+    },
+    "screen.height": {
+      "realms": ["top-window", "same-origin-iframe", "cross-origin-iframe"],
+      "observation": "screen.height",
+      "relation": "expected-different"
+    },
+    "screen.width": {
+      "realms": ["top-window", "same-origin-iframe", "cross-origin-iframe"],
+      "observation": "screen.width",
+      "relation": "expected-different"
+    },
+    "window.history.length": {
+      "realms": ["top-window"],
+      "observation": "historyLength",
+      "relation": "expected-different"
+    },
+    "window.screenX": {
+      "realms": ["top-window"],
+      "observation": "geometry.screenX",
+      "relation": "expected-different"
+    },
+    "window.screenY": {
+      "realms": ["top-window"],
+      "observation": "geometry.screenY",
+      "relation": "expected-different"
+    }
+  }
+}

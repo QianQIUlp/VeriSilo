@@ -15,9 +15,14 @@ Schema families:
   (website-observed values only: no artifactId, no internal seeds, no canvas,
   no artifact-supplied font input).
 
-Version contract (M2.0.2):
+Version contract:
 
-- Artifact/Policy are v3; ObservedWebsiteDigest is v2. Old v2 artifacts are
+- Artifact/Policy v5 adds the FF>=135 DNT-native, DPR host-bound, and
+  managed/native GPC contracts; v3/v4 remain readable for historical
+  artifacts. Artifact/Policy v6 is an opt-in network-bound extension with
+  exact Geo and WebRTC configured inputs; v5 remains the default writer and
+  ObservedWebsiteDigest remains v2.
+  Old v2 artifacts are
   rejected with UnsupportedSchemaVersionError (protocol code
   unsupported_schema_version), never as a plain missing-field error.
 - generatedBy must be a non-empty string; generatedAtUtc must be strict
@@ -46,14 +51,25 @@ Font policy (M2.0.1):
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
+import math
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-POLICY_SCHEMA = "verisilo-camoufox-identity-policy/v3"
-ARTIFACT_SCHEMA = "verisilo-camoufox-resolved-identity/v3"
+POLICY_SCHEMA_V3 = "verisilo-camoufox-identity-policy/v3"
+ARTIFACT_SCHEMA_V3 = "verisilo-camoufox-resolved-identity/v3"
+POLICY_SCHEMA_V4 = "verisilo-camoufox-identity-policy/v4"
+ARTIFACT_SCHEMA_V4 = "verisilo-camoufox-resolved-identity/v4"
+POLICY_SCHEMA_V5 = "verisilo-camoufox-identity-policy/v5"
+ARTIFACT_SCHEMA_V5 = "verisilo-camoufox-resolved-identity/v5"
+POLICY_SCHEMA_V6 = "verisilo-camoufox-identity-policy/v6"
+ARTIFACT_SCHEMA_V6 = "verisilo-camoufox-resolved-identity/v6"
+POLICY_SCHEMA = POLICY_SCHEMA_V5
+ARTIFACT_SCHEMA = ARTIFACT_SCHEMA_V5
 PROJECTION_SCHEMA = "verisilo-camoufox-stable-signal-projection/v3"
 CONFIG_DIGEST_SCHEMA = "verisilo-camoufox-configured-identity/v1"
 OBSERVED_DIGEST_SCHEMA = "verisilo-camoufox-observed-website/v2"
@@ -110,6 +126,73 @@ CANVAS_CLASSIFICATION = {
     "identity": "not stable; excluded from ObservedWebsiteDigest",
 }
 
+# Canvas Policy v3 has two deliberately closed variants.  The legacy variant
+# preserves the byte-for-byte policy embedded in the accepted official
+# Camoufox fixtures.  The deterministic variant is selected only by the exact
+# VeriSilo-patched Windows browser binding; no individual binding field is a
+# sufficient capability signal.
+LEGACY_CANVAS_POLICY_VARIANT = "legacy-session-variable"
+DETERMINISTIC_CANVAS_POLICY_VARIANT = "deterministic-artifact-v1"
+
+LEGACY_BROWSER_BINDINGS = (
+    {
+        "archiveSha256": "924f3109ccd6d47cd6a0384d67a345fadf975d48b6319f8dbbd5954c588982bd",
+        "archiveSizeBytes": 663387175,
+        "buildId": "20260719045650",
+        "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+        "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+    },
+    {
+        "archiveSha256": "386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d",
+        "archiveSizeBytes": 492370020,
+        "buildId": "20260719045835",
+        "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+        "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+    },
+)
+
+DETERMINISTIC_CANVAS_BROWSER_BINDING = {
+    "archiveSha256": "148d3a067cb94e830723745682e904c3a416cd2cf75282299ab7ce11c8050a94",
+    "archiveSizeBytes": 493100709,
+    "buildId": "20260811045234",
+    "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+    "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+}
+
+FORMAL_R1_CANVAS_BROWSER_BINDING = {
+    "archiveSha256": "a81649c538a101dce106e42f13f11dbdb08cbc0e8a1c9af6b497719a392a6cdc",
+    "archiveSizeBytes": 493497411,
+    "buildId": "20260811045234",
+    "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+    "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+}
+
+FORMAL_R1_V2_CANVAS_BROWSER_BINDING = {
+    "archiveSha256": "bea161d2e61a8cd4ac91f60b2247d419f48df0228919fac23d6d3fd94434ae00",
+    "archiveSizeBytes": 493493008,
+    "buildId": "20260811045234",
+    "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+    "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+}
+
+FORMAL_R1_V3_CANVAS_BROWSER_BINDING = {
+    "archiveSha256": "8a3ef192e02cfb955bd3f9bcf71b009bd89f78e758e522b7cf373c6a0d988cbb",
+    "archiveSizeBytes": 493496137,
+    "buildId": "20260811045234",
+    "sourceStamp": "e39c605adc0fc049a165d7fe4a3f6517b761edf7",
+    "propertiesJsonSha256": "c0573d7b47b3f4f217e459916f0feba461aba3816699727f216779a2c4988018",
+}
+
+DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS = [
+    key for key in SESSION_VARIABLE_SIGNAL_KEYS if key != "canvasExportHash"
+]
+
+DETERMINISTIC_CANVAS_CLASSIFICATION = {
+    "rawPixels": "stable raw RGBA; canvas:seed does not add pixel noise",
+    "exportEncoding": "artifact-silo deterministic PNG export from canvas:seed",
+    "identity": "stable hard-observed Canvas surface; excluded from ObservedWebsiteDigest v2",
+}
+
 CANONICAL_JSON_RULE = (
     "UTF-8, recursively sorted object keys, compact separators (,/:), "
     "ensure_ascii=false, allow_nan=false; artifact digest excludes only "
@@ -120,6 +203,9 @@ CANONICAL_JSON_RULE = (
 ARTIFACT_ID_RE = re.compile(r"^identity-[a-z0-9-]{1,63}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 RFC3339_UTC_Z_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
+COUNTRY_CODE_RE = re.compile(r"^[A-Z]{2}$")
+LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}-[A-Z]{2}$")
+TIMEZONE_RE = re.compile(r"^(?:UTC|[A-Za-z0-9_+.-]+(?:/[A-Za-z0-9_+.-]+)+)$")
 
 # --------------------------------------------------------------------------
 # Recursive schema primitives (exact type identity, no bool-as-int).
@@ -220,6 +306,19 @@ VOICE = {
 FONTS = {"items": STR, "min": 1}
 VOICES = {"items": VOICE, "min": 1}
 
+VOICES_MODE_MANAGED = "managed"
+VOICES_MODE_NATIVE = "native"
+GPC_POLICY_KEY = "navigator.gpcPolicy"
+GPC_POLICY_NATIVE = "native"
+GPC_POLICY_MANAGED_OPT_OUT = "managed-opt-out"
+GPC_CONFIG_KEY = "navigator.globalPrivacyControl"
+DNT_CONFIG_KEY = "navigator.doNotTrack"
+VOICE_DERIVED_CONFIG = {
+    "voices:blockIfNotDefined": True,
+    "voices:fakeCompletion": True,
+    "voices:fakeCompletion:charsPerSecond": 12.5,
+}
+
 REQUIRED_CONFIG_KEYS: dict[str, Any] = {
     "navigator.userAgent": STR,
     "navigator.platform": STR,
@@ -269,6 +368,54 @@ REQUIRED_CONFIG_KEYS: dict[str, Any] = {
     "webGl2:shaderPrecisionFormats": WEBGL_PRECISION_MAP,
     "webGl2:supportedExtensions": SUPPORTED_EXTENSIONS,
 }
+V4_MANAGED_CONFIG_KEYS = {
+    **REQUIRED_CONFIG_KEYS,
+    "voices:blockIfNotDefined": BOOL,
+    "voices:fakeCompletion": BOOL,
+    "voices:fakeCompletion:charsPerSecond": FLOAT,
+}
+V4_NATIVE_CONFIG_KEYS = {
+    key: spec for key, spec in REQUIRED_CONFIG_KEYS.items() if key != "voices"
+}
+V5_REQUIRED_CONFIG_KEYS = {
+    key: spec
+    for key, spec in REQUIRED_CONFIG_KEYS.items()
+    if key not in (DNT_CONFIG_KEY, GPC_CONFIG_KEY)
+}
+V5_MANAGED_CONFIG_KEYS = {
+    **V5_REQUIRED_CONFIG_KEYS,
+    GPC_CONFIG_KEY: BOOL,
+    "voices:blockIfNotDefined": BOOL,
+    "voices:fakeCompletion": BOOL,
+    "voices:fakeCompletion:charsPerSecond": FLOAT,
+}
+V5_NATIVE_CONFIG_KEYS = {
+    key: spec for key, spec in V5_REQUIRED_CONFIG_KEYS.items() if key != "voices"
+}
+V5_MANAGED_VOICES_CONFIG_KEYS = {
+    **V5_REQUIRED_CONFIG_KEYS,
+    "voices:blockIfNotDefined": BOOL,
+    "voices:fakeCompletion": BOOL,
+    "voices:fakeCompletion:charsPerSecond": FLOAT,
+}
+V5_NATIVE_GPC_CONFIG_KEYS = {
+    **V5_NATIVE_CONFIG_KEYS,
+    GPC_CONFIG_KEY: BOOL,
+}
+NETWORK_IDENTITY_SPEC = {
+    "keys": {
+        "expectedPublicAddress": STR,
+        "countryCode": STR,
+        "timezone": STR,
+        "locale": STR,
+        "latitude": FLOAT,
+        "longitude": FLOAT,
+    }
+}
+NETWORK_GEO_CONFIG_KEYS = {
+    "geolocation:latitude": FLOAT,
+    "geolocation:longitude": FLOAT,
+}
 POLICY_SPEC = {
     "keys": {
         "schema": STR,
@@ -285,6 +432,18 @@ POLICY_SPEC = {
         "canvasClassification": {"valueType": STR},
         "requiredConfigKeys": {"items": STR},
         "canonicalJsonRule": STR,
+    }
+}
+V4_POLICY_SPEC = {
+    "keys": {
+        **POLICY_SPEC["keys"],
+        "voicesMode": STR,
+    }
+}
+V5_POLICY_SPEC = {
+    "keys": {
+        **V4_POLICY_SPEC["keys"],
+        GPC_POLICY_KEY: STR,
     }
 }
 
@@ -344,6 +503,23 @@ DECLARED_SPEC = {
         "voices": VOICES,
     }
 }
+V4_NATIVE_DECLARED_SPEC = {
+    "keys": {
+        key: spec for key, spec in DECLARED_SPEC["keys"].items() if key != "voices"
+    }
+}
+V5_DECLARED_SPEC = {
+    "keys": {
+        key: spec
+        for key, spec in DECLARED_SPEC["keys"].items()
+        if key != "devicePixelRatio"
+    }
+}
+V5_NATIVE_DECLARED_SPEC = {
+    "keys": {
+        key: spec for key, spec in V5_DECLARED_SPEC["keys"].items() if key != "voices"
+    }
+}
 
 REQUIRED_ARTIFACT_KEYS = {
     "schema",
@@ -383,6 +559,126 @@ TOP_LEVEL_SPEC = {
         "canonicalDigest": STR,
     }
 }
+V4_MANAGED_TOP_LEVEL_SPEC = {
+    "keys": {
+        **TOP_LEVEL_SPEC["keys"],
+        "policy": V4_POLICY_SPEC,
+        "resolvedConfig": {"keys": V4_MANAGED_CONFIG_KEYS},
+    }
+}
+V4_NATIVE_TOP_LEVEL_SPEC = {
+    "keys": {
+        **V4_MANAGED_TOP_LEVEL_SPEC["keys"],
+        "resolvedConfig": {"keys": V4_NATIVE_CONFIG_KEYS},
+        "stableSignalsDeclared": V4_NATIVE_DECLARED_SPEC,
+    }
+}
+V5_MANAGED_TOP_LEVEL_SPEC = {
+    "keys": {
+        **TOP_LEVEL_SPEC["keys"],
+        "policy": V5_POLICY_SPEC,
+        "resolvedConfig": {"keys": V5_MANAGED_CONFIG_KEYS},
+        "stableSignalsDeclared": V5_DECLARED_SPEC,
+    }
+}
+V5_NATIVE_TOP_LEVEL_SPEC = {
+    "keys": {
+        **V5_MANAGED_TOP_LEVEL_SPEC["keys"],
+        "resolvedConfig": {"keys": V5_NATIVE_CONFIG_KEYS},
+        "stableSignalsDeclared": V5_NATIVE_DECLARED_SPEC,
+    }
+}
+V4_NATIVE_STABLE_WEBSITE_SIGNAL_KEYS = [
+    key for key in STABLE_WEBSITE_SIGNAL_KEYS if key != "voices"
+]
+V5_STABLE_WEBSITE_SIGNAL_KEYS = [
+    key
+    for key in STABLE_WEBSITE_SIGNAL_KEYS
+    if key not in ("doNotTrack", "devicePixelRatio")
+]
+V5_NATIVE_STABLE_WEBSITE_SIGNAL_KEYS = [
+    key for key in V5_STABLE_WEBSITE_SIGNAL_KEYS if key != "globalPrivacyControl"
+]
+
+
+def _v5_config_keys(voices_mode: str, gpc_policy: str) -> dict[str, Any]:
+    if voices_mode == VOICES_MODE_NATIVE:
+        keys = V5_NATIVE_GPC_CONFIG_KEYS if gpc_policy == GPC_POLICY_MANAGED_OPT_OUT else V5_NATIVE_CONFIG_KEYS
+    else:
+        keys = V5_MANAGED_CONFIG_KEYS if gpc_policy == GPC_POLICY_MANAGED_OPT_OUT else V5_MANAGED_VOICES_CONFIG_KEYS
+    return keys
+
+
+def _v5_stable_website_fields(voices_mode: str, gpc_policy: str) -> list[str]:
+    fields = list(V5_STABLE_WEBSITE_SIGNAL_KEYS)
+    if voices_mode == VOICES_MODE_NATIVE:
+        fields.remove("voices")
+    if gpc_policy == GPC_POLICY_NATIVE:
+        fields.remove("globalPrivacyControl")
+    return fields
+
+
+def _v5_artifact_spec(voices_mode: str, gpc_policy: str) -> dict[str, Any]:
+    return {
+        "keys": {
+            **TOP_LEVEL_SPEC["keys"],
+            "policy": V5_POLICY_SPEC,
+            "resolvedConfig": {"keys": _v5_config_keys(voices_mode, gpc_policy)},
+            "stableSignalsDeclared": (
+                V5_NATIVE_DECLARED_SPEC
+                if voices_mode == VOICES_MODE_NATIVE
+                else V5_DECLARED_SPEC
+            ),
+        }
+    }
+
+
+def _v6_config_keys(
+    voices_mode: str, gpc_policy: str, ip_version: int
+) -> dict[str, Any]:
+    if ip_version not in (4, 6):
+        raise ValueError(f"unsupported network identity IP version: {ip_version!r}")
+    return {
+        **_v5_config_keys(voices_mode, gpc_policy),
+        **NETWORK_GEO_CONFIG_KEYS,
+        f"webrtc:ipv{ip_version}": STR,
+    }
+
+
+def _network_identity_ip_version(network_identity: Any) -> int:
+    address = (
+        network_identity.get("expectedPublicAddress")
+        if type(network_identity) is dict
+        else None
+    )
+    try:
+        return ipaddress.ip_address(address).version
+    except (TypeError, ValueError):
+        return 4
+
+
+def _v6_artifact_spec(
+    voices_mode: str, gpc_policy: str, network_identity: Any
+) -> dict[str, Any]:
+    return {
+        "keys": {
+            **TOP_LEVEL_SPEC["keys"],
+            "policy": V5_POLICY_SPEC,
+            "networkIdentity": NETWORK_IDENTITY_SPEC,
+            "resolvedConfig": {
+                "keys": _v6_config_keys(
+                    voices_mode,
+                    gpc_policy,
+                    _network_identity_ip_version(network_identity),
+                )
+            },
+            "stableSignalsDeclared": (
+                V5_NATIVE_DECLARED_SPEC
+                if voices_mode == VOICES_MODE_NATIVE
+                else V5_DECLARED_SPEC
+            ),
+        }
+    }
 
 
 class ArtifactIntegrityError(Exception):
@@ -392,6 +688,60 @@ class ArtifactIntegrityError(Exception):
 class UnsupportedSchemaVersionError(ArtifactIntegrityError):
     """Raised when an artifact uses an older/newer resolved-identity schema
     version. This is a version contract error, NOT a missing-field error."""
+
+
+def _browser_binding_matches_exact(actual: Any, expected: dict) -> bool:
+    """Compare a binding as a closed, exact-type capability tuple.
+
+    In particular, bool must not compare equal to an integer size and an
+    otherwise-correct object with an extra field must not select a policy.
+    """
+
+    return (
+        type(actual) is dict
+        and set(actual) == set(expected)
+        and all(
+            type(actual[key]) is type(expected_value)
+            and actual[key] == expected_value
+            for key, expected_value in expected.items()
+        )
+    )
+
+
+def canvas_policy_variant_for_browser_binding(binding: Any) -> str:
+    """Select exactly one Canvas Policy v3 variant or fail closed."""
+
+    matches: list[str] = []
+    if any(
+        _browser_binding_matches_exact(binding, expected)
+        for expected in LEGACY_BROWSER_BINDINGS
+    ):
+        matches.append(LEGACY_CANVAS_POLICY_VARIANT)
+    if any(
+        _browser_binding_matches_exact(binding, expected)
+        for expected in (
+            DETERMINISTIC_CANVAS_BROWSER_BINDING,
+            FORMAL_R1_CANVAS_BROWSER_BINDING,
+            FORMAL_R1_V2_CANVAS_BROWSER_BINDING,
+            FORMAL_R1_V3_CANVAS_BROWSER_BINDING,
+        )
+    ):
+        matches.append(DETERMINISTIC_CANVAS_POLICY_VARIANT)
+    if len(matches) != 1:
+        raise ArtifactIntegrityError(
+            "browserBinding does not select exactly one approved Canvas Policy v3 variant"
+        )
+    return matches[0]
+
+
+def _canvas_policy_fields_for_browser_binding(binding: Any) -> tuple[list[str], dict]:
+    variant = canvas_policy_variant_for_browser_binding(binding)
+    if variant == DETERMINISTIC_CANVAS_POLICY_VARIANT:
+        return (
+            list(DETERMINISTIC_SESSION_VARIABLE_SIGNAL_KEYS),
+            dict(DETERMINISTIC_CANVAS_CLASSIFICATION),
+        )
+    return list(SESSION_VARIABLE_SIGNAL_KEYS), dict(CANVAS_CLASSIFICATION)
 
 
 # --------------------------------------------------------------------------
@@ -468,6 +818,37 @@ def build_projection(
     }
 
 
+def _managed_voice_errors(voices: Any) -> list[str]:
+    errors: list[str] = []
+    _check_value(voices, VOICES, "resolvedConfig.voices", errors)
+    if type(voices) is list:
+        defaults = sum(
+            type(voice) is dict and voice.get("isDefault") is True
+            for voice in voices
+        )
+        if defaults != 1:
+            errors.append(
+                f"resolvedConfig.voices must contain exactly one default, got {defaults}"
+            )
+    return errors
+
+
+def apply_voices_policy(config: dict, voices_mode: str) -> dict:
+    """Apply the closed Artifact voices policy to a resolved config."""
+
+    if voices_mode == VOICES_MODE_MANAGED:
+        errors = _managed_voice_errors(config.get("voices"))
+        if errors:
+            raise ArtifactIntegrityError("invalid managed voices: " + "; ".join(errors))
+        config.update(VOICE_DERIVED_CONFIG)
+    elif voices_mode == VOICES_MODE_NATIVE:
+        for key in ("voices", *VOICE_DERIVED_CONFIG):
+            config.pop(key, None)
+    else:
+        raise ValueError(f"unknown voices mode: {voices_mode!r}")
+    return config
+
+
 def identity_policy(
     target_os: str = "linux",
     font_mode: str = "inherit",
@@ -475,23 +856,92 @@ def identity_policy(
     locale: str = "en-US",
     ff_version: int = 152,
     timezone_mode: str = "fixed",
+    browser_binding: dict | None = None,
+    voices_mode: str | None = VOICES_MODE_MANAGED,
+    gpc_policy: str = GPC_POLICY_MANAGED_OPT_OUT,
+    schema_version: int | None = None,
+    network_ip_version: int | None = None,
 ) -> dict:
-    return {
-        "schema": POLICY_SCHEMA,
-        "version": 3,
+    if schema_version is None:
+        schema_version = 3 if voices_mode is None else 5
+    if schema_version not in (3, 4, 5, 6):
+        raise ValueError(f"unknown identity policy schema version: {schema_version!r}")
+    if schema_version == 3 and voices_mode is not None:
+        raise ValueError("v3 policy cannot declare voicesMode")
+    if schema_version in (4, 5, 6) and voices_mode not in (
+        VOICES_MODE_MANAGED,
+        VOICES_MODE_NATIVE,
+    ):
+        raise ValueError(f"{schema_version} policy requires a voices mode")
+    if schema_version in (5, 6):
+        if type(ff_version) is not int or ff_version < 135:
+            raise ValueError(f"Artifact/Policy v{schema_version} requires ffVersion >= 135")
+        if gpc_policy not in (GPC_POLICY_NATIVE, GPC_POLICY_MANAGED_OPT_OUT):
+            raise ValueError(f"unknown gpc policy: {gpc_policy!r}")
+    elif gpc_policy != GPC_POLICY_MANAGED_OPT_OUT:
+        raise ValueError("gpc_policy is only available for Artifact/Policy v5+")
+    if schema_version == 6:
+        if timezone_mode != "network-bound":
+            raise ValueError("Artifact/Policy v6 requires network-bound timezoneMode")
+        if network_ip_version not in (4, 6):
+            raise ValueError("Artifact/Policy v6 requires network_ip_version 4 or 6")
+    elif network_ip_version is not None:
+        raise ValueError("network_ip_version is only available for Artifact/Policy v6")
+    if browser_binding is None:
+        # Preserve the legacy default for existing callers and fixtures. New
+        # artifact generation always supplies its resolved browser binding.
+        session_variable_fields = list(SESSION_VARIABLE_SIGNAL_KEYS)
+        canvas_classification = dict(CANVAS_CLASSIFICATION)
+    else:
+        session_variable_fields, canvas_classification = (
+            _canvas_policy_fields_for_browser_binding(browser_binding)
+        )
+    if schema_version == 3:
+        stable_website_fields = list(STABLE_WEBSITE_SIGNAL_KEYS)
+        required_config_keys = sorted(REQUIRED_CONFIG_KEYS)
+    elif schema_version == 4 and voices_mode == VOICES_MODE_NATIVE:
+        stable_website_fields = list(V4_NATIVE_STABLE_WEBSITE_SIGNAL_KEYS)
+        required_config_keys = sorted(V4_NATIVE_CONFIG_KEYS)
+    elif schema_version == 4:
+        stable_website_fields = list(STABLE_WEBSITE_SIGNAL_KEYS)
+        required_config_keys = sorted(V4_MANAGED_CONFIG_KEYS)
+    elif schema_version == 6:
+        stable_website_fields = _v5_stable_website_fields(voices_mode, gpc_policy)
+        required_config_keys = sorted(
+            _v6_config_keys(voices_mode, gpc_policy, network_ip_version)
+        )
+    elif voices_mode == VOICES_MODE_NATIVE:
+        stable_website_fields = _v5_stable_website_fields(voices_mode, gpc_policy)
+        required_config_keys = sorted(_v5_config_keys(voices_mode, gpc_policy))
+    else:
+        stable_website_fields = _v5_stable_website_fields(voices_mode, gpc_policy)
+        required_config_keys = sorted(_v5_config_keys(voices_mode, gpc_policy))
+    policy = {
+        "schema": {
+            3: POLICY_SCHEMA_V3,
+            4: POLICY_SCHEMA_V4,
+            5: POLICY_SCHEMA_V5,
+            6: POLICY_SCHEMA_V6,
+        }[schema_version],
+        "version": schema_version,
         "targetOs": target_os,
         "fontMode": font_mode,
         "window": list(window),
         "locale": locale,
         "ffVersion": ff_version,
         "timezoneMode": timezone_mode,
-        "stableWebsiteFields": list(STABLE_WEBSITE_SIGNAL_KEYS),
-        "sessionVariableFields": list(SESSION_VARIABLE_SIGNAL_KEYS),
+        "stableWebsiteFields": stable_website_fields,
+        "sessionVariableFields": session_variable_fields,
         "unavailableFields": dict(UNAVAILABLE_SIGNALS),
-        "canvasClassification": dict(CANVAS_CLASSIFICATION),
-        "requiredConfigKeys": sorted(REQUIRED_CONFIG_KEYS),
+        "canvasClassification": canvas_classification,
+        "requiredConfigKeys": required_config_keys,
         "canonicalJsonRule": CANONICAL_JSON_RULE,
     }
+    if schema_version in (4, 5, 6):
+        policy["voicesMode"] = voices_mode
+    if schema_version in (5, 6):
+        policy[GPC_POLICY_KEY] = gpc_policy
+    return policy
 
 
 def _is_rfc3339_utc_z(value: Any) -> bool:
@@ -516,14 +966,36 @@ def _is_rfc3339_utc_z(value: Any) -> bool:
 
 def validate_artifact_strict(artifact: dict) -> None:
     errors: list[str] = []
+    artifact_schema = artifact.get("schema")
+    policy = artifact.get("policy")
+    voices_mode = policy.get("voicesMode") if isinstance(policy, dict) else None
 
-    # Unified closed schema: every top-level field (including resolvedConfig's
-    # full 47-key closure) must exist with the exact type; unknown fields and
-    # missing required fields are rejected recursively.
-    _check_value(artifact, TOP_LEVEL_SPEC, "artifact", errors)
+    gpc_policy = policy.get(GPC_POLICY_KEY) if isinstance(policy, dict) else None
+    if artifact_schema == ARTIFACT_SCHEMA_V6:
+        artifact_spec = _v6_artifact_spec(
+            voices_mode, gpc_policy, artifact.get("networkIdentity")
+        )
+    elif artifact_schema == ARTIFACT_SCHEMA_V5:
+        artifact_spec = _v5_artifact_spec(voices_mode, gpc_policy)
+    elif artifact_schema == ARTIFACT_SCHEMA_V4 and voices_mode == VOICES_MODE_NATIVE:
+        artifact_spec = V4_NATIVE_TOP_LEVEL_SPEC
+    elif artifact_schema == ARTIFACT_SCHEMA_V4:
+        artifact_spec = V4_MANAGED_TOP_LEVEL_SPEC
+    else:
+        artifact_spec = TOP_LEVEL_SPEC
+    _check_value(artifact, artifact_spec, "artifact", errors)
 
-    if artifact.get("schema") != ARTIFACT_SCHEMA:
-        errors.append(f"schema must be {ARTIFACT_SCHEMA!r}")
+    if artifact_schema not in (
+        ARTIFACT_SCHEMA_V3,
+        ARTIFACT_SCHEMA_V4,
+        ARTIFACT_SCHEMA_V5,
+        ARTIFACT_SCHEMA_V6,
+    ):
+        errors.append(
+            f"schema must be one of {ARTIFACT_SCHEMA_V3!r}, "
+            f"{ARTIFACT_SCHEMA_V4!r}, {ARTIFACT_SCHEMA_V5!r}, "
+            f"or {ARTIFACT_SCHEMA_V6!r}"
+        )
     artifact_id = artifact.get("artifactId")
     if not isinstance(artifact_id, str) or not ARTIFACT_ID_RE.match(artifact_id):
         errors.append(f"artifactId {artifact_id!r} does not match {ARTIFACT_ID_RE.pattern}")
@@ -544,31 +1016,226 @@ def validate_artifact_strict(artifact: dict) -> None:
         ):
             errors.append(f"{digest_key} must be sha256:<64 hex chars>")
 
-    policy = artifact.get("policy")
+    binding = artifact.get("browserBinding")
+    expected_session_variable_fields: list[str] | None = None
+    expected_canvas_classification: dict | None = None
+    try:
+        (
+            expected_session_variable_fields,
+            expected_canvas_classification,
+        ) = _canvas_policy_fields_for_browser_binding(binding)
+    except ArtifactIntegrityError as exc:
+        errors.append(str(exc))
+
     if isinstance(policy, dict):
-        if policy.get("schema") != POLICY_SCHEMA:
-            errors.append(f"policy.schema must be {POLICY_SCHEMA!r}")
-        if policy.get("version") != 3:
-            errors.append("policy.version must be 3")
+        expected_policy_schema = {
+            ARTIFACT_SCHEMA_V3: POLICY_SCHEMA_V3,
+            ARTIFACT_SCHEMA_V4: POLICY_SCHEMA_V4,
+            ARTIFACT_SCHEMA_V5: POLICY_SCHEMA_V5,
+            ARTIFACT_SCHEMA_V6: POLICY_SCHEMA_V6,
+        }.get(artifact_schema)
+        expected_policy_version = {
+            ARTIFACT_SCHEMA_V3: 3,
+            ARTIFACT_SCHEMA_V4: 4,
+            ARTIFACT_SCHEMA_V5: 5,
+            ARTIFACT_SCHEMA_V6: 6,
+        }.get(artifact_schema)
+        if policy.get("schema") != expected_policy_schema:
+            errors.append(f"policy.schema must be {expected_policy_schema!r}")
+        if policy.get("version") != expected_policy_version:
+            errors.append(f"policy.version must be {expected_policy_version}")
+        if artifact_schema in (
+            ARTIFACT_SCHEMA_V4,
+            ARTIFACT_SCHEMA_V5,
+            ARTIFACT_SCHEMA_V6,
+        ) and voices_mode not in (
+            VOICES_MODE_MANAGED,
+            VOICES_MODE_NATIVE,
+        ):
+            errors.append("policy.voicesMode must be managed or native")
+        if artifact_schema in (ARTIFACT_SCHEMA_V5, ARTIFACT_SCHEMA_V6):
+            if policy.get(GPC_POLICY_KEY) not in (
+                GPC_POLICY_NATIVE,
+                GPC_POLICY_MANAGED_OPT_OUT,
+            ):
+                errors.append(
+                    "policy.navigator.gpcPolicy must be native or managed-opt-out"
+                )
+            if isinstance(policy.get("ffVersion"), int) and policy["ffVersion"] < 135:
+                errors.append("Artifact/Policy v5+ requires ffVersion >= 135")
         if policy.get("targetOs") not in ("linux", "macos", "windows"):
             errors.append("policy.targetOs unsupported")
         if policy.get("fontMode") not in ("inherit", "managed"):
             errors.append("policy.fontMode must be inherit or managed")
         if policy.get("timezoneMode") not in ("fixed", "network-bound"):
             errors.append("policy.timezoneMode must be fixed or network-bound")
-        if policy.get("stableWebsiteFields") != STABLE_WEBSITE_SIGNAL_KEYS:
+        if artifact_schema == ARTIFACT_SCHEMA_V6 and policy.get("timezoneMode") != "network-bound":
+            errors.append("Artifact/Policy v6 requires network-bound timezoneMode")
+        if artifact_schema in (ARTIFACT_SCHEMA_V5, ARTIFACT_SCHEMA_V6):
+            expected_stable_fields = _v5_stable_website_fields(voices_mode, gpc_policy)
+        elif artifact_schema == ARTIFACT_SCHEMA_V4:
+            expected_stable_fields = (
+                V4_NATIVE_STABLE_WEBSITE_SIGNAL_KEYS
+                if voices_mode == VOICES_MODE_NATIVE
+                else STABLE_WEBSITE_SIGNAL_KEYS
+            )
+        else:
+            expected_stable_fields = STABLE_WEBSITE_SIGNAL_KEYS
+        if policy.get("stableWebsiteFields") != expected_stable_fields:
             errors.append("policy.stableWebsiteFields does not match the canonical list")
-        if policy.get("sessionVariableFields") != SESSION_VARIABLE_SIGNAL_KEYS:
+        if (
+            expected_session_variable_fields is not None
+            and policy.get("sessionVariableFields")
+            != expected_session_variable_fields
+        ):
             errors.append("policy.sessionVariableFields does not match the canonical list")
         if policy.get("unavailableFields") != UNAVAILABLE_SIGNALS:
             errors.append("policy.unavailableFields does not match the canonical map")
-        if policy.get("canvasClassification") != CANVAS_CLASSIFICATION:
+        if (
+            expected_canvas_classification is not None
+            and policy.get("canvasClassification")
+            != expected_canvas_classification
+        ):
             errors.append("policy.canvasClassification does not match the canonical map")
-        if policy.get("requiredConfigKeys") != sorted(REQUIRED_CONFIG_KEYS):
+        if artifact_schema == ARTIFACT_SCHEMA_V6:
+            expected_config_keys = sorted(
+                _v6_config_keys(
+                    voices_mode,
+                    gpc_policy,
+                    _network_identity_ip_version(artifact.get("networkIdentity")),
+                )
+            )
+        elif artifact_schema == ARTIFACT_SCHEMA_V5:
+            expected_config_keys = sorted(_v5_config_keys(voices_mode, gpc_policy))
+        elif artifact_schema == ARTIFACT_SCHEMA_V4 and voices_mode == VOICES_MODE_NATIVE:
+            expected_config_keys = sorted(V4_NATIVE_CONFIG_KEYS)
+        elif artifact_schema == ARTIFACT_SCHEMA_V4:
+            expected_config_keys = sorted(V4_MANAGED_CONFIG_KEYS)
+        else:
+            expected_config_keys = sorted(REQUIRED_CONFIG_KEYS)
+        if policy.get("requiredConfigKeys") != expected_config_keys:
             errors.append("policy.requiredConfigKeys does not match the canonical key set")
 
     config = artifact.get("resolvedConfig")
     if isinstance(config, dict):
+        if (
+            artifact_schema in (
+                ARTIFACT_SCHEMA_V4,
+                ARTIFACT_SCHEMA_V5,
+                ARTIFACT_SCHEMA_V6,
+            )
+            and voices_mode == VOICES_MODE_MANAGED
+        ):
+            errors.extend(_managed_voice_errors(config.get("voices")))
+            for key, expected in VOICE_DERIVED_CONFIG.items():
+                if (
+                    key not in config
+                    or type(config[key]) is not type(expected)
+                    or config[key] != expected
+                ):
+                    errors.append(f"resolvedConfig.{key} must be exactly {expected!r}")
+        elif (
+            artifact_schema in (
+                ARTIFACT_SCHEMA_V4,
+                ARTIFACT_SCHEMA_V5,
+                ARTIFACT_SCHEMA_V6,
+            )
+            and voices_mode == VOICES_MODE_NATIVE
+        ):
+            for key in ("voices", *VOICE_DERIVED_CONFIG):
+                if key in config:
+                    errors.append(f"native voices mode forbids resolvedConfig.{key}")
+        if artifact_schema in (ARTIFACT_SCHEMA_V5, ARTIFACT_SCHEMA_V6):
+            if gpc_policy == GPC_POLICY_MANAGED_OPT_OUT:
+                if config.get(GPC_CONFIG_KEY) is not True:
+                    errors.append(
+                        "managed-opt-out requires resolvedConfig.navigator.globalPrivacyControl "
+                        "to be exactly true"
+                    )
+            elif gpc_policy == GPC_POLICY_NATIVE and GPC_CONFIG_KEY in config:
+                errors.append(
+                    "native gpcPolicy forbids resolvedConfig.navigator.globalPrivacyControl"
+                )
+        if artifact_schema == ARTIFACT_SCHEMA_V6:
+            network_identity = artifact.get("networkIdentity")
+            if isinstance(network_identity, dict):
+                address = network_identity.get("expectedPublicAddress")
+                parsed_address = None
+                try:
+                    parsed_address = ipaddress.ip_address(address)
+                except (TypeError, ValueError):
+                    errors.append("networkIdentity.expectedPublicAddress must be an IP address")
+                if parsed_address is not None and (
+                    not parsed_address.is_global or parsed_address.is_multicast
+                ):
+                    errors.append(
+                        "networkIdentity.expectedPublicAddress must be global unicast"
+                    )
+                if parsed_address is not None and address != str(parsed_address):
+                    errors.append("networkIdentity.expectedPublicAddress must be canonical")
+                country_code = network_identity.get("countryCode")
+                if type(country_code) is not str or not COUNTRY_CODE_RE.fullmatch(country_code):
+                    errors.append("networkIdentity.countryCode must be two uppercase letters")
+                timezone = network_identity.get("timezone")
+                if type(timezone) is not str or not TIMEZONE_RE.fullmatch(timezone):
+                    errors.append("networkIdentity.timezone must be UTC or an IANA-style timezone")
+                else:
+                    try:
+                        ZoneInfo(timezone)
+                    except (ZoneInfoNotFoundError, ValueError):
+                        errors.append("networkIdentity.timezone must be a known IANA timezone")
+                locale = network_identity.get("locale")
+                normalized_locale = None
+                if type(locale) is not str or not LOCALE_RE.fullmatch(locale):
+                    errors.append("networkIdentity.locale must be language-REGION")
+                else:
+                    from camoufox.exceptions import LocaleError
+                    from camoufox.locales import normalize_locale
+
+                    try:
+                        normalized_locale = normalize_locale(locale)
+                    except LocaleError:
+                        errors.append("networkIdentity.locale must be a supported locale")
+                    else:
+                        if (
+                            normalized_locale.as_string != locale
+                            or normalized_locale.region is None
+                            or normalized_locale.script is None
+                        ):
+                            errors.append("networkIdentity.locale must be canonical")
+                latitude = network_identity.get("latitude")
+                longitude = network_identity.get("longitude")
+                if type(latitude) is not float or not math.isfinite(latitude) or not -90 <= latitude <= 90:
+                    errors.append("networkIdentity.latitude must be a finite float in [-90, 90]")
+                if type(longitude) is not float or not math.isfinite(longitude) or not -180 <= longitude <= 180:
+                    errors.append("networkIdentity.longitude must be a finite float in [-180, 180]")
+                if config.get("timezone") != timezone:
+                    errors.append("networkIdentity.timezone inconsistent with resolvedConfig")
+                if config.get("geolocation:latitude") != latitude:
+                    errors.append("networkIdentity.latitude inconsistent with resolvedConfig")
+                if config.get("geolocation:longitude") != longitude:
+                    errors.append("networkIdentity.longitude inconsistent with resolvedConfig")
+                if normalized_locale is not None:
+                    if (
+                        config.get("locale:language") != normalized_locale.language
+                        or config.get("locale:region") != normalized_locale.region
+                        or config.get("locale:script") != normalized_locale.script
+                    ):
+                        errors.append("networkIdentity.locale inconsistent with resolvedConfig")
+                if parsed_address is not None:
+                    web_rtc_key = f"webrtc:ipv{parsed_address.version}"
+                    if config.get(web_rtc_key) != str(parsed_address):
+                        errors.append(
+                            "networkIdentity.expectedPublicAddress inconsistent with resolvedConfig"
+                        )
+                if isinstance(policy, dict):
+                    if policy.get("locale") != locale:
+                        errors.append("networkIdentity.locale inconsistent with policy")
+        canvas_seed = config.get("canvas:seed")
+        if type(canvas_seed) is int and not 0 <= canvas_seed <= 0xFFFFFFFF:
+            errors.append(
+                "resolvedConfig.canvas:seed must be an unsigned 32-bit integer"
+            )
         if (
             isinstance(config.get("screen.availTop"), int)
             and isinstance(config.get("screen.availHeight"), int)
@@ -577,7 +1244,6 @@ def validate_artifact_strict(artifact: dict) -> None:
             if config["screen.availTop"] + config["screen.availHeight"] > config["screen.height"]:
                 errors.append("screen avail geometry inconsistent")
 
-    binding = artifact.get("browserBinding")
     if isinstance(binding, dict):
         if not HEX64_RE.fullmatch(str(binding.get("archiveSha256", ""))):
             errors.append("browserBinding.archiveSha256 must be a 64-hex sha256")
@@ -634,7 +1300,10 @@ def validate_artifact_strict(artifact: dict) -> None:
             errors.append("stableSignalsDeclared.fonts inconsistent with resolvedConfig")
         if declared.get("voices") != config.get("voices"):
             errors.append("stableSignalsDeclared.voices inconsistent with resolvedConfig")
-        if type(declared.get("devicePixelRatio")) is not int or declared.get("devicePixelRatio") != 1:
+        if artifact_schema not in (ARTIFACT_SCHEMA_V5, ARTIFACT_SCHEMA_V6) and (
+            type(declared.get("devicePixelRatio")) is not int
+            or declared.get("devicePixelRatio") != 1
+        ):
             errors.append("stableSignalsDeclared.devicePixelRatio must be 1")
 
     if isinstance(policy, dict) and isinstance(config, dict):
@@ -702,6 +1371,7 @@ def assert_artifact_clean(artifact: dict) -> None:
         artifact.get("resolvedConfig", {}),
         artifact.get("stableSignalsDeclared", {}),
         artifact.get("browserBinding", {}),
+        artifact.get("networkIdentity", {}),
     ]
     hits: list[str] = []
     for part in parts:
@@ -763,13 +1433,20 @@ def verify_artifact_raw(
             f"artifact must be a JSON object, got {type(artifact).__name__}"
         )
     schema = artifact.get("schema")
-    if schema != ARTIFACT_SCHEMA:
+    if schema not in (
+        ARTIFACT_SCHEMA_V3,
+        ARTIFACT_SCHEMA_V4,
+        ARTIFACT_SCHEMA_V5,
+        ARTIFACT_SCHEMA_V6,
+    ):
         if isinstance(schema, str) and schema.startswith(
             "verisilo-camoufox-resolved-identity/"
         ):
             raise UnsupportedSchemaVersionError(
                 f"unsupported artifact schema version: {schema!r}; "
-                f"expected {ARTIFACT_SCHEMA!r}"
+                f"expected one of {ARTIFACT_SCHEMA_V3!r}, "
+                f"{ARTIFACT_SCHEMA_V4!r}, {ARTIFACT_SCHEMA_V5!r}, "
+                f"or {ARTIFACT_SCHEMA_V6!r}"
             )
         raise ArtifactIntegrityError(f"artifact schema mismatch: {schema!r}")
     validate_artifact_strict(artifact)

@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "C:\Users\qiu\src\VeriSilo-camoufox-lifecycle\apps\camoufox-host\run_fp4_windows.py", line 1261, in execute_attempt
+    active_session_id = require_ok(
+                        ^^^^^^^^^^^
+  File "C:\Users\qiu\src\VeriSilo-camoufox-lifecycle\apps\camoufox-host\run_fp4_windows.py", line 1078, in require_ok
+    raise FP4Error(f"Host {command} failed")
+FP4Error: Host phaseA launch failed

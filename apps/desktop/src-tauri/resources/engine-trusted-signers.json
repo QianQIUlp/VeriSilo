@@ -1,4 +1,9 @@
 {
   "schemaVersion": 1,
-  "signers": []
+  "signers": [
+    {
+      "certificateSha256": "57f3b44cf572571e8b133c6b605b061e0d1c4d9dd75a490b14f658c292bebd93",
+      "publisher": "VeriSilo Camoufox Engine Release Signer"
+    }
+  ]
 }

@@ -1,20 +1,41 @@
 # V0.7 EngineAdapter
 
 V0.7 now has a repository-side controlled-engine lifecycle and a real Windows
-signed-manifest verifier. It still does **not** include a controlled Chromium or
-Camoufox executable, a publisher certificate, private signing keys, browser
-patches, or real browser evidence. Those are external release inputs, not test
-fixtures and not implied by an `experimental` capability declaration.
+signed-manifest verifier. The repository also tracks standalone Camoufox
+observations, but it still does **not** include a distributable controlled
+Chromium/Camoufox package, a publisher certificate, private signing keys,
+browser patches, or independently verified release evidence. Those are
+external release inputs, not implied by a fixture or an `experimental`
+capability declaration.
 
 The authoritative implementation is
 `apps/desktop/src-tauri/src/engine.rs`. The package schema and deliberately
 non-installable example are in `apps/desktop/src-tauri/resources`.
 
-## Camoufox branch boundary
+## Camoufox integration boundary
 
-The accepted standalone Camoufox Host and v3 Identity Artifact currently live only on `codex/camoufox-m0-m2-minimal` and [Draft PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). They establish a Linux prototype execution path, not an implementation of this desktop adapter contract: `main` does not package that Host, Tauri does not launch it, and its JSON Lines protocol is not the desktop bootstrap or receipt protocol described below.
+The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) then accepted the contract-level connection between a schema-v3 Host package, the dedicated `camoufox-host-jsonl-v1` transport, `EngineAdapter`, and `RuntimeManager` at checkpoint `e96ef3f`. This does not package the real Host as a trusted production engine entrypoint: release Tauri still has no signed Camoufox Host package or signer pin to launch.
 
-The order is deliberate. Native Windows M2-W must first validate Artifact replay, Persistent Profile continuity, file locking, process ownership with Job Objects, reparse-point handling, and binary stdio. Only after that Gate may M3 version the package entrypoint and map Host launch/status/close evidence into the existing bootstrap, receipt, fallback, and capability-state model. No protocol or schema mapping is implied by the current prototype. See [the Camoufox program status](camoufox-program-status.md).
+Native Windows M2-W has accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. M3-0's accepted checkpoint implements the contract-level fake-Host slice; it explicitly forbids fabricating generic phase receipts from Host self-report and keeps `verified: false` evidence below `verified`. See [the Camoufox program status](camoufox-program-status.md).
+
+The original [M3-WI](camoufox-m3-wi-windows-task.md) Windows-only ignored
+harness and its R1/R2/R2H investigations remain historical Failed /
+Inconclusive evidence, not a production fix or an accepted desktop result.
+FP1 through FP4 have since qualified the final Formal-v3 candidate on this
+native Windows host, with `verified: false`; FP4 means bounded ordinary-site
+product compatibility, not anti-detection, universal compatibility, or desktop
+integration. The [clean M3-WI contract](camoufox-m3-wi-clean-contract.md) is
+now a new frozen definition and does not revive the old matrices.
+
+For Camoufox, the Resolved Identity Artifact is the sole runtime identity
+authority. The current generic Silo schema still carries an `IdentityTemplate`
+beside the Artifact binding, but those values are not semantically bound and
+the real Host receives only the exact Artifact ID/raw SHA/schema. Before the
+clean native attempt, the focused implementation must stop generic Host
+running evidence from promoting Template-derived identity capabilities to
+`applied`; only the directly bound Profile operation may be promoted. Network
+routing remains a separate Network Evidence transition. No Artifact parser or
+second identity projection is part of this Gate.
 
 ## Adapter and capability contract
 
@@ -35,6 +56,11 @@ phase order, exact per-capability evidence coverage, phase receipts, and
 fallback receipts. A matching site fallback restores only the explicitly
 listed experimental controls and returns `restore_then_reload`; wildcard rules
 match subdomains, not the apex host.
+
+For `camoufox-host-jsonl-v1`, a bound Host running response establishes
+`hostLaunch=observed`; it does not establish that an independent desktop
+template was applied. Artifact, Network Policy, Profile, and runtime evidence
+retain separate bindings and state transitions.
 
 The production desktop launch path now has a bounded receipt channel after its
 strict bootstrap ACK. A controlled child must emit ordered, complete
@@ -85,12 +111,27 @@ control.
 ```text
 engine-package.json
 bin/chromium.exe       # controlled-chromium only
-bin/camoufox.exe       # camoufox only
+bin/camoufox.exe       # legacy schema-v2 shape; rejected for Camoufox Host
 ```
 
-This raw-executable layout is the current desktop contract, not an accepted layout for the standalone Camoufox Host. M3 must explicitly define whether the package entrypoint is the Host, how its fixed Python/runtime assets are represented, and how bootstrap and receipts are bound; documentation must not silently treat `bin/camoufox.exe` as that integration.
+This raw-executable layout remains the schema-v2 Controlled Chromium contract, not an accepted layout for the standalone Camoufox Host. Schema v2 must not silently treat `bin/camoufox.exe` as a Host entrypoint. M3-0 adds a schema-v3 Camoufox package whose entrypoint is a managed Host and whose manifest binds the Host/runtime tree:
 
-Manifest schema version 2 is defined by
+```text
+engine-package.json
+host/camoufox-host.exe       # exact camoufox-host-v1 entrypoint
+package-tree.json            # verisilo-camoufox-host-package-tree/v1
+browser-tree-manifest.json   # verisilo-camoufox-browser-tree-manifest/v1
+```
+
+The loader re-verifies the v3 Host entrypoint, complete Host/runtime package
+tree, browser-tree manifest member, exact v-prefixed browser release, and
+browser asset binding before launch. Only the browser-tree manifest path is
+passed to Host `--tree-manifest`; the package tree is never passed to the
+standalone browser-tree loader. The implementation is contract-level and
+fake-Host tested on this branch; it is not a signed release package and does
+not claim real Camoufox verification.
+
+Manifest schemas v2 and v3 are defined by
 `engine-package.schema.json`. The loader rejects relative roots, traversal,
 backslash aliases, symlinks, Windows reparse points, paths escaping the
 canonical root, unexpected executable names, empty executables, executables
@@ -98,7 +139,10 @@ over 4 GiB, manifests over 64 KiB, unknown JSON fields, duplicate or forbidden
 capabilities, unpinned/non-SemVer versions, a major version outside 100–999,
 wrong engine/channel/platform, and malformed hash/signature fields.
 
-Packages must declare at least `identity_template` and `site_fallback`.
+Schema-v2 Controlled Chromium packages must declare at least `identity_template`
+and `site_fallback`. Camoufox Host v3 packages declare the identity surfaces
+but explicitly do not declare `site_fallback`, which remains unavailable in
+M3-0.
 `profile_isolation`, network launch, TLS, and QUIC cannot be granted by a
 package manifest. The adapter, launcher, or unavailable evidence gate owns
 those surfaces.
@@ -109,7 +153,15 @@ The manifest uses `cms-detached-sha256`; Authenticode on the executable is not a
 replacement for this signature. The signature authenticates the manifest,
 which contains the exact SHA-256 of the executable.
 
-The bytes to sign are deterministic:
+The schema-v3 Camoufox Host manifest uses the same CMS shape with the domain
+separator `VeriSilo engine package manifest v3` and includes the Host
+entrypoint, package-tree binding, browser-tree binding, exact browser release,
+Host version, and browser asset binding in the canonical payload. Schema-v2
+Controlled Chromium signing remains unchanged.
+
+The bytes to sign are deterministic. The following field order describes the
+schema-v2 payload; schema-v3 uses the same deterministic serialization with
+its additional Host fields:
 
 1. Parse a schema-v2 manifest and replace only `signature.value` with the empty
    string.
@@ -231,7 +283,8 @@ and audited work provides licensed reproducible Chromium/Camoufox release artifa
 patch sources, SBOM and license review, protected signing service and public
 certificate pin, update hosting and rollback retention, secure token transport
 integration, real Window/iframe/Dedicated Worker consistency evidence,
-site-compatibility regression results, Canvas/WebGL/font observations, TLS
+release-level compatibility coverage beyond the frozen FP4 matrix,
+Canvas/WebGL/font observations beyond the accepted bounded candidate, TLS
 ClientHello captures, and direct QUIC observations. Tests and placeholder JSON
 must never be presented as those artifacts or evidence.
 
@@ -239,4 +292,8 @@ In particular, this source tree still has no real signed engine artifact or
 signer pin. Production external-engine launch therefore remains blocked even
 though the receipt transport and fake-engine E2E harness exist.
 
-The branch-scoped Camoufox archive, tree manifest, Artifact fixtures, and Linux run evidence do not remove these shipping blockers. They are inputs to M2-W and later M3 design, not a signed package or publisher identity.
+The Camoufox archive, tree manifests, Artifact fixtures, accepted Linux/Windows
+standalone evidence, FP1–FP4 qualification, and M3-0 contract integration do
+not remove these shipping blockers. The old M3-WI path remains historical and
+the clean M3-WI definition remains test-only and unexecuted; none of these
+artifacts is a signed production Host package or publisher identity.

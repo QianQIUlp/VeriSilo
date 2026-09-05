@@ -22,6 +22,7 @@ if IS_WINDOWS:
     import msvcrt
 
     _KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _USER32 = ctypes.WinDLL("user32", use_last_error=True)
     _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
     _FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
     _FILE_ATTRIBUTE_NORMAL = 0x0080
@@ -42,7 +43,20 @@ if IS_WINDOWS:
     _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
     _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
     _JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1
+    _JOB_OBJECT_BASIC_PROCESS_ID_LIST = 3
     _STILL_ACTIVE = 259
+
+    class _RECT(ctypes.Structure):
+        _fields_ = [
+            ("left", ctypes.c_long),
+            ("top", ctypes.c_long),
+            ("right", ctypes.c_long),
+            ("bottom", ctypes.c_long),
+        ]
+
+    _ENUM_WINDOWS_PROC = ctypes.WINFUNCTYPE(
+        ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p
+    )
 
     class _FILETIME(ctypes.Structure):
         _fields_ = [("dwLowDateTime", ctypes.c_uint32), ("dwHighDateTime", ctypes.c_uint32)]
@@ -144,6 +158,13 @@ if IS_WINDOWS:
     _KERNEL32.GetProcessTimes.restype = ctypes.c_int
     _KERNEL32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
     _KERNEL32.GetExitCodeProcess.restype = ctypes.c_int
+    _KERNEL32.QueryFullProcessImageNameW.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_wchar_p,
+        ctypes.POINTER(ctypes.c_uint32),
+    ]
+    _KERNEL32.QueryFullProcessImageNameW.restype = ctypes.c_int
     _KERNEL32.OpenJobObjectW.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_wchar_p]
     _KERNEL32.OpenJobObjectW.restype = ctypes.c_void_p
     _KERNEL32.QueryInformationJobObject.argtypes = [
@@ -160,6 +181,19 @@ if IS_WINDOWS:
     _KERNEL32.MoveFileExW.restype = ctypes.c_int
     _KERNEL32.FlushFileBuffers.argtypes = [ctypes.c_void_p]
     _KERNEL32.FlushFileBuffers.restype = ctypes.c_int
+    _USER32.EnumWindows.argtypes = [_ENUM_WINDOWS_PROC, ctypes.c_void_p]
+    _USER32.EnumWindows.restype = ctypes.c_int
+    _USER32.IsWindowVisible.argtypes = [ctypes.c_void_p]
+    _USER32.IsWindowVisible.restype = ctypes.c_int
+    _USER32.GetWindowThreadProcessId.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+    ]
+    _USER32.GetWindowThreadProcessId.restype = ctypes.c_uint32
+    _USER32.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(_RECT)]
+    _USER32.GetWindowRect.restype = ctypes.c_int
+    _USER32.GetWindowTextW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
+    _USER32.GetWindowTextW.restype = ctypes.c_int
 
 
 def _win_error(message: str) -> OSError:
@@ -175,6 +209,62 @@ def set_binary_stdio() -> None:
             msvcrt.setmode(fd, os.O_BINARY)
         except OSError:
             pass
+
+
+def visible_windows_for_executable(
+    executable: Path, process_ids: tuple[int, ...] = ()
+) -> list[dict[str, Any]]:
+    """Return visible top-level HWND rectangles owned by one executable."""
+    if not IS_WINDOWS:
+        return []
+    expected = os.path.normcase(str(Path(executable).resolve()))
+    expected_pids = {pid for pid in process_ids if isinstance(pid, int) and pid > 0}
+    windows: list[dict[str, Any]] = []
+
+    @_ENUM_WINDOWS_PROC
+    def visit(hwnd: int, _lparam: int) -> int:
+        if not _USER32.IsWindowVisible(hwnd):
+            return 1
+        pid = ctypes.c_uint32()
+        _USER32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value in expected_pids:
+            process = None
+        else:
+            process = _KERNEL32.OpenProcess(
+                _PROCESS_QUERY_LIMITED_INFORMATION, 0, pid.value
+            )
+        if pid.value not in expected_pids and not process:
+            return 1
+        if process:
+            try:
+                size = ctypes.c_uint32(32768)
+                image = ctypes.create_unicode_buffer(size.value)
+                if not _KERNEL32.QueryFullProcessImageNameW(
+                    process, 0, image, ctypes.byref(size)
+                ) or os.path.normcase(image.value) != expected:
+                    return 1
+            finally:
+                _KERNEL32.CloseHandle(process)
+        rect = _RECT()
+        if not _USER32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return 1
+        title = ctypes.create_unicode_buffer(512)
+        _USER32.GetWindowTextW(hwnd, title, len(title))
+        windows.append(
+            {
+                "pid": pid.value,
+                "handle": int(hwnd),
+                "title": title.value,
+                "x": rect.left,
+                "y": rect.top,
+                "width": rect.right - rect.left,
+                "height": rect.bottom - rect.top,
+            }
+        )
+        return 1
+
+    _USER32.EnumWindows(visit, 0)
+    return windows
 
 
 def _windows_path_attributes(path: Path) -> Optional[int]:
@@ -422,6 +512,24 @@ class JobHandle:
             raise _win_error(f"cannot query Job Object {self.name}")
         return int(info.ActiveProcesses)
 
+    def process_ids(self) -> tuple[int, ...]:
+        capacity = 4096
+        buffer = ctypes.create_string_buffer(
+            8 + ctypes.sizeof(ctypes.c_size_t) * capacity
+        )
+        returned = ctypes.c_uint32()
+        if not _KERNEL32.QueryInformationJobObject(
+            ctypes.c_void_p(self.handle),
+            _JOB_OBJECT_BASIC_PROCESS_ID_LIST,
+            buffer,
+            ctypes.sizeof(buffer),
+            ctypes.byref(returned),
+        ):
+            raise _win_error(f"cannot query processes for Job Object {self.name}")
+        count = ctypes.c_uint32.from_buffer(buffer, 4).value
+        process_ids = (ctypes.c_size_t * min(count, capacity)).from_buffer(buffer, 8)
+        return tuple(int(pid) for pid in process_ids if pid)
+
     def wait_empty(self, timeout: float) -> tuple[bool, int]:
         deadline = time.monotonic() + timeout
         last = -1
@@ -498,7 +606,13 @@ def terminate_windows_job(session: dict, timeout: float = 8.0) -> dict:
     if job is None:
         name = (session.get("supervisorMeta") or {}).get("jobName")
         if not isinstance(name, str) or not name:
-            if session.get("ctx") is None and not session.get("pid"):
+            name = session.get("expectedJobName")
+        if not isinstance(name, str) or not name:
+            if (
+                session.get("launchAttempted") is not True
+                and session.get("ctx") is None
+                and not session.get("pid")
+            ):
                 return {
                     "exited": True,
                     "managedIdentities": [],

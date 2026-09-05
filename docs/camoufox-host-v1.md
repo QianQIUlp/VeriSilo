@@ -1,5 +1,7 @@
 # VeriSilo M2.0.3 — Standalone Camoufox Host v1 (Linux stdio protocol)
 
+> 历史阶段报告：本文保留 Linux M2.0.3 当时的结论。M2-W 此后已经 Accepted，PR #10 已合入 `main`；Host 仍未接入 Tauri，当前阶段以 [Camoufox 状态页](camoufox-program-status.md)为准。
+
 Status: **Host v1 is a runnable Linux prototype with corrected lifecycle,
 persistence evidence, version contract, strict JSON/RFC3339 boundaries, and
 fail-closed quarantine.
@@ -30,13 +32,13 @@ DownloadGuard are used for every launch.
 
 Commands:
 
-| Command | Params | Result |
-| --- | --- | --- |
-| hello | — | protocol/hostVersion/roots/probePortPolicy/browserRelease/assetSha256/state |
-| launch | artifactId, profileId, expectedArtifactFileSha256 | sessionId, state, digests, bootCount, managedPids, cookieEvidence, probePort |
-| status | sessionId? | state machine snapshot |
-| close | sessionId | exited + exitStatus + exitFileObserved + processTreeExit + cookieSqlite |
-| shutdown | — | state shutdown + selfCheck (argv/stderr secret scan) |
+| Command  | Params                                            | Result                                                                       |
+| -------- | ------------------------------------------------- | ---------------------------------------------------------------------------- |
+| hello    | —                                                 | protocol/hostVersion/roots/probePortPolicy/browserRelease/assetSha256/state  |
+| launch   | artifactId, profileId, expectedArtifactFileSha256 | sessionId, state, digests, bootCount, managedPids, cookieEvidence, probePort |
+| status   | sessionId?                                        | state machine snapshot                                                       |
+| close    | sessionId                                         | exited + exitStatus + exitFileObserved + processTreeExit + cookieSqlite      |
+| shutdown | —                                                 | state shutdown + selfCheck (argv/stderr secret scan)                         |
 
 Callers only pass `artifactId` / `profileId`; paths are never accepted.
 `artifactId` must match `identity-*` and `profileId` is restricted to
@@ -197,16 +199,17 @@ Quarantined sessions additionally write
 1. **Font masking is NOT solved.** Host-installed families remain visible;
    current artifacts are `inherit` and font widths are excluded from the
    digest. `managed` mode requires all host negative controls unavailable.
-2. Host-local Linux prototype only. M2-W (Windows manual gate) is next, then
-   M3 (EngineAdapter/Tauri). Windows profile locking / process lifecycle /
-   Windows-bound artifacts are not implemented.
+2. 本报告的证据范围只覆盖 Linux。后续 M2-W 已补充并接受 Windows profile
+   locking、Job Object lifecycle 与 Windows-bound Artifact；当前 M3 状态见
+   [program status](camoufox-program-status.md)。
 3. Raw reports and profiles live under gitignored `artifacts/`; the tracked
    `tests/fixtures/camoufox/evidence-manifest.json` is the sanitized evidence
    index.
-4. Tree confirmation covers every descendant captured while its parent is
-   alive. A descendant spawned by an already-dying root after the last
-   enumeration cannot be attributed without kernel-level ownership (cgroup /
-   Job Object); M2-W must close this with Windows Job Objects.
+4. Linux tree confirmation covers every descendant captured while its parent
+   is alive. A descendant spawned by an already-dying root after the last
+   enumeration cannot be attributed without kernel-level ownership; later
+   M2-W closed the Windows side with a Job Object, while the Linux boundary
+   remains.
 
 ## Reproduce
 

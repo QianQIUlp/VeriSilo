@@ -6,7 +6,8 @@ Tauri desktop UI
   ├─ launcher: one managed process and one user-data directory
   │    ├─ stock Chrome/Edge adapter
   │    └─ verified external controlled-engine adapter (optional artifact)
-  │         └─ M3 target: packaged Camoufox Host entrypoint (not connected)
+  │         └─ M3-0 Camoufox Host contract (accepted)
+  │              └─ real Windows seam: test-only, experimental, not shipped
   ├─ network coordinator
   │    ├─ fixed HTTP/SOCKS endpoint + authenticated loopback relay
   │    ├─ external loopback Mihomo Controller + stable node binding
@@ -35,7 +36,9 @@ MV3 companion extension (optional per Silo)
 
 The product layers are Standard Silo, Managed Identity Silo, and Isolated Machine Silo. They do not collapse the underlying domains: a Persistent Profile owns browser state, a Resolved Identity Artifact owns replayable website-visible configuration, an Engine Binding names the executable asset that can apply it, Network Policy owns the connection path, and Runtime Evidence records capability state. The normative model is defined in [the identity platform north star](identity-platform-north-star.md).
 
-The current `main` branch contains the stock launcher and the external-package `EngineAdapter` control contract. A standalone Python Camoufox Host and v3 Identity Artifact have accepted Linux evidence only on `codex/camoufox-m0-m2-minimal` and [Draft PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). That Host is not a signed desktop engine package, is not called by Tauri, and is not a shipped capability. It must first pass the native Windows M2-W Gate; M3 will then define the package entrypoint, bootstrap, receipt, and capability-state mapping. Current checkpoints are maintained in [the Camoufox program status](camoufox-program-status.md).
+The current `main` branch contains the stock launcher, the external-package `EngineAdapter` control contract, and the standalone Python Camoufox Host plus accepted Linux/native-Windows M0–M2-W evidence merged by [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) accepted the package-entrypoint, dedicated Host transport, Artifact binding, lifecycle, and honest capability/evidence contract at `e96ef3f`. A test-only Windows seam can pass the real Host plan through `RuntimeManager`, but M3-WI remains Failed after an inconclusive second-Host investigation and is still `experimental`. Release Tauri has no trusted signed Camoufox Host package or signer pin, so this is neither a production launch path nor a shipped capability.
+
+Managed Engine work now proceeds through FP1 deterministic Artifact projection, FP2 cross-realm consistency, FP3 network/region coordination, and FP4 site compatibility before a newly frozen clean M3-WI integration Gate. Current checkpoints are maintained in [the Camoufox program status](camoufox-program-status.md).
 
 The desktop application has no browser-state import/export API. A browser's cookies, LocalStorage, IndexedDB, CacheStorage, service workers, and history remain browser-owned files beneath that Silo's `browser-data` directory.
 
