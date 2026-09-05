@@ -31,7 +31,12 @@ Vault 会话失效、跨页面数据刷新和操作顺序仍由 coordinator 维�
 
 ## 共同基线
 
-新工作树只包含提交中的文件。分支前先把当前需要的源码（包括新增文件）整理为共同 checkpoint，
+Agent 任务的共同分叉点是 canonical baseline ref `refs/heads/baseline/dev`
+（查看：`node scripts/agent-task.mjs baseline`；只能由 integration 在一轮汇总验证通过后
+用 `baseline advance` 显式推进，见 [agent-task-routing.md](agent-task-routing.md)）。
+手工流程也应从同一 ref 创建工作分支，不要从任意本地 HEAD 分叉。
+
+新工作树只包含提交中的文件。分支前先把当前需要的源码（包括新增文件）提交，
 不要把本机生成的 Host 构建目录、浏览器包或旧 evidence 混入源码提交。
 已有未提交工作不能通过从旧 HEAD 创建工作树自动带过去。
 

@@ -9,7 +9,8 @@ Agent 自己完成：判定 lane → 创建任务工作区 → 按边界修改 �
 ## 标准流程
 
 ```bash
-# 1) 判定 lane（见下表），在主检出（primary checkout）创建任务工作区
+# 1) 判定 lane（见下表），在主检出（primary checkout）创建任务工作区；
+#    任务一律自动从 canonical baseline（refs/heads/baseline/dev）分叉，与当前 shell 在哪个分支无关
 node scripts/agent-task.mjs start --lane ui --task "重新设计创建 Silo 的 UX"
 #    输出 JSON：branch / worktree 目录 / vault / port / baseline，以及下一步命令
 
@@ -21,17 +22,19 @@ pnpm install
 
 # 4) 工作、小步提交
 
-# 5) 结束前，两项都必须通过
-node scripts/agent-task.mjs verify   # lane 最小充分验证；失败=未完成
-node scripts/agent-task.mjs check    # scope guard；exit 2=越界，不允许静默接受
+# 5) 结束前，两项都必须通过（注意：用主检出里的脚本副本，worktree 里的副本随 baseline 更新）
+node C:/<primary>/scripts/agent-task.mjs verify   # lane 最小充分验证；exit 1=失败
+node C:/<primary>/scripts/agent-task.mjs check    # exit 0=通过 · exit 2=scope violation · exit 3=WORKSPACE CONTAMINATION
 
 # 6) 提交后任务即"可集成"；integration agent 用 list 发现并合并 agent/* 分支
 node scripts/agent-task.mjs list
 ```
 
-`start` 是幂等的：同一 lane + 相同任务描述会复用已有分支与工作区（端口被占时会自动重分配）。
-任务文本哈希进入分支名（`agent/<lane>/<slug>-<hash6>`），同一描述永远得到同名分支；不同任务不会互撞。
-中文任务请用 `--name <英文短slug>` 得到可读分支名。
+`check`/`verify` 必须在任务 worktree 内运行：当前 git toplevel 与任务元数据所在目录不一致时直接报错，
+不会在错误目录静默继续。`start` 是幂等的：同一 lane + 相同任务描述会复用已有分支与工作区
+（端口被占时会自动重分配）；但若 canonical baseline 已被推进，旧任务的 metadata 与新 baseline 不一致，
+start 会拒绝复用并说明差异——继续旧任务直接进 worktree，开新任务换描述或 `--name`。
+任务文本哈希进入分支名（`agent/<lane>/<slug>-<hash6>`）；中文任务请用 `--name <英文短slug>` 得到可读分支名。
 
 放弃或清理一次性任务：`git worktree remove --force .verisilo-worktrees/<dir> && git branch -D agent/<lane>/<branch>`；
 Windows 上 node_modules 的 junction 可能导致目录残留，再 `rm -rf .verisilo-worktrees/<dir>` 即可
@@ -56,13 +59,39 @@ Lane = 责任与修改边界；Task（worktree）= 一次实际工作。**同一
 3. 不确定时：先做只读调查（不 `start`），定位主修改层后再 `start`；或按当前最佳判断 `start`，结束时 `check` 会告诉你是否越界——回退或升级，不硬塞。
 4. 不要为了"先跑起来"把任务塞进错误的 lane；换 lane = 回主检出重新 `start`，把已完成部分迁移过去。
 
-## 修改边界（scope guard）
+## Canonical baseline（B0 → B1）
 
-- `RESTRICTED`：任何 lane（除 `integration`）都不可改，即使落在自己的 allow 里。包括：`packages/contracts/**`、`apps/desktop/src/desktop-api.ts`、根 `package.json`/`pnpm-lock.yaml`、`AGENTS.md`、顶层 `docs/*.md`、`.github/**`、路由脚本本身。
-- `SHARED`：默认拒绝，但可被 lane allow 覆盖（host 的构建/验证脚本、qa 的 `docs/qa/**` 与 `docs/acceptance/**`）。
-- `check` 对 `baseline..HEAD` + 未提交 + 未跟踪文件全量分类；exit 2 时二选一，不静默接受：
-  1. **顺手修改** → `git restore --source=<baseline> --staged --worktree -- <file>`（未跟踪直接删除）；
-  2. **任务天然跨层** → 在主检出 `start --lane integration` 拆显式跨层任务，不在本 lane 分支混入。
+所有任务从固定的 canonical baseline 分叉，baseline 绝不隐式等于"某次执行 start 时 shell 所在分支的 HEAD"：
+
+```text
+baseline/dev = B0
+├─ agent/ui/...      （worktree，从 B0 分叉）
+├─ agent/core/...    （worktree，从 B0 分叉）
+├─ agent/qa/...      （worktree，从 B0 分叉）
+└─ integration 汇总并验证通过
+   ↓ 显式推进（唯一的推进方式）
+baseline/dev = B1   之后的新任务统一从 B1 开始
+```
+
+- 存储就是一个 Git 分支 ref `refs/heads/baseline/dev`：可版本控制、`git rev-parse` 可解析、reflog 可审计；没有数据库、daemon 或 registry。
+- `baseline/dev` 是 **development/integration baseline**，不是 RC，也不代表任何产品语义已完成；RC 候选与验收仍走 acceptance 流程。
+- 新任务默认且只能从它创建（`start` 内部解析该 ref；ref 不存在则 fail fast 并给出建立命令）。
+- **baseline 只能由 integration 显式推进**：`node scripts/agent-task.mjs baseline advance <sha|ref>`；非后代提交（回退/分叉）需要 `--force` 显式确认。某个 lane 分支上多提交几个 commit 不会使 baseline 漂移。
+- 查看当前指向：`node scripts/agent-task.mjs baseline`。
+
+## 修改边界（scope guard 与 contamination guard）
+
+`check` 报两类不同的问题，不要混淆：
+
+1. **Scope violation（exit 2）**——修改发生在任务 worktree 内，但越过了 lane 边界：
+   - `RESTRICTED`：任何 lane（除 `integration`）都不可改，即使落在自己的 allow 里。包括：`packages/contracts/**`、`apps/desktop/src/desktop-api.ts`、根 `package.json`/`pnpm-lock.yaml`、`AGENTS.md`、顶层 `docs/*.md`、`.github/**`、路由脚本本身。
+   - `SHARED`：默认拒绝，但可被 lane allow 覆盖（host 的构建/验证脚本、qa 的 `docs/qa/**` 与 `docs/acceptance/**`）。
+   - `check` 对 `baseline..HEAD` + 未提交 + 未跟踪文件全量分类；exit 2 时二选一，不静默接受：
+     1. **顺手修改** → `git restore --source=<baseline> --staged --worktree -- <file>`（未跟踪直接删除）；
+     2. **任务天然跨层** → 在主检出 `start --lane integration` 拆显式跨层任务，不在本 lane 分支混入。
+2. **WORKSPACE CONTAMINATION（exit 3）**——任务把修改写到了**主检出**（filesystem 级越界，例如从 worktree 用 `../../` 相对路径写进主检出）。`start` 会对主检出的 dirty 状态做快照，`check` 用 `git status --porcelain -uall` 与快照对比：
+   - 只报**新增**条目；任务启动前已有的 dirty 状态不会被归责给当前任务（已知限制：已存在条目的进一步内容变化无法区分，不误报）。
+   - 发现污染时**不自动删除或覆盖**：属于本任务的越界写入→在主检出回退对应文件；属于用户或其他任务的合法修改→如实上报，不要动它。
 
 **共享契约显式处理**：`packages/contracts`、`desktop-api.ts`、Rust DTO、Host 协议、数据格式的变化，必须先由一个 `integration` 契约任务做小步提交，调用方任务随后跟进适配；任何 lane 不得私自定义同一个字段。
 
@@ -86,7 +115,8 @@ Lane = 责任与修改边界；Task（worktree）= 一次实际工作。**同一
 2. `start --lane integration --task "..."` 创建集成工作区；`node scripts/agent-task.mjs list` 发现全部 `agent/*` 分支。
 3. 逐个 `git merge --no-ff agent/<lane>/<branch>`；冲突按"任务归属 lane 的 owning code"原则解决，契约冲突退回显式契约任务。
 4. 运行 integration verify（完整自动化套件）。
-5. 形成确定 RC 候选后，安装/覆盖安装/用户旅程验收在**专用环境**由专门验收任务执行——不与任何开发实例混用。已有 RC1 证据保留，新候选单独标识。
+5. **显式推进 canonical baseline**：`node scripts/agent-task.mjs baseline advance <集成结果 SHA>`（B0 → B1）。此后新任务统一从新 baseline 开始；此动作只能由 integration 在验证通过后执行。
+6. 形成确定 RC 候选后，安装/覆盖安装/用户旅程验收在**专用环境**由专门验收任务执行——不与任何开发实例混用。已有 RC1 证据保留，新候选单独标识。
 
 ## 运行隔离与共享资源
 

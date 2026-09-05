@@ -1,10 +1,13 @@
 # VeriSilo Agent routing
 
-接到一个开发/QA/集成任务时，不要向用户索要 worktree、Vault 或端口：
+接到一个开发/QA/集成任务时，不要向用户索要 worktree、Vault、端口或 baseline：
 按 [Agent 任务路由工作流](docs/agent-task-routing.md) 自主完成 ——
 判定 lane（`ui` / `core` / `host` / `qa` / `integration`）→
-`node scripts/agent-task.mjs start --lane <lane> --task "<任务>"` 创建隔离任务工作区 →
-在边界内修改 → `verify` + `check` 通过 → 提交并交给 integration。
+`node scripts/agent-task.mjs start --lane <lane> --task "<任务>"` 创建隔离任务工作区
+（一律从 canonical baseline `refs/heads/baseline/dev` 分叉；baseline 只能由 integration
+用 `baseline advance` 显式推进）→ 在边界内修改 → `verify` + `check` 通过 → 提交并交给 integration。
+`check` 报两类不同问题：scope violation（worktree 内越界修改，exit 2）与
+WORKSPACE CONTAMINATION（主检出被污染，exit 3）。
 Lane 范围、修改边界与验证命令的唯一事实源是 [scripts/agent-task.mjs](scripts/agent-task.mjs) 顶部配置。
 
 并行开发、工作树隔离或桌面结构调整的手工细节先读
