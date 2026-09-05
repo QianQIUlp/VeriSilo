@@ -1,8 +1,22 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
+  BASELINE_REF,
   LANES,
+  META_FILE,
   RESTRICTED,
+  WORKTREE_ROOT_NAME,
   classifyPath,
   pickPort,
   portFromHash,
@@ -10,6 +24,55 @@ import {
   taskHash,
   taskNames,
 } from "./agent-task.mjs";
+
+const SCRIPT = fileURLToPath(new URL("./agent-task.mjs", import.meta.url));
+const TASK = "fixture routing guard task";
+
+// Disposable git repositories under the OS temp dir; never touch the real
+// checkout. `t.after` removes them even when assertions fail.
+function makeFixture(t) {
+  const root = mkdtempSync(join(tmpdir(), "agent-task-fixture-"));
+  t.after(() =>
+    rmSync(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 200,
+    }),
+  );
+  const git = (args, cwd = root) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    if (result.status !== 0) {
+      throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+    }
+    return result.stdout.trim();
+  };
+  const commit = (message) => {
+    git([
+      "-c",
+      "user.name=fx",
+      "-c",
+      "user.email=fx@example.com",
+      "commit",
+      "--allow-empty",
+      "-q",
+      "-m",
+      message,
+    ]);
+    return git(["rev-parse", "HEAD"]);
+  };
+  git(["init", "-q", "-b", "main"]);
+  const c0 = commit("c0");
+  return { root, git, commit, c0 };
+}
+
+const runScript = (args, cwd) =>
+  spawnSync(process.execPath, [SCRIPT, ...args], { cwd, encoding: "utf8" });
+
+const wtDir = (fx) =>
+  join(fx.root, WORKTREE_ROOT_NAME, taskNames("ui", TASK).dir);
+const wtMeta = (fx) =>
+  JSON.parse(readFileSync(join(wtDir(fx), META_FILE), "utf8"));
 
 const VIOLATION = (path, lane) => {
   const verdict = classifyPath(path, lane);
@@ -190,4 +253,176 @@ test("pickPort skips claimed and busy ports deterministically", async () => {
   assert.ok(first >= 15400 && first < 15400 + 512);
   const second = await pickPort(base, new Set([first]));
   assert.notEqual(first, second);
+});
+
+test("start forks tasks from the canonical baseline, not the calling HEAD", (t) => {
+  const fx = makeFixture(t);
+  fx.git(["branch", BASELINE_REF, fx.c0]);
+  const c1 = fx.commit("c1 on the default branch");
+  assert.notEqual(c1, fx.c0);
+
+  const result = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const meta = wtMeta(fx);
+  assert.equal(meta.baseline, fx.c0);
+  assert.equal(meta.baselineRef, BASELINE_REF);
+  assert.equal(
+    fx.git(["-C", wtDir(fx), "rev-parse", "HEAD"]),
+    fx.c0,
+    "worktree HEAD must be the canonical baseline",
+  );
+  assert.ok(Array.isArray(meta.primary.dirtySnapshot));
+  assert.equal(
+    meta.primary.root.replaceAll("\\", "/"),
+    fx.root.replaceAll("\\", "/"),
+  );
+});
+
+test("start fails fast when the canonical baseline ref is missing", (t) => {
+  const fx = makeFixture(t);
+  const result = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /baseline\/dev/);
+});
+
+test("rerunning start resumes the same task worktree idempotently", (t) => {
+  const fx = makeFixture(t);
+  fx.git(["branch", BASELINE_REF, fx.c0]);
+  const first = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.equal(first.status, 0, first.stderr);
+  const second = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.equal(second.status, 0, second.stderr);
+  assert.match(second.stdout, /already exists/);
+  const branches = fx
+    .git(["branch", "--list", "agent/*"])
+    .split("\n")
+    .filter(Boolean);
+  assert.equal(branches.length, 1);
+});
+
+test("start refuses reuse when the canonical baseline has advanced", (t) => {
+  const fx = makeFixture(t);
+  fx.git(["branch", BASELINE_REF, fx.c0]);
+  const first = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.equal(first.status, 0, first.stderr);
+  const c1 = fx.commit("c1");
+  const advance = runScript(["baseline", "advance", c1], fx.root);
+  assert.equal(advance.status, 0, advance.stderr);
+
+  const again = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.notEqual(again.status, 0);
+  assert.match(again.stderr, /baseline/);
+  const dirs = fx.git(["worktree", "list"]).split("\n");
+  assert.equal(dirs.length, 2, "no second worktree may appear");
+});
+
+test("start refuses leftover branches and metadata-less worktree paths", (t) => {
+  const fx = makeFixture(t);
+  fx.git(["branch", BASELINE_REF, fx.c0]);
+  const names = taskNames("ui", TASK);
+
+  fx.git(["branch", names.branch, fx.c0]);
+  const branchClash = runScript(
+    ["start", "--lane", "ui", "--task", TASK],
+    fx.root,
+  );
+  assert.notEqual(branchClash.status, 0);
+  assert.match(branchClash.stderr, /拒绝复用/);
+  fx.git(["branch", "-D", names.branch]);
+
+  mkdirSync(join(fx.root, WORKTREE_ROOT_NAME, names.dir), { recursive: true });
+  writeFileSync(join(fx.root, WORKTREE_ROOT_NAME, names.dir, "keep.txt"), "x");
+  const pathClash = runScript(
+    ["start", "--lane", "ui", "--task", TASK],
+    fx.root,
+  );
+  assert.notEqual(pathClash.status, 0);
+  assert.match(pathClash.stderr, /没有任务元数据/);
+});
+
+test("check reports WORKSPACE CONTAMINATION for new primary changes, not pre-existing dirty state", (t) => {
+  const fx = makeFixture(t);
+  fx.git(["branch", BASELINE_REF, fx.c0]);
+  // Dirty before the task starts: must never be attributed to the task.
+  writeFileSync(join(fx.root, "preexisting.txt"), "before\n");
+  const started = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.equal(started.status, 0, started.stderr);
+
+  const before = runScript(["check"], wtDir(fx));
+  assert.equal(before.status, 0, before.stdout + before.stderr);
+  assert.match(before.stdout, /无新增修改/);
+
+  // The real incident: write into the primary through a relative path.
+  mkdirSync(join(fx.root, "packages", "contracts", "src"), { recursive: true });
+  const target = join(fx.root, "packages", "contracts", "src", "models.ts");
+  writeFileSync(target, "// contaminated\n");
+  const during = runScript(["check"], wtDir(fx));
+  assert.equal(during.status, 3);
+  assert.match(during.stdout, /WORKSPACE CONTAMINATION/);
+  assert.match(during.stdout, /models\.ts/);
+  assert.doesNotMatch(
+    during.stdout.match(/WORKSPACE CONTAMINATION[\s\S]*$/)[0],
+    /preexisting\.txt/,
+  );
+
+  rmSync(target);
+  const after = runScript(["check"], wtDir(fx));
+  assert.equal(after.status, 0, after.stdout + after.stderr);
+});
+
+test("task commands refuse to run outside the task worktree root", (t) => {
+  const fx = makeFixture(t);
+  fx.git(["branch", BASELINE_REF, fx.c0]);
+  // Metadata sitting in a subdirectory of a larger checkout: the git toplevel
+  // does not match the task root, so commands must fail loudly.
+  mkdirSync(join(fx.root, "apps", "desktop"), { recursive: true });
+  writeFileSync(
+    join(fx.root, "apps", "desktop", META_FILE),
+    JSON.stringify({ version: 2, lane: "ui", task: TASK, baseline: fx.c0 }),
+  );
+  const result = runScript(["check"], join(fx.root, "apps", "desktop"));
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /不一致/);
+});
+
+test("baseline advance moves the ref explicitly; backward moves need --force", (t) => {
+  const fx = makeFixture(t);
+  fx.git(["branch", BASELINE_REF, fx.c0]);
+  const printed = runScript(["baseline"], fx.root);
+  assert.equal(printed.status, 0, printed.stderr);
+  assert.match(printed.stdout, new RegExp(`baseline/dev → ${fx.c0}`));
+
+  const c1 = fx.commit("c1");
+  const advance = runScript(["baseline", "advance", c1], fx.root);
+  assert.equal(advance.status, 0, advance.stderr);
+  assert.equal(fx.git(["rev-parse", BASELINE_REF]), c1);
+
+  const backward = runScript(["baseline", "advance", fx.c0], fx.root);
+  assert.notEqual(backward.status, 0);
+  assert.match(backward.stderr, /--force/);
+
+  const forced = runScript(["baseline", "advance", fx.c0, "--force"], fx.root);
+  assert.equal(forced.status, 0, forced.stderr);
+  assert.equal(fx.git(["rev-parse", BASELINE_REF]), fx.c0);
+});
+
+test("new tasks fork from the advanced baseline (B0 → B1 model)", (t) => {
+  const fx = makeFixture(t);
+  fx.git(["branch", BASELINE_REF, fx.c0]);
+  const c1 = fx.commit("integration round 1");
+  const advance = runScript(["baseline", "advance", c1], fx.root);
+  assert.equal(advance.status, 0, advance.stderr);
+
+  const result = runScript(
+    ["start", "--lane", "core", "--task", TASK],
+    fx.root,
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const meta = JSON.parse(
+    readFileSync(
+      join(fx.root, WORKTREE_ROOT_NAME, taskNames("core", TASK).dir, META_FILE),
+      "utf8",
+    ),
+  );
+  assert.equal(meta.baseline, c1);
 });

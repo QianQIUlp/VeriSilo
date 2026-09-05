@@ -5,13 +5,19 @@
 // verification; docs/agent-task-routing.md explains the workflow and refers
 // here. Subcommands:
 //
-//   node scripts/agent-task.mjs start   --lane <lane> --task "<task>" [--name <slug>]
-//   node scripts/agent-task.mjs verify  [--lane <lane>]
-//   node scripts/agent-task.mjs check   [--lane <lane>]
+//   node scripts/agent-task.mjs start    --lane <lane> --task "<task>" [--name <slug>]
+//   node scripts/agent-task.mjs verify   [--lane <lane>]
+//   node scripts/agent-task.mjs check    [--lane <lane>]
 //   node scripts/agent-task.mjs list
+//   node scripts/agent-task.mjs baseline [advance <sha|ref>] [--force]
 //
 // `verify` and `check` read .agent-task.json in the current task worktree;
 // pass --lane to run them against the current checkout without metadata.
+// Exit codes: 0 ok · 1 verify failure · 2 lane scope violation ·
+// 3 WORKSPACE CONTAMINATION (new changes in the primary checkout).
+//
+// Tasks always fork from the canonical baseline ref `baseline/dev`; only an
+// explicit integration action may move that ref.
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -24,6 +30,7 @@ import { parseArgs } from "node:util";
 export const WORKTREE_ROOT_NAME = ".verisilo-worktrees";
 export const META_FILE = ".agent-task.json";
 export const BRANCH_PREFIX = "agent";
+export const BASELINE_REF = "baseline/dev";
 const PORT_RANGE_START = 15400;
 const PORT_RANGE_SIZE = 512;
 const PORT_SCAN_LIMIT = 64;
@@ -294,6 +301,17 @@ function gitOk(args, cwd) {
   return spawnSync("git", args, { cwd, encoding: "utf8" }).status === 0;
 }
 
+// The canonical development/integration baseline; tasks fork from this ref,
+// never from whatever HEAD the calling shell happens to be on.
+function readBaseline(root) {
+  const result = spawnSync(
+    "git",
+    ["rev-parse", "--verify", "--quiet", `${BASELINE_REF}^{commit}`],
+    { cwd: root, encoding: "utf8" },
+  );
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
 function repoInfo(cwd) {
   const root = git(["rev-parse", "--show-toplevel"], cwd);
   const gitDir = resolve(git(["rev-parse", "--absolute-git-dir"], cwd));
@@ -371,17 +389,48 @@ async function cmdStart({ lane, task, name }) {
   if (!task || !task.trim()) throw new Error('需要 --task "<任务描述>"');
   const info = repoInfo(process.cwd());
   assertPrimary(info);
-  if (info.dirty > 0) {
-    console.warn(
-      `⚠ 主检出有 ${info.dirty} 个未提交变更；它们不会出现在新 worktree 中。请先提交到共享 baseline。`,
+
+  // Preflight: the canonical baseline must resolve; tasks never fork from
+  // whatever HEAD the calling shell happens to be on.
+  const baselineSha = readBaseline(info.root);
+  if (!baselineSha) {
+    throw new Error(
+      `canonical baseline ref ${BASELINE_REF} 不存在，拒绝创建任务（baseline 不确定时 fail fast）。\n` +
+        `由 integration 显式建立一次：git branch ${BASELINE_REF} <已验证的基线 SHA>`,
     );
   }
-  const { branch, dir, vault } = taskNames(lane, task, name);
+
+  const taskText = task.trim();
+  const names = taskNames(lane, taskText, name);
+  const { branch, dir, vault } = names;
   const worktreePath = join(info.root, WORKTREE_ROOT_NAME, dir);
   const metaPath = join(worktreePath, META_FILE);
 
-  if (existsSync(metaPath)) {
+  // Preflight: an existing worktree path must belong to exactly this task.
+  if (existsSync(worktreePath)) {
+    if (!existsSync(metaPath)) {
+      throw new Error(
+        `worktree 路径已存在但没有任务元数据，拒绝复用或覆盖：\n  ${worktreePath}\n确认是残留目录后手动删除，再重新 start。`,
+      );
+    }
     const meta = readJson(metaPath);
+    const mismatches = [];
+    if (meta.lane !== lane) mismatches.push(`lane: ${meta.lane} != ${lane}`);
+    if (meta.task !== taskText)
+      mismatches.push(
+        `task: ${JSON.stringify(meta.task)} != ${JSON.stringify(taskText)}`,
+      );
+    if (meta.branch !== branch)
+      mismatches.push(`branch: ${meta.branch} != ${branch}`);
+    if (meta.baseline !== baselineSha)
+      mismatches.push(
+        `baseline: task 创建于 ${meta.baseline.slice(0, 12)}，canonical baseline 现在是 ${baselineSha.slice(0, 12)}（已被 integration 推进？）`,
+      );
+    if (mismatches.length > 0) {
+      throw new Error(
+        `已存在同名 task worktree，但元数据与当前请求不一致，拒绝猜测或覆盖：\n  ${mismatches.join("\n  ")}\n继续旧任务请直接进入 worktree；开新任务请更换任务描述或 --name。`,
+      );
+    }
     if (!(await isPortFree(meta.port))) {
       const claimed = new Set(
         existingMetas(info.root)
@@ -397,59 +446,69 @@ async function cmdStart({ lane, task, name }) {
     return;
   }
 
+  // Preflight: an agent branch without its worktree is a leftover, not a
+  // candidate for silent reuse.
+  if (gitOk(["rev-parse", "--verify", "--quiet", branch], info.root)) {
+    throw new Error(
+      `分支 ${branch} 已存在但没有对应的任务 worktree，拒绝复用。\n确认是残留分支后：git branch -D ${branch}`,
+    );
+  }
+
+  if (info.dirty > 0) {
+    console.warn(
+      `⚠ 主检出有 ${info.dirty} 个未提交变更；它们不在 canonical baseline 中，也不会出现在新 worktree 里。`,
+    );
+  }
+
   const claimedPorts = new Set(
     existingMetas(info.root)
       .map(({ meta }) => meta.port)
       .filter(Boolean),
   );
-  const portPromise = pickPort(
-    portFromHash(taskNames(lane, task, name).hash),
-    claimedPorts,
-  );
+  const port = await pickPort(portFromHash(names.hash), claimedPorts);
+  git(["worktree", "add", "-b", branch, worktreePath, baselineSha], info.root);
 
-  const branchExists = gitOk(
-    ["rev-parse", "--verify", "--quiet", branch],
-    info.root,
-  );
-  git(
-    branchExists
-      ? ["worktree", "add", worktreePath, branch]
-      : ["worktree", "add", "-b", branch, worktreePath, info.head],
-    info.root,
-  );
-
-  return portPromise.then((port) => {
-    const meta = {
-      version: 1,
-      task: task.trim(),
-      lane,
-      branch,
-      baseline: info.head,
-      baselineBranch: info.branch,
-      worktree: relative(info.root, worktreePath).replaceAll("\\", "/"),
-      vault,
-      port,
-      createdAt: new Date().toISOString(),
-    };
-    writeFileSync(metaPath, `${JSON.stringify(meta, null, 2)}\n`);
-    console.log(
-      `Created task worktree (${branchExists ? "resumed branch" : "new branch"}):`,
-    );
-    printMeta(meta, info.root);
-  });
+  const meta = {
+    version: 2,
+    task: taskText,
+    lane,
+    branch,
+    baseline: baselineSha,
+    baselineRef: BASELINE_REF,
+    worktree: relative(info.root, worktreePath).replaceAll("\\", "/"),
+    vault,
+    port,
+    createdAt: new Date().toISOString(),
+    // Snapshot of the primary checkout at task start; `check` compares this
+    // against the live state to detect filesystem-level contamination
+    // (e.g. a task writing through `../../` into the primary checkout).
+    primary: {
+      root: info.root,
+      // -uall so untracked files are enumerated individually instead of
+      // collapsed into directories; snapshot and check must agree on format.
+      dirtySnapshot: git(["status", "--porcelain", "-uall"], info.root)
+        .split("\n")
+        .filter(Boolean),
+    },
+  };
+  writeFileSync(metaPath, `${JSON.stringify(meta, null, 2)}\n`);
+  console.log("Created task worktree from canonical baseline:");
+  printMeta(meta, info.root);
 }
 
 function printMeta(meta, root) {
-  const lane = LANES[meta.lane];
   console.log(JSON.stringify(meta, null, 2));
   const worktreeAbs = join(root, meta.worktree ?? "");
+  // Always route task commands through the primary checkout's copy of this
+  // script: worktree copies only update when the baseline advances.
+  const script = join(root, "scripts", "agent-task.mjs").replaceAll("\\", "/");
   console.log(`
 Next steps:
   cd ${worktreeAbs}
   pnpm install
 ${devHint(meta)}
-  node scripts/agent-task.mjs verify    # lane 最小充分验证
-  node scripts/agent-task.mjs check     # scope guard：结束任务前必须通过，越界改动要么回退要么升级为跨层任务
+  node ${script} verify    # lane 最小充分验证（exit 1=失败）
+  node ${script} check     # scope guard（exit 2=越界）+ 主检出污染守卫（exit 3=contamination）
   # 完成后提交：git add -A && git commit；integration agent 用 list 发现并合并 agent/* 分支
 `);
 }
@@ -474,6 +533,17 @@ function resolveTaskContext({ lane }) {
   if (metaFile) {
     const meta = readJson(metaFile);
     const root = resolve(metaFile, "..");
+    // Fail fast when task commands run outside the task worktree they
+    // describe; silently continuing from the wrong directory is how
+    // contamination and wrong-root diffs used to slip through.
+    const toplevel = resolve(
+      git(["rev-parse", "--show-toplevel"], process.cwd()),
+    );
+    if (toplevel !== root) {
+      throw new Error(
+        `任务命令必须在任务 worktree 内运行：当前 git toplevel（${toplevel}）与任务元数据所在目录（${root}）不一致。`,
+      );
+    }
     return { meta, root, lane: lane ?? meta.lane };
   }
   if (!lane) {
@@ -499,7 +569,21 @@ function changedFiles(root, baseline) {
   if (baseline) add(git(["diff", "--name-only", `${baseline}..HEAD`], root));
   add(git(["diff", "--name-only", "HEAD"], root));
   add(git(["ls-files", "--others", "--exclude-standard"], root));
+  // The guard never reports its own bookkeeping as a task change.
+  files.delete(META_FILE);
   return [...files];
+}
+
+// Compare the primary checkout's live dirty state against the snapshot taken
+// at task start. Line-level comparison: pre-existing dirty entries are never
+// attributed to the task; only newly appearing entries are contamination.
+function contaminationFindings(meta) {
+  if (!meta?.primary?.root) return null;
+  const snapshot = new Set(meta.primary.dirtySnapshot ?? []);
+  return git(["status", "--porcelain", "-uall"], meta.primary.root)
+    .split("\n")
+    .filter(Boolean)
+    .filter((line) => !snapshot.has(line));
 }
 
 async function cmdCheck({ lane }) {
@@ -518,21 +602,110 @@ async function cmdCheck({ lane }) {
   console.log(`  in scope: ${inScope.length} file(s)`);
   if (violations.length === 0) {
     console.log("  no boundary violations. ✓");
-    return;
+  } else {
+    console.log(`  OUT OF SCOPE: ${violations.length} file(s):`);
+    for (const { file, kind, reason } of violations) {
+      console.log(`    ${file}`);
+      console.log(`      → ${kind}: ${reason}`);
+    }
   }
-  console.log(`  OUT OF SCOPE: ${violations.length} file(s):`);
-  for (const { file, kind, reason } of violations) {
-    console.log(`    ${file}`);
-    console.log(`      → ${kind}: ${reason}`);
+
+  const contamination = meta ? contaminationFindings(meta) : null;
+  if (contamination === null) {
+    console.log(
+      "\nWorkspace contamination check: skipped（metadata 无主检出快照，v1 任务）.",
+    );
+  } else if (contamination.length === 0) {
+    console.log(
+      "\nWorkspace contamination check: 主检出自任务启动以来无新增修改. ✓",
+    );
   }
-  const baselineRef = meta?.baseline ?? "HEAD";
-  console.log(`
+
+  if (violations.length > 0) {
+    const baselineRef = meta?.baseline ?? "HEAD";
+    console.log(`
 不要静默接受越界修改。二选一：
   1) 顺手修改 → 回退：
        git restore --source=${baselineRef} --staged --worktree -- <file>
        （未跟踪文件直接删除）
   2) 任务天然跨层 → 升级：把跨层部分拆成显式 integration 任务（在主检出 start --lane integration），不要在本 lane 分支里混入。`);
-  process.exitCode = 2;
+    process.exitCode = 2;
+  }
+
+  if (contamination && contamination.length > 0) {
+    console.log(`
+WORKSPACE CONTAMINATION
+  主检出（${meta.primary.root}）相对任务启动快照出现新增修改：
+${contamination.map((line) => `    ${line}`).join("\n")}
+  这是 filesystem 级污染（例如从 worktree 用 ../../ 写进主检出），与 lane scope 是两类问题。
+  不要自动删除或覆盖：
+    - 属于本任务的越界写入 → 在主检出回退对应文件（git restore -- <file>；未跟踪文件删除）
+    - 用户或其他任务的合法修改 → 如实报告，不要动它`);
+    process.exitCode = 3;
+  }
+}
+
+// baseline [advance <sha|ref>] [--force]: the canonical development /
+// integration baseline only moves through this explicit action, never as a
+// side effect of someone committing on a feature branch.
+function cmdBaseline(args, { force }) {
+  const info = repoInfo(process.cwd());
+  assertPrimary(info);
+  const current = readBaseline(info.root);
+  const [action, target] = args;
+  if (!action) {
+    if (!current) {
+      console.log(
+        `${BASELINE_REF} 不存在。由 integration 显式建立：git branch ${BASELINE_REF} <已验证的基线 SHA>`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const subject = git(["log", "-1", "--format=%s", current], info.root);
+    console.log(`${BASELINE_REF} → ${current}  ${subject}`);
+    return;
+  }
+  if (action !== "advance") {
+    throw new Error(
+      `Unknown baseline action: ${action}（用法：baseline [advance <sha|ref>] [--force]）`,
+    );
+  }
+  if (!target) {
+    throw new Error("baseline advance 需要 <sha|ref>。");
+  }
+  const resolved = spawnSync(
+    "git",
+    ["rev-parse", "--verify", "--quiet", `${target}^{commit}`],
+    { cwd: info.root, encoding: "utf8" },
+  );
+  if (resolved.status !== 0) {
+    throw new Error(`无法解析 baseline 目标：${target}`);
+  }
+  const next = resolved.stdout.trim();
+  if (!current) {
+    git(["branch", BASELINE_REF, next], info.root);
+    console.log(`${BASELINE_REF} created at ${next}`);
+    return;
+  }
+  if (next === current) {
+    console.log(
+      `${BASELINE_REF} already at ${current.slice(0, 12)}; unchanged.`,
+    );
+    return;
+  }
+  const descendant = gitOk(
+    ["merge-base", "--is-ancestor", current, next],
+    info.root,
+  );
+  if (!descendant && !force) {
+    throw new Error(
+      `目标 ${next.slice(0, 12)} 不是当前 baseline ${current.slice(0, 12)} 的后代（回退或分叉）。\n确需回退请加 --force 显式确认。`,
+    );
+  }
+  git(["branch", "-f", BASELINE_REF, next], info.root);
+  console.log(
+    `${BASELINE_REF}: ${current.slice(0, 12)} → ${next.slice(0, 12)}${descendant ? "" : " (forced)"}`,
+  );
 }
 
 function resolvePnpm() {
@@ -602,7 +775,7 @@ function cmdList() {
     const path = join(info.root, meta.worktree ?? "");
     const live = registered.has(path) ? "live" : "PRUNED";
     console.log(
-      `[${meta.lane}] ${meta.branch}  (${live})\n  task:  ${meta.task}\n  vault: ${meta.vault}  port: ${meta.port}\n  path:  ${path}\n  base:  ${meta.baseline.slice(0, 12)} (${meta.baselineBranch})`,
+      `[${meta.lane}] ${meta.branch}  (${live})\n  task:  ${meta.task}\n  vault: ${meta.vault}  port: ${meta.port}\n  path:  ${path}\n  base:  ${meta.baseline.slice(0, 12)} (${meta.baselineRef ?? "HEAD@start"})`,
     );
   }
 }
@@ -616,6 +789,7 @@ async function main() {
       lane: { type: "string" },
       task: { type: "string" },
       name: { type: "string" },
+      force: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
   });
@@ -623,10 +797,12 @@ async function main() {
   const taskText = values.task ?? positionals.slice(1).join(" ");
   if (values.help || !command) {
     console.log(`Usage:
-  node scripts/agent-task.mjs start  --lane <${LANE_IDS.join("|")}> --task "<任务描述>" [--name <slug>]
-  node scripts/agent-task.mjs verify [--lane <lane>]   # lane 最小充分验证（在任务 worktree 内运行）
-  node scripts/agent-task.mjs check  [--lane <lane>]   # scope guard（在任务 worktree 内运行）
-  node scripts/agent-task.mjs list                     # 列出活跃 agent 任务`);
+  node scripts/agent-task.mjs start    --lane <${LANE_IDS.join("|")}> --task "<任务描述>" [--name <slug>]
+  node scripts/agent-task.mjs verify   [--lane <lane>]   # lane 最小充分验证（在任务 worktree 内运行）
+  node scripts/agent-task.mjs check    [--lane <lane>]   # scope guard + 污染守卫（在任务 worktree 内运行）
+  node scripts/agent-task.mjs list                       # 列出活跃 agent 任务
+  node scripts/agent-task.mjs baseline [advance <sha|ref>] [--force]   # 查看/显式推进 canonical baseline
+Exit codes: 0 ok · 1 verify 失败 · 2 lane scope 越界 · 3 workspace contamination`);
     process.exitCode = command ? 0 : 1;
     return;
   }
@@ -637,6 +813,7 @@ async function main() {
   if (command === "verify") return cmdVerify({ lane: values.lane });
   if (command === "check") return cmdCheck({ lane: values.lane });
   if (command === "list") return cmdList();
+  if (command === "baseline") return cmdBaseline(positionals.slice(1), values);
   throw new Error(`Unknown command: ${command}`);
 }
 
