@@ -2,6 +2,10 @@
 
 VeriSilo 保持单仓库、单桌面产品。工作树隔离源码；命名 Vault、端口和独立构建输出隔离开发实例。
 
+Agent 的自动化任务流（lane 判定、worktree 自动准备、scope guard、lane 级验证、integration 汇总）
+见 [Agent 任务路由工作流](agent-task-routing.md)，由 `scripts/agent-task.mjs` 驱动；
+本文描述它依赖的底层约定与手工流程。
+
 ## 代码归属
 
 | 工作                                 | Owning code                                                                 | 最小验证                                                       |
@@ -45,6 +49,8 @@ pnpm desktop:worktree ui --port 1421 --preview
 
 # 真实桌面开发：使用 dev-core Vault；不使用 default Vault
 pnpm desktop:worktree core --port 1422
+# agent 任务传入自己的独立 Vault（agent-task.mjs start 会给出确切命令）
+pnpm desktop:worktree core --port 15437 --vault ui-create-silo-ux-3f9a2c
 
 # 查看实际参数而不启动
 pnpm desktop:worktree core --port 1422 --dry-run

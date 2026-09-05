@@ -29,6 +29,25 @@ test("workspaces separate application arguments, Vaults and Vite endpoints", () 
   assert.ok(!preview.args.includes("--vault"));
 });
 
+test("explicit vault overrides are validated and passed through", () => {
+  const result = plan("core", 1424, ["--vault", "ui-create-silo-ux-3f9a2c"]);
+  assert.equal(result.vault, "ui-create-silo-ux-3f9a2c");
+  assert.deepEqual(result.args.slice(-4), [
+    "--",
+    "--",
+    "--vault",
+    "ui-create-silo-ux-3f9a2c",
+  ]);
+  for (const bad of ["Default", "-leading", "with space", "x".repeat(33)]) {
+    const attempt = spawnSync(
+      process.execPath,
+      [script, "core", "--port", "1421", "--vault", bad, "--dry-run"],
+      { encoding: "utf8", windowsHide: true },
+    );
+    assert.notEqual(attempt.status, 0, bad);
+  }
+});
+
 test("invalid names and ports cannot become shell arguments or data paths", () => {
   for (const args of [
     ["../default"],

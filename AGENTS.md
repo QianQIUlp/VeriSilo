@@ -1,6 +1,13 @@
 # VeriSilo Agent routing
 
-并行开发、工作树隔离或桌面结构调整先读
+接到一个开发/QA/集成任务时，不要向用户索要 worktree、Vault 或端口：
+按 [Agent 任务路由工作流](docs/agent-task-routing.md) 自主完成 ——
+判定 lane（`ui` / `core` / `host` / `qa` / `integration`）→
+`node scripts/agent-task.mjs start --lane <lane> --task "<任务>"` 创建隔离任务工作区 →
+在边界内修改 → `verify` + `check` 通过 → 提交并交给 integration。
+Lane 范围、修改边界与验证命令的唯一事实源是 [scripts/agent-task.mjs](scripts/agent-task.mjs) 顶部配置。
+
+并行开发、工作树隔离或桌面结构调整的手工细节先读
 [模块边界与开发入口](docs/development-worktrees.md)，再读取实际 owning code/test。
 
 ## 默认读取路径

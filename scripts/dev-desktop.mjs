@@ -9,6 +9,7 @@ const { values, positionals } = parseArgs({
   options: {
     port: { type: "string", default: "1420" },
     preview: { type: "boolean", default: false },
+    vault: { type: "string" },
     "dry-run": { type: "boolean", default: false },
   },
 });
@@ -18,7 +19,13 @@ if (
   !/^[a-z0-9][a-z0-9_-]{0,23}$/.test(name ?? "")
 ) {
   throw new Error(
-    "Usage: pnpm desktop:worktree <name> --port 1421 [--preview]",
+    "Usage: pnpm desktop:worktree <name> --port 1421 [--vault <name>] [--preview]",
+  );
+}
+const vault = values.vault ?? `dev-${name}`;
+if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(vault)) {
+  throw new Error(
+    "Vault name must be 1..32 lowercase letters, digits, '-' or '_' (must match the app's validate_vault_name).",
   );
 }
 const port = Number(values.port);
@@ -35,7 +42,6 @@ if (
 const cwd = resolve(dirname(fileURLToPath(import.meta.url)), "../apps/desktop");
 const require = createRequire(resolve(cwd, "package.json"));
 const url = `http://127.0.0.1:${port}`;
-const vault = `dev-${name}`;
 const config = { build: { devUrl: url } };
 const cli = values.preview
   ? resolve(dirname(require.resolve("vite/package.json")), "bin/vite.js")
