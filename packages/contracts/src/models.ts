@@ -117,7 +117,7 @@ function validateFixedProxyProfile(
     } catch {
       // The URL schema reports the primary issue.
     }
-    const loopbackController =
+    const loopbackHttpController =
       controller !== null &&
       controller.protocol === "http:" &&
       ["127.0.0.1", "[::1]"].includes(controller.hostname) &&
@@ -127,16 +127,26 @@ function validateFixedProxyProfile(
       controller.pathname === "/" &&
       controller.search === "" &&
       controller.hash === "";
+    const clashVergePipeController =
+      controller !== null &&
+      controller.protocol === "pipe:" &&
+      controller.hostname === "verge-mihomo" &&
+      controller.port === "" &&
+      controller.username === "" &&
+      controller.password === "" &&
+      (controller.pathname === "/" || controller.pathname === "") &&
+      controller.search === "" &&
+      controller.hash === "";
     if (
       !profile.proxyRequired ||
       profile.scheme !== "socks5" ||
       !["127.0.0.1", "::1"].includes(profile.host) ||
-      !loopbackController
+      !(loopbackHttpController || clashVergePipeController)
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "An external Mihomo binding requires a fail-closed loopback SOCKS5 endpoint and a loopback HTTP controller.",
+          "An external Mihomo binding requires a fail-closed loopback SOCKS5 endpoint and a loopback HTTP controller or Clash Verge kernel pipe.",
         path: ["externalMihomo"],
       });
     }

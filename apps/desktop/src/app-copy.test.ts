@@ -2,18 +2,36 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-// Vite's test transform supplies the raw source; the desktop tsconfig does not
-// include the broad `vite/client` ambient declarations on purpose.
-// @ts-expect-error -- `?raw` is resolved by Vite/Vitest at test time.
-import appSource from "./App.tsx?raw";
-const stylesSource = readFileSync(
-  new URL("./styles.css", import.meta.url),
-  "utf8",
+const readSource = (file: string): string =>
+  readFileSync(new URL(file, import.meta.url), "utf8");
+const shellSource = readSource("./App.tsx");
+const workspaceSource = readSource("./workspace/useDesktopWorkspace.ts");
+const draftSource = readSource("./features/silos/useSiloDraft.ts");
+const createPanelSource = readSource("./features/silos/CreateSiloPanel.tsx");
+const environmentSource = readSource(
+  "./features/environments/EnvironmentWorkspace.tsx",
 );
-const createPanelSource = appSource.slice(
-  appSource.indexOf("function CreateSiloPanel"),
-  appSource.indexOf("function NetworkOption"),
-);
+// Product-wide wording checks cover the owning modules; behavior checks below
+// read the specific coordinator or component, independent of App's file layout.
+const appSource = [
+  shellSource,
+  workspaceSource,
+  draftSource,
+  createPanelSource,
+  environmentSource,
+  "./shared/components.tsx",
+  "./shared/defaults.ts",
+  "./shared/presentation.ts",
+  "./features/identity/ManagedSiloForm.tsx",
+  "./features/identity/IdentityDetails.tsx",
+  "./features/silos/SiloList.tsx",
+  "./features/silos/EditSiloPanel.tsx",
+  "./features/cli/CliPanel.tsx",
+  "./features/environments/LegacyRecovery.tsx",
+]
+  .map((source) => (source.startsWith("./") ? readSource(source) : source))
+  .join("\n");
+const stylesSource = readSource("./styles.css");
 
 describe("desktop product copy", () => {
   it("uses the shared website mark and extension primary color", () => {
@@ -34,7 +52,8 @@ describe("desktop product copy", () => {
   });
 
   it("uses task-oriented navigation without exposing roadmap versions", () => {
-    expect(appSource).toContain('label="运行位置设置"');
+    expect(appSource).toContain('label="运行位置"');
+    expect(appSource).toContain('label="命令行"');
     expect(appSource).toContain("浏览器准备");
     expect(appSource).toContain("Linux 环境");
     expect(appSource).toContain('setEnvironmentSection("remote")');
@@ -48,7 +67,29 @@ describe("desktop product copy", () => {
     expect(appSource).not.toContain("随时可用");
   });
 
+  it("exposes inspect-identity copy without backend fingerprint jargon", () => {
+    expect(appSource).toContain("检查身份");
+    expect(appSource).toContain("网站会读到什么");
+    expect(appSource).toContain("这次没读到");
+    expect(appSource).toContain("写入这套浏览器的值");
+    expect(appSource).toContain("页面脚本实际读到的值");
+    expect(appSource).toContain("查看页面读到的身份");
+    expect(appSource).toContain("${shortName} identity");
+    expect(appSource).toContain("${shortName} app open");
+    expect(appSource).toContain("${shortName} --vault agent create-batch");
+    expect(appSource).toContain("${shortName} --vault agent page 名称 goto");
+    expect(appSource).toContain(
+      "${shortName} --vault agent page 名称 screenshot",
+    );
+    expect(appSource).toContain("${shortName} --vault agent delete 名称 --yes");
+    expect(appSource).not.toContain("开发者模式");
+    expect(appSource).not.toContain("observedSignals");
+    expect(appSource).not.toContain("CAMOU_CONFIG");
+    expect(appSource).not.toContain("userAgentData");
+  });
+
   it("places the user's Silos before diagnostic tools on the overview", () => {
+    const appSource = shellSource;
     expect(appSource.indexOf("<SiloList")).toBeGreaterThan(-1);
     expect(appSource.indexOf("<SiloList")).toBeLessThan(
       appSource.indexOf("<NetworkCheckCard"),
@@ -110,6 +151,7 @@ describe("desktop product copy", () => {
   });
 
   it("polls only an active local stock runtime without reloading sensitive panels", () => {
+    const appSource = workspaceSource;
     const pollStart = appSource.indexOf(
       "const pollLocalRuntimeStatus = useCallback",
     );
@@ -145,10 +187,10 @@ describe("desktop product copy", () => {
     expect(appSource).toContain("跟随本机");
     expect(appSource).toContain("当前不可用");
     expect(appSource).toContain(
-      "Standard Silo 不提供受控指纹，不会把 Profile 隔离标成指纹验证",
+      "系统浏览器不改这台电脑的指纹。登录数据分开保存，但这不是换了一套设备身份。",
     );
-    expect(appSource).toContain("关闭浏览器窗口以停止");
-    expect(appSource).toMatch(/不会\s*强制关闭其他 Chrome 或 Edge\s*窗口/u);
+    expect(appSource).toContain("关掉窗口即可停止");
+    expect(appSource).toMatch(/不会动你其他的 Chrome 或\s+Edge/u);
   });
 
   it("keeps a launched identity read-only and stops WSL from the Silo card", () => {
@@ -172,6 +214,7 @@ describe("desktop product copy", () => {
   });
 
   it("exposes only cleanup actions for legacy remote bindings", () => {
+    const appSource = environmentSource;
     const recoveryStart = appSource.indexOf(
       'className="remote-recovery-warning"',
     );
@@ -207,7 +250,7 @@ describe("desktop product copy", () => {
 
   it("labels managed browsers accurately and only offers the safe system-browser switch", () => {
     expect(appSource).toContain("独立 Chromium");
-    expect(appSource).toContain("Camoufox（Firefox 兼容）");
+    expect(appSource).toContain("独立 Firefox");
     expect(appSource).toContain('engine: { adapter: "stock" }');
     expect(appSource).toContain("managedBrowserNetworkMismatch");
     expect(appSource).not.toContain("identityTemplate.templateId");
@@ -216,7 +259,7 @@ describe("desktop product copy", () => {
   it("keeps managed-browser creation bounded and accessible", () => {
     expect(appSource).toContain("系统浏览器");
     expect(appSource).toContain("托管身份浏览器");
-    expect(appSource).toContain("请从托盘菜单退出");
+    expect(appSource).toContain("托盘菜单");
     expect(appSource).toContain("managedEngineReady");
     expect(appSource).toContain(
       "disabled={!managedEngineReady || managedStatusBusy}",
@@ -235,9 +278,11 @@ describe("desktop product copy", () => {
     expect(appSource).toContain(
       'const managedCamoufox = silo.engine.adapter === "camoufox";',
     );
-    expect(appSource).toContain('"停止托管浏览器"');
+    expect(appSource).toContain('"停止"');
+    expect(appSource).toContain('"结束会话"');
+    expect(appSource).toContain('"打开浏览器"');
     expect(appSource).toContain("onStop(silo)");
-    expect(appSource).toContain("一次只运行一个 Silo");
+    expect(appSource).toContain("一次只打开一个");
   });
 
   it("keeps managed package, network, and binding evidence states distinct", () => {

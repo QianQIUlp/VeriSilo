@@ -281,10 +281,14 @@
       }
 
       function identityFontUniverseWidths() {
-        const universe = Array.isArray(window.__probeFontUniverse)
-          ? window.__probeFontUniverse
-          : FONT_UNIVERSE;
-        return identityFontWidths(universe);
+        try {
+          const universe = Array.isArray(window.__probeFontUniverse)
+            ? window.__probeFontUniverse
+            : FONT_UNIVERSE;
+          return identityFontWidths(universe);
+        } catch (_error) {
+          return {};
+        }
       }
 
       function identityFontAvailability(fonts) {
@@ -295,15 +299,65 @@
         return result;
       }
 
+      function readBootCount() {
+        try {
+          return Number(localStorage.getItem(BOOT_KEY) || "0");
+        } catch (_error) {
+          return 0;
+        }
+      }
+
       function identityWebGL(contextName) {
+        try {
+        const attrs = window.__probeWebGlAttrs || {
+          alpha: true,
+          antialias: true,
+          depth: true,
+          failIfMajorPerformanceCaveat: false,
+          powerPreference: "default",
+          premultipliedAlpha: true,
+          preserveDrawingBuffer: false,
+          stencil: false,
+        };
         const canvas = document.createElement("canvas");
-        const gl = canvas.getContext(contextName);
-        if (!gl) return { vendor: null, renderer: null, available: false };
+        canvas.width = 256;
+        canvas.height = 256;
+        canvas.style.cssText =
+          "position:fixed;left:0;top:0;width:256px;height:256px;opacity:0;pointer-events:none";
+        const host = document.body || document.documentElement;
+        if (host) {
+          host.appendChild(canvas);
+        }
+        let gl = null;
+        try {
+          gl =
+            canvas.getContext(contextName, attrs) ||
+            canvas.getContext(contextName) ||
+            (contextName === "webgl"
+              ? canvas.getContext("experimental-webgl", attrs)
+              : null);
+        } catch (_error) {
+          gl = null;
+        }
+        if (!gl) {
+          if (canvas.parentNode) {
+            canvas.parentNode.removeChild(canvas);
+          }
+          return { vendor: null, renderer: null, available: false };
+        }
         const ext = gl.getExtension("WEBGL_debug_renderer_info");
+        const unmaskedVendor = ext
+          ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)
+          : gl.getParameter(0x9245);
+        const unmaskedRenderer = ext
+          ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+          : gl.getParameter(0x9246);
         const range = (value) => Array.from(value);
-        return {
-          vendor: ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : null,
-          renderer: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : null,
+        const result = {
+          vendor:
+            unmaskedVendor || gl.getParameter(gl.VENDOR) || null,
+          renderer:
+            unmaskedRenderer || gl.getParameter(gl.RENDERER) || null,
           available: true,
           summary: {
             version: gl.getParameter(gl.VERSION),
@@ -322,6 +376,13 @@
             extensions: (gl.getSupportedExtensions() || []).slice().sort(),
           },
         };
+        if (canvas.parentNode) {
+          canvas.parentNode.removeChild(canvas);
+        }
+        return result;
+        } catch (_error) {
+          return { vendor: null, renderer: null, available: false };
+        }
       }
 
       async function identityMediaDevices() {
@@ -396,10 +457,16 @@
       window.__probe = {
         read() {
           return {
-            bootCount: Number(localStorage.getItem(BOOT_KEY) || "0"),
-            cookiePresent: document.cookie
-              .split("; ")
-              .some((c) => c.startsWith(COOKIE_NAME + "=")),
+            bootCount: readBootCount(),
+            cookiePresent: (() => {
+              try {
+                return document.cookie
+                  .split("; ")
+                  .some((c) => c.startsWith(COOKIE_NAME + "="));
+              } catch (_error) {
+                return false;
+              }
+            })(),
             userAgent: navigator.userAgent,
             language: navigator.language,
             screen: [screen.width, screen.height],
@@ -409,13 +476,38 @@
           };
         },
         writeBootCount(n) {
-          localStorage.setItem(BOOT_KEY, String(n));
+          try {
+            localStorage.setItem(BOOT_KEY, String(n));
+          } catch (_error) {
+            return n;
+          }
           return n;
+        },
+        readWebGL() {
+          const webgl = identityWebGL("webgl");
+          const webgl2 = identityWebGL("webgl2");
+          return {
+            webglVendor: webgl.vendor,
+            webglRenderer: webgl.renderer,
+            webglSummary: webgl.summary,
+            webglAvailable: webgl.available,
+            webgl2Vendor: webgl2.vendor,
+            webgl2Renderer: webgl2.renderer,
+            webgl2Summary: webgl2.summary,
+            webgl2Available: webgl2.available,
+          };
         },
         async readIdentity() {
           const fonts = Array.isArray(window.__probeFonts)
             ? window.__probeFonts
             : [];
+          await new Promise((resolve) => {
+            if (typeof requestAnimationFrame !== "function") {
+              resolve();
+              return;
+            }
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+          });
           const [canvas, audioHash, voices, mediaDevices] = await Promise.all([
             withTimeout(identityCanvas(), 3000, null),
             identityAudioHash(),
@@ -460,7 +552,7 @@
               screenTop: window.screenTop,
             },
             historyLength: history.length,
-            bootCount: Number(localStorage.getItem(BOOT_KEY) || "0"),
+            bootCount: readBootCount(),
             mediaDevices,
             canvas,
             audioHash,
@@ -488,7 +580,10 @@
           };
         },
       };
-      document.getElementById("status").textContent = "probe ready";
+      const status = document.getElementById("status");
+      if (status) {
+        status.textContent = "probe ready";
+      }
     </script>
   </body>
 </html>

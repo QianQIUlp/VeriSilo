@@ -1,8 +1,2 @@
-**/target/**
-**/dist/**
-artifacts/**
-**/*.zip
-**/*.png
-**/*.ico
-**/*.vhd
-**/*.vhdx
+.verisilo-worktrees/
+dist/

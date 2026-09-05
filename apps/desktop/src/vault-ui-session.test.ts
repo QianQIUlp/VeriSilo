@@ -112,6 +112,7 @@ describe("scrubDesktopStatusForLockedUi", () => {
         engineEvidence: null,
         networkEvidence: null,
       },
+      websiteIdentity: null,
     });
   });
 });

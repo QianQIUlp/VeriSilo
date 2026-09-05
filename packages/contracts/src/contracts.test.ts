@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { analyzeConsistency } from "./analysis.js";
-import { buildNetworkCheckResult } from "./network-check.js";
+import {
+  buildNetworkCheckResult,
+  parseIpExit,
+} from "./network-check.js";
 import {
   NETWORK_EVIDENCE_COVERAGE,
   NATIVE_MESSAGE_MAX_BYTES,
@@ -262,6 +265,15 @@ describe("VeriSilo contracts", () => {
       },
     };
     expect(networkProfileSchema.parse(base)).toEqual(base);
+    expect(
+      networkProfileSchema.parse({
+        ...base,
+        externalMihomo: {
+          ...base.externalMihomo,
+          controllerUrl: "pipe://verge-mihomo/",
+        },
+      }).externalMihomo?.controllerUrl,
+    ).toBe("pipe://verge-mihomo/");
     expect(() =>
       networkProfileSchema.parse({
         ...base,
@@ -270,7 +282,7 @@ describe("VeriSilo contracts", () => {
           controllerUrl: "http://192.0.2.20:9090/",
         },
       }),
-    ).toThrow(/loopback/);
+    ).toThrow(/loopback|pipe/);
   });
 
   it("keeps configured, applied, and verified network stages distinct", () => {
@@ -545,6 +557,14 @@ describe("VeriSilo contracts", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("parses public-IP payloads that do not use the ipwho success flag", () => {
+    expect(parseIpExit({ ip: "203.0.113.10" })?.address).toBe("203.0.113.10");
+    expect(parseIpExit({ success: true, ip: "203.0.113.10" })?.address).toBe(
+      "203.0.113.10",
+    );
+    expect(parseIpExit({ success: false, ip: "203.0.113.10" })).toBeNull();
   });
 
   it("accepts only bounded user-initiated Silo network evidence", () => {

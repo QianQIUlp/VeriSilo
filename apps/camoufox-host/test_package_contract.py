@@ -23,8 +23,15 @@ from package_contract import (  # noqa: E402
     sha256_bytes,
     validate_v3_manifest,
 )
+from browser_tree import TreeIntegrityError, build_tree_manifest, verify_tree  # noqa: E402
 from provision_artifact import (  # noqa: E402
     PROVISION_PRESETS,
+    PROVISION_REQUEST_KEYS,
+    _artifact_id,
+    parse_gpu_preset,
+    parse_hardware_concurrency,
+    parse_timezone,
+    parse_window,
     _artifact_id,
     _atomic_first_writer,
     _network_identity_from_ipwhois,
@@ -78,6 +85,53 @@ def main() -> int:
     assert decode_seed(base64.b64encode(seed).decode()) == seed
     assert decode_seed(seed.hex()) == seed
     assert decode_seed(list(seed)) == seed
+    assert PROVISION_REQUEST_KEYS == {
+        "seed",
+        "preset",
+        "proxyServer",
+        "window",
+        "hardwareConcurrency",
+        "followNetwork",
+        "gpuPreset",
+        "timezone",
+    }
+    assert parse_window(None, (1280, 800)) == (1280, 800)
+    assert parse_window([1920, 1080], (1280, 800)) == (1920, 1080)
+    assert parse_hardware_concurrency(8) == 8
+    assert parse_hardware_concurrency(None) is None
+    assert parse_timezone("Asia/Tokyo") == "Asia/Tokyo"
+    assert parse_timezone(None) is None
+    assert parse_gpu_preset("nvidia-rtx-4070")[1].startswith("NVIDIA GeForce RTX 4070")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "browser"
+        root.mkdir()
+        (root / "keep.bin").write_bytes(b"keep")
+        manifest = build_tree_manifest(root)
+        (root / "version.json").write_text("{}", encoding="utf-8")
+        assert verify_tree(root, manifest)["verified"] is True
+        (root / "extra.bin").write_bytes(b"nope")
+        try:
+            verify_tree(root, manifest)
+        except TreeIntegrityError:
+            pass
+        else:
+            raise AssertionError("unknown extra files must still be rejected")
+    direct_id = _artifact_id(
+        seed,
+        "balanced-zh-cn",
+        window=(1280, 800),
+        hardware_concurrency=None,
+        follow_network=False,
+    )
+    tuned_id = _artifact_id(
+        seed,
+        "balanced-zh-cn",
+        window=(1920, 1080),
+        hardware_concurrency=8,
+        follow_network=False,
+    )
+    assert direct_id != tuned_id
+    assert direct_id.startswith("identity-")
     try:
         decode_seed(base64.b64encode(seed[:-1]).decode())
     except ValueError:
@@ -110,12 +164,36 @@ def main() -> int:
         "latitude": 1.3521,
         "longitude": 103.8198,
     }
-    assert _artifact_id(seed, "match-fixed-proxy", network) == _artifact_id(
-        seed, "match-fixed-proxy", dict(network)
+    assert _artifact_id(
+        seed,
+        "match-fixed-proxy",
+        window=(1280, 800),
+        hardware_concurrency=None,
+        follow_network=True,
+        network=network,
+    ) == _artifact_id(
+        seed,
+        "match-fixed-proxy",
+        window=(1280, 800),
+        hardware_concurrency=None,
+        follow_network=True,
+        network=dict(network),
     )
     changed_network = dict(network, expectedPublicAddress="8.8.8.8")
-    assert _artifact_id(seed, "match-fixed-proxy", network) != _artifact_id(
-        seed, "match-fixed-proxy", changed_network
+    assert _artifact_id(
+        seed,
+        "match-fixed-proxy",
+        window=(1280, 800),
+        hardware_concurrency=None,
+        follow_network=True,
+        network=network,
+    ) != _artifact_id(
+        seed,
+        "match-fixed-proxy",
+        window=(1280, 800),
+        hardware_concurrency=None,
+        follow_network=True,
+        network=changed_network,
     )
 
     manifest = _manifest()

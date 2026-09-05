@@ -26,9 +26,9 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::domain::{
     inspect_browser_executable, validate_silo_name, BrowserDescriptor, BrowserVerification,
     BrowserVerificationState, CreateManagedSiloInput, CreateSiloInput, ExternalMihomoBinding,
-    ManagedIdentityPreset, NetworkProfile, ProxyScheme, Silo, SiloExecutionTarget,
-    SiloStorageUsage, UpdateSiloEngineInput, UpdateSiloInput, UpdateSiloNetworkInput,
-    VaultLockState, VaultStatus, SCHEMA_VERSION,
+    ManagedIdentityIntent, ManagedIdentityPreset, ManagedIdentityPreview, NetworkProfile,
+    ProxyScheme, Silo, SiloExecutionTarget, SiloStorageUsage, UpdateSiloEngineInput,
+    UpdateSiloInput, UpdateSiloNetworkInput, VaultLockState, VaultStatus, SCHEMA_VERSION,
 };
 use crate::engine::{
     sha256_hex_bytes, strict_json_from_slice, CAMOUFOX_ARTIFACT_SCHEMA_V3,
@@ -958,39 +958,166 @@ impl VaultRuntime {
         Ok(artifact_path)
     }
 
-    /// Recover the fixed managed preset needed for a network rebind from the
-    /// validated Artifact. Presets are intentionally not renderer-controlled
-    /// Silo fields; v6 is always the proxy preset, while v5 carries its fixed
-    /// locale in the signed policy.
+    /// Recover the locale starting point from the stored Artifact policy.
     pub fn managed_identity_preset_for_silo(
         &mut self,
         silo_id: Uuid,
     ) -> Result<ManagedIdentityPreset, VaultError> {
+        Ok(self.managed_identity_intent_for_silo(silo_id)?.identity_preset)
+    }
+
+    pub fn managed_identity_intent_for_silo(
+        &mut self,
+        silo_id: Uuid,
+    ) -> Result<ManagedIdentityIntent, VaultError> {
+        let silo = self.silo_by_id(silo_id)?;
         let artifact = self.identity_artifact_for_silo(silo_id)?;
         let value: serde_json::Value = strict_json_from_slice(artifact.raw_json.as_bytes())
             .map_err(|_| VaultError::InvalidData)?;
-        if artifact.schema == CAMOUFOX_ARTIFACT_SCHEMA_V6 {
-            let locale = value
-                .get("policy")
-                .and_then(|policy| policy.get("locale"))
-                .and_then(serde_json::Value::as_str);
-            return Ok(match locale {
-                Some("zh-CN") => ManagedIdentityPreset::BalancedZhCn,
-                Some("de-DE") => ManagedIdentityPreset::BalancedDeDe,
-                Some("en-US") => ManagedIdentityPreset::BalancedEnUs,
-                _ => ManagedIdentityPreset::MatchFixedProxy,
-            });
-        }
-        match value
+        let locale = value
             .get("policy")
             .and_then(|policy| policy.get("locale"))
             .and_then(serde_json::Value::as_str)
-        {
-            Some("en-US") => Ok(ManagedIdentityPreset::BalancedEnUs),
-            Some("zh-CN") => Ok(ManagedIdentityPreset::BalancedZhCn),
-            Some("de-DE") => Ok(ManagedIdentityPreset::BalancedDeDe),
-            _ => Err(VaultError::InvalidData),
+            .unwrap_or("en-US");
+        let config = value.get("resolvedConfig").unwrap_or(&serde_json::Value::Null);
+        let screen_width = config
+            .get("screen.width")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(1280) as u32;
+        let screen_height = config
+            .get("screen.height")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(800) as u32;
+        let hardware_concurrency = config
+            .get("navigator.hardwareConcurrency")
+            .and_then(serde_json::Value::as_u64)
+            .map(|value| value as u32)
+            .filter(|value| [2, 4, 6, 8, 12, 16].contains(value));
+        Ok(ManagedIdentityIntent {
+            identity_preset: ManagedIdentityPreset::from_locale(locale),
+            follow_network_exit: silo.network_profile.requires_proxy(),
+            screen_width,
+            screen_height,
+            hardware_concurrency,
+            gpu_preset: None,
+            timezone: config
+                .get("timezone")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+        })
+    }
+
+    pub fn managed_identity_preview_for_silo(
+        &mut self,
+        silo_id: Uuid,
+    ) -> Result<ManagedIdentityPreview, VaultError> {
+        let artifact = self.identity_artifact_for_silo(silo_id)?;
+        managed_identity_preview_from_artifact(&artifact)
+    }
+
+    pub fn list_managed_identity_previews(
+        &mut self,
+    ) -> Result<std::collections::HashMap<Uuid, ManagedIdentityPreview>, VaultError> {
+        let silos = self.list_silos()?;
+        let mut previews = std::collections::HashMap::new();
+        for silo in silos {
+            if silo.engine.camoufox_artifact_binding().is_none() {
+                continue;
+            }
+            if let Ok(preview) = self.managed_identity_preview_for_silo(silo.id) {
+                previews.insert(silo.id, preview);
+            }
         }
+        Ok(previews)
+    }
+
+    /// Replace the bound Artifact (and optional seed) before the first launch.
+    pub fn replace_managed_identity(
+        &mut self,
+        root: &Path,
+        silo_id: Uuid,
+        artifact: StoredIdentityArtifact,
+        seed: Option<&[u8; 32]>,
+    ) -> Result<Silo, VaultError> {
+        let current = self.silo_by_id(silo_id)?;
+        if current.identity_locked_at.is_some() {
+            return Err(VaultError::InvalidSilo(
+                "托管身份已在首次启动后锁定，请创建新的 Silo。".to_owned(),
+            ));
+        }
+        if current.engine.camoufox_artifact_binding().is_none() {
+            return Err(VaultError::InvalidSilo(
+                "identity_artifact_unavailable: legacy Managed Silo has no replaceable Artifact"
+                    .to_owned(),
+            ));
+        }
+        validate_identity_artifact_record(&artifact.artifact_id, &artifact)?;
+        let expected_schema = if current.network_profile.requires_proxy() {
+            CAMOUFOX_ARTIFACT_SCHEMA_V6
+        } else {
+            CAMOUFOX_ARTIFACT_SCHEMA_V5
+        };
+        if artifact.schema != expected_schema {
+            return Err(VaultError::InvalidSilo(format!(
+                "identity replace requires Artifact {expected_schema}"
+            )));
+        }
+        self.record_activity()?;
+        let old_binding = current
+            .engine
+            .camoufox_artifact_binding()
+            .cloned()
+            .ok_or(VaultError::InvalidData)?;
+        let seed_reference = current.seed_reference;
+        let artifact = {
+            let unlocked = self.unlocked_without_activity()?;
+            if let Some(existing) = unlocked.data.identity_artifacts.get(&artifact.artifact_id) {
+                validate_identity_artifact_record(&existing.artifact_id, existing)?;
+                if existing.schema != artifact.schema {
+                    return Err(VaultError::InvalidData);
+                }
+                existing.clone()
+            } else {
+                artifact
+            }
+        };
+        let new_binding = crate::engine::CamoufoxArtifactBindingV1 {
+            artifact_id: artifact.artifact_id.clone(),
+            artifact_file_sha256: artifact.raw_sha256.clone(),
+            schema: artifact.schema.clone(),
+        };
+        let encoded_seed = seed.map(|seed| STANDARD_NO_PAD.encode(seed));
+        let prospective_data = {
+            let unlocked = self.unlocked_mut_without_activity()?;
+            let mut data = unlocked.data.clone();
+            let silo = data
+                .silos
+                .iter_mut()
+                .find(|silo| silo.id == silo_id)
+                .ok_or(VaultError::SiloNotFound)?;
+            match &mut silo.engine {
+                crate::engine::SiloEngineConfig::Camoufox {
+                    identity_template,
+                    fallback_rules,
+                    artifact_binding,
+                } => {
+                    *identity_template = None;
+                    fallback_rules.clear();
+                    *artifact_binding = Some(new_binding);
+                }
+                _ => return Err(VaultError::InvalidData),
+            }
+            if let Some(encoded_seed) = encoded_seed {
+                data.seed_material.insert(seed_reference, encoded_seed);
+            }
+            data.identity_artifacts
+                .insert(artifact.artifact_id.clone(), artifact);
+            remove_unreferenced_identity_artifact(&mut data, Some(&old_binding.artifact_id));
+            data
+        };
+        self.persist_data(root, &prospective_data)?;
+        self.unlocked_mut_without_activity()?.data = prospective_data;
+        self.silo_by_id(silo_id)
     }
 
     /// Commit a freshly provisioned Managed Artifact and its complete network
@@ -1042,12 +1169,11 @@ impl VaultRuntime {
             } | NetworkProfile::FixedProxy {
                 proxy_required: true,
                 scheme: ProxyScheme::Http | ProxyScheme::Socks5,
-                external_mihomo: None,
                 ..
             }
         ) {
             return Err(VaultError::InvalidSilo(
-                "Managed Camoufox network rebind accepts Direct(false) or required HTTP/SOCKS5 FixedProxy without an external Mihomo binding."
+                "Managed Camoufox network rebind accepts Direct or a required HTTP/SOCKS5 proxy, including a local Clash/Mihomo binding."
                     .to_owned(),
             ));
         }
@@ -1101,12 +1227,18 @@ impl VaultRuntime {
                 },
             )
         });
-        if mihomo_controller_secret.is_some() {
-            return Err(VaultError::InvalidSilo(
-                "Managed Camoufox network rebind does not accept Mihomo controller credentials."
-                    .to_owned(),
-            ));
-        }
+        let new_mihomo_controller_secret = mihomo_controller_secret.map(|controller_secret| {
+            let reference = Uuid::new_v4();
+            network_profile
+                .set_mihomo_controller_secret_reference(reference)
+                .expect("validated external Mihomo binding accepts a secret reference");
+            (
+                reference,
+                StoredMihomoControllerSecret {
+                    secret: controller_secret.secret,
+                },
+            )
+        });
         let new_binding = crate::engine::CamoufoxArtifactBindingV1 {
             artifact_id: artifact.artifact_id.clone(),
             artifact_file_sha256: artifact.raw_sha256.clone(),
@@ -1139,6 +1271,9 @@ impl VaultRuntime {
             }
             if let Some((reference, credentials)) = new_proxy_credential {
                 data.proxy_credentials.insert(reference, credentials);
+            }
+            if let Some((reference, secret)) = new_mihomo_controller_secret {
+                data.mihomo_controller_secrets.insert(reference, secret);
             }
             data.identity_artifacts
                 .insert(artifact.artifact_id.clone(), artifact);
@@ -1351,15 +1486,17 @@ impl VaultRuntime {
             .validate()
             .map_err(|error| VaultError::InvalidSilo(error.to_string()))?;
         validate_identity_artifact_record(&artifact.artifact_id, &artifact)?;
-        if input.identity_preset.requires_proxy() {
+        let has_proxy = input.network_profile.requires_proxy();
+        if has_proxy {
             if artifact.schema != CAMOUFOX_ARTIFACT_SCHEMA_V6 {
                 return Err(VaultError::InvalidSilo(
-                    "match-fixed-proxy requires a network-bound Artifact v6".to_owned(),
+                    "a required proxy managed identity requires a network-bound Artifact v6"
+                        .to_owned(),
                 ));
             }
         } else if artifact.schema != CAMOUFOX_ARTIFACT_SCHEMA_V5 {
             return Err(VaultError::InvalidSilo(
-                "balanced managed presets require an Artifact v5".to_owned(),
+                "a Direct managed identity requires an Artifact v5".to_owned(),
             ));
         }
         self.record_activity()?;
@@ -1405,6 +1542,18 @@ impl VaultRuntime {
                 },
             )
         });
+        let stored_mihomo_controller_secret = input.mihomo_controller_secret.map(|controller_secret| {
+            let reference = Uuid::new_v4();
+            network_profile
+                .set_mihomo_controller_secret_reference(reference)
+                .expect("validated external Mihomo binding accepts a secret reference");
+            (
+                reference,
+                StoredMihomoControllerSecret {
+                    secret: controller_secret.secret,
+                },
+            )
+        });
         let silo = Silo {
             id: silo_id,
             schema_version: SCHEMA_VERSION,
@@ -1436,6 +1585,9 @@ impl VaultRuntime {
                 .insert(seed_reference, STANDARD_NO_PAD.encode(seed));
             if let Some((reference, credentials)) = stored_proxy_credential {
                 data.proxy_credentials.insert(reference, credentials);
+            }
+            if let Some((reference, secret)) = stored_mihomo_controller_secret {
+                data.mihomo_controller_secrets.insert(reference, secret);
             }
             data.identity_artifacts
                 .insert(artifact.artifact_id.clone(), artifact);
@@ -2059,6 +2211,9 @@ impl VaultRuntime {
 
         let quarantine = root.join("silos").join(format!(".deleting-{silo_id}"));
         let moved_to_quarantine = if managed_directory.exists() {
+            remove_transient_camoufox_cache_links(
+                &managed_directory.join("engine-state").join("camoufox-cache"),
+            )?;
             ensure_tree_has_no_links_or_reparse_points(&managed_directory)?;
             if fs::symlink_metadata(&quarantine).is_ok() {
                 return Err(VaultError::UnmanagedProfile);
@@ -2650,6 +2805,37 @@ fn ensure_tree_has_no_links_or_reparse_points(path: &Path) -> Result<(), VaultEr
     Ok(())
 }
 
+fn remove_transient_camoufox_cache_links(path: &Path) -> Result<(), VaultError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(VaultError::Filesystem(error)),
+    };
+    if metadata_is_link_or_reparse(&metadata) {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::fs::MetadataExt;
+
+            if metadata.file_attributes() & 0x10 != 0 {
+                fs::remove_dir(path)?;
+            } else {
+                fs::remove_file(path)?;
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            fs::remove_file(path)?;
+        }
+        return Ok(());
+    }
+    if metadata.is_dir() {
+        for entry in fs::read_dir(path)? {
+            remove_transient_camoufox_cache_links(&entry?.path())?;
+        }
+    }
+    Ok(())
+}
+
 /// Publish a cache file exactly once and accept an existing file only when it
 /// still contains the expected bytes. This keeps artifact materialization
 /// race-safe without allowing a stale or redirected sidecar to become an
@@ -3163,6 +3349,82 @@ fn open_envelope(raw: &[u8], passphrase: &str) -> Result<OpenedEnvelope, VaultEr
         salt,
         data,
         needs_migration: migrated_from_legacy || migrated_data_schema,
+    })
+}
+
+fn json_string<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(serde_json::Value::as_str)
+}
+
+fn json_u32(value: &serde_json::Value, key: &str) -> Option<u32> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|number| u32::try_from(number).ok())
+}
+
+fn json_f64(value: &serde_json::Value, key: &str) -> Option<f64> {
+    value.get(key).and_then(serde_json::Value::as_f64)
+}
+
+fn managed_identity_preview_from_artifact(
+    artifact: &StoredIdentityArtifact,
+) -> Result<ManagedIdentityPreview, VaultError> {
+    let value: serde_json::Value = strict_json_from_slice(artifact.raw_json.as_bytes())
+        .map_err(|_| VaultError::InvalidData)?;
+    let declared = value
+        .get("stableSignalsDeclared")
+        .ok_or(VaultError::InvalidData)?;
+    let config = value.get("resolvedConfig").ok_or(VaultError::InvalidData)?;
+    let screen = declared.get("screen").unwrap_or(&serde_json::Value::Null);
+    let network = value.get("networkIdentity");
+    let language = if let Some(language) = json_string(declared, "language") {
+        language.to_owned()
+    } else if let (Some(language), Some(region)) = (
+        json_string(config, "locale:language"),
+        json_string(config, "locale:region"),
+    ) {
+        format!("{language}-{region}")
+    } else {
+        return Err(VaultError::InvalidData);
+    };
+    Ok(ManagedIdentityPreview {
+        user_agent: json_string(declared, "userAgent")
+            .or_else(|| json_string(config, "navigator.userAgent"))
+            .ok_or(VaultError::InvalidData)?
+            .to_owned(),
+        language,
+        timezone: json_string(config, "timezone")
+            .ok_or(VaultError::InvalidData)?
+            .to_owned(),
+        screen_width: json_u32(screen, "width")
+            .or_else(|| json_u32(config, "screen.width"))
+            .ok_or(VaultError::InvalidData)?,
+        screen_height: json_u32(screen, "height")
+            .or_else(|| json_u32(config, "screen.height"))
+            .ok_or(VaultError::InvalidData)?,
+        hardware_concurrency: json_u32(declared, "hardwareConcurrency")
+            .or_else(|| json_u32(config, "navigator.hardwareConcurrency"))
+            .ok_or(VaultError::InvalidData)?,
+        webgl_vendor: json_string(declared, "webglVendor")
+            .or_else(|| json_string(config, "webGl:vendor"))
+            .unwrap_or("unavailable")
+            .to_owned(),
+        webgl_renderer: json_string(declared, "webglRenderer")
+            .or_else(|| json_string(config, "webGl:renderer"))
+            .unwrap_or("unavailable")
+            .to_owned(),
+        platform: json_string(config, "navigator.platform")
+            .unwrap_or("Win32")
+            .to_owned(),
+        country_code: network.and_then(|value| json_string(value, "countryCode"))
+            .map(str::to_owned),
+        public_address: network
+            .and_then(|value| json_string(value, "expectedPublicAddress"))
+            .map(str::to_owned),
+        latitude: network.and_then(|value| json_f64(value, "latitude")),
+        longitude: network.and_then(|value| json_f64(value, "longitude")),
+        network_bound: artifact.schema == CAMOUFOX_ARTIFACT_SCHEMA_V6,
     })
 }
 
@@ -3946,10 +4208,17 @@ mod tests {
             name: "managed artifact".to_owned(),
             color: "#4f46e5".to_owned(),
             identity_preset: ManagedIdentityPreset::BalancedEnUs,
+            follow_network_exit: false,
+            screen_width: 1280,
+            screen_height: 800,
+            hardware_concurrency: None,
+            gpu_preset: None,
+            timezone: None,
             network_profile: NetworkProfile::Direct {
                 proxy_required: false,
             },
             proxy_credentials: None,
+            mihomo_controller_secret: None,
         };
         let first = vault
             .create_managed_silo(&root, input(), artifact.clone(), &[7_u8; 32])
@@ -4034,10 +4303,17 @@ mod tests {
                     name: "managed rebind".to_owned(),
                     color: "#4f46e5".to_owned(),
                     identity_preset: ManagedIdentityPreset::BalancedEnUs,
+                    follow_network_exit: false,
+                    screen_width: 1280,
+                    screen_height: 800,
+                    hardware_concurrency: None,
+                    gpu_preset: None,
+                    timezone: None,
                     network_profile: NetworkProfile::Direct {
                         proxy_required: false,
                     },
                     proxy_credentials: None,
+                    mihomo_controller_secret: None,
                 },
                 direct_artifact,
                 &[9_u8; 32],
@@ -5996,6 +6272,47 @@ mod tests {
         assert!(!root.join("silos").join(silo.id.to_string()).exists());
         assert!(unrelated.join("keep.txt").exists());
         assert!(vault.list_silos().expect("list Silo metadata").is_empty());
+
+        fs::remove_dir_all(root).expect("remove test vault directory");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn permanent_delete_removes_camoufox_cache_junction_without_touching_its_target() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).expect("create test vault directory");
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, "a passphrase that is long enough")
+            .expect("initialize vault");
+        let silo = create_direct_silo(&root, &mut vault, "delete cache junction");
+        let target = root.join("packaged-browser");
+        fs::create_dir_all(&target).expect("create packaged browser target");
+        fs::write(target.join("keep.txt"), b"keep").expect("write target sentinel");
+        let junction = root
+            .join("silos")
+            .join(silo.id.to_string())
+            .join("engine-state")
+            .join("camoufox-cache")
+            .join("camoufox")
+            .join("Cache")
+            .join("browsers")
+            .join("verisilo")
+            .join("152.0.4-beta.28-test");
+        fs::create_dir_all(junction.parent().expect("junction parent"))
+            .expect("create cache hierarchy");
+        let created = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&target)
+            .status()
+            .expect("create cache junction");
+        assert!(created.success());
+
+        vault
+            .delete_silo(&root, silo.id, false, true)
+            .expect("delete Silo containing internal cache junction");
+        assert_eq!(fs::read(target.join("keep.txt")).expect("target survives"), b"keep");
 
         fs::remove_dir_all(root).expect("remove test vault directory");
     }

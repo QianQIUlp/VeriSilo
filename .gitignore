@@ -21,3 +21,12 @@ apps/extension/*.zip
 apps/extension/VeriSilo-Companion-*.manifest.json
 *.vhd
 *.vhdx
+
+# Agent task worktrees and per-task metadata
+.verisilo-worktrees/
+.agent-task.json
+
+# Local Camoufox host build toolchains (regenerable, large)
+apps/camoufox-host/build/camoufox-host/
+apps/camoufox-host/build/host-rebuild/
+apps/camoufox-host/build/toolchain/

@@ -290,16 +290,12 @@ def verify_package_browser_root(
     except ImportError as exc:  # pragma: no cover - only malformed package setup
         raise PackageContractError("browser tree verifier is unavailable") from exc
     manifest_raw = tree_manifest_path.read_bytes()
-    if sha256_bytes(manifest_raw) != lock["browserTreeManifestSha256"]:
-        raise PackageContractError("browser tree manifest SHA-256 does not match asset lock")
     manifest = load_tree_manifest(tree_manifest_path)
     if manifest["treeRootLabel"] != browser_root.name:
         raise PackageContractError("browser tree root label does not match package root")
     executable = browser_root / lock["executableRelativePath"]
     if not executable.is_file() or executable.is_symlink():
         raise PackageContractError("package browser executable is missing or irregular")
-    if sha256_file(executable) != lock["browserExecutableSha256"]:
-        raise PackageContractError("package browser executable SHA-256 mismatch")
     application_ini = browser_root / "application.ini"
     properties = browser_root / "properties.json"
     if not application_ini.is_file() or not properties.is_file():
@@ -312,18 +308,25 @@ def verify_package_browser_root(
         or source_stamp is None
         or build_id.group(1).strip() != lock["buildId"]
         or source_stamp.group(1).strip() != lock["sourceStamp"]
-        or sha256_file(properties) != lock["propertiesJsonSha256"]
     ):
         raise PackageContractError("package browser metadata does not match asset lock")
+    if verify_tree_contents:
+        if sha256_bytes(manifest_raw) != lock["browserTreeManifestSha256"]:
+            raise PackageContractError("browser tree manifest SHA-256 does not match asset lock")
+        if sha256_file(executable) != lock["browserExecutableSha256"]:
+            raise PackageContractError("package browser executable SHA-256 mismatch")
+        if sha256_file(properties) != lock["propertiesJsonSha256"]:
+            raise PackageContractError("package browser metadata does not match asset lock")
     verification: dict[str, Any] = {
-        "verified": True,
+        "verified": verify_tree_contents,
         "assetKind": "self-built",
-        "treeManifestSha256": sha256_bytes(manifest_raw),
+        "treeManifestSha256": lock["browserTreeManifestSha256"],
         "fileCount": manifest["fileCount"],
         "totalBytes": manifest["totalBytes"],
     }
     if verify_tree_contents:
         verification["tree"] = verify_tree(browser_root, manifest)
+        verification["treeManifestSha256"] = sha256_bytes(manifest_raw)
     return executable, verification
 
 

@@ -57,39 +57,58 @@ export interface CreateSiloInput {
   mihomoControllerSecret?: MihomoControllerSecretInput;
 }
 
-/**
- * The small, user-facing set of identity presets exposed by the managed
- * browser. The native command owns the actual template; the desktop UI only
- * sends the selected preset name.
- */
 export type ManagedIdentityPreset =
-  "balanced-en-us" | "balanced-zh-cn" | "balanced-de-de" | "match-fixed-proxy";
+  | "balanced-en-us"
+  | "balanced-zh-cn"
+  | "balanced-de-de"
+  | "match-fixed-proxy";
 
-export type ManagedNetworkProfile =
-  | {
-      mode: "direct";
-      proxyRequired: false;
-    }
-  | {
-      mode: "fixed_proxy";
-      proxyRequired: true;
-      scheme: "http" | "socks5";
-      host: string;
-      port: number;
-      bypassList: [];
-    };
+export interface ManagedIdentityPreview {
+  userAgent: string;
+  language: string;
+  timezone: string;
+  screenWidth: number;
+  screenHeight: number;
+  hardwareConcurrency: number;
+  webglVendor: string;
+  webglRenderer: string;
+  platform: string;
+  countryCode: string | null;
+  publicAddress: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  networkBound: boolean;
+}
+
+export interface UpdateManagedIdentityInput {
+  identityPreset: ManagedIdentityPreset;
+  followNetworkExit: boolean;
+  screenWidth: number;
+  screenHeight: number;
+  hardwareConcurrency?: number | null;
+  gpuPreset?: string | null;
+  timezone?: string | null;
+  rotateSeed: boolean;
+}
 
 /**
  * JSON boundary for the built-in managed browser creation command. Unlike a
- * Standard Silo, it deliberately has no executable path, browser kind, or
- * execution target: those are selected by the trusted native package.
+ * Standard Silo, it has no executable path or stock browser kind: the pinned
+ * engine package is the browser.
  */
 export interface CreateManagedSiloInput {
   name: string;
   color: string;
   identityPreset: ManagedIdentityPreset;
-  networkProfile: ManagedNetworkProfile;
+  followNetworkExit?: boolean;
+  screenWidth?: number;
+  screenHeight?: number;
+  hardwareConcurrency?: number | null;
+  gpuPreset?: string | null;
+  timezone?: string | null;
+  networkProfile: NetworkProfile;
   proxyCredentials?: ProxyCredentialsInput;
+  mihomoControllerSecret?: MihomoControllerSecretInput;
 }
 
 export interface UpdateSiloInput {
@@ -150,6 +169,13 @@ export interface MihomoSelectorGroup {
   nodes: MihomoNode[];
 }
 
+export interface LocalClashProbe {
+  mixedPort: number | null;
+  controllerUrl: string | null;
+  snapshot: MihomoSnapshot | null;
+  detail: string;
+}
+
 export interface MihomoSnapshot {
   checkedAt: string;
   groups: MihomoSelectorGroup[];
@@ -159,6 +185,7 @@ export interface MihomoSnapshot {
     updatedAt: string | null;
     nodeCount: number;
   }>;
+  controllerUrl?: string | null;
 }
 
 export interface WslStatus {
@@ -175,9 +202,40 @@ export interface LegacyEnvironmentArtifact {
   message: string;
 }
 
+export interface WebsiteIdentityObservation {
+  siloId: string;
+  observedAt: string;
+  source: "page-script";
+  userAgent: string;
+  language: string;
+  languages: string[];
+  platform: string;
+  oscpu: string | null;
+  timezone: string;
+  screenWidth: number;
+  screenHeight: number;
+  colorDepth: number | null;
+  devicePixelRatio: number | null;
+  hardwareConcurrency: number;
+  webglVendor: string;
+  webglRenderer: string;
+  doNotTrack: string | null;
+  maxTouchPoints: number | null;
+  webdriver: boolean | null;
+}
+
 export interface DesktopStatus {
   vault: VaultState;
   activation: RuntimeActivation;
+  websiteIdentity?: WebsiteIdentityObservation | null;
+}
+
+export interface LocalApiInfo {
+  url: string;
+  pid: number;
+  discoveryPath: string;
+  cliPath: string;
+  vaultName: string;
 }
 
 export interface BrowserVerification {
@@ -278,6 +336,7 @@ export interface RemotePairingApproval {
 
 export const desktopApi = {
   status: () => invoke<DesktopStatus>("desktop_status"),
+  localApiInfo: () => invoke<LocalApiInfo>("local_api_info"),
   initializeVault: (passphrase: string) =>
     invoke<VaultState>("initialize_vault", { passphrase }),
   unlockVault: (passphrase: string) =>
@@ -474,6 +533,8 @@ export const desktopApi = {
     }),
   inspectMihomoController: (input: MihomoControllerInput) =>
     invoke<MihomoSnapshot>("inspect_mihomo_controller", { input }),
+  probeLocalClash: (secret?: string) =>
+    invoke<LocalClashProbe>("probe_local_clash", { secret: secret ?? null }),
   listSilos: () => invoke<Silo[]>("list_silos"),
   listActiveSilos: () => invoke<Silo[]>("list_active_silos"),
   listArchivedSilos: () => invoke<Silo[]>("list_archived_silos"),
@@ -481,6 +542,12 @@ export const desktopApi = {
     invoke<Silo>("create_silo", { input }),
   createManagedSilo: (input: CreateManagedSiloInput) =>
     invoke<Silo>("create_managed_silo", { input }),
+  listManagedIdentityPreviews: () =>
+    invoke<Record<string, ManagedIdentityPreview>>(
+      "list_managed_identity_previews",
+    ),
+  updateManagedIdentity: (siloId: string, input: UpdateManagedIdentityInput) =>
+    invoke<Silo>("update_managed_identity", { siloId, input }),
   updateSilo: (siloId: string, input: UpdateSiloInput) =>
     invoke<Silo>("update_silo", { siloId, input }),
   updateSiloConfiguration: (

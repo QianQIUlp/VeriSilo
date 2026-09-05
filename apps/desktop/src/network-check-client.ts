@@ -1,6 +1,7 @@
 import {
   buildNetworkCheckResult,
   NETWORK_CHECK_ENDPOINTS,
+  parseIpExit,
   readBoundedUtf8Response,
   type NetworkCheckResult,
 } from "@verisilo/contracts";
@@ -15,7 +16,7 @@ interface ProbeResult {
 
 export async function runDesktopNetworkCheck(): Promise<NetworkCheckResult> {
   const [ipProbe, cloudflareProbe, googleProbe] = await Promise.all([
-    probeJson("IP 出口", NETWORK_CHECK_ENDPOINTS.ip),
+    probePublicIp(),
     probeJson("Cloudflare DNS", NETWORK_CHECK_ENDPOINTS.cloudflareDns, {
       Accept: "application/dns-json",
     }),
@@ -30,6 +31,29 @@ export async function runDesktopNetworkCheck(): Promise<NetworkCheckResult> {
       (error): error is string => error !== null,
     ),
   });
+}
+
+async function probePublicIp(): Promise<ProbeResult> {
+  const urls = [
+    NETWORK_CHECK_ENDPOINTS.ip,
+    ...NETWORK_CHECK_ENDPOINTS.ipFallback,
+  ];
+  let lastError = "请求失败";
+  for (const url of urls) {
+    try {
+      const value = await fetchBoundedJson(url);
+      if (parseIpExit(value) !== null) {
+        return { value, error: null };
+      }
+      lastError = "没有有效 IP";
+    } catch (error) {
+      lastError = networkCheckErrorMessage(error);
+    }
+  }
+  return {
+    value: null,
+    error: `IP 出口：${lastError}`.slice(0, 300),
+  };
 }
 
 async function probeJson(

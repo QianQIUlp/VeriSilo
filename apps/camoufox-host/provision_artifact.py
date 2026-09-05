@@ -50,6 +50,42 @@ from identity_policy import (
 )
 
 PROVISION_FRAME_MAX_BYTES = 4096
+PROVISION_REQUEST_KEYS = {
+    "seed",
+    "preset",
+    "proxyServer",
+    "window",
+    "hardwareConcurrency",
+    "followNetwork",
+    "gpuPreset",
+    "timezone",
+}
+GPU_PRESETS: dict[str, tuple[str, str]] = {
+    "nvidia-rtx-3060": ("NVIDIA Corporation", "NVIDIA GeForce RTX 3060, or similar"),
+    "nvidia-rtx-3070": ("NVIDIA Corporation", "NVIDIA GeForce RTX 3070, or similar"),
+    "nvidia-rtx-4060": ("NVIDIA Corporation", "NVIDIA GeForce RTX 4060, or similar"),
+    "nvidia-rtx-4070": ("NVIDIA Corporation", "NVIDIA GeForce RTX 4070, or similar"),
+    "nvidia-rtx-4080": ("NVIDIA Corporation", "NVIDIA GeForce RTX 4080, or similar"),
+    "nvidia-gtx-1660": ("NVIDIA Corporation", "NVIDIA GeForce GTX 1660, or similar"),
+    "amd-rx-6600": ("ATI Technologies Inc.", "AMD Radeon RX 6600, or similar"),
+    "amd-rx-7600": ("ATI Technologies Inc.", "AMD Radeon RX 7600, or similar"),
+    "amd-rx-7800xt": ("ATI Technologies Inc.", "AMD Radeon RX 7800 XT, or similar"),
+    "intel-uhd-770": ("Intel", "Intel(R) UHD Graphics 770, or similar"),
+}
+SUPPORTED_TIMEZONES = {
+    "Asia/Shanghai",
+    "Asia/Hong_Kong",
+    "Asia/Tokyo",
+    "Asia/Singapore",
+    "Europe/London",
+    "Europe/Berlin",
+    "Europe/Paris",
+    "America/New_York",
+    "America/Chicago",
+    "America/Los_Angeles",
+    "UTC",
+}
+SUPPORTED_HARDWARE_CONCURRENCY = (2, 4, 6, 8, 12, 16)
 PROVISION_PRESETS: dict[str, dict[str, Any]] = {
     "balanced-en-us": {
         "network": "direct",
@@ -124,16 +160,85 @@ def decode_seed(value: object) -> bytes:
     return seed
 
 
+def parse_window(value: object, default: tuple[int, int]) -> tuple[int, int]:
+    if value is None:
+        return default
+    if type(value) is not list or len(value) != 2:
+        raise ProvisionError("window must be two positive integers")
+    width, height = value
+    if type(width) is not int or type(height) is not int:
+        raise ProvisionError("window must be two positive integers")
+    if not 800 <= width <= 7680 or not 600 <= height <= 4320:
+        raise ProvisionError("window is out of range")
+    return (width, height)
+
+
+def parse_hardware_concurrency(value: object) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int or value not in SUPPORTED_HARDWARE_CONCURRENCY:
+        raise ProvisionError("hardwareConcurrency is not a supported core count")
+    return value
+
+
+def parse_gpu_preset(value: object) -> tuple[str, str] | None:
+    if value is None or value == "auto" or value == "":
+        return None
+    if type(value) is not str or value not in GPU_PRESETS:
+        raise ProvisionError("gpuPreset is not one of the supported GPU profiles")
+    return GPU_PRESETS[value]
+
+
+def parse_timezone(value: object) -> str | None:
+    if value is None or value == "":
+        return None
+    if type(value) is not str or value not in SUPPORTED_TIMEZONES:
+        raise ProvisionError("timezone is not one of the supported IANA zones")
+    return value
+
+
+def apply_identity_overrides(
+    config: dict[str, Any],
+    *,
+    window: tuple[int, int],
+    hardware_concurrency: int | None,
+    gpu: tuple[str, str] | None = None,
+) -> None:
+    width, height = window
+    config["screen.width"] = width
+    config["screen.height"] = height
+    config["screen.availWidth"] = width
+    config["screen.availHeight"] = height
+    config["window.outerWidth"] = width
+    config["window.outerHeight"] = height
+    if hardware_concurrency is not None:
+        config["navigator.hardwareConcurrency"] = hardware_concurrency
+    if gpu is not None:
+        config["webGl:vendor"] = gpu[0]
+        config["webGl:renderer"] = gpu[1]
+
+
 def _artifact_id(
     seed: bytes,
     preset: str,
+    *,
+    window: tuple[int, int],
+    hardware_concurrency: int | None,
+    follow_network: bool,
+    gpu_preset: str | None = None,
+    timezone: str | None = None,
     network: dict[str, Any] | None = None,
 ) -> str:
-    if network is None:
-        return "identity-" + hashlib.sha256(preset.encode("utf-8") + seed).hexdigest()[:24]
-    binding = {
+    binding: dict[str, Any] = {
         "preset": preset,
-        "network": {
+        "window": [window[0], window[1]],
+        "hardwareConcurrency": hardware_concurrency,
+        "followNetwork": follow_network,
+        "gpuPreset": gpu_preset,
+        "timezone": timezone,
+    }
+    if network is not None:
+        binding["network"] = {
             key: network[key]
             for key in (
                 "expectedPublicAddress",
@@ -142,8 +247,7 @@ def _artifact_id(
                 "latitude",
                 "longitude",
             )
-        },
-    }
+        }
     material = json.dumps(binding, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode(
         "utf-8"
     )
@@ -165,6 +269,27 @@ def _reassemble_camou_config(env: dict) -> dict:
     if type(value) is not dict:
         raise ProvisionError("browser configuration must be an object")
     return value
+
+
+def _canonical_locale_parts(locale: str) -> tuple[str, str, str]:
+    from camoufox.locales import normalize_locale
+
+    normalized = normalize_locale(locale)
+    if normalized.language is None or normalized.region is None:
+        raise ProvisionError("preset locale is not canonical")
+    script = normalized.script
+    if script is None:
+        language = normalized.language.lower()
+        region = normalized.region.upper()
+        if language == "zh":
+            script = "Hant" if region in {"TW", "HK", "MO"} else "Hans"
+        elif language == "ja":
+            script = "Jpan"
+        elif language == "ko":
+            script = "Kore"
+        else:
+            script = "Latn"
+    return normalized.language, normalized.region, script
 
 
 def complete_resolved_config(
@@ -235,6 +360,10 @@ def complete_resolved_config(
             max(0, config["screen.width"] - config["screen.availWidth"]),
         )
     config["window.outerWidth"], config["window.outerHeight"] = window
+    language, region, script = _canonical_locale_parts(locale)
+    config["locale:language"] = language
+    config["locale:region"] = region
+    config["locale:script"] = script
     return config
 
 
@@ -384,12 +513,18 @@ def _validated_existing_result(path: Path, artifact_id: str) -> dict[str, Any]:
     }
 
 
-def _v6_rebind(source: dict, artifact_id: str, locale: str, network: dict[str, Any]) -> dict:
+def _v6_rebind(
+    source: dict,
+    artifact_id: str,
+    locale: str,
+    network: dict[str, Any],
+    *,
+    timezone_mode: str = "network-bound",
+) -> dict:
+    language, region, script = _canonical_locale_parts(locale)
     from camoufox.locales import normalize_locale
 
     normalized_locale = normalize_locale(locale)
-    if normalized_locale.region is None or normalized_locale.script is None:
-        raise ProvisionError("preset locale is not canonical")
     config = copy.deepcopy(source["resolvedConfig"])
     for key in tuple(config):
         if key.startswith("geolocation:") or key.startswith("webrtc:ipv"):
@@ -397,9 +532,9 @@ def _v6_rebind(source: dict, artifact_id: str, locale: str, network: dict[str, A
     config.update(
         {
             "timezone": network["timezone"],
-            "locale:language": normalized_locale.language,
-            "locale:region": normalized_locale.region,
-            "locale:script": normalized_locale.script,
+            "locale:language": language,
+            "locale:region": region,
+            "locale:script": script,
             "geolocation:latitude": float(network["latitude"]),
             "geolocation:longitude": float(network["longitude"]),
             f"webrtc:ipv{ipaddress.ip_address(network['expectedPublicAddress']).version}": network["expectedPublicAddress"],
@@ -430,7 +565,7 @@ def _v6_rebind(source: dict, artifact_id: str, locale: str, network: dict[str, A
         window=tuple(policy["window"]),
         locale=normalized_locale.as_string,
         ff_version=policy["ffVersion"],
-        timezone_mode="network-bound",
+        timezone_mode=timezone_mode,
         browser_binding=artifact["browserBinding"],
         voices_mode=policy["voicesMode"],
         gpc_policy=policy["navigator.gpcPolicy"],
@@ -454,18 +589,43 @@ def provision_artifact(
     cache_root: Path,
     ipwhois_fetch: Callable[[str, str], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    if type(request) is not dict or set(request) - {"seed", "preset", "proxyServer"}:
+    if type(request) is not dict or set(request) - PROVISION_REQUEST_KEYS:
+        raise ProvisionError("provision request fields are not exact")
+    if "seed" not in request or "preset" not in request:
         raise ProvisionError("provision request fields are not exact")
     preset_name = request.get("preset")
     if type(preset_name) is not str or preset_name not in PROVISION_PRESETS:
         raise ProvisionError("preset is not one of the four fixed presets")
     seed = decode_seed(request.get("seed"))
     preset = PROVISION_PRESETS[preset_name]
+    window = parse_window(request.get("window"), tuple(preset["window"]))
+    hardware_concurrency = parse_hardware_concurrency(request.get("hardwareConcurrency"))
+    gpu = parse_gpu_preset(request.get("gpuPreset"))
+    gpu_preset_name = request.get("gpuPreset") if gpu is not None else None
+    timezone_override = parse_timezone(request.get("timezone"))
+    follow_network = request.get("followNetwork")
+    if follow_network is None:
+        follow_network = preset["network"] == "proxy"
+    elif type(follow_network) is not bool:
+        raise ProvisionError("followNetwork must be a boolean")
+    has_proxy = "proxyServer" in request
+    if follow_network and not has_proxy:
+        raise ProvisionError("followNetwork requires a proxy endpoint")
+    if has_proxy and not follow_network and preset_name == "match-fixed-proxy":
+        raise ProvisionError("match-fixed-proxy requires followNetwork")
+    if not has_proxy and preset_name == "match-fixed-proxy":
+        raise ProvisionError("match-fixed-proxy provisioning requires a proxy endpoint")
     artifact_root = Path(artifact_root)
-    if preset["network"] != "proxy":
-        if "proxyServer" in request:
-            raise ProvisionError("proxyServer is accepted only by match-fixed-proxy")
-        artifact_id = _artifact_id(seed, preset_name)
+    if not has_proxy:
+        artifact_id = _artifact_id(
+            seed,
+            preset_name,
+            window=window,
+            hardware_concurrency=hardware_concurrency,
+            follow_network=False,
+            gpu_preset=gpu_preset_name if type(gpu_preset_name) is str else None,
+            timezone=timezone_override,
+        )
         artifact_root.mkdir(parents=True, exist_ok=True)
         path = artifact_root / f"{artifact_id}.json"
         if path.exists() or path.is_symlink():
@@ -484,18 +644,27 @@ def provision_artifact(
         allow_download=False,
         browser_root=package_root / "browser",
         tree_manifest=package_root / "browser-tree-manifest.json",
+        verify_tree_contents=False,
     )
     install_dir = configure_camoufox_cache(cache_root)
     seed_camoufox_cache(lock, executable, install_dir=install_dir)
     install_download_guard()
     DownloadGuard.reset()
+    locale = preset["locale"] or "en-US"
+    timezone_name = timezone_override or preset["timezone"] or "UTC"
     config = complete_resolved_config(
         executable,
         target_os="windows",
-        window=tuple(preset["window"]),
-        locale=preset["locale"] or "en-US",
+        window=window,
+        locale=locale,
         ff_version=152,
-        timezone=preset["timezone"] or "UTC",
+        timezone=timezone_name,
+    )
+    apply_identity_overrides(
+        config,
+        window=window,
+        hardware_concurrency=hardware_concurrency,
+        gpu=gpu,
     )
     apply_voices_policy(config, preset["voicesMode"])
     config.pop("navigator.doNotTrack", None)
@@ -512,36 +681,56 @@ def provision_artifact(
         "propertiesJsonSha256": metadata["propertiesJsonSha256"],
     }
     network: dict[str, Any] | None = None
-    if preset["network"] == "proxy":
+    if has_proxy:
         proxy_server = request.get("proxyServer")
         network = _network_identity_from_ipwhois(proxy_server, fetch=ipwhois_fetch)
-        try:
-            from camoufox.locales import StatisticalLocaleSelector
+        if follow_network:
+            try:
+                from camoufox.locales import StatisticalLocaleSelector
 
-            # NumPy was seeded from the Silo seed above, so the locale choice
-            # is stable while still respecting the observed exit country.
-            network["locale"] = StatisticalLocaleSelector().from_region(
-                network["countryCode"]
-            ).as_string
-        except Exception as exc:  # noqa: BLE001 - country/locale data boundary
-            raise ProvisionError(
-                "no supported locale matched the observed proxy country"
-            ) from exc
-        artifact_id = _artifact_id(seed, preset_name, network)
+                # NumPy was seeded from the Silo seed above, so the locale choice
+                # is stable while still respecting the observed exit country.
+                network["locale"] = StatisticalLocaleSelector().from_region(
+                    network["countryCode"]
+                ).as_string
+            except Exception as exc:  # noqa: BLE001 - country/locale data boundary
+                raise ProvisionError(
+                    "no supported locale matched the observed proxy country"
+                ) from exc
+        else:
+            network["locale"] = locale
+        artifact_id = _artifact_id(
+            seed,
+            preset_name,
+            window=window,
+            hardware_concurrency=hardware_concurrency,
+            follow_network=follow_network,
+            gpu_preset=gpu_preset_name if type(gpu_preset_name) is str else None,
+            timezone=None if follow_network else timezone_override,
+            network=network,
+        )
         artifact_root.mkdir(parents=True, exist_ok=True)
         path = artifact_root / f"{artifact_id}.json"
         if path.exists() or path.is_symlink():
             return _validated_existing_result(path, artifact_id)
     else:
-        artifact_id = _artifact_id(seed, preset_name)
+        artifact_id = _artifact_id(
+            seed,
+            preset_name,
+            window=window,
+            hardware_concurrency=hardware_concurrency,
+            follow_network=False,
+            gpu_preset=gpu_preset_name if type(gpu_preset_name) is str else None,
+            timezone=timezone_override,
+        )
     artifact = {
         "schema": ARTIFACT_SCHEMA_V5,
         "artifactId": artifact_id,
         "policy": identity_policy(
             target_os="windows",
             font_mode=preset["fontMode"],
-            window=tuple(preset["window"]),
-            locale=preset["locale"] or "en-US",
+            window=window,
+            locale=locale,
             ff_version=152,
             timezone_mode="fixed",
             browser_binding=binding,
@@ -570,7 +759,21 @@ def provision_artifact(
     }
     artifact["canonicalDigest"] = compute_artifact_digest(artifact)
     if network is not None:
+        if not follow_network:
+            network = {**network, "timezone": timezone_name}
         artifact = _v6_rebind(artifact, artifact_id, network["locale"], network)
+        apply_identity_overrides(
+            artifact["resolvedConfig"],
+            window=window,
+            hardware_concurrency=hardware_concurrency,
+            gpu=gpu,
+        )
+        artifact["stableSignalsDeclared"] = _declared_stable_signals(artifact["resolvedConfig"])
+        artifact["configuredIdentityDigest"] = configured_identity_digest(
+            artifact["resolvedConfig"]
+        )
+        artifact.pop("canonicalDigest", None)
+        artifact["canonicalDigest"] = compute_artifact_digest(artifact)
     if DownloadGuard.tripped:
         raise ProvisionError("unpinned browser download attempted")
     validate_artifact_strict(artifact)

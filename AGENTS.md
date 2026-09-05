@@ -1,5 +1,8 @@
 # VeriSilo Agent routing
 
+并行开发、工作树隔离或桌面结构调整先读
+[模块边界与开发入口](docs/development-worktrees.md)，再读取实际 owning code/test。
+
 ## 默认读取路径
 
 Camoufox / Managed Identity 普通任务先读：

@@ -120,6 +120,7 @@ def main() -> int:
         }
         if browser_proxy_server is not None:
             result["browserProxyServer"] = browser_proxy_server
+            result["observedPublicAddress"] = "203.0.113.1"
         return result
 
     def status_result() -> dict:
@@ -238,11 +239,27 @@ def main() -> int:
                 status["failure"] = "fake failure"
             elif mode == "status-proxy-mismatch" and status_count > 1:
                 status["browserProxyServer"] = "socks5://127.0.0.1:65535"
+            elif mode == "browser-exited" and status_count > 1:
+                status["state"] = "failed"
+                status["failure"] = "browser process exited unexpectedly"
             response(request_id, status)
             if mode == "active-session-eof":
                 return 0
             if mode == "active-session-crash":
                 os._exit(17)
+        elif command == "page":
+            if state != "running" or params.get("sessionId") != session_id:
+                error_response(request_id, "session_not_running", "page action requires active session")
+                continue
+            response(
+                request_id,
+                {
+                    "url": params.get("url", "https://example.test/"),
+                    "title": "Fake page",
+                    "aria": "- document Fake page",
+                    "text": "Fake page",
+                },
+            )
         elif command == "close":
             if mode == "desktop-close-eof":
                 return 0

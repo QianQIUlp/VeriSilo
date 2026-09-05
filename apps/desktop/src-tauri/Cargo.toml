@@ -16,6 +16,10 @@ name = "verisilo"
 path = "src/main.rs"
 
 [[bin]]
+name = "verisilo-cli"
+path = "src/bin/verisilo-cli.rs"
+
+[[bin]]
 name = "verisilo-native-host"
 path = "src/bin/verisilo-native-host.rs"
 required-features = ["native-host"]
@@ -42,8 +46,8 @@ chrono = { version = "0.4.41", features = ["serde"] }
 rand = "0.8.5"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+serde_yaml = { package = "noyalib-serde-yaml", version = "0.0.32" }
 tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-single-instance = "2"
 thiserror = "2.0.12"
 url = "2.5.4"
 uuid = { version = "1.16.0", features = ["serde", "v4"] }
@@ -51,4 +55,4 @@ zeroize = "1.8.1"
 verisilo-remote-backend = { path = "../../../crates/verisilo-remote-backend" }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }

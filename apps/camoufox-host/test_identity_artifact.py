@@ -891,6 +891,9 @@ def test_fp1_probe_fields_preserve_observed_digest_v2_voice_shape() -> None:
         "maxTouchPoints: navigator.maxTouchPoints",
         "windowGeometry:",
         'identityWebGL("webgl2")',
+        "readWebGL()",
+        "failIfMajorPerformanceCaveat",
+        "readBootCount()",
         "isDefault: voice.default",
         "rawRgbaHash: rawHash",
         "decodedPngPixelsHash",
@@ -2482,6 +2485,55 @@ def test_expected_file_sha_mismatch() -> None:
             assert "expected" in str(exc)
             return
         raise AssertionError("expected file sha mismatch must be rejected")
+
+
+def test_interactive_window_override_keeps_screen_spoof() -> None:
+    from host_runtime import (
+        apply_interactive_window_override,
+        clamp_launch_window,
+        firefox_user_prefs_for_config,
+    )
+
+    prefs = firefox_user_prefs_for_config()
+    assert prefs["browser.startup.page"] == 0
+    assert prefs["webgl.force-enabled"] is True
+    assert prefs["webgl.disabled"] is False
+    config = {
+        "screen.width": 1920,
+        "screen.height": 1080,
+        "window.outerWidth": 1920,
+        "window.outerHeight": 1080,
+        "window.innerWidth": 1905,
+        "window.innerHeight": 1040,
+    }
+    os.environ.pop("VERISILO_INTERACTIVE", None)
+    apply_interactive_window_override(config)
+    assert config["window.outerWidth"] == 1920
+    os.environ["VERISILO_INTERACTIVE"] = "1"
+    try:
+        apply_interactive_window_override(config)
+        assert config["screen.width"] == 1920
+        assert config["window.outerWidth"] <= 1920
+        assert config["window.innerWidth"] <= config["window.outerWidth"]
+        huge = clamp_launch_window((8000, 8000))
+        assert huge[0] <= 8000
+        assert huge[1] <= 8000
+        assert huge[0] >= 800
+        assert huge[1] >= 600
+    finally:
+        os.environ.pop("VERISILO_INTERACTIVE", None)
+
+
+def test_probe_script_can_install_without_status_node() -> None:
+    from host_probe import probe_page_script
+
+    script = probe_page_script(
+        REPO_ROOT / "tests" / "fingerprint-probe" / "probe.html"
+    )
+    assert "readWebGL" in script
+    assert "failIfMajorPerformanceCaveat" in script
+    assert "readBootCount" in script
+    assert 'getElementById("status").textContent' not in script
 
 
 def test_font_universe_sync_with_probe() -> None:

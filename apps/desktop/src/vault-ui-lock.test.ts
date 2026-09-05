@@ -1,14 +1,28 @@
 import { describe, expect, it } from "vitest";
 
-// Vite supplies the raw source during the test transform.
-// @ts-expect-error -- `?raw` is resolved by Vite/Vitest at test time.
-import appSource from "./App.tsx?raw";
+// @ts-expect-error -- Node filesystem is used only by these source-bound checks.
+import { readFileSync } from "node:fs";
+
+const readSource = (file: string): string =>
+  readFileSync(new URL(file, import.meta.url), "utf8");
+const workspaceSource = readSource("./workspace/useDesktopWorkspace.ts");
+const draftSource = readSource("./features/silos/useSiloDraft.ts");
+const environmentSource = readSource(
+  "./features/environments/EnvironmentWorkspace.tsx",
+);
+const appSource = [
+  workspaceSource,
+  readSource("./App.tsx"),
+  environmentSource,
+].join("\n");
 
 describe("authoritative Vault lock UI cleanup", () => {
   it("scrubs every top-level draft that can retain sensitive data", () => {
     const scrubStart = appSource.indexOf("const scrubSensitiveUi");
     const scrubEnd = appSource.indexOf("const refresh", scrubStart);
     const scrubBlock = appSource.slice(scrubStart, scrubEnd);
+    expect(scrubBlock).toContain("resetSiloDraft()");
+    const cleanupSource = scrubBlock + draftSource;
 
     expect(scrubStart).toBeGreaterThan(-1);
     expect(scrubEnd).toBeGreaterThan(scrubStart);
@@ -31,7 +45,7 @@ describe("authoritative Vault lock UI cleanup", () => {
       "setNotice(null)",
       "scrubDesktopStatusForLockedUi(currentStatus)",
     ]) {
-      expect(scrubBlock).toContain(setter);
+      expect(cleanupSource).toContain(setter);
     }
   });
 
@@ -61,6 +75,10 @@ describe("authoritative Vault lock UI cleanup", () => {
       refreshBlock.indexOf("desktopApi.discoverBrowsers()"),
     );
     expect(refreshBlock).toContain("if (includeStorageUsage)");
+    expect(refreshBlock).toContain("void Promise.all");
+    expect(refreshBlock.indexOf("setSilos(active)")).toBeLessThan(
+      refreshBlock.indexOf("desktopApi.discoverBrowsers()"),
+    );
     expect(
       refreshBlock.indexOf('nextStatus.vault.state === "unlocked"'),
     ).toBeLessThan(refreshBlock.indexOf("desktopApi.discoverBrowsers()"));
@@ -97,6 +115,7 @@ describe("authoritative Vault lock UI cleanup", () => {
   });
 
   it("does not verify engine packages from the environments tab while locked", () => {
+    const appSource = environmentSource;
     const start = appSource.indexOf("function EnvironmentWorkspace");
     const effectStart = appSource.indexOf("useEffect(() => {", start);
     const effectEnd = appSource.indexOf("}, [vaultLocked]);", effectStart);

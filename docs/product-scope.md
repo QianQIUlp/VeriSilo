@@ -14,6 +14,8 @@ Standard remains a permanent baseline. Current engineering priority is neverthel
 
 The product must state facts and evidence, not anonymous-looking scores. A control is only presented as protected after it is both applied and verified.
 
-Every Silo can bind a user-owned fixed proxy or a user-run external Mihomo/Clash-compatible endpoint. VeriSilo encrypts optional credentials and local Controller secrets, refuses direct fallback in “required proxy” mode, and leaves subscription ownership with the user. It does not sell exits or assign “IP purity” scores. See [network identity providers](network-identity-providers.md).
+Every Silo can bind a user-owned fixed proxy or a user-run external Mihomo/Clash-compatible endpoint. Managed Identity Silos use the same network choices: Direct, a local Clash/Mihomo mixed port with optional controller group/node lock, or a required HTTP/SOCKS5 proxy. VeriSilo encrypts optional credentials and local Controller secrets, refuses direct fallback in “required proxy” mode, and leaves subscription ownership with the user. It does not sell exits or assign “IP purity” scores. See [network identity providers](network-identity-providers.md).
+
+Managed Identity creation shows the website-visible identity (UA, language, timezone, screen, CPU cores, WebGL, and proxy-exit geography when bound) and lets the user adjust those fields before the first successful launch. After that launch the identity stays locked; a new fingerprint is a new Silo.
 
 The current public project destination is the GitHub repository. `https://verisilo.qiu.works/` is the planned product-domain candidate; it must not replace the working fallback until DNS, HTTPS, and a real landing page are available.

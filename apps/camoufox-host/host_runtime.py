@@ -300,18 +300,41 @@ def configure_camoufox_cache(cache_root: Path) -> Path:
     return install_dir
 
 
+def _link_or_copy_browser_tree(source: Path, destination: Path) -> bool:
+    """Prefer a directory junction/symlink so first launch does not copy ~1 GiB."""
+
+    if (destination / EXECUTABLE_REL).exists():
+        return False
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and not destination.is_dir():
+        destination.unlink()
+    if IS_WINDOWS:
+        completed = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(destination), str(source)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode == 0 and (destination / EXECUTABLE_REL).exists():
+            return True
+    try:
+        os.symlink(source, destination, target_is_directory=True)
+        if (destination / EXECUTABLE_REL).exists():
+            return True
+    except OSError:
+        pass
+    shutil.copytree(source, destination, dirs_exist_ok=True)
+    return True
+
+
 def seed_camoufox_cache(lock: dict, executable: Path, install_dir: Optional[Path] = None) -> bool:
-    """Copy only the already-verified browser tree into Camoufox's cache."""
+    """Point Camoufox at the packaged browser tree without recopying it."""
 
     install_dir = install_dir or LEGACY_CACHE_DIR / "camoufox"
     sha8 = lock["sha256"][:8]
     namespace = "verisilo" if lock.get("assetKind") == SELF_BUILT_ASSET_KIND else "official"
     destination = install_dir / "browsers" / namespace / f"152.0.4-beta.28-{sha8}"
-    seeded = False
-    if not (destination / EXECUTABLE_REL).exists():
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(executable.parent, destination, dirs_exist_ok=True)
-        seeded = True
+    seeded = _link_or_copy_browser_tree(executable.parent, destination)
     version_json = destination / "version.json"
     if not version_json.exists():
         version_json.write_text(
@@ -337,12 +360,100 @@ def seed_camoufox_cache(lock: dict, executable: Path, install_dir: Optional[Path
     return seeded
 
 
+# Launch-only Camoufox keys. They are not Identity Artifact fields.
+# showcursor defaults to True in Camoufox and draws the lagging red cursor.
+INTERACTIVE_LAUNCH_CONFIG = {
+    "showcursor": False,
+    "humanize": False,
+}
+
+
+def interactive_desktop_launch() -> bool:
+    return os.environ.get("VERISILO_INTERACTIVE") == "1"
+
+
+def clamp_launch_window(requested: tuple[int, int]) -> tuple[int, int]:
+    width, height = int(requested[0]), int(requested[1])
+    max_width, max_height = _work_area_size()
+    if max_width is None or max_height is None:
+        return (width, height)
+    return (max(800, min(width, max_width)), max(600, min(height, max_height)))
+
+
+def apply_interactive_window_override(config: dict) -> None:
+    """Fit the real HWND to this display. Screen spoof stays on the artifact."""
+    if not interactive_desktop_launch():
+        return
+    outer_w = config.get("window.outerWidth")
+    outer_h = config.get("window.outerHeight")
+    if type(outer_w) is not int or type(outer_h) is not int:
+        return
+    new_w, new_h = clamp_launch_window((outer_w, outer_h))
+    if (new_w, new_h) == (outer_w, outer_h):
+        return
+    inner_w = config.get("window.innerWidth")
+    inner_h = config.get("window.innerHeight")
+    chrome_w = max(0, outer_w - inner_w) if type(inner_w) is int else 0
+    chrome_h = max(0, outer_h - inner_h) if type(inner_h) is int else 0
+    config["window.outerWidth"] = new_w
+    config["window.outerHeight"] = new_h
+    if type(inner_w) is int:
+        config["window.innerWidth"] = max(1, new_w - chrome_w)
+    if type(inner_h) is int:
+        config["window.innerHeight"] = max(1, new_h - chrome_h)
+
+
+def _work_area_size() -> tuple[Optional[int], Optional[int]]:
+    if not IS_WINDOWS:
+        return (None, None)
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class RECT(ctypes.Structure):
+            _fields_ = [
+                ("left", wintypes.LONG),
+                ("top", wintypes.LONG),
+                ("right", wintypes.LONG),
+                ("bottom", wintypes.LONG),
+            ]
+
+        work = RECT()
+        ok = ctypes.windll.user32.SystemParametersInfoW(
+            0x0030, 0, ctypes.byref(work), 0
+        )
+        if not ok:
+            return (None, None)
+        margin = 48
+        max_width = int(work.right - work.left) - margin
+        max_height = int(work.bottom - work.top) - margin
+        if max_width < 800 or max_height < 600:
+            return (None, None)
+        return (max_width, max_height)
+    except Exception:
+        return (None, None)
+
+
 def firefox_user_prefs_for_config(config: Optional[dict] = None) -> dict:
     prefs = {
         "app.update.auto": False,
         "app.update.enabled": False,
         "browser.shell.checkDefaultBrowser": False,
         "browser.sessionhistory.max_entries": 50,
+        "browser.startup.page": 0,
+        "browser.startup.homepage": "https://www.google.com/",
+        "browser.newtabpage.enabled": True,
+        "browser.newtabpage.activity-stream.showSearch": True,
+        "keyword.enabled": True,
+        "browser.urlbar.suggest.searches": True,
+        "browser.urlbar.suggest.engines": True,
+        "browser.urlbar.maxRichResults": 8,
+        "browser.urlbar.autoFill": True,
+        "browser.fixup.alternate.enabled": True,
+        "webgl.disabled": False,
+        "webgl.force-enabled": True,
+        "webgl.enable-webgl2": True,
+        "webgl.enable-debug-renderer-info": True,
     }
     if IS_WINDOWS and config and config.get("mediaDevices:enabled") is True:
         prefs["media.navigator.streams.fake"] = True
@@ -366,6 +477,9 @@ def normalize_camou_config_env(env: dict, disk_config: dict) -> tuple[dict, dict
         "navigator.maxTouchPoints",
         "navigator.doNotTrack",
         "navigator.globalPrivacyControl",
+        "showcursor",
+        "humanize",
+        "humanize:maxTime",
     }
     extras = sorted(set(sent) - set(disk_config))
     unknown = [key for key in extras if key not in allowed_native]
@@ -382,6 +496,10 @@ def normalize_camou_config_env(env: dict, disk_config: dict) -> tuple[dict, dict
             raise RuntimeError("candidate identity field has invalid type")
         if key == "navigator.globalPrivacyControl" and type(sent[key]) is not bool:
             raise RuntimeError("candidate identity field has invalid type")
+        if key in {"showcursor", "humanize"} and type(sent[key]) is not bool:
+            raise RuntimeError("candidate identity field has invalid type")
+        if key == "humanize:maxTime" and type(sent[key]) not in {int, float}:
+            raise RuntimeError("candidate identity field has invalid type")
     normalized = dict(sent)
     for key in extras:
         normalized.pop(key, None)
@@ -395,7 +513,10 @@ def normalize_camou_config_env(env: dict, disk_config: dict) -> tuple[dict, dict
         "changed": changed,
     }
     rewritten = {key: value for key, value in env.items() if not key.startswith("CAMOU_CONFIG_")}
-    encoded = json.dumps(disk_config, ensure_ascii=False, separators=(",", ":"))
+    encoded_config = dict(disk_config)
+    encoded_config.update(INTERACTIVE_LAUNCH_CONFIG)
+    apply_interactive_window_override(encoded_config)
+    encoded = json.dumps(encoded_config, ensure_ascii=False, separators=(",", ":"))
     for index in range(0, len(encoded), CHUNK_SIZE):
         rewritten[f"CAMOU_CONFIG_{index // CHUNK_SIZE + 1}"] = encoded[index : index + CHUNK_SIZE]
     return normalized, diff, rewritten

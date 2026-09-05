@@ -14,6 +14,7 @@ import math
 import re
 import time
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 from host_fonts import FONT_UNIVERSE, host_negative_control_families
@@ -28,6 +29,94 @@ MEDIA_READINESS_REASONS = frozenset(
         "unavailable",
     }
 )
+
+
+def probe_page_script(probe_file: Path | str) -> str:
+    text = Path(probe_file).read_text(encoding="utf-8")
+    start = text.find("<script>")
+    end = text.rfind("</script>")
+    if start < 0 or end <= start:
+        raise RuntimeError("probe.html is missing its page script")
+    return text[start + len("<script>") : end]
+
+
+async def install_probe_page_script(page: Any, probe_file: Path | str) -> None:
+    script = probe_page_script(probe_file)
+    await page.evaluate("() => {\n" + script + "\n}")
+
+
+SAFE_IDENTITY_SCRIPT = """() => {
+  let timezone = null;
+  try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (_) {}
+  let languages = [];
+  try { languages = Array.from(navigator.languages || []); } catch (_) {}
+  return {
+    userAgent: navigator.userAgent || "",
+    language: navigator.language || languages[0] || "",
+    languages,
+    platform: navigator.platform || "",
+    oscpu: navigator.oscpu || null,
+    doNotTrack: navigator.doNotTrack || null,
+    globalPrivacyControl: navigator.globalPrivacyControl ?? null,
+    screen: {
+      width: screen.width,
+      height: screen.height,
+      availWidth: screen.availWidth,
+      availHeight: screen.availHeight,
+      colorDepth: screen.colorDepth,
+      pixelDepth: screen.pixelDepth
+    },
+    devicePixelRatio: window.devicePixelRatio ?? null,
+    hardwareConcurrency: navigator.hardwareConcurrency ?? null,
+    maxTouchPoints: navigator.maxTouchPoints ?? null,
+    historyLength: history.length,
+    bootCount: 0,
+    mediaDevices: [],
+    canvas: null,
+    audioHash: null,
+    fontUniverseWidths: {},
+    fontNegativeControls: {},
+    injectedFonts: [],
+    hostFontNegativeControls: {},
+    webglVendor: null,
+    webglRenderer: null,
+    webglSummary: null,
+    webglAvailable: false,
+    webgl2Vendor: null,
+    webgl2Renderer: null,
+    webgl2Summary: null,
+    webgl2Available: false,
+    fonts: [],
+    voices: [],
+    webdriver: navigator.webdriver,
+    session: { timezone, utcOffsetMinutes: new Date().getTimezoneOffset() },
+    unavailable: {}
+  };
+}"""
+
+
+async def read_page_identity(page: Any, *, interactive: bool) -> dict:
+    try:
+        observed = await page.evaluate("window.__probe.readIdentity()")
+        if isinstance(observed, dict) and observed.get("userAgent"):
+            return observed
+        if not interactive:
+            raise RuntimeError("identity probe returned no observation")
+    except Exception:
+        if not interactive:
+            raise
+    return await page.evaluate(SAFE_IDENTITY_SCRIPT)
+
+
+def skipped_media_readiness(config: dict) -> dict:
+    expected = expected_media_device_counts(config)
+    return {
+        "expectedCounts": expected,
+        "attempts": [],
+        "matched": False,
+        "waitSeconds": 0.0,
+        "reason": "success",
+    }
 
 
 def extract_observed_website_signals(observed: dict, font_mode: str = "inherit") -> dict:

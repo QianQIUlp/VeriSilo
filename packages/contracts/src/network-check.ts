@@ -2,12 +2,18 @@ import { z } from "zod";
 
 export const NETWORK_CHECK_ORIGINS = [
   "https://ipwho.is/*",
+  "https://api.ipify.org/*",
+  "https://api.ip.sb/*",
   "https://cloudflare-dns.com/*",
   "https://dns.google/*",
 ] as const;
 
 export const NETWORK_CHECK_ENDPOINTS = {
   ip: "https://ipwho.is/",
+  ipFallback: [
+    "https://api.ipify.org?format=json",
+    "https://api.ip.sb/geoip",
+  ],
   cloudflareDns:
     "https://cloudflare-dns.com/dns-query?name=example.com&type=A&do=true",
   googleDns:
@@ -169,14 +175,23 @@ export function buildNetworkCheckResult(
 
 export function parseIpExit(value: unknown): IpExitObservation | null {
   const payload = recordValue(value);
-  const address = boundedString(payload?.ip, 64);
-  if (payload?.success !== true || address === null) {
+  if (payload === null || payload.success === false) {
+    return null;
+  }
+  const address = boundedString(payload.ip, 64);
+  if (address === null) {
     return null;
   }
   const connection = recordValue(payload.connection);
-  const timezone = recordValue(payload.timezone);
+  const timezoneRecord = recordValue(payload.timezone);
+  const timezone =
+    boundedString(timezoneRecord?.id, 80) ??
+    boundedString(payload.timezone, 80);
   const organization =
-    boundedString(connection?.org, 160) ?? boundedString(connection?.isp, 160);
+    boundedString(connection?.org, 160) ??
+    boundedString(connection?.isp, 160) ??
+    boundedString(payload?.organization, 160) ??
+    boundedString(payload?.isp, 160);
   const latitude = boundedCoordinate(payload.latitude, -90, 90);
   const longitude = boundedCoordinate(payload.longitude, -180, 180);
   const coordinates =
@@ -188,15 +203,17 @@ export function parseIpExit(value: unknown): IpExitObservation | null {
     version:
       payload.type === "IPv4" || payload.type === "IPv6"
         ? payload.type
-        : "unknown",
+        : address.includes(":")
+          ? "IPv6"
+          : "IPv4",
     country: boundedString(payload.country, 100),
     countryCode: boundedString(payload.country_code, 8),
     region: boundedString(payload.region, 120),
     city: boundedString(payload.city, 120),
-    asn: asnLabel(connection?.asn),
+    asn: asnLabel(connection?.asn ?? payload?.asn),
     organization,
-    isp: boundedString(connection?.isp, 160),
-    timezone: boundedString(timezone?.id, 80),
+    isp: boundedString(connection?.isp, 160) ?? boundedString(payload?.isp, 160),
+    timezone,
     networkHint: hasCloudOrHostingHint(organization)
       ? "cloud_or_hosting"
       : "unknown",

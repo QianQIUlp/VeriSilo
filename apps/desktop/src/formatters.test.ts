@@ -17,7 +17,7 @@ describe("desktop formatters", () => {
         engineEvidence: null,
         networkEvidence: null,
       }),
-    ).toContain("已阻止本次启动");
+    ).toContain("结束会话");
   });
 
   it("never forwards a native activation message into the product UI", () => {
@@ -30,7 +30,7 @@ describe("desktop formatters", () => {
         engineEvidence: null,
         networkEvidence: null,
       }),
-    ).toBe("Silo 启动失败");
+    ).toBe("浏览器没有打开成功");
   });
 
   it("presents a stopped runtime as user-visible idle", () => {
@@ -41,5 +41,23 @@ describe("desktop formatters", () => {
     expect(describeNetwork({ mode: "direct", proxyRequired: false })).toContain(
       "直连",
     );
+  });
+
+  it("explains that a Clash binding uses a Silo-only proxy", () => {
+    expect(
+      describeNetwork({
+        mode: "fixed_proxy",
+        scheme: "socks5",
+        host: "127.0.0.1",
+        port: 7897,
+        proxyRequired: true,
+        bypassList: [],
+        externalMihomo: {
+          controllerUrl: "http://127.0.0.1:9097",
+          selectorGroup: "GLOBAL",
+          nodeName: "直连-美国04",
+        },
+      }),
+    ).toBe("Silo 专属代理 · 本机 Clash「直连-美国04」");
   });
 });

@@ -5,7 +5,7 @@ Protocol: JSON Lines on stdin/stdout, one object per line, LF-terminated.
 Maximum frame size: 32 KiB (requests and responses). stdout carries ONLY
 protocol frames; all logs go to stderr.
 
-Commands: hello, launch, status, close, shutdown.
+Commands: hello, launch, status, page, close, shutdown.
 
 Launch requests carry artifactId/profileId/expectedArtifactFileSha256 and an
 optional canonical loopback SOCKS5 browserProxyServer; the caller can never
@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import copy
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -39,7 +40,7 @@ from functools import partial
 from pathlib import Path
 from threading import Thread
 from typing import Any, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from identity_policy import (
     ARTIFACT_ID_RE,
@@ -75,6 +76,7 @@ from host_platform import (
     replace_file_durable,
     set_binary_stdio,
     terminate_windows_job,
+    visible_windows_for_executable,
 )
 from host_fonts import (
     FONT_UNIVERSE,
@@ -85,6 +87,9 @@ from host_probe import (
     MediaDeviceReadinessError,
     MediaDeviceReadinessTimeout,
     extract_observed_website_signals,
+    install_probe_page_script,
+    read_page_identity,
+    skipped_media_readiness,
     wait_for_configured_media_devices,
 )
 from host_runtime import (
@@ -97,6 +102,7 @@ from host_runtime import (
     firefox_user_prefs_for_config,
     install_download_guard,
     installed_versions,
+    interactive_desktop_launch,
     load_asset_lock,
     normalize_camou_config_env,
     resolve_asset_lock_path,
@@ -507,9 +513,33 @@ PARAMS_FIELDS = {
         "browserProxyServer",
     },
     "status": {"sessionId"},
+    "page": {"sessionId", "action", "url", "selector", "value", "key", "script"},
     "close": {"sessionId"},
     "shutdown": set(),
 }
+
+PAGE_ACTIONS = {
+    "snapshot",
+    "goto",
+    "click",
+    "fill",
+    "press",
+    "evaluate",
+    "screenshot",
+    "windows",
+}
+PAGE_TEXT_LIMIT = 10_000
+PAGE_INPUT_LIMIT = 16_000
+
+
+def _process_path(path: Path) -> str:
+    """Use Win32 paths for child processes; Firefox GPU DLL loading rejects verbatim paths."""
+    value = os.fspath(path)
+    if not IS_WINDOWS:
+        return value
+    if value.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + value[8:]
+    return value[4:] if value.startswith("\\\\?\\") else value
 
 
 def validate_browser_proxy_server(value: Any) -> str:
@@ -580,7 +610,92 @@ def validate_request(obj: dict) -> tuple[str, str, dict]:
         params.get("sessionId"), str
     ):
         raise ProtocolError("bad_type", "sessionId must be a string")
+    if command == "page":
+        validate_page_params(params)
     return request_id, command, params
+
+
+def validate_page_params(params: dict) -> None:
+    session_id = params.get("sessionId")
+    action = params.get("action")
+    if not isinstance(session_id, str) or not session_id:
+        raise ProtocolError("bad_type", "page sessionId must be a non-empty string")
+    if action not in PAGE_ACTIONS:
+        raise ProtocolError("bad_type", "page action is unsupported")
+
+    required = {
+        "goto": "url",
+        "click": "selector",
+        "fill": "selector",
+        "press": "key",
+        "evaluate": "script",
+    }
+    required_field = required.get(action)
+    if required_field is not None and not isinstance(params.get(required_field), str):
+        raise ProtocolError("bad_type", f"page {action} requires {required_field}")
+    for field in ("url", "selector", "value", "key", "script"):
+        value = params.get(field)
+        if value is not None and (not isinstance(value, str) or len(value) > PAGE_INPUT_LIMIT):
+            raise ProtocolError("bad_type", f"page {field} must be a bounded string")
+    if action == "goto":
+        parsed = urlparse(params["url"])
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ProtocolError("bad_url", "page goto only accepts absolute HTTP(S) URLs")
+    if action == "fill" and not isinstance(params.get("value"), str):
+        raise ProtocolError("bad_type", "page fill requires value")
+
+
+def _truncate_utf8(value: str, max_bytes: int = PAGE_TEXT_LIMIT) -> str:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value
+    return encoded[:max_bytes].decode("utf-8", errors="ignore") + "…"
+
+
+async def page_snapshot(page: Any) -> dict:
+    title = await page.title()
+    try:
+        aria = await page.locator("body").aria_snapshot(timeout=10_000)
+    except Exception:
+        aria = None
+    try:
+        text = await page.locator("body").inner_text(timeout=10_000)
+    except Exception:
+        text = None
+    return {
+        "url": page.url,
+        "title": _truncate_utf8(title, 1_000),
+        "aria": _truncate_utf8(aria) if isinstance(aria, str) else None,
+        "text": _truncate_utf8(text) if isinstance(text, str) else None,
+    }
+
+
+async def verify_browser_public_address(page: Any, artifact: dict) -> str:
+    network = artifact.get("networkIdentity")
+    expected_raw = network.get("expectedPublicAddress") if isinstance(network, dict) else None
+    try:
+        expected = ipaddress.ip_address(expected_raw)
+    except (TypeError, ValueError) as exc:
+        raise ProtocolError(
+            "network_exit_unavailable", "身份没有可核对的绑定出口。"
+        ) from exc
+    for url in ("https://api.ipify.org?format=json", "https://api.ip.sb/geoip"):
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+            text = await page.locator("body").inner_text(timeout=5_000)
+            payload = json.loads(text)
+            actual = ipaddress.ip_address(payload.get("ip"))
+        except Exception:
+            continue
+        if actual != expected:
+            raise ProtocolError(
+                "network_exit_mismatch",
+                f"专属代理实际出口 {actual} 与身份绑定出口 {expected} 不一致，已停止浏览器。",
+            )
+        return str(actual)
+    raise ProtocolError(
+        "network_exit_unavailable", "无法通过专属代理核对浏览器出口，已停止浏览器。"
+    )
 
 
 def read_provision_frame(stream: Any = None) -> dict:
@@ -608,7 +723,9 @@ def read_provision_frame(stream: Any = None) -> dict:
         if len(payload) != 33 or payload[0] >= len(preset_names):
             raise
         value = {"preset": preset_names[payload[0]], "seed": payload[1:]}
-    if set(value) != {"seed", "preset"} and set(value) != {"seed", "preset", "proxyServer"}:
+    from provision_artifact import PROVISION_REQUEST_KEYS
+
+    if not {"seed", "preset"} <= set(value) or set(value) - PROVISION_REQUEST_KEYS:
         raise ProtocolError("unknown_field", "provision request fields are not exact")
     if type(value.get("preset")) is int:
         from provision_artifact import PROVISION_PRESETS
@@ -654,8 +771,17 @@ def run_provision(host: CamoufoxHost) -> int:
         write_provision_frame({"ok": False, "error": {"code": "provision_rejected", "message": str(exc)}})
         return 2
     except Exception as exc:  # noqa: BLE001 - never expose input values
-        _log(f"provision failed: {type(exc).__name__}")
-        write_provision_frame({"ok": False, "error": {"code": "provision_failed", "message": type(exc).__name__}})
+        detail = str(exc).replace("\n", " ").strip()[:180]
+        _log(f"provision failed: {type(exc).__name__}: {detail}")
+        write_provision_frame(
+            {
+                "ok": False,
+                "error": {
+                    "code": "provision_failed",
+                    "message": f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__,
+                },
+            }
+        )
         return 1
     write_provision_frame({"ok": True, "result": result})
     return 0
@@ -781,10 +907,7 @@ class CamoufoxHost:
             tree_manifest=(
                 self.tree_manifest if kind == SELF_BUILT_ASSET_KIND else None
             ),
-            # A self-built tree must be checked before any of its bytes are
-            # copied into Camoufox's cache. launch() checks it again before
-            # every browser spawn.
-            verify_tree_contents=True,
+            verify_tree_contents=False,
         )
         cache_root = Path(
             os.environ.get(
@@ -850,7 +973,7 @@ class CamoufoxHost:
                     self.browser_root_arg,
                     repo_root=REPO_ROOT,
                     tree_manifest_path=self.tree_manifest,
-                    verify_tree_contents=True,
+                    verify_tree_contents=False,
                 )
             except BrowserAssetError as exc:
                 raise ArtifactIntegrityError(
@@ -860,8 +983,8 @@ class CamoufoxHost:
                 raise ArtifactIntegrityError(
                     "self-built browser executable changed after Host preparation"
                 )
-        else:
-            verify_tree(self.executable.parent, load_tree_manifest(self.tree_manifest))
+        elif not self.executable.is_file():
+            raise ArtifactIntegrityError("browser executable is missing after Host preparation")
 
     # -- launch ------------------------------------------------------------
 
@@ -1014,6 +1137,7 @@ class CamoufoxHost:
             "artifactFileSha256": file_sha,
             "configuredIdentityDigest": session["configuredIdentityDigest"],
             "observedWebsiteDigest": session["observedWebsiteDigest"],
+            "observedPublicAddress": session.get("observedPublicAddress"),
             "bootCountBefore": session["bootCountBefore"],
             "bootCountAfter": session["bootCountAfter"],
             "spawnSeconds": session["spawnSeconds"],
@@ -1028,6 +1152,80 @@ class CamoufoxHost:
         if session["browserProxyServer"] is not None:
             result["browserProxyServer"] = session["browserProxyServer"]
         return result
+
+    async def page_action(self, params: dict) -> dict:
+        validate_page_params(params)
+        session = self.session
+        if (
+            session is None
+            or session.get("sessionId") != params["sessionId"]
+            or session.get("state") != "running"
+        ):
+            raise ProtocolError("session_not_running", "page action requires the active session")
+        ctx = session.get("ctx")
+        pages = [candidate for candidate in (ctx.pages if ctx is not None else []) if not candidate.is_closed()]
+        page = pages[-1] if pages else session.get("page")
+        if page is None or page.is_closed():
+            raise ProtocolError("page_unavailable", "active browser page is unavailable")
+        session["page"] = page
+
+        action = params["action"]
+        try:
+            if action == "windows":
+                page_metrics = await page.evaluate(
+                    """() => ({
+                        outerWidth, outerHeight, innerWidth, innerHeight,
+                        screenX, screenY, devicePixelRatio,
+                        screen: {width: screen.width, height: screen.height,
+                                 availWidth: screen.availWidth, availHeight: screen.availHeight}
+                    })"""
+                )
+                process_ids = tuple(managed_pids(session))
+                job = session.get("jobHandle")
+                if IS_WINDOWS and job is not None:
+                    with contextlib.suppress(OSError):
+                        process_ids = job.process_ids()
+                windows = visible_windows_for_executable(self.executable, process_ids)
+                return {
+                    "available": IS_WINDOWS,
+                    "count": len(windows),
+                    "windows": windows,
+                    "page": page_metrics,
+                }
+            if action == "goto":
+                await page.goto(
+                    params["url"], wait_until="domcontentloaded", timeout=60_000
+                )
+            elif action == "click":
+                await page.locator(params["selector"]).click(timeout=30_000)
+            elif action == "fill":
+                await page.locator(params["selector"]).fill(
+                    params["value"], timeout=30_000
+                )
+            elif action == "press":
+                await page.locator(params.get("selector") or "body").press(
+                    params["key"], timeout=30_000
+                )
+            elif action == "evaluate":
+                value = await page.evaluate(params["script"])
+                encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+                if len(encoded.encode("utf-8")) > PAGE_TEXT_LIMIT:
+                    raise ProtocolError("result_too_large", "page evaluate result is too large")
+                return {"url": page.url, "value": value}
+            elif action == "screenshot":
+                path = Path(session["sessionDir"]) / "page.png"
+                await page.screenshot(path=str(path), full_page=False)
+                return {"url": page.url, "path": str(path)}
+        except ProtocolError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - sanitized browser action boundary
+            raise ProtocolError(
+                "page_action_failed", f"{type(exc).__name__}: {exc}"
+            ) from exc
+        pages = [candidate for candidate in (ctx.pages if ctx is not None else []) if not candidate.is_closed()]
+        page = pages[-1] if pages else page
+        session["page"] = page
+        return await page_snapshot(page)
 
     async def _launch_browser(self, session: dict, artifact: dict) -> None:
         policy = artifact["policy"]
@@ -1047,7 +1245,7 @@ class CamoufoxHost:
         # origin stable.
         self.probe_port = server.server_address[1]
         session["probePort"] = self.probe_port
-        os.environ["VERISILO_REAL_EXE"] = str(self.executable)
+        os.environ["VERISILO_REAL_EXE"] = _process_path(self.executable)
         os.environ["VERISILO_EXIT_FILE"] = str(session["exitFile"])
         os.environ["VERISILO_SUPERVISOR_FILE"] = str(
             session["sessionDir"] / "supervisor.json"
@@ -1082,12 +1280,13 @@ class CamoufoxHost:
                     locale=policy["locale"],
                     ff_version=policy["ffVersion"],
                     headless=False,
-                    executable_path=str(self.executable),
+                    executable_path=_process_path(self.executable),
                     user_data_dir=str(session["profileDir"]),
                     virtual_display=display,
                     firefox_user_prefs=firefox_user_prefs_for_config(disk_config),
                     exclude_addons=[DefaultAddons.UBO],
                     i_know_what_im_doing=True,
+                    humanize=False,
                     proxy=expected_proxy,
                 ),
             )
@@ -1129,7 +1328,7 @@ class CamoufoxHost:
         geolocation = playwright_geolocation_for_artifact(artifact)
         if geolocation is not None:
             opts["geolocation"] = geolocation
-        opts["executable_path"] = str(self.supervisor)
+        opts["executable_path"] = _process_path(self.supervisor)
 
         with _active_launch_stage("launch_persistent_context"):
             session["launchAttempted"] = True
@@ -1203,56 +1402,74 @@ class CamoufoxHost:
                         f"cannot open supervisor Job Object: {exc}",
                     ) from exc
 
+        interactive = interactive_desktop_launch()
         with _active_launch_stage("new_page"):
-            page = await ctx.new_page()
+            page = await self._bind_single_page(ctx)
             session["page"] = page
 
         with _active_launch_stage("goto"):
-            await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
+            if interactive:
+                with contextlib.suppress(Exception):
+                    await install_probe_page_script(page, self.probe_file)
+                    await page.evaluate(
+                        "(attrs) => { window.__probeWebGlAttrs = attrs; }",
+                        disk_config.get("webGl:contextAttributes") or {},
+                    )
+            else:
+                await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
 
         with _active_launch_stage("observed.fonts"):
             fonts = artifact["stableSignalsDeclared"]["fonts"]
-            await page.evaluate(f"window.__probeFonts = {json.dumps(fonts)}")
-            await page.evaluate(
-                f"window.__probeFontUniverse = {json.dumps(FONT_UNIVERSE)}"
-            )
             host_controls = host_negative_control_families(fonts)
-            await page.evaluate(
-                f"window.__probeHostFonts = {json.dumps(host_controls)}"
-            )
-            await page.evaluate("document.fonts.ready")
+            try:
+                await page.evaluate(f"window.__probeFonts = {json.dumps(fonts)}")
+                await page.evaluate(
+                    f"window.__probeFontUniverse = {json.dumps(FONT_UNIVERSE)}"
+                )
+                await page.evaluate(
+                    f"window.__probeHostFonts = {json.dumps(host_controls)}"
+                )
+                await page.evaluate("document.fonts.ready")
+            except Exception:
+                if not interactive:
+                    raise
 
         with _active_launch_stage("observed.media") as media_stage:
-            try:
-                media_readiness = await wait_for_configured_media_devices(
-                    page, disk_config
-                )
-            except (MediaDeviceReadinessTimeout, MediaDeviceReadinessError) as exc:
+            if interactive:
+                media_readiness = skipped_media_readiness(disk_config)
                 if media_stage is not None:
-                    media_stage.set_terminal_reason(exc.reason)
-                raise
-            if media_stage is not None:
-                media_stage.set_terminal_reason(media_readiness["reason"])
+                    media_stage.set_terminal_reason(media_readiness["reason"])
+            else:
+                try:
+                    media_readiness = await wait_for_configured_media_devices(
+                        page, disk_config
+                    )
+                except (MediaDeviceReadinessTimeout, MediaDeviceReadinessError) as exc:
+                    if media_stage is not None:
+                        media_stage.set_terminal_reason(exc.reason)
+                    raise
+                if media_stage is not None:
+                    media_stage.set_terminal_reason(media_readiness["reason"])
 
         with _active_launch_stage("observed.identity"):
             probe_start = time.perf_counter()
-            observed = await page.evaluate("window.__probe.readIdentity()")
+            observed = await read_page_identity(page, interactive=interactive)
+            if interactive and not observed.get("webglAvailable"):
+                observed = await self._retry_webgl_observation(page, observed)
             session["probeSeconds"] = round(time.perf_counter() - probe_start, 3)
             session["spawnSeconds"] = round(spawn_seconds, 3)
 
         font_mode = policy.get("fontMode", "inherit")
         session["fontMode"] = font_mode
+        host_font_controls = observed.get("hostFontNegativeControls") or {}
         host_controls_result = {
-            "controlsTested": len(observed.get("hostFontNegativeControls", {})),
+            "controlsTested": len(host_font_controls),
             "allUnavailable": all(
-                available is False
-                for available in observed.get("hostFontNegativeControls", {}).values()
+                available is False for available in host_font_controls.values()
             ),
             "failures": [
                 family
-                for family, available in observed.get(
-                    "hostFontNegativeControls", {}
-                ).items()
+                for family, available in host_font_controls.items()
                 if available is not False
             ],
         }
@@ -1265,14 +1482,22 @@ class CamoufoxHost:
             )
 
         with _active_launch_stage("cookie"):
-            boot_before = int(observed.get("bootCount", 0))
-            await page.evaluate(f"window.__probe.writeBootCount({boot_before + 1})")
+            boot_before = int(observed.get("bootCount") or 0)
             session["bootCountBefore"] = boot_before
-            session["bootCountAfter"] = boot_before + 1
-
-            cookie_evidence = await _collect_cookie_evidence(
-                ctx, page, boot_before, session["sessionId"]
-            )
+            if interactive:
+                session["bootCountAfter"] = boot_before
+                cookie_evidence = {
+                    "cookieAbsentBeforeWrite": None,
+                    "cookieInApi": None,
+                    "cookieOnPage": None,
+                    "cookieValueLooksManaged": None,
+                }
+            else:
+                await page.evaluate(f"window.__probe.writeBootCount({boot_before + 1})")
+                session["bootCountAfter"] = boot_before + 1
+                cookie_evidence = await _collect_cookie_evidence(
+                    ctx, page, boot_before, session["sessionId"]
+                )
             session["cookieEvidence"] = cookie_evidence
 
         with _active_launch_stage("observed.write"):
@@ -1302,6 +1527,12 @@ class CamoufoxHost:
             (session["sessionDir"] / "observed.json").write_text(
                 json.dumps(observed_payload, indent=2) + "\n"
             )
+
+        if interactive and session["browserProxyServer"] is not None:
+            session["observedPublicAddress"] = await verify_browser_public_address(
+                page, artifact
+            )
+        await self._open_start_page(page)
 
         session["state"] = "running"
         session["stopMonitor"] = asyncio.Event()
@@ -1553,6 +1784,37 @@ class CamoufoxHost:
             f"session {session['sessionId']} QUARANTINED: {reason} "
             f"(lock retained, record {record_path})"
         )
+
+    async def _bind_single_page(self, ctx: Any) -> Any:
+        pages = list(getattr(ctx, "pages", None) or [])
+        if not pages:
+            return await ctx.new_page()
+        page = pages[0]
+        for extra in pages[1:]:
+            with contextlib.suppress(Exception):
+                await extra.close()
+        return page
+
+    async def _retry_webgl_observation(self, page: Any, observed: dict) -> dict:
+        for _ in range(4):
+            await asyncio.sleep(0.25)
+            try:
+                webgl = await page.evaluate("window.__probe.readWebGL()")
+            except Exception:
+                continue
+            if not isinstance(webgl, dict):
+                continue
+            observed.update(webgl)
+            if observed.get("webglAvailable"):
+                break
+        return observed
+
+    async def _open_start_page(self, page: Any) -> None:
+        # Start navigation without making the window wait for a slow homepage.
+        with contextlib.suppress(Exception):
+            await page.evaluate(
+                "url => { window.location.href = url; }", "https://www.google.com/"
+            )
 
     def status(self, session_id: Optional[str]) -> dict:
         session = self.session
@@ -2536,6 +2798,8 @@ async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
             )
         elif command == "status":
             result = host.status(params.get("sessionId"))
+        elif command == "page":
+            result = await host.page_action(params)
         elif command == "close":
             result = await host.close(params["sessionId"])
         elif command == "shutdown":

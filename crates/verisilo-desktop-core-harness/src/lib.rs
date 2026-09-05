@@ -5,6 +5,12 @@
 //! loads its production `environment_backend.rs` module from the same source
 //! directory.
 
+// Commands and HTTP dispatch are intentionally absent; compile their shared
+// operations against the same core without requiring a Tauri runtime.
+#[allow(dead_code, unused_imports)]
+#[path = "../../../apps/desktop/src-tauri/src/application/mod.rs"]
+mod application;
+
 #[path = "../../../apps/desktop/src-tauri/src/domain.rs"]
 pub mod domain;
 #[path = "../../../apps/desktop/src-tauri/src/engine.rs"]
@@ -23,6 +29,8 @@ pub mod proxy_relay;
 pub mod runtime_watchdog;
 #[path = "../../../apps/desktop/src-tauri/src/vault.rs"]
 pub mod vault;
+#[path = "../../../apps/desktop/src-tauri/src/website_identity.rs"]
+pub mod website_identity;
 
 /// Compile-time anchor for Vault methods that are consumed by the Tauri
 /// command layer, which this core-only crate intentionally does not include.

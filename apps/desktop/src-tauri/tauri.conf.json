@@ -10,19 +10,9 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "VeriSilo",
-        "width": 1120,
-        "height": 780,
-        "minWidth": 760,
-        "minHeight": 620,
-        "resizable": true
-      }
-    ],
+    "windows": [],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://ipwho.is https://cloudflare-dns.com https://dns.google; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "csp": "default-src 'self'; connect-src 'self' https://ipwho.is https://api.ipify.org https://api.ip.sb https://cloudflare-dns.com https://dns.google; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
   "bundle": {
