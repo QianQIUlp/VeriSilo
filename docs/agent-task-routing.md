@@ -33,6 +33,10 @@ node scripts/agent-task.mjs list
 任务文本哈希进入分支名（`agent/<lane>/<slug>-<hash6>`），同一描述永远得到同名分支；不同任务不会互撞。
 中文任务请用 `--name <英文短slug>` 得到可读分支名。
 
+放弃或清理一次性任务：`git worktree remove --force .verisilo-worktrees/<dir> && git branch -D agent/<lane>/<branch>`；
+Windows 上 node_modules 的 junction 可能导致目录残留，再 `rm -rf .verisilo-worktrees/<dir>` 即可
+（pnpm 全局 store 使用硬链接与独立链接计数，删除任务工作区不影响它）。
+
 ## Lane 判定
 
 Lane = 责任与修改边界；Task（worktree）= 一次实际工作。**同一 lane 可以同时有任意多个任务 worktree**，互不冲突；不要假设一个 lane 只有一个分支。
