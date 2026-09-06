@@ -28,6 +28,7 @@ const appSource = [
   "./features/silos/EditSiloPanel.tsx",
   "./features/cli/CliPanel.tsx",
   "./features/environments/LegacyRecovery.tsx",
+  "./features/vault/VaultAccess.tsx",
 ]
   .map((source) => (source.startsWith("./") ? readSource(source) : source))
   .join("\n");
@@ -132,6 +133,28 @@ describe("desktop product copy", () => {
       /\.shell > \.notice\s*\{[^}]*position:\s*sticky;/u,
     );
     expect(stylesSource).toContain(".submit-row .submit-missing");
+  });
+
+  it("shares identity fields across creation modes and names managed blockers", () => {
+    expect(createPanelSource).toContain("name={name}");
+    expect(createPanelSource).toContain("onNameChange={setName}");
+    expect(createPanelSource).toContain("color={color}");
+    expect(createPanelSource).toContain("onColorChange={setColor}");
+    expect(appSource).toContain("创建前还需要：填写 Silo 名称。");
+  });
+
+  it("keeps vault creation, unlock failure, and tray-close feedback explicit", () => {
+    expect(appSource).toContain("再次输入口令");
+    expect(appSource).toContain("两次输入的口令不一致，请检查后重试。");
+    expect(appSource).toContain('id="vault-passphrase"');
+    expect(appSource).toContain("保险库已自动锁定");
+    expect(appSource).toContain("未保存的 Silo 草稿和代理凭据已清除");
+    expect(appSource).toContain("closeHintVisible");
+    expect(appSource).toContain("收进系统托盘");
+    expect(appSource).toContain("notice-dismiss");
+    expect(stylesSource).toContain(".notice-dismiss");
+    expect(stylesSource).toContain(".close-hint-backdrop");
+    expect(stylesSource).toContain(".mutex-note");
   });
 
   it("keeps the Standard Silo default path local, direct, automatic, and short", () => {

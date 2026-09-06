@@ -87,6 +87,11 @@ export function SiloList({
           {silos.map((silo) => {
             const managedCamoufox = silo.engine.adapter === "camoufox";
             const identityPreview = identityPreviews[silo.id];
+            const blockedByRunning =
+              activation !== null && activation !== silo.id;
+            const runningSilo = blockedByRunning
+              ? silos.find((candidate) => candidate.id === activation)
+              : undefined;
             const canStop =
               activation === silo.id &&
               runtimeState === "running" &&
@@ -206,15 +211,25 @@ export function SiloList({
                     Edge 窗口。
                   </p>
                 ) : null}
+                {blockedByRunning ? (
+                  <p className="mutex-note" role="note">
+                    「{runningSilo?.name ?? "另一个 Silo"}
+                    」正在运行。一次只能打开一个
+                    Silo——先关闭它的浏览器窗口，再回来打开这个。
+                  </p>
+                ) : null}
                 <div className="card-actions">
                   <button
                     disabled={
                       busy ||
-                      (activation !== null && activation !== silo.id) ||
+                      blockedByRunning ||
                       (activation === silo.id && !canStop && !canClear)
                     }
                     onClick={() =>
                       void (canStop || canClear ? onStop(silo) : onLaunch(silo))
+                    }
+                    title={
+                      blockedByRunning ? "一次只能打开一个 Silo" : undefined
                     }
                     type="button"
                   >

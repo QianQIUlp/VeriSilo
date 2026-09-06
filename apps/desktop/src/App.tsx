@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 import { useDesktopWorkspace } from "./workspace/useDesktopWorkspace.js";
 
 import {
@@ -52,6 +54,9 @@ export function App() {
     view,
     setView,
     notice,
+    closeHintVisible,
+    acknowledgeTrayCloseHint,
+    keepWindowOpen,
     retryRestoredVaultState,
     passphrase,
     setPassphrase,
@@ -91,6 +96,13 @@ export function App() {
     withBusy,
     vaultUiGeneration,
   } = useDesktopWorkspace();
+  useEffect(() => {
+    if (notice === null || notice.tone === "error") {
+      return;
+    }
+    const timer = window.setTimeout(() => setNotice(null), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [notice, setNotice]);
   if (status === null) {
     return (
       <main className="shell loading-state">
@@ -101,6 +113,9 @@ export function App() {
   }
 
   const vaultLocked = uiVaultLocked || status.vault.state !== "unlocked";
+  const hasInspectableIdentity = activeSilos.some(
+    (silo) => silo.engine.adapter !== "stock",
+  );
 
   return (
     <main className="shell">
@@ -117,7 +132,7 @@ export function App() {
                 ? "保险库已锁定"
                 : "保险库已解锁"}
           </span>
-          {vaultLocked ? null : (
+          {vaultLocked || !hasInspectableIdentity ? null : (
             <button
               aria-pressed={inspectIdentity}
               className="inspect-toggle"
@@ -179,7 +194,44 @@ export function App() {
           className={`notice ${notice.tone}`}
           role={notice.tone === "error" ? "alert" : "status"}
         >
-          {notice.message}
+          <span>{notice.message}</span>
+          <button
+            aria-label="关闭通知"
+            className="notice-dismiss"
+            onClick={() => setNotice(null)}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
+      {closeHintVisible ? (
+        <div className="close-hint-backdrop">
+          <section
+            aria-labelledby="close-hint-title"
+            aria-modal="true"
+            className="panel close-hint-panel"
+            role="dialog"
+          >
+            <h2 id="close-hint-title">VeriSilo 没有退出，只是收进系统托盘</h2>
+            <p>
+              关闭窗口后 VeriSilo
+              会继续在托盘运行，已打开的浏览器和自动锁定计时都保持不变。要真正退出，请使用托盘图标菜单里的「退出」。
+            </p>
+            <div className="card-actions">
+              <button
+                className="button-secondary"
+                onClick={keepWindowOpen}
+                type="button"
+              >
+                先不最小化
+              </button>
+              <button onClick={acknowledgeTrayCloseHint} type="button">
+                知道了，收进托盘
+              </button>
+            </div>
+          </section>
         </div>
       ) : null}
 
@@ -243,7 +295,7 @@ export function App() {
               </div>
             </section>
 
-            {inspectIdentity ? (
+            {inspectIdentity && hasInspectableIdentity ? (
               <IdentityInspectPanel
                 activeSiloId={status.activation.activeSiloId}
                 identityPreviews={identityPreviews}
@@ -373,7 +425,7 @@ export function App() {
           <LockedRoute onUnlock={() => setView("overview")} />
         ) : (
           <>
-            {inspectIdentity ? (
+            {inspectIdentity && editingSilo.engine.adapter !== "stock" ? (
               <IdentityInspectPanel
                 activeSiloId={status.activation.activeSiloId}
                 identityPreviews={identityPreviews}
@@ -433,7 +485,7 @@ export function App() {
 
       <footer>
         VeriSilo
-        把不同用途的浏览分开存放。关窗口后还在托盘里，要从托盘菜单才能退出。
+        把不同用途的浏览数据分开存放。关窗口后还在托盘里，要从托盘菜单才能退出。
       </footer>
     </main>
   );

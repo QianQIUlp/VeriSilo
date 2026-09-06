@@ -254,7 +254,11 @@ export function CreateSiloPanel({
       {creationMode === "managed" ? (
         <ManagedSiloForm
           busy={busy}
+          color={color}
           initialColor={color}
+          name={name}
+          onColorChange={setColor}
+          onNameChange={setName}
           onSubmit={createManagedSilo}
         />
       ) : (

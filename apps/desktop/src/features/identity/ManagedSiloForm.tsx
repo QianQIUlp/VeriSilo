@@ -42,13 +42,37 @@ export function ManagedSiloForm({
   busy,
   initialColor,
   onSubmit,
+  name: controlledName,
+  onNameChange,
+  color: controlledColor,
+  onColorChange,
 }: {
   busy: boolean;
   initialColor: string;
   onSubmit: (input: CreateManagedSiloInput) => Promise<void>;
+  name?: string;
+  onNameChange?: (value: string) => void;
+  color?: string;
+  onColorChange?: (value: string) => void;
 }) {
-  const [name, setName] = useState("");
-  const [color, setColor] = useState(initialColor);
+  const [fallbackName, setFallbackName] = useState("");
+  const [fallbackColor, setFallbackColor] = useState(initialColor);
+  const name = controlledName ?? fallbackName;
+  const color = controlledColor ?? fallbackColor;
+  const changeName = (value: string) => {
+    if (controlledName === undefined) {
+      setFallbackName(value);
+    } else {
+      onNameChange?.(value);
+    }
+  };
+  const changeColor = (value: string) => {
+    if (controlledColor === undefined) {
+      setFallbackColor(value);
+    } else {
+      onColorChange?.(value);
+    }
+  };
   const [identityPreset, setIdentityPreset] =
     useState<ManagedIdentityPreset>("balanced-zh-cn");
   const [followNetworkExit, setFollowNetworkExit] = useState(true);
@@ -310,7 +334,7 @@ export function ManagedSiloForm({
               disabled={busy}
               id="managed-silo-name"
               maxLength={64}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => changeName(event.target.value)}
               placeholder="例如：隔离工作账号"
               value={name}
             />
@@ -321,7 +345,7 @@ export function ManagedSiloForm({
               <input
                 disabled={busy}
                 id="managed-silo-color"
-                onChange={(event) => setColor(event.target.value)}
+                onChange={(event) => changeColor(event.target.value)}
                 type="color"
                 value={color}
               />
@@ -758,8 +782,13 @@ export function ManagedSiloForm({
           <div>
             <strong>只创建独立的托管浏览器 Profile</strong>
             <span>不会导入或改写系统浏览器数据。</span>
+            {name.trim() === "" ? (
+              <span className="submit-missing">
+                创建前还需要：填写 Silo 名称。
+              </span>
+            ) : null}
           </div>
-          <button disabled={busy || name.trim() === ""} type="submit">
+          <button disabled={busy} type="submit">
             {busy ? "正在创建…" : "创建托管身份浏览器"}
           </button>
         </div>
