@@ -567,8 +567,8 @@ fn run() -> Result<(), String> {
 
     let version = silo
         .browser
-        .version
-        .clone()
+        .as_ref()
+        .and_then(|browser| browser.version.clone())
         .unwrap_or_else(|| "verified-version-unavailable".to_owned());
     let receipt = AcceptanceReceipt {
         schema: RECEIPT_SCHEMA,
