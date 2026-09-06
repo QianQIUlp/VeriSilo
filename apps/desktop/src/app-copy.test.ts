@@ -29,12 +29,18 @@ const appSource = [
   "./features/cli/CliPanel.tsx",
   "./features/environments/LegacyRecovery.tsx",
   "./features/vault/VaultAccess.tsx",
+  "./features/vault/VaultAndDataPanel.tsx",
 ]
   .map((source) => (source.startsWith("./") ? readSource(source) : source))
   .join("\n");
 const stylesSource = readSource("./styles.css");
 
 describe("desktop product copy", () => {
+  it("renders the vault restore warning without a reflow-duplicated word", () => {
+    expect(appSource).toContain("但不会自动删除、复制或覆盖任何浏览器数据。");
+    expect(appSource).not.toMatch(/浏览器\s+浏览器数据/u);
+  });
+
   it("uses the shared website mark and extension primary color", () => {
     expect(appSource).toContain('const defaultColor = "#5b5ce2";');
     expect(appSource).toContain('src="/verisilo-mark.svg"');
