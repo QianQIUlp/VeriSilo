@@ -351,6 +351,13 @@ button:disabled {
   box-shadow: 0 2px 8px rgb(91 92 226 / 12%);
 }
 
+.shell > .notice {
+  position: sticky;
+  top: 0.6rem;
+  z-index: 40;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 10%);
+}
+
 .notice {
   margin-bottom: 1rem;
   border: 1px solid transparent;
@@ -1084,11 +1091,7 @@ button:disabled {
   overflow-wrap: anywhere;
   color: var(--muted);
   font-family:
-    ui-monospace,
-    "Cascadia Mono",
-    "Segoe UI Mono",
-    Consolas,
-    monospace;
+    ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
   font-size: 0.72rem;
   line-height: 1.45;
 }
@@ -2620,6 +2623,12 @@ fieldset {
   margin-top: 0.18rem;
   color: var(--muted);
   font-size: 0.68rem;
+}
+
+.submit-row .submit-missing {
+  color: var(--danger);
+  font-size: 0.72rem;
+  font-weight: 650;
 }
 
 .roadmap-principle {

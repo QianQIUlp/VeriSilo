@@ -145,6 +145,27 @@ export function CreateSiloPanel({
     localExecution &&
     networkProfile.mode === "direct" &&
     selectedBrowserCandidate?.kind === browserKind;
+  const missingBeforeCreate: string[] = [];
+  if (name.trim().length === 0) {
+    missingBeforeCreate.push("在上方填写 Silo 名称");
+  }
+  if (localExecution && browserPath.trim().length === 0) {
+    missingBeforeCreate.push("选择要使用的浏览器");
+  }
+  if (!websiteBoundaryConfirmed) {
+    missingBeforeCreate.push("勾选「我已核对以上边界」");
+  }
+  const focusFirstMissing = () => {
+    const targetId =
+      name.trim().length === 0
+        ? "silo-name-input"
+        : localExecution && browserPath.trim().length === 0
+          ? "silo-browser-path-input"
+          : "silo-boundary-confirm";
+    const target = document.getElementById(targetId);
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    target?.focus({ preventScroll: true });
+  };
   return (
     <>
       <section className="create-hero panel">
@@ -166,9 +187,9 @@ export function CreateSiloPanel({
         aria-label="选择浏览器方式"
         className="panel browser-mode-panel"
       >
-        <div className="panel-heading">
+        <div className="step-heading">
+          <span>1</span>
           <div>
-            <p className="eyebrow">浏览器方式</p>
             <h2>选择要创建的浏览器</h2>
             <p>系统浏览器跟这台电脑长得一样；独立浏览器可以换一套对外身份。</p>
           </div>
@@ -237,9 +258,23 @@ export function CreateSiloPanel({
           onSubmit={createManagedSilo}
         />
       ) : (
-        <section className="panel form-panel">
+        <form
+          className="panel form-panel"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (busy || mihomoBusy) {
+              return;
+            }
+            if (missingBeforeCreate.length > 0) {
+              focusFirstMissing();
+              return;
+            }
+            void createSilo();
+          }}
+        >
           <div className="step-heading">
-            <span>1</span>
+            <span>2</span>
             <div>
               <h2>给这个 Silo 一个名字</h2>
               <p>名称和颜色只用于本机识别，不会发送给网站。</p>
@@ -249,7 +284,9 @@ export function CreateSiloPanel({
             <label>
               Silo 名称
               <input
+                autoFocus
                 disabled={busy}
+                id="silo-name-input"
                 maxLength={64}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="例如：工作账号"
@@ -481,6 +518,7 @@ export function CreateSiloPanel({
                 浏览器可执行文件路径
                 <input
                   disabled={busy}
+                  id="silo-browser-path-input"
                   onChange={(event) => setBrowserPath(event.target.value)}
                   placeholder="C:\\Program Files\\...\\browser.exe"
                   value={browserPath}
@@ -516,46 +554,13 @@ export function CreateSiloPanel({
             <div>
               <h2>选择网络方式</h2>
               <p>
-                “已配置”与“实际出口已验证”是两件事，创建后可在概览页主动检查。
+                这里只决定浏览器准备走哪条网络路径；实际出口是否如预期，创建后可在概览页主动检查。
               </p>
             </div>
           </div>
           {localExecution ? (
             <fieldset disabled={busy || mihomoBusy} hidden={!advancedOpen}>
               <legend className="sr-only">网络配置</legend>
-              <div className="proxy-import-card">
-                <div>
-                  <strong>有现成代理？粘贴一行即可</strong>
-                  <span>
-                    支持 host:port、host:port:user:password 或带协议的代理 URL。
-                  </span>
-                </div>
-                <div className="proxy-import-row">
-                  <input
-                    aria-label="一行代理配置"
-                    autoComplete="off"
-                    onChange={(event) => setProxyImport(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        importProxy();
-                      }
-                    }}
-                    placeholder="socks5://user:password@host:port"
-                    spellCheck={false}
-                    type="password"
-                    value={proxyImport}
-                  />
-                  <button
-                    className="button-secondary"
-                    disabled={proxyImport.trim() === ""}
-                    onClick={importProxy}
-                    type="button"
-                  >
-                    解析并填入
-                  </button>
-                </div>
-              </div>
               <div className="network-options">
                 <NetworkOption
                   checked={networkProfile.mode === "direct"}
@@ -610,6 +615,40 @@ export function CreateSiloPanel({
                     resetMihomoSnapshot();
                   }}
                 />
+              </div>
+              <div className="proxy-import-card">
+                <div>
+                  <strong>有现成代理？粘贴一行即可</strong>
+                  <span>
+                    支持 host:port、host:port:user:password 或带协议的代理 URL，
+                    会自动填入对应的网络方式。
+                  </span>
+                </div>
+                <div className="proxy-import-row">
+                  <input
+                    aria-label="一行代理配置"
+                    autoComplete="off"
+                    onChange={(event) => setProxyImport(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        importProxy();
+                      }
+                    }}
+                    placeholder="socks5://user:password@host:port"
+                    spellCheck={false}
+                    type="password"
+                    value={proxyImport}
+                  />
+                  <button
+                    className="button-secondary"
+                    disabled={proxyImport.trim() === ""}
+                    onClick={importProxy}
+                    type="button"
+                  >
+                    解析并填入
+                  </button>
+                </div>
               </div>
               {networkProfile.mode === "fixed_proxy" ? (
                 <>
@@ -893,7 +932,7 @@ export function CreateSiloPanel({
           ) : null}
 
           <div className="step-heading">
-            <span>2</span>
+            <span>3</span>
             <div>
               <h2>确认网站将看到什么</h2>
               <p>
@@ -990,6 +1029,7 @@ export function CreateSiloPanel({
               <input
                 checked={websiteBoundaryConfirmed}
                 disabled={busy || mihomoBusy}
+                id="silo-boundary-confirm"
                 onChange={(event) =>
                   setWebsiteBoundaryConfirmed(event.target.checked)
                 }
@@ -1007,23 +1047,17 @@ export function CreateSiloPanel({
             <div>
               <strong>准备创建新的 Silo</strong>
               <span>不会导入、复制或改写已有浏览器数据。</span>
+              {missingBeforeCreate.length > 0 ? (
+                <span className="submit-missing">
+                  创建前还需要：{missingBeforeCreate.join("；")}。
+                </span>
+              ) : null}
             </div>
-            <button
-              disabled={
-                busy ||
-                mihomoBusy ||
-                !websiteBoundaryConfirmed ||
-                name.trim().length === 0 ||
-                executionTarget.kind === "remote" ||
-                (localExecution && browserPath.trim().length === 0)
-              }
-              onClick={() => void createSilo()}
-              type="button"
-            >
-              创建 Silo
+            <button disabled={busy || mihomoBusy} type="submit">
+              {busy ? "正在创建…" : "创建 Silo"}
             </button>
           </div>
-        </section>
+        </form>
       )}
     </>
   );

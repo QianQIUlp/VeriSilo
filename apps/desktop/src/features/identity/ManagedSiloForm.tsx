@@ -262,10 +262,10 @@ export function ManagedSiloForm({
       <div className="panel-heading">
         <div>
           <p className="eyebrow">托管身份浏览器</p>
-          <h1>创建托管身份浏览器</h1>
+          <h2>创建托管身份浏览器</h2>
           <p>
             选择网络出口和网站可见身份。创建后立刻能看到 UA、语言、时区、屏幕和
-            WebGL；第一次启动前还可以微调或换一套指纹。
+            WebGL；第一次启动前还可以在 Silo 的编辑页微调或换一套指纹。
           </p>
         </div>
         <span className="provider-health healthy">独立浏览器已就绪</span>
@@ -306,6 +306,7 @@ export function ManagedSiloForm({
           <label htmlFor="managed-silo-name">
             Silo 名称
             <input
+              autoFocus
               disabled={busy}
               id="managed-silo-name"
               maxLength={64}
@@ -747,10 +748,10 @@ export function ManagedSiloForm({
           ) : null}
           <p className="form-hint">
             User-Agent 跟随内置 Firefox 内核，不能改成 Chrome。Canvas / Audio
-            噪声在创建时生成，点「换一套指纹」会变。字体目前跟随这台电脑。
-            WebRTC 在走代理时用出口
-            IP，直连时由引擎生成，不会露出这台电脑的网卡地址。 创建后能看到完整
-            UA、时区和 WebGL。
+            噪声在创建时生成，创建后在 Silo
+            的编辑页点「换一套指纹」会重新生成。字体目前跟随这台电脑。 WebRTC
+            在走代理时用出口 IP，直连时由引擎生成，不会露出这台电脑的网卡地址。
+            创建后能看到完整 UA、时区和 WebGL。
           </p>
         </fieldset>
         <div className="submit-row">

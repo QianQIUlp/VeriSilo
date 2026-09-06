@@ -120,6 +120,20 @@ describe("desktop product copy", () => {
     expect(createPanelSource).not.toContain("Hyper-V");
   });
 
+  it("keeps standard creation feedback and submit gating discoverable", () => {
+    expect(createPanelSource).toContain('className="panel form-panel"');
+    expect(createPanelSource).toContain("noValidate");
+    expect(createPanelSource).toContain('type="submit"');
+    expect(createPanelSource).toContain("正在创建…");
+    expect(createPanelSource).toContain("创建前还需要");
+    expect(createPanelSource).toContain("silo-boundary-confirm");
+    expect(createPanelSource).toContain("focusFirstMissing");
+    expect(stylesSource).toMatch(
+      /\.shell > \.notice\s*\{[^}]*position:\s*sticky;/u,
+    );
+    expect(stylesSource).toContain(".submit-row .submit-missing");
+  });
+
   it("keeps the Standard Silo default path local, direct, automatic, and short", () => {
     const summaryIndex = createPanelSource.indexOf(
       'className="standard-default-summary"',
