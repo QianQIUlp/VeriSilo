@@ -1,4 +1,8 @@
-import { desktopApi, type CreateSiloInput, type DesktopStatus } from "../desktop-api.js";
+import {
+  desktopApi,
+  type CreateSiloInput,
+  type DesktopStatus,
+} from "../desktop-api.js";
 import { previewSilo, previewStatus } from "./fixtures.js";
 
 // Imported only by preview.html. Unsupported operations fail here instead of

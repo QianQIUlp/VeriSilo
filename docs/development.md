@@ -15,9 +15,15 @@ pnpm install
 pnpm check
 pnpm test
 pnpm extension:build
-pnpm desktop:dev # Frontend-only Vite preview; this is not a Tauri desktop run.
-pnpm --filter @verisilo/desktop tauri dev # Real desktop development run.
+pnpm desktop:worktree ui --port 1421 --preview # Mode A: real React UI + mock API + Vite HMR, no Tauri or Vault.
+pnpm desktop:worktree core --port 1422 # Mode B: real Tauri desktop dev; frontend HMR, Rust changes rebuild and restart the app.
 ```
+
+Use the cheapest execution mode that exercises the changed behavior; see
+[three-tier dev loop](development-worktrees.md#三档开发循环). RC installer builds and
+acceptance follow the release workflow and the
+[Windows acceptance runbook](acceptance/manual-windows-acceptance-runbook.md),
+not the normal development loop.
 
 For a full Windows manual pass, including the exact Rust checks, browser
 profiles, Native Host registration, and evidence files, follow the

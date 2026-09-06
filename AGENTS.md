@@ -10,6 +10,13 @@ Lane 范围、修改边界与验证命令的唯一事实源是 [scripts/agent-ta
 并行开发、工作树隔离或桌面结构调整的手工细节先读
 [模块边界与开发入口](docs/development-worktrees.md)，再读取实际 owning code/test。
 
+运行验证实例时用「足以验证当前修改的最低成本运行层级」（三档定义见
+development-worktrees.md「三档开发循环」）：纯 UI/UX 修改用 UI Preview
+（真实组件 + Mock API + Vite HMR）；触到 Tauri command、application、Vault/runtime
+或前后端集成用 Tauri dev（前端 HMR、Rust 增量编译自动重启）；只有 installer/安装行为、
+production 打包行为或发布验收才进入 RC installer 流程。不要为 Preview 或 Tauri dev
+能覆盖的修改构建或安装 release artifact。
+
 ## 默认读取路径
 
 Camoufox / Managed Identity 普通任务先读：

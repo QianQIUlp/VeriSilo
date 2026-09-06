@@ -112,11 +112,11 @@ Agent 根据 owning layer 与要验证的真实边界自动选择，不需要用
 
 | 修改                                              | 层级   |
 | ------------------------------------------------- | ------ |
-| 按钮间距、文案、表单布局、CSS、普通 UI 状态        | Mode A |
-| `create_silo` 等 application / Tauri command 行为  | Mode B |
-| React UI + application contract                    | Mode B |
-| installer 覆盖安装、production 打包行为            | Mode C |
-| 准备 release candidate                             | Mode C |
+| 按钮间距、文案、表单布局、CSS、普通 UI 状态       | Mode A |
+| `create_silo` 等 application / Tauri command 行为 | Mode B |
+| React UI + application contract                   | Mode B |
+| installer 覆盖安装、production 打包行为           | Mode C |
+| 准备 release candidate                            | Mode C |
 
 HMR 只是缩短反馈回路，不降低验证标准：快速视觉/行为反馈 ≠ 完整正确性验证 ≠ RC 验收。
 preview 能证明组件渲染、交互与状态展示正确；不能证明 Vault 真正写入、Tauri command
