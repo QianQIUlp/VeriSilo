@@ -177,8 +177,7 @@ export function VaultAndDataPanel({
             <p className="eyebrow">恢复保险库</p>
             <h2>覆盖前先验证备份口令和格式</h2>
             <p>
-              这会替换当前保险库记录，但不会自动删除、复制或覆盖任何浏览器
-              浏览器数据。
+              这会替换当前保险库记录，但不会自动删除、复制或覆盖任何浏览器数据。
             </p>
           </div>
         </div>
