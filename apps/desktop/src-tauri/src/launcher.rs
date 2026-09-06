@@ -52,7 +52,7 @@ use crate::{
     proxy_relay::{ProxyRelay, RelayAuthenticationEvidence},
     vault::{
         profile_has_browser_lock, BrowserProfileLease, MihomoControllerAuthentication,
-        ProxyAuthentication,
+        ProxyAuthentication, VaultError,
     },
 };
 
@@ -549,6 +549,8 @@ pub enum LauncherError {
     AnotherSiloRunning,
     #[error("检测到受管 Silo 的浏览器锁；VeriSilo 不会删除锁或强制结束浏览器。")]
     ProfileInUse,
+    #[error("浏览器启动被拒绝：受管 Silo 的浏览器数据目录缺失或无效；VeriSilo 不会静默重建它。")]
+    ProfileUnmanaged,
     #[error("代理启动前检查失败：{0}")]
     ProxyPreflight(String),
     #[error("网络配置无效：{0}")]
@@ -1508,6 +1510,24 @@ impl RuntimeManager {
             Path::new(&silo.profile_directory),
         ) {
             Ok(lease) => lease,
+            Err(VaultError::UnmanagedProfile) => {
+                // A missing or unmanaged required Profile root is a data
+                // precondition failure, not contention with another running
+                // browser; it must not be reported as a Profile lock.
+                self.activation = Some(RuntimeActivation {
+                    active_silo_id: None,
+                    state: RuntimeState::Failed,
+                    updated_at: Utc::now(),
+                    message: Some(
+                        "受管 Silo 的浏览器数据目录缺失或无效；启动已拒绝，VeriSilo 没有改动或重建任何数据。"
+                            .to_owned(),
+                    ),
+                    browser_verification: browser_verification.clone(),
+                    engine_evidence: Some(engine_evidence.clone()),
+                    network_evidence: Some(network_evidence),
+                });
+                return Err(LauncherError::ProfileUnmanaged);
+            }
             Err(_) => {
                 self.activation = Some(RuntimeActivation {
                     active_silo_id: None,
@@ -6999,6 +7019,63 @@ process.stdin.on('end', () => {
         let activation = runtime.activation();
         assert!(activation.active_silo_id.is_none());
         assert!(matches!(activation.state, RuntimeState::Failed));
+    }
+
+    #[test]
+    fn launch_reports_a_missing_managed_profile_as_unmanaged_not_in_use() {
+        let exe_root = std::env::temp_dir().join(format!(
+            "verisilo-launch-profile-missing-{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&exe_root).expect("create browser executable fixture root");
+        let browser = exe_root.join("chrome.exe");
+        fs::write(&browser, []).expect("create test browser harness");
+        fs::write(
+            browser.with_extension("version-output"),
+            "Google Chrome 126.0.6478.127\n",
+        )
+        .expect("create browser version output");
+        let mut silo = test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        let stale_profile = std::path::PathBuf::from(&silo.profile_directory);
+        silo.profile_directory = exe_root
+            .join("missing-browser-data")
+            .to_string_lossy()
+            .to_string();
+        silo.browser = Some(BrowserDescriptor {
+            kind: BrowserKind::Chrome,
+            executable_path: fs::canonicalize(&browser)
+                .expect("canonical browser path")
+                .to_string_lossy()
+                .to_string(),
+            version: Some("126.0.6478.127".to_owned()),
+        });
+
+        let mut runtime = RuntimeManager::default();
+        let error = runtime
+            .launch_with_identity_deriver(
+                &silo,
+                &silo.all_engine_profile_directories(),
+                None,
+                None,
+                None,
+            )
+            .expect_err("a missing managed Profile must fail the launch");
+        assert!(
+            matches!(error, super::LauncherError::ProfileUnmanaged),
+            "a missing managed Profile is a precondition failure, not a Profile lock: {error}"
+        );
+        let activation = runtime.activation();
+        assert!(activation.active_silo_id.is_none());
+        assert!(matches!(activation.state, RuntimeState::Failed));
+        assert!(activation
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("缺失或无效")));
+
+        fs::remove_dir_all(exe_root).expect("remove browser executable fixture root");
+        fs::remove_dir_all(stale_profile).expect("remove unused test Profile fixture");
     }
 
     #[cfg(target_os = "windows")]

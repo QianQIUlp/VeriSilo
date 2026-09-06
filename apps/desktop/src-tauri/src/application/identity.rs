@@ -42,6 +42,9 @@ pub(crate) fn managed_launcher_error(error: LauncherError) -> String {
     match &error {
         LauncherError::AnotherSiloRunning => "managed_another_silo_running".to_owned(),
         LauncherError::ProfileInUse => "managed_profile_in_use".to_owned(),
+        // The variant carries its own user-facing detail; the frontend shows
+        // the raw CJK text instead of a stable code for this precondition.
+        LauncherError::ProfileUnmanaged => error.to_string(),
         LauncherError::ProxyPreflight(detail)
         | LauncherError::ProxyRelay(detail)
         | LauncherError::InvalidNetwork(detail)
