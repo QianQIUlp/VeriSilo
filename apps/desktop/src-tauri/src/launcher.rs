@@ -1045,7 +1045,12 @@ impl RuntimeManager {
         } else {
             mihomo_authentication
         };
-        self.health_context = Some(RuntimeHealthContext {
+        // Reconciliation owns runtime state only while the recovered session
+        // stays active. A record explained as stopped must leave no health
+        // context behind: Vault restore requires a proven-quiescent runtime,
+        // and a stale context with live credentials would let a later Vault
+        // lock fail-close an already stopped session.
+        self.health_context = active_silo_id.is_some().then(|| RuntimeHealthContext {
             silo: silo.clone(),
             runtime_id,
             compromised,
@@ -7287,6 +7292,139 @@ process.stdin.on('end', () => {
         assert_eq!(activation.active_silo_id, Some(silo.id));
         assert_eq!(activation.state, RuntimeState::Running);
         assert!(lock.exists(), "recovery must not delete the browser lock");
+
+        fs::remove_dir_all(root).expect("remove recovery record root");
+        fs::remove_dir_all(profile).expect("remove recovery Profile fixture");
+    }
+
+    #[test]
+    fn stopped_reconcile_leaves_a_quiescent_runtime_for_vault_restore() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-runtime-recovery-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create recovery root");
+        let silo = test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        let now = Utc::now();
+        write_runtime_record(
+            &root.join("runtime").join("browser-session.json"),
+            &RuntimeRecord {
+                silo_id: silo.id,
+                pid: u32::MAX,
+                started_at: now,
+                last_seen_at: now,
+                state: RuntimeState::Running,
+            },
+        )
+        .expect("write recovery record");
+
+        let mut runtime = RuntimeManager::open(&root);
+        let activation = runtime.reconcile_persisted(&silo, None);
+        assert_eq!(activation.active_silo_id, None);
+        assert_eq!(activation.state, RuntimeState::Stopped);
+        assert!(
+            runtime.prepare_for_vault_restore().is_some(),
+            "a reconciled stopped session must not block Vault restore"
+        );
+        let activation = runtime.revoke_secrets_for_vault_lock();
+        assert_eq!(
+            activation.state, RuntimeState::Stopped,
+            "locking the Vault must not fail-close a stopped session"
+        );
+
+        fs::remove_dir_all(root).expect("remove recovery record root");
+        fs::remove_dir_all(std::path::PathBuf::from(&silo.profile_directory))
+            .expect("remove recovery Profile fixture");
+    }
+
+    #[test]
+    fn vault_lock_does_not_fail_close_a_stopped_reconciled_mihomo_session() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-runtime-recovery-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create recovery root");
+        let silo = test_silo(NetworkProfile::FixedProxy {
+            proxy_required: true,
+            scheme: ProxyScheme::Socks5,
+            host: "127.0.0.1".to_owned(),
+            port: 51820,
+            bypass_list: Vec::new(),
+            credential_reference: None,
+            external_mihomo: Some(crate::domain::ExternalMihomoBinding {
+                controller_url: "http://127.0.0.1:9090".to_owned(),
+                selector_group: "proxies".to_owned(),
+                node_name: "node-a".to_owned(),
+                controller_secret_reference: None,
+            }),
+        });
+        let now = Utc::now();
+        write_runtime_record(
+            &root.join("runtime").join("browser-session.json"),
+            &RuntimeRecord {
+                silo_id: silo.id,
+                pid: u32::MAX,
+                started_at: now,
+                last_seen_at: now,
+                state: RuntimeState::Running,
+            },
+        )
+        .expect("write recovery record");
+
+        let mut runtime = RuntimeManager::open(&root);
+        let activation =
+            runtime.reconcile_persisted(&silo, Some(MihomoControllerAuthentication::new(
+                "controller-secret".to_owned(),
+            )));
+        assert_eq!(activation.active_silo_id, None);
+        assert_eq!(activation.state, RuntimeState::Stopped);
+        let activation = runtime.revoke_secrets_for_vault_lock();
+        assert_eq!(
+            activation.state, RuntimeState::Stopped,
+            "revocation without an owned runtime must not flip the persisted stopped state"
+        );
+        assert!(runtime.prepare_for_vault_restore().is_some());
+
+        fs::remove_dir_all(root).expect("remove recovery record root");
+        fs::remove_dir_all(std::path::PathBuf::from(&silo.profile_directory))
+            .expect("remove recovery Profile fixture");
+    }
+
+    #[test]
+    fn active_reconciled_session_keeps_runtime_ownership_across_a_vault_lock() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-runtime-recovery-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create recovery root");
+        let silo = test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        let profile = std::path::PathBuf::from(&silo.profile_directory);
+        let lock = profile.join(crate::vault::CHROMIUM_PROFILE_SENTINEL_NAMES[0]);
+        fs::write(&lock, []).expect("create browser lock");
+        let now = Utc::now();
+        write_runtime_record(
+            &root.join("runtime").join("browser-session.json"),
+            &RuntimeRecord {
+                silo_id: silo.id,
+                pid: std::process::id(),
+                started_at: now,
+                last_seen_at: now,
+                state: RuntimeState::Running,
+            },
+        )
+        .expect("write recovery record");
+
+        let mut runtime = RuntimeManager::open(&root);
+        let activation = runtime.reconcile_persisted(&silo, None);
+        assert_eq!(activation.active_silo_id, Some(silo.id));
+        assert_eq!(activation.state, RuntimeState::Running);
+        assert!(
+            runtime.prepare_for_vault_restore().is_none(),
+            "an active recovered session still owns runtime state"
+        );
+        let activation = runtime.revoke_secrets_for_vault_lock();
+        assert_eq!(
+            activation.state, RuntimeState::Running,
+            "a direct session without runtime credentials keeps running across a Vault lock"
+        );
 
         fs::remove_dir_all(root).expect("remove recovery record root");
         fs::remove_dir_all(profile).expect("remove recovery Profile fixture");
