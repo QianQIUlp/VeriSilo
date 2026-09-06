@@ -13,7 +13,20 @@ export function describeVault(state: VaultState): string {
     case "unlocked":
       return state.autoLockAt === null
         ? "保险库已解锁"
-        : `保险库已解锁，将在 ${new Date(state.autoLockAt).toLocaleTimeString()} 自动锁定`;
+        : `保险库已解锁，将在 ${formatAutoLockDeadline(state.autoLockAt)} 自动锁定`;
+  }
+}
+
+function formatAutoLockDeadline(isoDate: string): string {
+  try {
+    return new Intl.DateTimeFormat("zh-CN", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(isoDate));
+  } catch {
+    return isoDate;
   }
 }
 
@@ -23,7 +36,8 @@ export function describeActivation(activation: RuntimeActivation): string {
     preflight: "正在准备打开",
     launching: "正在打开浏览器",
     running: "浏览器正在运行",
-    verification_failed: "这次运行已经结束。请点「结束会话」，然后再打开浏览器。",
+    verification_failed:
+      "这次运行已经结束。请点「结束会话」，然后再打开浏览器。",
     recovery_required: "上次浏览还没完全结束。请关掉残留窗口后再试。",
     stopped: "浏览器已停止",
     failed: "浏览器没有打开成功",
