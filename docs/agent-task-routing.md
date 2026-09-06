@@ -109,6 +109,23 @@ baseline/dev = B1   之后的新任务统一从 B1 开始
 
 不要把"配置声明/测试通过/编译成功"冒充尚未取得的 runtime/product Gate；lane 验证只覆盖其名称所指的范围。
 
+## 运行层级（Mode A / B / C）
+
+lane 级 verify 之外，运行验证实例时用「足以验证当前修改的最低成本运行层级」
+（三档完整定义见 [development-worktrees.md](development-worktrees.md) 的「三档开发循环」）：
+
+- **Mode A — UI Preview**：`node scripts/dev-desktop.mjs <name> --port <port> --preview`。
+  纯 UI/UX 修改（样式、布局、组件、文案、表单 UX、loading/error/empty/running 状态）。
+  真实组件 + Mock API + Vite HMR；不启动 Rust backend，不读真实 Vault。
+- **Mode B — Desktop Dev**：`node scripts/dev-desktop.mjs core --port <port> --vault <vault>`。
+  触到 Tauri command、application、Vault/runtime 或前后端集成时使用；前端 HMR、
+  Rust 增量编译后自动重启，不构建 installer。
+- **Mode C — RC / Release**：只有 installer/安装行为变化、production 打包行为或发布验收
+  才进入，走专用环境 acceptance 流程，不与开发实例混用。
+
+`ui` / `qa` 等纯前端 lane 默认 Mode A；`core` / `host` 及跨层任务默认 Mode B；
+不要为 Preview 或 Tauri dev 能覆盖的修改构建或安装 release artifact。
+
 ## Integration 工作流
 
 1. 各任务 worktree 完成 verify + check 后提交，形成可集成 commit。

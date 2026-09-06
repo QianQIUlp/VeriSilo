@@ -1,5 +1,7 @@
 import { type DesktopStatus } from "../../desktop-api.js";
 
+import { useEffect, useState } from "react";
+
 export function VaultAccess({
   busy,
   passphrase,
@@ -14,6 +16,19 @@ export function VaultAccess({
   submitVault: () => Promise<void>;
 }) {
   const initialize = status.vault.state === "uninitialized";
+  const [passphraseConfirm, setPassphraseConfirm] = useState("");
+  useEffect(() => {
+    if (passphrase === "") {
+      setPassphraseConfirm("");
+    }
+  }, [passphrase]);
+  const confirmPending =
+    initialize && passphrase.length >= 12 && passphraseConfirm !== passphrase;
+  const confirmHint = !confirmPending
+    ? null
+    : passphraseConfirm === ""
+      ? "请再输入一次相同的口令进行确认。"
+      : "两次输入的口令不一致，请检查后重试。";
   return (
     <section className="vault-layout">
       <article className="panel vault-intro">
@@ -36,17 +51,42 @@ export function VaultAccess({
           保险库口令
           <input
             aria-label="保险库口令"
+            autoFocus
             autoComplete={initialize ? "new-password" : "current-password"}
             disabled={busy}
+            id="vault-passphrase"
             minLength={12}
             onChange={(event) => setPassphrase(event.target.value)}
             type="password"
             value={passphrase}
           />
         </label>
+        {initialize ? (
+          <label>
+            再次输入口令
+            <input
+              aria-label="再次输入保险库口令"
+              autoComplete="new-password"
+              disabled={busy}
+              onChange={(event) => setPassphraseConfirm(event.target.value)}
+              type="password"
+              value={passphraseConfirm}
+            />
+          </label>
+        ) : null}
+        {confirmHint !== null ? (
+          <p className="field-error" role="alert">
+            {confirmHint}
+          </p>
+        ) : null}
         <button
           disabled={busy || passphrase.length < 12}
-          onClick={() => void submitVault()}
+          onClick={() => {
+            if (confirmPending) {
+              return;
+            }
+            void submitVault();
+          }}
           type="button"
         >
           {initialize ? "创建本地保险库" : "解锁"}

@@ -52,7 +52,7 @@ use crate::{
     proxy_relay::{ProxyRelay, RelayAuthenticationEvidence},
     vault::{
         profile_has_browser_lock, BrowserProfileLease, MihomoControllerAuthentication,
-        ProxyAuthentication,
+        ProxyAuthentication, VaultError,
     },
 };
 
@@ -549,6 +549,8 @@ pub enum LauncherError {
     AnotherSiloRunning,
     #[error("检测到受管 Silo 的浏览器锁；VeriSilo 不会删除锁或强制结束浏览器。")]
     ProfileInUse,
+    #[error("浏览器启动被拒绝：受管 Silo 的浏览器数据目录缺失或无效；VeriSilo 不会静默重建它。")]
+    ProfileUnmanaged,
     #[error("代理启动前检查失败：{0}")]
     ProxyPreflight(String),
     #[error("网络配置无效：{0}")]
@@ -1045,7 +1047,12 @@ impl RuntimeManager {
         } else {
             mihomo_authentication
         };
-        self.health_context = Some(RuntimeHealthContext {
+        // Reconciliation owns runtime state only while the recovered session
+        // stays active. A record explained as stopped must leave no health
+        // context behind: Vault restore requires a proven-quiescent runtime,
+        // and a stale context with live credentials would let a later Vault
+        // lock fail-close an already stopped session.
+        self.health_context = active_silo_id.is_some().then(|| RuntimeHealthContext {
             silo: silo.clone(),
             runtime_id,
             compromised,
@@ -1503,6 +1510,24 @@ impl RuntimeManager {
             Path::new(&silo.profile_directory),
         ) {
             Ok(lease) => lease,
+            Err(VaultError::UnmanagedProfile) => {
+                // A missing or unmanaged required Profile root is a data
+                // precondition failure, not contention with another running
+                // browser; it must not be reported as a Profile lock.
+                self.activation = Some(RuntimeActivation {
+                    active_silo_id: None,
+                    state: RuntimeState::Failed,
+                    updated_at: Utc::now(),
+                    message: Some(
+                        "受管 Silo 的浏览器数据目录缺失或无效；启动已拒绝，VeriSilo 没有改动或重建任何数据。"
+                            .to_owned(),
+                    ),
+                    browser_verification: browser_verification.clone(),
+                    engine_evidence: Some(engine_evidence.clone()),
+                    network_evidence: Some(network_evidence),
+                });
+                return Err(LauncherError::ProfileUnmanaged);
+            }
             Err(_) => {
                 self.activation = Some(RuntimeActivation {
                     active_silo_id: None,
@@ -6996,6 +7021,63 @@ process.stdin.on('end', () => {
         assert!(matches!(activation.state, RuntimeState::Failed));
     }
 
+    #[test]
+    fn launch_reports_a_missing_managed_profile_as_unmanaged_not_in_use() {
+        let exe_root = std::env::temp_dir().join(format!(
+            "verisilo-launch-profile-missing-{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&exe_root).expect("create browser executable fixture root");
+        let browser = exe_root.join("chrome.exe");
+        fs::write(&browser, []).expect("create test browser harness");
+        fs::write(
+            browser.with_extension("version-output"),
+            "Google Chrome 126.0.6478.127\n",
+        )
+        .expect("create browser version output");
+        let mut silo = test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        let stale_profile = std::path::PathBuf::from(&silo.profile_directory);
+        silo.profile_directory = exe_root
+            .join("missing-browser-data")
+            .to_string_lossy()
+            .to_string();
+        silo.browser = Some(BrowserDescriptor {
+            kind: BrowserKind::Chrome,
+            executable_path: fs::canonicalize(&browser)
+                .expect("canonical browser path")
+                .to_string_lossy()
+                .to_string(),
+            version: Some("126.0.6478.127".to_owned()),
+        });
+
+        let mut runtime = RuntimeManager::default();
+        let error = runtime
+            .launch_with_identity_deriver(
+                &silo,
+                &silo.all_engine_profile_directories(),
+                None,
+                None,
+                None,
+            )
+            .expect_err("a missing managed Profile must fail the launch");
+        assert!(
+            matches!(error, super::LauncherError::ProfileUnmanaged),
+            "a missing managed Profile is a precondition failure, not a Profile lock: {error}"
+        );
+        let activation = runtime.activation();
+        assert!(activation.active_silo_id.is_none());
+        assert!(matches!(activation.state, RuntimeState::Failed));
+        assert!(activation
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("缺失或无效")));
+
+        fs::remove_dir_all(exe_root).expect("remove browser executable fixture root");
+        fs::remove_dir_all(stale_profile).expect("remove unused test Profile fixture");
+    }
+
     #[cfg(target_os = "windows")]
     #[test]
     fn stock_child_exit_waits_for_chromium_profile_release_before_stopping() {
@@ -7287,6 +7369,139 @@ process.stdin.on('end', () => {
         assert_eq!(activation.active_silo_id, Some(silo.id));
         assert_eq!(activation.state, RuntimeState::Running);
         assert!(lock.exists(), "recovery must not delete the browser lock");
+
+        fs::remove_dir_all(root).expect("remove recovery record root");
+        fs::remove_dir_all(profile).expect("remove recovery Profile fixture");
+    }
+
+    #[test]
+    fn stopped_reconcile_leaves_a_quiescent_runtime_for_vault_restore() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-runtime-recovery-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create recovery root");
+        let silo = test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        let now = Utc::now();
+        write_runtime_record(
+            &root.join("runtime").join("browser-session.json"),
+            &RuntimeRecord {
+                silo_id: silo.id,
+                pid: u32::MAX,
+                started_at: now,
+                last_seen_at: now,
+                state: RuntimeState::Running,
+            },
+        )
+        .expect("write recovery record");
+
+        let mut runtime = RuntimeManager::open(&root);
+        let activation = runtime.reconcile_persisted(&silo, None);
+        assert_eq!(activation.active_silo_id, None);
+        assert_eq!(activation.state, RuntimeState::Stopped);
+        assert!(
+            runtime.prepare_for_vault_restore().is_some(),
+            "a reconciled stopped session must not block Vault restore"
+        );
+        let activation = runtime.revoke_secrets_for_vault_lock();
+        assert_eq!(
+            activation.state, RuntimeState::Stopped,
+            "locking the Vault must not fail-close a stopped session"
+        );
+
+        fs::remove_dir_all(root).expect("remove recovery record root");
+        fs::remove_dir_all(std::path::PathBuf::from(&silo.profile_directory))
+            .expect("remove recovery Profile fixture");
+    }
+
+    #[test]
+    fn vault_lock_does_not_fail_close_a_stopped_reconciled_mihomo_session() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-runtime-recovery-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create recovery root");
+        let silo = test_silo(NetworkProfile::FixedProxy {
+            proxy_required: true,
+            scheme: ProxyScheme::Socks5,
+            host: "127.0.0.1".to_owned(),
+            port: 51820,
+            bypass_list: Vec::new(),
+            credential_reference: None,
+            external_mihomo: Some(crate::domain::ExternalMihomoBinding {
+                controller_url: "http://127.0.0.1:9090".to_owned(),
+                selector_group: "proxies".to_owned(),
+                node_name: "node-a".to_owned(),
+                controller_secret_reference: None,
+            }),
+        });
+        let now = Utc::now();
+        write_runtime_record(
+            &root.join("runtime").join("browser-session.json"),
+            &RuntimeRecord {
+                silo_id: silo.id,
+                pid: u32::MAX,
+                started_at: now,
+                last_seen_at: now,
+                state: RuntimeState::Running,
+            },
+        )
+        .expect("write recovery record");
+
+        let mut runtime = RuntimeManager::open(&root);
+        let activation =
+            runtime.reconcile_persisted(&silo, Some(MihomoControllerAuthentication::new(
+                "controller-secret".to_owned(),
+            )));
+        assert_eq!(activation.active_silo_id, None);
+        assert_eq!(activation.state, RuntimeState::Stopped);
+        let activation = runtime.revoke_secrets_for_vault_lock();
+        assert_eq!(
+            activation.state, RuntimeState::Stopped,
+            "revocation without an owned runtime must not flip the persisted stopped state"
+        );
+        assert!(runtime.prepare_for_vault_restore().is_some());
+
+        fs::remove_dir_all(root).expect("remove recovery record root");
+        fs::remove_dir_all(std::path::PathBuf::from(&silo.profile_directory))
+            .expect("remove recovery Profile fixture");
+    }
+
+    #[test]
+    fn active_reconciled_session_keeps_runtime_ownership_across_a_vault_lock() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-runtime-recovery-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create recovery root");
+        let silo = test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        let profile = std::path::PathBuf::from(&silo.profile_directory);
+        let lock = profile.join(crate::vault::CHROMIUM_PROFILE_SENTINEL_NAMES[0]);
+        fs::write(&lock, []).expect("create browser lock");
+        let now = Utc::now();
+        write_runtime_record(
+            &root.join("runtime").join("browser-session.json"),
+            &RuntimeRecord {
+                silo_id: silo.id,
+                pid: std::process::id(),
+                started_at: now,
+                last_seen_at: now,
+                state: RuntimeState::Running,
+            },
+        )
+        .expect("write recovery record");
+
+        let mut runtime = RuntimeManager::open(&root);
+        let activation = runtime.reconcile_persisted(&silo, None);
+        assert_eq!(activation.active_silo_id, Some(silo.id));
+        assert_eq!(activation.state, RuntimeState::Running);
+        assert!(
+            runtime.prepare_for_vault_restore().is_none(),
+            "an active recovered session still owns runtime state"
+        );
+        let activation = runtime.revoke_secrets_for_vault_lock();
+        assert_eq!(
+            activation.state, RuntimeState::Running,
+            "a direct session without runtime credentials keeps running across a Vault lock"
+        );
 
         fs::remove_dir_all(root).expect("remove recovery record root");
         fs::remove_dir_all(profile).expect("remove recovery Profile fixture");

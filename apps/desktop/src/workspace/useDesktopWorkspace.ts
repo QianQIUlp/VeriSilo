@@ -162,6 +162,7 @@ export function useDesktopWorkspace() {
   const [networkBusy, setNetworkBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [vaultBusy, setVaultBusy] = useState(false);
+  const [closeHintVisible, setCloseHintVisible] = useState(false);
   const refreshRequestRef = useRef(0);
   const unlockedOperationRef = useRef(0);
   const vaultOperationRef = useRef(0);
@@ -180,7 +181,19 @@ export function useDesktopWorkspace() {
     void appWindow
       .onCloseRequested(async (event) => {
         event.preventDefault();
-        await appWindow.hide();
+        let acknowledged = false;
+        try {
+          acknowledged =
+            window.localStorage.getItem("verisilo.trayCloseHint") === "1";
+        } catch {
+          // Without persistent storage, skip the one-time hint instead of nagging on every close.
+          acknowledged = true;
+        }
+        if (acknowledged) {
+          await appWindow.hide();
+          return;
+        }
+        setCloseHintVisible(true);
       })
       .then((unlisten) => {
         if (disposed) {
@@ -194,6 +207,22 @@ export function useDesktopWorkspace() {
       disposed = true;
       removeCloseListener?.();
     };
+  }, []);
+
+  const acknowledgeTrayCloseHint = useCallback(() => {
+    setCloseHintVisible(false);
+    try {
+      window.localStorage.setItem("verisilo.trayCloseHint", "1");
+    } catch {
+      // Best-effort persistence; the hint may reappear on a later close.
+    }
+    if (isTauri()) {
+      void getCurrentWindow().hide();
+    }
+  }, []);
+
+  const keepWindowOpen = useCallback(() => {
+    setCloseHintVisible(false);
   }, []);
 
   const scrubSensitiveUi = useCallback(() => {
@@ -444,6 +473,11 @@ export function useDesktopWorkspace() {
     }
     const timer = window.setTimeout(() => {
       applyVaultUiLock(true);
+      setNotice({
+        tone: "info",
+        message:
+          "保险库已自动锁定。未保存的 Silo 草稿和代理凭据已清除，解锁后可继续操作。",
+      });
       void refresh(false).catch((error: unknown) =>
         setNotice({ tone: "error", message: errorMessage(error) }),
       );
@@ -605,15 +639,22 @@ export function useDesktopWorkspace() {
         throw new UserFacingError("请使用至少 12 个字符的保险库口令。");
       }
 
-      if (status?.vault.state === "uninitialized") {
-        await desktopApi.initializeVault(passphrase);
-        setNotice({
-          tone: "success",
-          message: "保险库已创建。请妥善保存口令；VeriSilo 不提供找回。",
-        });
-      } else {
-        await desktopApi.unlockVault(passphrase);
-        setNotice({ tone: "success", message: "保险库已解锁。" });
+      try {
+        if (status?.vault.state === "uninitialized") {
+          await desktopApi.initializeVault(passphrase);
+          setNotice({
+            tone: "success",
+            message: "保险库已创建。请妥善保存口令；VeriSilo 不提供找回。",
+          });
+        } else {
+          await desktopApi.unlockVault(passphrase);
+          setNotice({ tone: "success", message: "保险库已解锁。" });
+        }
+      } catch (error) {
+        // A failed attempt should not keep the rejected secret in the field.
+        setPassphrase("");
+        document.getElementById("vault-passphrase")?.focus();
+        throw error;
       }
       setPassphrase("");
       await refresh();
@@ -624,7 +665,10 @@ export function useDesktopWorkspace() {
       await desktopApi.lockVault();
       applyVaultUiLock(true);
       setView("overview");
-      setNotice({ tone: "info", message: "保险库已锁定。" });
+      setNotice({
+        tone: "info",
+        message: "保险库已锁定。未保存的 Silo 草稿和代理凭据已一并清除。",
+      });
       await refresh();
     });
 
@@ -1310,6 +1354,9 @@ export function useDesktopWorkspace() {
     view,
     setView,
     notice,
+    closeHintVisible,
+    acknowledgeTrayCloseHint,
+    keepWindowOpen,
     retryRestoredVaultState,
     passphrase,
     setPassphrase,

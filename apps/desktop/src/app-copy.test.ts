@@ -28,12 +28,19 @@ const appSource = [
   "./features/silos/EditSiloPanel.tsx",
   "./features/cli/CliPanel.tsx",
   "./features/environments/LegacyRecovery.tsx",
+  "./features/vault/VaultAccess.tsx",
+  "./features/vault/VaultAndDataPanel.tsx",
 ]
   .map((source) => (source.startsWith("./") ? readSource(source) : source))
   .join("\n");
 const stylesSource = readSource("./styles.css");
 
 describe("desktop product copy", () => {
+  it("renders the vault restore warning without a reflow-duplicated word", () => {
+    expect(appSource).toContain("但不会自动删除、复制或覆盖任何浏览器数据。");
+    expect(appSource).not.toMatch(/浏览器\s+浏览器数据/u);
+  });
+
   it("uses the shared website mark and extension primary color", () => {
     expect(appSource).toContain('const defaultColor = "#5b5ce2";');
     expect(appSource).toContain('src="/verisilo-mark.svg"');
@@ -118,6 +125,42 @@ describe("desktop product copy", () => {
     expect(createPanelSource).toContain("websiteBoundaryConfirmed");
     expect(createPanelSource).not.toContain("Windows Sandbox");
     expect(createPanelSource).not.toContain("Hyper-V");
+  });
+
+  it("keeps standard creation feedback and submit gating discoverable", () => {
+    expect(createPanelSource).toContain('className="panel form-panel"');
+    expect(createPanelSource).toContain("noValidate");
+    expect(createPanelSource).toContain('type="submit"');
+    expect(createPanelSource).toContain("正在创建…");
+    expect(createPanelSource).toContain("创建前还需要");
+    expect(createPanelSource).toContain("silo-boundary-confirm");
+    expect(createPanelSource).toContain("focusFirstMissing");
+    expect(stylesSource).toMatch(
+      /\.shell > \.notice\s*\{[^}]*position:\s*sticky;/u,
+    );
+    expect(stylesSource).toContain(".submit-row .submit-missing");
+  });
+
+  it("shares identity fields across creation modes and names managed blockers", () => {
+    expect(createPanelSource).toContain("name={name}");
+    expect(createPanelSource).toContain("onNameChange={setName}");
+    expect(createPanelSource).toContain("color={color}");
+    expect(createPanelSource).toContain("onColorChange={setColor}");
+    expect(appSource).toContain("创建前还需要：填写 Silo 名称。");
+  });
+
+  it("keeps vault creation, unlock failure, and tray-close feedback explicit", () => {
+    expect(appSource).toContain("再次输入口令");
+    expect(appSource).toContain("两次输入的口令不一致，请检查后重试。");
+    expect(appSource).toContain('id="vault-passphrase"');
+    expect(appSource).toContain("保险库已自动锁定");
+    expect(appSource).toContain("未保存的 Silo 草稿和代理凭据已清除");
+    expect(appSource).toContain("closeHintVisible");
+    expect(appSource).toContain("收进系统托盘");
+    expect(appSource).toContain("notice-dismiss");
+    expect(stylesSource).toContain(".notice-dismiss");
+    expect(stylesSource).toContain(".close-hint-backdrop");
+    expect(stylesSource).toContain(".mutex-note");
   });
 
   it("keeps the Standard Silo default path local, direct, automatic, and short", () => {
