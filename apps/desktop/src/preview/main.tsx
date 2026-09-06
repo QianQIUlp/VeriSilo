@@ -20,6 +20,7 @@ function Preview() {
             overview: "概览",
             empty: "空列表",
             locked: "锁定",
+            loading: "加载中",
             uninitialized: "首次使用",
             running: "运行中",
             error: "启动失败",

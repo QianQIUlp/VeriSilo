@@ -1,4 +1,8 @@
-import { desktopApi, type CreateSiloInput } from "../desktop-api.js";
+import {
+  desktopApi,
+  type CreateSiloInput,
+  type DesktopStatus,
+} from "../desktop-api.js";
 import { previewSilo, previewStatus } from "./fixtures.js";
 
 // Imported only by preview.html. Unsupported operations fail here instead of
@@ -29,7 +33,10 @@ export function installPreviewApi(scenario: string) {
     if (status.vault.state !== "unlocked") throw new Error("保险库已锁定。");
   };
   Object.assign(desktopApi, {
-    status: async () => structuredClone(status),
+    status: async () =>
+      scenario === "loading"
+        ? new Promise<DesktopStatus>(() => {})
+        : structuredClone(status),
     initializeVault: async () => {
       status.vault.state = "unlocked";
       return structuredClone(status.vault);

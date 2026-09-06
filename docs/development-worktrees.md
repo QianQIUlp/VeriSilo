@@ -38,33 +38,90 @@ Vault 会话失效、跨页面数据刷新和操作顺序仍由 coordinator 维�
 从共同 checkpoint 创建 `qiu/ui`、`qiu/core` 等工作分支；每个工作树分别安装依赖，保留自己的
 `node_modules/.vite`、Rust target、staging 和 release 输出。不要把这些可写目录链接到另一工作树。
 
-## 启动
+## 三档开发循环
 
-在各自工作树根目录执行：
-
-```powershell
-# UI 开发：浏览器内模拟数据，不启动 Tauri 或真实浏览器内核
-pnpm desktop:worktree ui --port 1421 --preview
-# 打开 http://127.0.0.1:1421/preview.html
-
-# 真实桌面开发：使用 dev-core Vault；不使用 default Vault
-pnpm desktop:worktree core --port 1422
-# agent 任务传入自己的独立 Vault（agent-task.mjs start 会给出确切命令）
-pnpm desktop:worktree core --port 15437 --vault ui-create-silo-ux-3f9a2c
-
-# 查看实际参数而不启动
-pnpm desktop:worktree core --port 1422 --dry-run
-```
+日常开发按「足以验证当前修改的最低成本运行层级」选择运行方式，从快到慢三档：
+UI Preview → Desktop Dev → RC/Release 验收。
+For normal development, use the cheapest execution mode that exercises the changed
+behavior. Do not build or install a release artifact merely to verify a change that
+can be exercised in UI Preview or Tauri dev.
 
 名称与端口都由调用者明确分配；同时运行时两者都不能重复。
 脚本同步设置 Vite 端口和 Tauri devUrl，并通过应用参数传入 `--vault dev-<name>`。
 它不修改系统环境变量、不安装产品、不复制用户 Profile，也不创建 engine package。
-真实 Managed launch 仍需既有构建/封装流程准备对应资源，不能用 UI 预览替代。
+`--dry-run` 查看实际参数而不启动。
 
-预览页面提供概览、空列表、锁定、首次使用、运行中、启动失败与独立托管创建表单。
-它使用真实组件和内存中的示例 API；未模拟操作明确报错。刷新即丢弃模拟数据。
-托管表单的模拟提交只用于交互检查；桌面出口检查按钮仍是明确同意后执行的真实公开网络查询。
-`preview.html` 是开发入口，默认 production build 只打包 `index.html`，不加载模拟 API。
+### Mode A — UI Preview（秒级反馈）
+
+```powershell
+# UI 开发：浏览器内模拟数据，不启动 Tauri 或真实浏览器内核
+pnpm desktop:worktree ui --port 1421 --preview
+# 打开 http://127.0.0.1:1421/preview.html?scenario=overview
+```
+
+真实 React 组件 + 内存 Mock API + Vite HMR。不启动 Rust backend，不读写真实 Vault，
+不启动 Host / Camoufox。适用于 CSS、layout、组件、文案、表单 UX 与
+loading/error/empty/running 状态。预览页面提供概览、空列表、锁定、加载中、首次使用、
+运行中、启动失败与独立托管创建表单。它使用真实组件和内存中的示例 API；未模拟操作
+明确报错。刷新即丢弃模拟数据。托管表单的模拟提交只用于交互检查；桌面出口检查按钮
+仍是明确同意后执行的真实公开网络查询。`preview.html` 是开发入口，默认 production
+build 只打包 `index.html`，不加载模拟 API。
+
+已验证行为（2026-09，任务 worktree 实测）：保存 `.tsx` / `.ts` / CSS 后 Vite 立即广播
+`hmr update`，React Fast Refresh 原地更新组件并保留页面 JS 状态，不整页刷新，
+也不需要重启 dev server。修改 hooks 等无法 Fast Refresh 的模块会触发 full reload，
+属预期行为；不为"100% 状态保持"增加状态持久化。
+
+### Mode B — Desktop Dev（真实桌面，仍非 installer）
+
+```powershell
+# 真实桌面开发：使用 dev-core Vault；不使用 default Vault
+pnpm desktop:worktree core --port 1422
+# agent 任务传入自己的独立 Vault（agent-task.mjs start 会给出确切命令）
+pnpm desktop:worktree core --port 15437 --vault ui-create-silo-ux-3f9a2c
+```
+
+真实 React → Tauri dev → 真实 application → 命名 Vault/runtime；任务需要时才触达
+Host / Engine。适用于 Tauri command、application 逻辑、Vault、runtime、前后端集成与
+真实 desktop 行为。`tauri dev` 经 `beforeDevCommand` 启动的同一个 Vite 实例同时服务
+桌面 WebView（`index.html`）与浏览器 preview（`preview.html`）。
+
+- 前端修改（`.tsx` / `.ts` / CSS / 前端资源）：Vite HMR 直接更新当前 Tauri WebView；
+  不重新编译 Rust，不重装应用。
+- Rust 修改（`src-tauri/**/*.rs`，含 `src/application/`）：Tauri dev watcher 检测变化 →
+  cargo 增量编译（只重编译受影响 crate）→ development app 自动重启。
+  不构建 installer，不执行安装流程。
+
+已验证行为（2026-09，任务 worktree 实测）：改动 `lib.rs` 窗口标题后，watcher 日志
+`File src-tauri\src\lib.rs changed. Rebuilding application...` → 仅重编译
+`verisilo-desktop`（14.25s；同 worktree 冷构建 3m12s）→ 应用进程自动重启并生效；
+期间 WebView 的前端 HMR 更新在同一进程内即时生效，全程未产生 installer。
+
+### Mode C — RC / Release 验收
+
+只有明确形成 RC、installer 本身或安装/升级/卸载行为发生变化、production
+resource/package 行为需要验证、或发布前用户旅程验收时才使用：
+production build → installer → 专用环境安装 → user journey → acceptance evidence。
+RC 候选与安装验收按 [release 流程](release.md) 与
+[验收 runbook](acceptance/manual-windows-acceptance-runbook.md) 在专用环境对确定候选执行，
+不与任何开发实例混用。不要把 Mode C 当成普通开发循环。
+
+### 层级选择规则
+
+Agent 根据 owning layer 与要验证的真实边界自动选择，不需要用户每次指定：
+
+| 修改                                              | 层级   |
+| ------------------------------------------------- | ------ |
+| 按钮间距、文案、表单布局、CSS、普通 UI 状态       | Mode A |
+| `create_silo` 等 application / Tauri command 行为 | Mode B |
+| React UI + application contract                   | Mode B |
+| installer 覆盖安装、production 打包行为           | Mode C |
+| 准备 release candidate                            | Mode C |
+
+HMR 只是缩短反馈回路，不降低验证标准：快速视觉/行为反馈 ≠ 完整正确性验证 ≠ RC 验收。
+preview 能证明组件渲染、交互与状态展示正确；不能证明 Vault 真正写入、Tauri command
+正确、Engine 真正启动或 installer 正确。反向也不应为验证一个 CSS 改动跑完整 installer。
+真实 Managed launch 仍需既有构建/封装流程准备对应资源，不能用 UI 预览替代。
 
 ## 合并与共享资源
 
