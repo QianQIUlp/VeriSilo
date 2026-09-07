@@ -18,11 +18,53 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+fn resolve_managed_browser_package_root(resource_root: &std::path::Path) -> PathBuf {
+    let packaged = resource_root.join("managed-browser").join("engine-package");
+
+    #[cfg(debug_assertions)]
+    if !packaged.is_dir() {
+        if let Some(target_root) = resource_root.ancestors().find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == "target")
+        }) {
+            let staged = target_root
+                .join("verisilo-managed-browser-resources")
+                .join("engine-package");
+            if staged.is_dir() {
+                return staged;
+            }
+        }
+    }
+
+    packaged
+}
+
 pub(crate) fn managed_browser_package_root(state: &DesktopCore) -> PathBuf {
-    state
-        .resource_root
-        .join("managed-browser")
-        .join("engine-package")
+    resolve_managed_browser_package_root(&state.resource_root)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_managed_browser_package_root;
+    use std::fs;
+    use uuid::Uuid;
+
+    #[test]
+    fn development_package_discovery_uses_cargo_staging_tree() {
+        let root = std::env::temp_dir().join(format!("verisilo-engine-root-{}", Uuid::new_v4()));
+        let resource_root = root.join("target").join("debug");
+        let staged = root
+            .join("target")
+            .join("verisilo-managed-browser-resources")
+            .join("engine-package");
+        fs::create_dir_all(&resource_root).unwrap();
+        fs::create_dir_all(&staged).unwrap();
+
+        assert_eq!(resolve_managed_browser_package_root(&resource_root), staged);
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 pub(crate) fn managed_vault_error(error: VaultError) -> String {
