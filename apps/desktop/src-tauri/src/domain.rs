@@ -564,7 +564,7 @@ pub struct Silo {
 }
 
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateSiloInput {
     pub name: String,
     pub color: String,
