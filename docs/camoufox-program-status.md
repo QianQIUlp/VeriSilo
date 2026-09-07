@@ -2,8 +2,9 @@
 
 - 状态：**当前路由页**
 - 更新日期：2026-09-07
-- 当前分支：`codex/camoufox-m3-engine-adapter`
-- 当前 canonical source：`df971186beeb2a3ee806f9975cdd72b90d34bd5a`
+- 当前稳定产品分支：`codex/camoufox-m3-engine-adapter`
+- 当前 canonical development source：`refs/heads/baseline/dev`
+- 本轮起始 documented checkpoint：`df971186beeb2a3ee806f9975cdd72b90d34bd5a`；固定 SHA 不作为持续 source ref
 - 当前 source-bound RC：**无**
 
 本文只保留当前事实、下一任务和关键证据索引。旧 checkpoint、失败 run、完整 hash 表与历史
@@ -131,8 +132,9 @@ release checks 自动产生；只有 release-readiness 条件满足后，才从�
 
 ### Pre-RC product stabilization
 
-当前 canonical source 是 `df971186beeb2a3ee806f9975cdd72b90d34bd5a`；当前没有
-current-source RC。现有 `artifacts/release/managed-browser/v0.1.0-rc1` 只是历史候选：
+当前 canonical development source 是 `refs/heads/baseline/dev`；`df971186beeb2a3ee806f9975cdd72b90d34bd5a`
+只是本轮起始 documented checkpoint，不是持续有效的 source ref。当前没有 current-source RC。
+现有 `artifacts/release/managed-browser/v0.1.0-rc1` 只是历史候选：
 它来自 `6497828aa0643f94fed3ae708734eef6b85f8305`、source dirty 为 `true`，installer
 SHA-256 为 `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`，verifier
 对 1403 个文件通过，但 acceptance 为 `Pending`、`verified:false`、`runtimeAcceptance:null`；

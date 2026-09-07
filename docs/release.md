@@ -2,8 +2,9 @@
 
 ## Current release status
 
-The current canonical source is `df971186beeb2a3ee806f9975cdd72b90d34bd5a` and
-the project is in **Pre-RC product stabilization**. There is no current-source
+The current canonical development source is `refs/heads/baseline/dev`; the fixed
+revision `df971186beeb2a3ee806f9975cdd72b90d34bd5a` is only a documented
+checkpoint. The project is in **Pre-RC product stabilization**. There is no current-source
 RC. The local `artifacts/release/managed-browser/v0.1.0-rc1` directory is a
 historical candidate and must not be used as the current product candidate:
 
