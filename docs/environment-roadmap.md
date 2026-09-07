@@ -7,7 +7,7 @@ VeriSilo 不把浏览器扩展当作全部产品，也不把独立 `user-data-di
 | 层级           | 版本      | 状态                                         | 主要边界                                                 |
 | -------------- | --------- | -------------------------------------------- | -------------------------------------------------------- |
 | 独立 Silo      | V0.1–V0.6 | 基线部分实现                                 | 独立浏览器 Profile、网站数据、权限、历史和启动级网络配置 |
-| 受控浏览器引擎 | V0.7      | standalone/M3-0 已验收；M3-WI 失败且仍属实验 | 协调浏览器可见信号、引擎网络能力和跨上下文一致性         |
+| 受控浏览器引擎 | V0.7      | M0–M2-W、M3-0、FP1–FP4 与 clean M3-WI Attempt 4 已在各自证据层闭合；生产 package/adapter/UI/NSIS 已实现，当前产品验收待 pre-RC QA | 协调浏览器可见信号、引擎网络能力和跨上下文一致性         |
 | 本地虚拟环境   | V0.8      | 已列入路线                                   | 独立操作系统、字体、设备视图和每环境网络出口             |
 | 自托管远程环境 | V0.9      | 已列入路线                                   | 远程浏览器会话、独立网络栈、持久环境和生命周期审计       |
 
@@ -61,9 +61,7 @@ V0.5 不再只有路线文字：contracts、Companion 与桌面 UI 共享版本�
 
 ### 当前优先级
 
-Standard Silo 仍是长期产品基础层，但当前工程优先级是关闭缺失的指纹执行风险。V0.7 采用 Camoufox-first：Linux 的 `Resolved Identity Artifact → standalone Host → Persistent Profile → probe evidence` 与原生 Windows M2-W 已 Accepted；[M3-0](camoufox-m3-engine-adapter-task.md) 的 EngineAdapter/Host 合同集成也已在 `e96ef3f` Accepted。真实 Windows 的 M3-WI 只存在于 test-only integration seam，第二 Host 调查没有定位唯一根因，Gate 仍为 Failed，能力保持 `experimental`，更不表示已有 production package。
-
-当前执行顺序是 FP1 确定性 Artifact 投影、FP2 跨 realm 一致性、FP3 网络/地区协调、FP4 实站兼容，再用最终 Managed Engine 重新冻结一次 clean M3-WI。旧 R2/R2H 矩阵不再作为当前主线主动重复。当前证据、Gate 和未验证边界见[Camoufox Managed Engine 状态](camoufox-program-status.md)，路线原因见[Camoufox-first 决策](camoufox-managed-engine-decision.md)。
+Standard Silo 仍是长期产品基础层。V0.7 的 Camoufox 资格链已经完成，生产 package/adapter、Desktop signer pin、Managed Silo 创建与运行路径和 current-user NSIS 已实现；旧 M3-WI 失败调查与 clean Attempt 4 保持历史证据边界。当前工程阶段是 **Pre-RC product stabilization**，按 `QA → targeted fix → integration → baseline advance → fresh QA` 推进。当前证据、Gate、release-readiness 条件和未验证边界见[Camoufox Managed Engine 状态](camoufox-program-status.md)，稳定路线原因见[Camoufox-first 决策](camoufox-managed-engine-decision.md)。
 
 Controlled Chromium 不再与 Camoufox 并行开发。只有 Chromium 专属 API/扩展生态成为明确需求、需要直接控制 Chromium TLS/QUIC 或 V8 行为、Camoufox 无法满足兼容性/维护/分发要求，或项目资源足以承担长期 patch 与多平台构建时，才重新评估。
 
@@ -71,7 +69,7 @@ Controlled Chromium 不再与 Camoufox 并行开发。只有 Chromium 专属 API
 
 1. 冻结 `EngineAdapter` 接口：安装、更新、签名验证、启动参数、身份模板、能力探测、健康检查和回滚。
 2. 继续把 Chrome/Edge Stable 作为 `stock-chromium` 基线适配器；它只承诺独立 Profile 和受支持的启动配置。
-3. 完成一条 Camoufox Managed Engine 垂直路径：固定 Firefox 系引擎资产、生成和重放约束型 Artifact、持久化 Profile、严格 Host 生命周期、已接受的 EngineAdapter 合同映射，以及 FP1–FP4 后重新执行的 clean 原生 Windows Gate。它不是 Chrome 模拟，也不因 standalone 或 contract Gate 通过而默认捆绑。
+3. 维护已完成的 Camoufox Managed Engine 垂直路径：固定 Firefox 系引擎资产、生成和重放约束型 Artifact、持久化 Profile、严格 Host 生命周期、EngineAdapter 合同与生产 package/signing 接缝。它不是 Chrome 模拟，也不因任何 standalone、contract、build 或静态 release check 通过而自动成为已验收发布。
 4. 冻结约束型身份模板：操作系统、浏览器版本、UA/UA-CH、语言、时区、屏幕、渲染、字体、媒体设备和网络设置必须满足显式规则。
 5. 所有控制采用 `observe → apply → verify → restore`。长期种子不进入页面主世界；页面只接收短期派生令牌或已经约束的配置。
 6. 引擎包必须支持签名校验、锁定版本、可复现元数据、SBOM、许可证清单、增量更新失败回滚和紧急禁用。

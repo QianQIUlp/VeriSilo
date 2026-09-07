@@ -4,7 +4,7 @@ VeriSilo is a local-first, open-source platform for managing persistent browser 
 
 It creates a new, managed browser data directory for every **Silo**. Browser-owned state—cookies, storage, cache, service workers, permissions, and history—stays in that directory. VeriSilo never imports, clones, or mutates the user's default browser profile.
 
-Current public milestone: [0.1 Identity Isolation Core](docs/milestones/0.1-identity-isolation-core.md). This is a source baseline, not a signed binary release.
+Current product phase: **Pre-RC product stabilization**. The [0.1 Identity Isolation Core milestone](docs/milestones/0.1-identity-isolation-core.md) is a historical source checkpoint, not the current product stage or a signed binary release.
 
 ## Architecture and roadmap
 
@@ -20,13 +20,15 @@ The desktop app owns the Silo lifecycle and runtime binding; Chrome or Edge owns
 
 ### Roadmap
 
-| Stage                                                                                                  | Status                      |
-| ------------------------------------------------------------------------------------------------------ | --------------------------- |
-| **0.1 source milestone** — identity isolation core works end to end                                    | complete in source, 2026-08 |
-| **Next** — browser-visible fingerprint consistency across Window / iframe / Worker / headers / network | planned, not implemented    |
-| **Gated** — signed Windows distribution, controlled browser engine, stronger environments              | explicit future gates       |
+| Stage                                                                                                  | Status |
+| ------------------------------------------------------------------------------------------------------ | ------ |
+| **Standard Silo Windows Profile Isolation**                                                            | closed |
+| **Camoufox M0–M2-W, M3-0, FP1–FP4, and clean M3-WI Attempt 4**                                        | closed at their documented evidence layers |
+| **Managed Engine production adapter, Formal-v3 package/signing, Managed Silo UX, and current-user NSIS** | implemented; release checks closed |
+| **Current product phase**                                                                               | pre-RC stabilization: QA → targeted fix → integration → baseline advance → fresh QA |
+| **Current source-bound RC**                                                                              | none; the local v0.1.0-rc1 artifact is historical and superseded |
 
-See [the current milestone](docs/milestones/0.1-identity-isolation-core.md) for the exact source scope and [the environment roadmap](docs/environment-roadmap.md) for the stronger layers.
+See [the historical 0.1 source milestone](docs/milestones/0.1-identity-isolation-core.md) for that checkpoint and [the environment roadmap](docs/environment-roadmap.md) for the stronger layers.
 
 ## What is implemented in this repository
 
@@ -47,28 +49,27 @@ See [the current milestone](docs/milestones/0.1-identity-isolation-core.md) for 
 - Product boundaries, capability states, threat model, release checks, and automated TypeScript tests.
 - Reproducible lockfile SBOM generation, SHA-256/provenance tooling, Native Host
   current-user installer hooks, a clearly separated unsigned candidate workflow, and a
-  certificate-secrets-gated signed workflow definition whose real Windows execution remains a
-  release gate. Candidate builds also emit a lockfile-to-package-metadata
-  license evidence report; every component remains pending explicit human
-  license review.
-- Four control-plane layers represented in code, each with independent runtime and release gates: independent Silos; V0.7 stock plus a signed-external-package EngineAdapter contract with no accepted production package; V0.8 WSL/Sandbox/Hyper-V providers; and a V0.9 pinned self-hosted Remote Agent control plane.
+  certificate-secrets-gated signed workflow definition. Candidate builds also emit a
+  lockfile-to-package-metadata license evidence report; every component remains pending
+  explicit human license review.
+- Four control-plane layers represented in code, each with independent runtime and release gates: independent Silos; V0.7 stock plus the production `ExternalPackageEngineAdapter` and signed Formal-v3 package path; V0.8 WSL/Sandbox/Hyper-V providers; and a V0.9 pinned self-hosted Remote Agent control plane.
 
 Network identity design and exact Phase 1/2/3 boundaries are documented in [network identity providers](docs/network-identity-providers.md).
 
 ## Important boundary
 
-The stock Chrome/Edge launcher provides browser-state separation and transparent privacy controls; it does not change TLS fingerprints or real hardware. Controlled-engine, local-environment, and self-hosted remote control paths now exist in the repository, but their actual availability remains gated by signed engine artifacts, supported Windows/virtualization hosts, legal guest images, and a real remote Provider. VeriSilo does **not** claim device impersonation, fraud bypass, universal Worker/Service Worker modification, or undetectability. See [the environment roadmap](docs/environment-roadmap.md).
+The stock Chrome/Edge launcher provides browser-state separation and transparent privacy controls; it does not change TLS fingerprints or real hardware. The controlled-engine path is implemented with a pinned Formal-v3 package and production adapter, while clean Windows product acceptance remains a separate release-readiness boundary. Local-environment and self-hosted remote paths remain gated by their own artifacts, hosts, guest images, and Providers. VeriSilo does **not** claim device impersonation, fraud bypass, universal Worker/Service Worker modification, or undetectability. See [the environment roadmap](docs/environment-roadmap.md).
 
 ## Identity platform direction
 
 The durable product model, current engine choice, Agent workflow, and changing delivery state are recorded separately:
 
 - [Identity platform north star](docs/identity-platform-north-star.md) defines Standard, Managed, and Isolated Silos and separates Profile, Fingerprint, and Environment concerns.
-- [Camoufox-first Managed Engine decision](docs/camoufox-managed-engine-decision.md) explains why current engineering risk is being retired with a pinned Camoufox/BrowserForge execution layer before broader engine work.
+- [Camoufox-first Managed Engine decision](docs/camoufox-managed-engine-decision.md) records the stable reason for using a pinned Camoufox/BrowserForge execution layer before broader engine work.
 - [Agent operating model](docs/agent-operating-model.md) defines how architecture, execution, evidence, and stage Gates are delegated and reviewed.
 - [Camoufox program status](docs/camoufox-program-status.md) is the only mutable checkpoint page for this workstream.
 
-Accepted Linux and native Windows standalone Camoufox Host evidence, together with the v3 Identity Artifact, entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). This is still not a signed engine package or a Tauri desktop integration. The next frozen Gate is [M3-0 Host / EngineAdapter contract integration](docs/camoufox-m3-engine-adapter-task.md), followed by a separate native Windows desktop Gate.
+The current source includes the accepted standalone Camoufox Host and v3 Identity Artifact lineage, the M3-0 contract, FP1–FP4 qualification, clean M3-WI Attempt 4 evidence, a production `ExternalPackageEngineAdapter`, an internally CMS-signed Formal-v3 package path with a public signer pin, Managed Silo product flow, and current-user NSIS packaging. Those implementation and qualification results do not constitute clean Windows 11 product acceptance. Current routing, the historical RC1 provenance, and the remaining unverified boundaries live in the [Camoufox program status](docs/camoufox-program-status.md).
 
 ## Quick start
 
@@ -83,11 +84,11 @@ pnpm release:self-test
 ```
 
 The desktop app additionally needs a Rust stable toolchain and the Windows Tauri prerequisites. See [the development guide](docs/development.md).
-The current requirement-by-requirement evidence and remaining gaps are tracked in
-[the desktop completion audit](docs/desktop-completion-audit.md).
-The latest hands-on Companion results and the next Windows/desktop integration
-gate are tracked in [the extension functional acceptance record](docs/acceptance/extension-functional-acceptance-2026-07-30.md)
-and [the Windows desktop integration matrix](docs/acceptance/windows-desktop-integration-matrix.md).
+The historical requirement-by-requirement audit is retained in
+[the desktop completion audit](docs/desktop-completion-audit.md). Current
+product facts, release-readiness status, and the next task are tracked in
+[the Camoufox program status](docs/camoufox-program-status.md). The hands-on
+acceptance records remain evidence for their named runs and environments.
 Use [the step-by-step Windows manual acceptance runbook](docs/acceptance/manual-windows-acceptance-runbook.md)
 for the exact Chrome, Edge, desktop, Native Host, and evidence-capture operations.
 

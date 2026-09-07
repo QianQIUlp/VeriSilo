@@ -1,5 +1,9 @@
 # Camoufox FP4 ordinary-site compatibility contract
 
+> **Historical qualification contract.** FP4 is closed at its bounded
+> ordinary-site evidence boundary and is not the current next task; current
+> routing and unverified claims live in [Camoufox program status](camoufox-program-status.md).
+
 ## Product question
 
 FP4 asks one bounded go/no-go question: can the exact Formal-v3 browser and Artifact v6 that passed

@@ -1,6 +1,9 @@
 # VeriSilo 桌面端完成度滚动审计
 
-> **历史快照提示（2026-08-10 更新）**：本文主体是 2026-07-28 的审计快照，其中对 V0.7–V0.9“无实现/只有路线”的若干表述已经落后。当前 `main` 的桌面控制面以 [`acceptance/windows-desktop-integration-matrix.md`](acceptance/windows-desktop-integration-matrix.md) 为准；Camoufox Host、v3 Artifact、Linux/Windows accepted checkpoint、M3 Gate 和 PR 状态以 [Camoufox Managed Engine 状态](camoufox-program-status.md)为准。当前事实是 M3-0 contract integration 已在 `e96ef3f` Accepted，M3-WI 仍为 Failed、调查结论 inconclusive、能力保持 `experimental`；下一顺序是 FP1→FP2→FP3→FP4→clean M3-WI，且没有可发布的签名 Camoufox package。本文保留用于追踪原始缺口，不应单独用作当前完成度结论。
+> **Historical audit snapshot.** 本文主体保留 2026-07-28 的原始完成度审计和当时的判断，
+> 不应单独用于推断当前产品状态、RC 有效性或下一任务。当前事实、已关闭资格链、历史 RC1
+> provenance 与 pre-RC 路由以 [Camoufox Managed Engine 状态](camoufox-program-status.md)为准；
+> 本文仅用于追踪原始缺口，不修改其历史 verdict。
 
 > 审计日期：2026-07-28
 >

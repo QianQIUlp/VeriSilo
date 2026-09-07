@@ -1,8 +1,27 @@
 # Release gates
 
-## Managed Browser v0.1.0-rc1 (bounded local Windows profile)
+## Current release status
 
-The managed-browser RC1 is a separate, local Windows x64 release profile. Its
+The current canonical source is `df971186beeb2a3ee806f9975cdd72b90d34bd5a` and
+the project is in **Pre-RC product stabilization**. There is no current-source
+RC. The local `artifacts/release/managed-browser/v0.1.0-rc1` directory is a
+historical candidate and must not be used as the current product candidate:
+
+- source revision: `6497828aa0643f94fed3ae708734eef6b85f8305`;
+- source dirty: `true`;
+- installer SHA-256: `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`;
+- verifier: `Managed-browser release verification passed for 1403 files.`;
+- acceptance: `Pending`, `verified:false`, `runtimeAcceptance:null`;
+- classification: historical candidate, superseded for current acceptance, never runtime-accepted.
+
+The next RC version is intentionally not chosen here. It can be frozen only
+after the release-readiness conditions on the [Camoufox program status](camoufox-program-status.md)
+are satisfied on one canonical baseline.
+
+## Historical Managed Browser v0.1.0-rc1 profile (build semantics retained)
+
+The historical managed-browser RC1 is a separate, local Windows x64 release
+profile. Its
 only top-level executables are `verisilo.exe` and the exact current-user NSIS
 installer `VeriSilo-Managed-Browser-v0.1.0-rc1-x64-setup.exe`. The installer is
 built with `--no-sign` and must carry an explicit `authenticode-status.json`
@@ -35,7 +54,7 @@ Apify fingerprint datapoints, language-tags and tzdata data plus their package
 metadata for the one-folder Host output. The builder then executes the frozen
 Host hello and one Direct Artifact provision from the staged package.
 
-The orchestrator writes exactly `artifacts/release/managed-browser/v0.1.0-rc1`,
+The historical profile writes exactly `artifacts/release/managed-browser/v0.1.0-rc1`,
 then generates the managed-browser Python/Camoufox/Firefox SBOM and license
 evidence, `SHA256SUMS`, `provenance.json`, `authenticode-status.json`, and the
 pending `windows-acceptance-report.json`/`.md`, `README.txt`, and
@@ -43,9 +62,10 @@ pending `windows-acceptance-report.json`/`.md`, `README.txt`, and
 `scripts/verify-managed-browser-release.mjs`. The acceptance report records
 the required preservation policy for `%LOCALAPPDATA%\io.verisilo.app`. It
 remains `Pending` until a clean Windows 11 runtime run supplies external
-evidence; the build does not claim a signed outer installer, runtime/browser
-acceptance, or public promotion. Runtime confirmation belongs to the external
-acceptance run.
+evidence; the historical artifact never received that runtime acceptance. The
+build does not claim a signed outer installer, runtime/browser acceptance, or
+public promotion. Runtime confirmation belongs to the external acceptance run
+for a future source-bound RC.
 
 This profile deliberately excludes Hyper-V/VHDX and environment resources,
 Companion extension files, Native Host binaries/registrations, installer

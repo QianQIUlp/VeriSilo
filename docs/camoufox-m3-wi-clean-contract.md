@@ -1,5 +1,8 @@
 # Clean M3-WI 原生 Windows Desktop / Real Host 合同
 
+> **Historical contract/evidence record.** Attempt 4 的 test-only qualification 已完成；本文不是
+> 当前 RC、当前产品验收或当前下一任务。当前路由见 [Camoufox 状态页](camoufox-program-status.md)。
+
 - 状态：**Attempts 1–3 immutable Failed；Attempt 4 corrected input frozen**
 - 冻结日期：2026-08-28
 - 执行分支：`codex/camoufox-m3-engine-adapter`

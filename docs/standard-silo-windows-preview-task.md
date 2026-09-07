@@ -1,5 +1,8 @@
 # Standard Silo Windows 可运行垂直切片
 
+> **Historical task record.** 本文冻结 Standard Silo Profile Isolation 的专项 preview 结果，
+> 不代表当前全局阶段或下一任务；当前产品路由见 [Camoufox 状态页](camoufox-program-status.md)。
+
 状态：**已完成并冻结**。Profile Isolation Windows local Preview 在
 `aa72eadaf8300d1cd33a2c32173c06e3e677ca89` / tree
 `cd126770be02a33c6bb698853813512748b894c8` 通过。

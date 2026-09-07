@@ -1,9 +1,10 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**当前路由页**
-- 更新日期：2026-08-30
+- 更新日期：2026-09-07
 - 当前分支：`codex/camoufox-m3-engine-adapter`
-- 当前 source candidate：Formal-v3（`0000 → … → 0007`）
+- 当前 canonical source：`df971186beeb2a3ee806f9975cdd72b90d34bd5a`
+- 当前 source-bound RC：**无**
 
 本文只保留当前事实、下一任务和关键证据索引。旧 checkpoint、失败 run、完整 hash 表与历史
 措辞由 Git、lock/result、evidence 和对应历史合同保存，不再永久追加到默认必读页。
@@ -25,9 +26,20 @@ Silo = Persistent Profile
      + Runtime Evidence
 ```
 
-Standard Silo 长期保留；近期只关闭一个 Camoufox Managed Engine 垂直切片。Profile、
-Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、`observed`、
-`verified` 与 `unavailable` 不混用。
+Standard Silo 长期保留。Camoufox Managed Engine 的 standalone、资格链、生产 package/
+adapter、Managed Silo 产品路径和 current-user NSIS 已实现到各自文档边界；当前产品阶段是
+**Pre-RC product stabilization**。Profile、Artifact、Engine、Network 与 Evidence 不合并，
+`configured`、`applied`、`observed`、`verified` 与 `unavailable` 不混用。
+
+当前循环是：
+
+```text
+QA → targeted fix → integration → baseline advance → fresh QA
+```
+
+当前不创建 FP5，也不重新执行输入未变化的 FP1–FP4。RC 不因时间、build 成功或静态
+release checks 自动产生；只有 release-readiness 条件满足后，才从届时 canonical baseline
+冻结新的 source-bound RC。
 
 ## M3 研究结论
 
@@ -75,14 +87,15 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 - Camoufox 仍在独立 Managed Engine 工作树继续调查，不进入这条产品集成链。Profile
   隔离层从本 checkpoint 起冻结；除真实回归缺陷外不再扩张。
 
-## 当前 Gate
+## 已关闭 Gate 与当前 release-readiness 状态
 
 | 能力 | 当前结论 |
 | --- | --- |
+| Standard Silo Windows Profile Isolation | **Closed**；Windows Profile isolation、生命周期与回归边界已闭合，Standard Silo 长期保留 |
 | Linux M0–M2 standalone Host / Artifact | **Accepted**；仅对应已记录平台，`verified:false` |
 | 原生 Windows M2-W | **Accepted**；Profile、Artifact replay 与 Job/process ownership Gate 已关闭 |
 | M3-0 EngineAdapter contract slice | **Accepted** at `e96ef3f`；fake Host contract，不是 shipped desktop |
-| 历史 M3-WI real Windows desktop/Host | **Failed / Inconclusive**；旧合同不复活，Camoufox Windows Managed 保持 experimental |
+| 历史 M3-WI real Windows desktop/Host | **Failed / Inconclusive**；旧合同不复活，旧 test-only 路径保持 historical/experimental，不代表当前 production path |
 | FP1 deterministic Artifact projection | **Accepted by corrected adjudication of immutable A1/A2/B1 evidence**；原 runner verdict 仍 Failed，`verified:false` |
 | 历史 FP2 candidate | **Failed / retired**；Generation 6 永久关闭 |
 | R1-diag Windows build/provenance | **Passed diagnostic-only closure**；不是 Formal 或 runtime pass |
@@ -94,7 +107,9 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 | FP2 / FP3 | **FP2 与 FP3 均 Passed on this native Windows host**；FP3 覆盖 exact required route、出口、timezone/locale、Geo、ICE 与 clean lifecycle，`verified:false` |
 | FP4 ordinary-site compatibility | **Passed on this native Windows host**；精确 V5 六项 task、Profile replay 与 clean lifecycle 全部通过，`verified:false` |
 | clean M3-WI | **Passed on this native Windows host** at Attempt 4；真实 Desktop RuntimeManager / test-only adapter / Host / Browser 两周期闭合，`verified:false` |
-| production package/signing/UI | **Implementation/build closed** at `804aca6803fcbbbf34c47d84d2f73e03729f3d33`；内部 CMS 签名 package、public pin、production adapter、Managed Silo UI 与 outer-unsigned current-user NSIS 已通过 release checks；production adapter 的 installed runtime launch/close 尚未通过 clean Windows 11 产品验收，结论为 **Pending / Not Run**，`verified:false` |
+| production package/signing/UI/S1 stabilization | **Implemented/build closed** in the current source；内部 CMS 签名 package、Desktop public pin、production adapter、Managed Silo UI/network/run path、outer-unsigned current-user NSIS，以及 S1 的 Create Silo UX、reconcile-stopped lifecycle、BUG-01 和 acceptance-driver 修复已进入当前源码 |
+| Historical local `v0.1.0-rc1` artifact | **Historical candidate / superseded / never runtime-accepted**；source `6497828aa0643f94fed3ae708734eef6b85f8305`, dirty `true`, verifier passed for 1403 files, acceptance `Pending`, `verified:false`, `runtimeAcceptance:null` |
+| Current source release readiness | **Pre-RC product stabilization**；没有 current-source RC，当前先做真实产品 QA、定向修复、integration 和 fresh QA |
 
 ## 当前未证明的边界
 
@@ -102,60 +117,65 @@ Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、
 - 实际浏览器 DNS 路径、TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
 - FP3 不证明 Camoufox 原生 Geolocation provider 或 exhaustive native address inventory；
 - FP4 只覆盖冻结的 V5 live-site matrix，不声明 universal compatibility；login、payment 与 CAPTCHA 未测试；
-- clean M3-WI 的既有 Attempt 4 仍只证明当时的 test-only adapter 路径；它不自动证明新 RC1
-  production package/adapter。RC1 已包含受 pin 的内部 CMS signer、签名 Host/runtime/browser package
-  与 production adapter，但最终发布制品中的 `packageVerification`、`verifiedAdapter` 和精确 runtime
-  bindings 尚未在 clean Windows 11 用户路径中直接验收；
-- RC1 installer 与 Desktop 外层明确为 `authenticode=false`；它是本地 unsigned RC，不是公开可信签名发布；
+- clean M3-WI 的既有 Attempt 4 仍只证明当时的 test-only adapter 路径；它不自动证明当前源码
+  的 production package/adapter。当前源码中的 `packageVerification`、`verifiedAdapter` 和精确
+  runtime bindings 尚未在 clean Windows 11 用户路径中直接验收；
+- 历史 RC1 installer 与 Desktop 外层明确为 `authenticode=false`；它是本地 unsigned、已 superseded
+  candidate，不是当前 source-bound RC 或公开可信签名发布；
+- 当前 source-bound installer / repair-reinstall / uninstall / clean Windows 11 acceptance 尚未运行；
 - Formal-v3 runtime observation 只覆盖本机绑定 candidate/Artifacts；Voices 只覆盖 A1、A2、B1
-  各自三秒 top-window trace，不是 exhaustive exclusion；desktop Managed Identity 已构建为本地 RC，尚未
-  通过最终 Windows 用户验收或作为正式产品 shipped。
+  各自三秒 top-window trace，不是 exhaustive exclusion；Managed Identity 的生产路径已实现，
+  但当前 source-bound RC 尚未冻结，也尚未通过最终 Windows 用户验收或作为正式产品 shipped。
 
 ## 当前下一任务
 
-### VeriSilo Managed Browser v0.1 RC1 clean Windows 11 acceptance
+### Pre-RC product stabilization
 
-M3-P1 的实现接缝和产品封装已进入 source revision
-`804aca6803fcbbbf34c47d84d2f73e03729f3d33`：schema-v3 package 由单 signer detached CMS SHA-256
-签名，Desktop 内嵌 public certificate pin；production `ExternalPackageEngineAdapter`、per-Silo
-Artifact/Profile/Engine roots、Managed 创建/重绑 UI、required FixedProxy relay 和 current-user NSIS
-均已实现。Rust 全测为 `202 passed / 0 failed / 5 ignored`，前端 check 与全测通过，最终 release verifier
-对 `1447` 个文件、SBOM、license evidence、provenance 与 SHA256SUMS 全部通过。发布报告仍保持
-`Pending / verified:false / runtimeAcceptance:null`。
+当前 canonical source 是 `df971186beeb2a3ee806f9975cdd72b90d34bd5a`；当前没有
+current-source RC。现有 `artifacts/release/managed-browser/v0.1.0-rc1` 只是历史候选：
+它来自 `6497828aa0643f94fed3ae708734eef6b85f8305`、source dirty 为 `true`，installer
+SHA-256 为 `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`，verifier
+对 1403 个文件通过，但 acceptance 为 `Pending`、`verified:false`、`runtimeAcceptance:null`；
+它已 superseded，且从未做过 runtime acceptance。
 
-当前唯一 Gate 是从精确 unsigned installer
-`VeriSilo-Managed-Browser-v0.1.0-rc1-x64-setup.exe` 在 clean Windows 11 x64 标准用户环境完成：Vault、
-production package verification/adapter launch、required-proxy Silo A、Direct Silo B、Profile 与会话持久化、
-A/B isolation、single-active、proxy fail-closed、四类关闭路径、应用重启、覆盖重装、卸载保留数据和再次安装
-重开。当前构建机只从最终 `verisilo.exe` 观察到首次 Vault 页面正常渲染；这不替代上述验收。没有完整
-用户路径直接 evidence 前不得把 RC1、`verifiedAdapter` 或整体体验裁决为 Passed。
-该 frozen installer 的 SHA-256 为
-`1d4decf51b6b86eb8d6355353b4e208f2e877bee6f96d6204d85b558330381a0`；验收只使用这些精确 bytes，
-不因重新构建或替换样本改变当前候选。
-
-下一次执行只读取 [RC1 acceptance runbook](acceptance/managed-browser-rc1.md) 和 owning code；仅在发布制品
-暴露新的可复现因果失败时修改实现，不重复未变化的 FP1–FP4 历史矩阵，也不创建新的研究 Gate。
-
-## 后续 Gate 顺序
+当前先做真实产品 QA、bug fixing 和 regression，按以下循环推进：
 
 ```text
-Formal-v3 static source candidate（已闭合）
-→ fresh Windows build/provenance（已闭合）
-→ native launch discriminator + FP2 A1→A2→B1 qualification（已闭合）
-→ FP3-0 configured network identity input（已闭合）
-→ FP3-1a local required FixedProxy Host routing seam（已闭合）
-→ FP3-1b native Windows required FixedProxy discriminator（已闭合）
-→ FP4 ordinary-site compatibility（已闭合）
-→ clean M3-WI definition/refreeze（已闭合）
-→ clean M3-WI evidence-semantics correction（已闭合）
-→ clean M3-WI Attempt 4 native two-cycle qualification（已闭合）
-→ M3-P1 production package/signing + production adapter implementation（build/release checks 已闭合；runtime proof 并入 RC1 验收）
-→ Managed Silo UI + outer-unsigned self-contained NSIS（build/release checks 已闭合）
-→ clean Windows 11 A/B / proxy / persistence / lifecycle / reinstall / uninstall acceptance（当前唯一 Gate；Pending）
+QA → targeted fix → integration → baseline advance → fresh QA
 ```
 
-每一步只验证新增不确定性；复用既有 builder/supervisor，不创建新的 build、retry 或 recovery
-框架。
+Release-readiness 决策需要在同一个 canonical baseline 上同时满足：
+
+1. 所有已知 release-blocking P0/P1 产品缺陷关闭；
+2. 高影响 P2 UX 问题已修复，或被显式判定为不阻塞；
+3. 连续两轮独立、完整的用户旅程 QA 没有发现新的 release-blocking defect。
+
+这两轮是 release-readiness 决策规则，不是“没有任何 bug”的声明。满足后，才从届时
+canonical baseline 冻结新的 source-bound RC；RC freeze 之后才执行 installer、repair
+reinstall、uninstall 和 clean Windows 11 等候选专属 acceptance。下一 RC 的版本号在
+本任务中不决定。
+
+不要创建 FP5，也不要重跑输入未变化的 FP1–FP4；只有 QA 暴露可复现、可归因且直接影响
+当前产品路径的新 blocker 时，才回到 owning code 修复并取得新的证据。
+
+## 历史资格链与后续发布路径
+
+```text
+Formal-v3 build/provenance
+→ FP1 deterministic Artifact projection
+→ FP2 cross-realm consistency/replay
+→ FP3 network/geo/timezone/locale coherence
+→ FP4 bounded ordinary-site compatibility
+→ clean M3-WI Attempt 4 native qualification
+→ production package/signing/adapter + Managed Silo UI + current-user NSIS
+→ 当前 pre-RC product stabilization
+→ release-readiness decision
+→ future source-bound RC freeze
+→ installer / repair-reinstall / uninstall / clean Windows 11 acceptance
+```
+
+前半段是已经闭合的历史资格链，后半段是当前与未来的 release-readiness 路径；它们不
+构成新的研究 Gate，也不把历史 RC1 变成当前候选。
 
 ## 关键证据索引
 
@@ -179,8 +199,7 @@ Formal-v3 static source candidate（已闭合）
 | FP4 Formal-v3 aggregate result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp4-result.json`；SHA-256 `14c7de3a8a14b8037cf0e16ec7b5dc213294b68050665a57513dea79efd8f2de`；**Passed on this native Windows host**；`verified:false` |
 | clean M3-WI input contract | `docs/camoufox-m3-wi-clean-contract.md`；SHA-256 `acdc725dbbb1ccb0c39571cea43f6eb7ef3137429f4f8b256ec764f3be20af74`；Attempts 1–3 immutable Failed，Attempt 4 Passed |
 | clean M3-WI Attempt 4 | `artifacts/camoufox-m3-wi-clean-attempt-4/run-report.json`；SHA-256 `edd08b83497e09a73a0a0e29203475f1e9163b20366b2dd7c899aea8634262fe`；native evidence SHA-256 `2f292585a010dbdc3cad35bfcf26b14800bad402ed4a160c5123f41005c972ad`；revision `26ded609bf5bf52882c9ba37496f783ab2b01681`；**Passed on this native Windows host**，`verified:false` |
-| RC1 signed engine package | `artifacts/release/managed-browser/v0.1.0-rc1/engine-package`；manifest `0967dd88729521785a376c72738bfa8c5e7d81a480ab1cf418cea9244318617a`；package tree `d3a6855f987e9c47cbfbe68a4396d42ceba44d065c64b9240b6e52906548d4f5`；browser tree `8434ab9925bf0f7d95cc4ff06fe94b7dcf9963a0691f37638469d68cda58ace2`；Host `2428d79813a0c2e715f5cd81aa3d57825d18e1c26e79c13e8678dbc720970a59`；signer pin `57f3b44cf572571e8b133c6b605b061e0d1c4d9dd75a490b14f658c292bebd93` |
-| RC1 local frozen release artifact | 本机构建且 Git-ignored，revision `804aca6803fcbbbf34c47d84d2f73e03729f3d33`；installer `434488813` bytes，SHA-256 `1d4decf51b6b86eb8d6355353b4e208f2e877bee6f96d6204d85b558330381a0`；provenance `sourceDirty=false`、`runnerOs=win32`、`authenticode=false`；release checks Passed，Windows acceptance **Pending / Not Run** |
+| Historical RC1 release artifact | `artifacts/release/managed-browser/v0.1.0-rc1`；source revision `6497828aa0643f94fed3ae708734eef6b85f8305`；source dirty `true`；installer SHA-256 `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`；verifier `Managed-browser release verification passed for 1403 files.`；acceptance `Pending`、`verified:false`、`runtimeAcceptance:null`；historical candidate, superseded, never runtime-accepted |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |

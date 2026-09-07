@@ -116,13 +116,13 @@ VeriSilo 不提供“匿名分数”，不宣传“不可检测”，不把单�
 - 不把多个受控浏览器内核的并行维护当作默认路线；每新增一个引擎都需要明确需求、资源与独立证据。
 - 不把 Profile、身份配置、代理秘密和证据合并成一个不可迁移、不可审计的黑盒目录。
 
-## 长期顺序与当前优先级
+## 长期顺序与当前执行阶段
 
-长期产品顺序仍然是 Standard、Managed、Isolated 三层并存。2026-08 的风险优先阶段已经完成了 Camoufox standalone、Artifact、原生 Windows Host 和 M3-0 contract 接缝，并在 M3-WI 中确认真实 Windows 多 Host 重启仍存在非确定性。这个结果证明 Managed Identity 架构具有可行性，同时也说明它当前不适合作为默认 Windows 产品路径。
+长期产品顺序仍然是 Standard、Managed、Isolated 三层并存。2026-08 的风险优先阶段完成了 Camoufox standalone、Artifact、原生 Windows Host 和 M3-0 contract 接缝；FP1–FP4 以及 clean M3-WI Attempt 4 随后完成了各自冻结边界内的资格链。这里的历史结果不改变三层产品模型，也不把任一层的证据扩大为整体产品或发布验收。
 
-因此当前工程优先级回到最薄的 Standard Silo Windows 用户旅程：安装或运行桌面端、创建 Local + Direct Silo、启动系统 Chrome/Edge 的独立 Profile、关闭并再次使用、查看诚实的本地证据。Camoufox 保留为 experimental Managed Engine；只有新的明确需求和可复现的生命周期因果证据出现时，才重新开放 Windows productionization。这个优先级变化不删除 Managed 层，也不把 Standard 的 Profile 隔离夸大为指纹控制。
+当前阶段是 **Pre-RC product stabilization**。Managed Identity 的生产 adapter/package/signing、Desktop signer pin、创建与运行路径、网络绑定和 current-user NSIS 已实现；当前没有 current-source RC。下一轮遵循 `QA → targeted fix → integration → baseline advance → fresh QA`，直到 release-readiness 条件满足，再从届时 canonical baseline 冻结新的 source-bound RC。旧 RC1、FP1–FP4 和 M3-WI 合同只作为历史证据，不作为今天的下一任务。
 
-具体决策与重评条件见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。
+当前阶段、Gate 和未验证边界以[Camoufox Managed Engine 状态页](camoufox-program-status.md)为准；稳定架构理由与重评条件见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。
 
 ## 变更规则
 

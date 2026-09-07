@@ -71,9 +71,13 @@ license texts and notices.
   at this stage. Their repositories are not vendored and their source code is not
   copied into the release.
 
-## Managed Browser RC1 engine package
+## Historical Managed Browser RC1 engine package
 
-The bounded Managed Browser v0.1.0-rc1 profile embeds a self-built, signed
+The corresponding local RC1 artifact is a historical, superseded candidate and
+was never runtime-accepted; this notice preserves its package inventory
+boundary and does not identify a current release.
+
+The historical Managed Browser v0.1.0-rc1 profile embeds a self-built, signed
 Camoufox Host package containing the pinned Formal-v3 Camoufox/Firefox runtime
 and its locked Python runtime dependencies. The package is not part of the
 Standard Silo or Remote Agent profiles. The release carries a profile-specific

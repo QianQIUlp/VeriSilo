@@ -1,5 +1,9 @@
 # Camoufox FP3 network identity contract
 
+> **Historical qualification contract.** FP3 is closed at its documented
+> evidence boundary and is not the current next task; current routing and
+> unverified claims live in [Camoufox program status](camoufox-program-status.md).
+
 ## FP3-0 scope
 
 FP3-0 freezes a reproducible **configured input** for network-bound website identity. It does not

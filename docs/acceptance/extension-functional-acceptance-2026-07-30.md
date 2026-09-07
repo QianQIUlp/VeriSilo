@@ -1,5 +1,8 @@
 # 插件端功能验收记录（2026-07-30）
 
+> **Historical acceptance record.** 本文只适用于标题所列日期、浏览器和环境；不决定当前产品阶段、
+> 当前 RC 或下一任务。当前路由见 [Camoufox 状态页](../camoufox-program-status.md)。
+
 ## 结论
 
 本轮从 `main` 的 `e5eaeb8` 开始，在真实 Chromium 中逐项操作插件，并在同一变更集中修复发现的问题。结论分两层：

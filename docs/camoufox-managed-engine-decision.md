@@ -27,8 +27,9 @@ VeriSilo
 → first-party runtime evidence
 ```
 
-Camoufox-first 是近期风险顺序，不删除 Standard Silo，也不把 Camoufox 等同于整个产品。
-先关闭一个受控引擎的真实执行风险，再做桌面产品集成、网络协调和发布。
+Camoufox-first 是稳定的第一条 Managed Engine 路线，不删除 Standard Silo，也不把 Camoufox
+等同于整个产品。其 standalone、资格链和产品化接缝已经按各自证据层完成；当前执行阶段由
+[Camoufox 状态页](camoufox-program-status.md)决定。
 
 ## 职责边界
 
@@ -71,8 +72,8 @@ DNS/TLS/QUIC 资格、installer、签名、UI 或 release Gate，也不以继续
 
 FP4 是 Camoufox-first 的产品级 go/no-go：通过只支持继续该路线，不等于商业产品或发布就绪；若
 目标用户必需的普通网站能力出现可复现的 Camoufox/Firefox 固有限制，才形成重评 Controlled
-Chromium 的有效证据。FP4 闭合后不创建 FP5，而是立即回到最终候选上的 clean M3-WI，证明真实
-Desktop RuntimeManager → EngineAdapter → Host → Browser 两次生命周期。
+Chromium 的有效证据。FP4 闭合后不创建 FP5；随后完成的 clean M3-WI Attempt 4 只证明其
+冻结 test-only desktop/Host qualification 边界。
 
 精确站点、任务、预算、判定与 immutable evidence 仍分别以
 [FP4 冻结合同](camoufox-fp4-ordinary-site-compatibility-contract.md)和
@@ -105,19 +106,22 @@ Desktop RuntimeManager → EngineAdapter → Host → Browser 两次生命周期
 - 上游升级只验证受影响能力，不自动重跑所有历史研究；
 - build/provenance、runtime qualification、签名发布与产品 shipped 是不同 Gate。
 
-## 当前执行顺序
+## 历史资格链与当前执行路由
 
 ```text
 FP1 deterministic Artifact projection
 → FP2 cross-realm consistency and replay
 → FP3 network/geo/timezone/locale coherence
 → FP4 ordinary-site compatibility
-→ 使用最终 Managed Engine 执行 clean M3-WI
-→ production package/signing、installer、Managed Silo UI 与 Windows release acceptance
+→ clean M3-WI Attempt 4 test-only qualification
+→ production package/signing、Managed Silo UI 与 current-user NSIS implementation
 ```
 
-精确下一任务以状态页为准。旧 M3-WI、FP1/FP2 generation、diagnostic build 与 one-shot
-执行历史只在调查对应 evidence 时读取，不构成新任务的默认流程模板。
+上面是已经闭合的历史资格链，不是新的执行顺序。当前是 **Pre-RC product stabilization**，
+按状态页定义的 `QA → targeted fix → integration → baseline advance → fresh QA` 循环推进；
+只有 release-readiness 条件满足后，才冻结新的 source-bound RC 并执行候选专属 Windows
+installer acceptance。旧 M3-WI、FP1/FP2 generation、diagnostic build 与 one-shot 执行历史
+只在调查对应 evidence 时读取，不构成新任务的默认流程模板。
 
 ## 重评或变更条件
 

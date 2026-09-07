@@ -1,41 +1,43 @@
 # V0.7 EngineAdapter
 
-V0.7 now has a repository-side controlled-engine lifecycle and a real Windows
-signed-manifest verifier. The repository also tracks standalone Camoufox
-observations, but it still does **not** include a distributable controlled
-Chromium/Camoufox package, a publisher certificate, private signing keys,
-browser patches, or independently verified release evidence. Those are
-external release inputs, not implied by a fixture or an `experimental`
-capability declaration.
+V0.7 has a repository-side controlled-engine lifecycle, a production
+`ExternalPackageEngineAdapter`, and a real Windows signed-manifest verifier.
+The Formal-v3 Camoufox Host package is built as a distributable internal
+package, signed with detached CMS, and checked against the public certificate
+pin embedded in the Desktop release build. The private signing key remains
+outside the repository. Package/build checks and native qualification are
+separate from current product runtime acceptance; the current source has no
+source-bound RC.
 
 The authoritative implementation is
-`apps/desktop/src-tauri/src/engine.rs`. The package schema and deliberately
-non-installable example are in `apps/desktop/src-tauri/resources`.
+`apps/desktop/src-tauri/src/engine.rs`. The package schema and development
+policy are in `apps/desktop/src-tauri/resources`; the release package is
+assembled by `scripts/build-camoufox-host-package.py` and
+`scripts/build-managed-browser-release.ps1`.
 
 ## Camoufox integration boundary
 
-The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) then accepted the contract-level connection between a schema-v3 Host package, the dedicated `camoufox-host-jsonl-v1` transport, `EngineAdapter`, and `RuntimeManager` at checkpoint `e96ef3f`. This does not package the real Host as a trusted production engine entrypoint: release Tauri still has no signed Camoufox Host package or signer pin to launch.
+The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) accepted the connection between a schema-v3 Host package, the dedicated `camoufox-host-jsonl-v1` transport, `EngineAdapter`, and `RuntimeManager` at checkpoint `e96ef3f`. Later implementation added the production package builder, Formal-v3 detached CMS signing, the Desktop signer pin, the production adapter path, Managed Silo product flow, and current-user NSIS packaging. These are implemented; current clean Windows product acceptance remains a separate release-readiness boundary.
 
-Native Windows M2-W has accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. M3-0's accepted checkpoint implements the contract-level fake-Host slice; it explicitly forbids fabricating generic phase receipts from Host self-report and keeps `verified: false` evidence below `verified`. See [the Camoufox program status](camoufox-program-status.md).
+Native Windows M2-W has accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. The M3-0 contract remains the historical boundary for the fake-Host slice and its honest evidence semantics; the current production adapter consumes the signed schema-v3 package and still keeps `verified: false` evidence below `verified` until direct product evidence exists. See [the Camoufox program status](camoufox-program-status.md).
 
 The original [M3-WI](camoufox-m3-wi-windows-task.md) Windows-only ignored
 harness and its R1/R2/R2H investigations remain historical Failed /
 Inconclusive evidence, not a production fix or an accepted desktop result.
-FP1 through FP4 have since qualified the final Formal-v3 candidate on this
-native Windows host, with `verified: false`; FP4 means bounded ordinary-site
-product compatibility, not anti-detection, universal compatibility, or desktop
-integration. The [clean M3-WI contract](camoufox-m3-wi-clean-contract.md) is
-now a new frozen definition and does not revive the old matrices.
+FP1 through FP4 qualified the final Formal-v3 candidate on this native Windows
+host, with `verified: false`; FP4 means bounded ordinary-site product
+compatibility, not anti-detection, universal compatibility, or desktop product
+acceptance. Clean M3-WI Attempt 4 then passed its test-only two-cycle
+qualification. These historical qualification results do not create an FP5 or
+replace the current pre-RC product QA loop.
 
 For Camoufox, the Resolved Identity Artifact is the sole runtime identity
-authority. The current generic Silo schema still carries an `IdentityTemplate`
-beside the Artifact binding, but those values are not semantically bound and
-the real Host receives only the exact Artifact ID/raw SHA/schema. Before the
-clean native attempt, the focused implementation must stop generic Host
-running evidence from promoting Template-derived identity capabilities to
-`applied`; only the directly bound Profile operation may be promoted. Network
-routing remains a separate Network Evidence transition. No Artifact parser or
-second identity projection is part of this Gate.
+authority. The generic Silo schema may carry an `IdentityTemplate` beside the
+Artifact binding, but the production Host receives and revalidates the exact
+Artifact ID/raw SHA/schema and does not treat the template as a second runtime
+identity. Profile, Artifact, Engine, Network Policy, and Runtime Evidence keep
+separate bindings and transitions. Network routing remains a separate Network
+Evidence transition.
 
 ## Adapter and capability contract
 
@@ -127,9 +129,11 @@ The loader re-verifies the v3 Host entrypoint, complete Host/runtime package
 tree, browser-tree manifest member, exact v-prefixed browser release, and
 browser asset binding before launch. Only the browser-tree manifest path is
 passed to Host `--tree-manifest`; the package tree is never passed to the
-standalone browser-tree loader. The implementation is contract-level and
-fake-Host tested on this branch; it is not a signed release package and does
-not claim real Camoufox verification.
+standalone browser-tree loader. The production package builder and release
+verifier use the same bindings, add the detached CMS signature and pinned
+signer, and reject tampered or incomplete packages before launch. A successful
+package check still does not prove the browser signals or current user journey
+until direct runtime evidence exists.
 
 Manifest schemas v2 and v3 are defined by
 `engine-package.schema.json`. The loader rejects relative roots, traversal,
@@ -141,8 +145,8 @@ wrong engine/channel/platform, and malformed hash/signature fields.
 
 Schema-v2 Controlled Chromium packages must declare at least `identity_template`
 and `site_fallback`. Camoufox Host v3 packages declare the identity surfaces
-but explicitly do not declare `site_fallback`, which remains unavailable in
-M3-0.
+but explicitly do not declare `site_fallback`; that boundary remains unavailable
+for this adapter.
 `profile_isolation`, network launch, TLS, and QUIC cannot be granted by a
 package manifest. The adapter, launcher, or unavailable evidence gate owns
 those surfaces.
@@ -202,12 +206,13 @@ pin rotation and revocation an application-release responsibility:
 - sign replacement manifests with a newly pinned, currently valid code-signing
   certificate.
 
-`engine-trusted-signers.json` is intentionally empty in this source tree
-because no release signer has been supplied. A release build may embed one or
-more comma-separated lowercase certificate hashes through the compile-time
-`VERISILO_ENGINE_SIGNER_SHA256` value, or a maintained source policy can hold
-public certificate pins. Private keys never belong in the repository. With no
-pin, the production verifier is present but every external package is rejected.
+`engine-trusted-signers.json` is the development policy input. A release build
+embeds one or more comma-separated lowercase public certificate hashes through
+the compile-time `VERISILO_ENGINE_SIGNER_SHA256` value, and the Formal-v3
+release package is signed by the corresponding private key outside the
+repository. Private keys never belong in the repository. A build without a
+valid pin fails closed and rejects every external package; the current Desktop
+release path includes the public signer pin.
 
 ## Durable lifecycle state
 
@@ -266,9 +271,10 @@ node scripts/verify-engine-source.mjs --release
 ```
 
 The normal gate validates the manifest example, trust policy, no-shell source
-boundary, and absence of controlled-engine executables/archives/signatures in
-desktop resources. It reports the missing signer pin as an explicit blocker.
-The release gate fails until at least one valid certificate pin is configured.
+boundary, and development-resource boundaries. It reports an absent signer pin
+when the source build has not supplied one. The release gate requires at least
+one valid certificate pin and a signed Formal-v3 package; the current release
+build path supplies both.
 
 Focused Rust tests cover exact SHA-256 vectors, canonical signed bytes, package
 tamper, wrong hash/signer/signature/version/platform, traversal and symlink
@@ -278,22 +284,15 @@ constraints, strict evidence phases, and site fallback.
 
 ## External release blockers
 
-V0.7 cannot be called a shipped controlled browser until separately supplied
-and audited work provides licensed reproducible Chromium/Camoufox release artifacts,
-patch sources, SBOM and license review, protected signing service and public
-certificate pin, update hosting and rollback retention, secure token transport
-integration, real Window/iframe/Dedicated Worker consistency evidence,
-release-level compatibility coverage beyond the frozen FP4 matrix,
-Canvas/WebGL/font observations beyond the accepted bounded candidate, TLS
-ClientHello captures, and direct QUIC observations. Tests and placeholder JSON
-must never be presented as those artifacts or evidence.
+The remaining product/release boundary is direct evidence from the current
+source on a clean Windows 11 user journey. Additional release-level
+compatibility beyond the frozen FP4 matrix, Canvas/WebGL/font observations
+beyond the accepted bounded candidate, TLS ClientHello captures, direct QUIC
+observations, license review, and signer lifecycle operations remain separate
+claims or release work. Tests, package verification, and placeholder JSON must
+never be presented as those runtime facts.
 
-In particular, this source tree still has no real signed engine artifact or
-signer pin. Production external-engine launch therefore remains blocked even
-though the receipt transport and fake-engine E2E harness exist.
-
-The Camoufox archive, tree manifests, Artifact fixtures, accepted Linux/Windows
-standalone evidence, FP1–FP4 qualification, and M3-0 contract integration do
-not remove these shipping blockers. The old M3-WI path remains historical and
-the clean M3-WI definition remains test-only and unexecuted; none of these
-artifacts is a signed production Host package or publisher identity.
+The historical RC1 artifact is superseded for current acceptance. Its internal
+CMS package/signature and the current production adapter implementation are
+real release inputs, but they do not turn the historical artifact into a
+current-source candidate or supply the missing clean Windows runtime evidence.

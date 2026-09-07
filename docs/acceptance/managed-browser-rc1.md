@@ -1,3 +1,12 @@
+> **Historical acceptance contract.** The exact v0.1.0-rc1 candidate described
+> here is superseded for current product acceptance and was never runtime-
+> accepted. Its provenance is source revision
+> `6497828aa0643f94fed3ae708734eef6b85f8305` with `sourceDirty=true` and
+> installer SHA-256
+> `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`.
+> Preserve the frozen fields, hashes, and procedure below; do not use this
+> document to route current work. See [Camoufox program status](../camoufox-program-status.md).
+
 # Managed Browser RC1 acceptance
 
 Status: Pending. Runtime acceptance: Not Run. This runbook describes the

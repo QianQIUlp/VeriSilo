@@ -1,5 +1,8 @@
 # Windows 桌面端与插件集成验收矩阵
 
+> **Historical scope/evidence matrix.** 本文保留 2026-07-30 的验收范围、证据等级和发布门槛，
+> 不决定当前产品阶段、当前候选或下一任务；当前路由见 [Camoufox 状态页](../camoufox-program-status.md)。
+
 ## 使用方法
 
 这份矩阵接在[插件端验收](extension-functional-acceptance-2026-07-30.md)之后。它区分三类状态：

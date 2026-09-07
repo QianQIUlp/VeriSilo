@@ -1,3 +1,12 @@
+> **Historical candidate.** This guide is retained with the frozen v0.1.0-rc1
+> user-facing artifact. That artifact came from source revision
+> `6497828aa0643f94fed3ae708734eef6b85f8305` with `sourceDirty=true`, has
+> installer SHA-256
+> `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`, and
+> was never runtime-accepted. It is superseded for current product acceptance;
+> do not use this document to determine the current next task. See
+> [Camoufox program status](camoufox-program-status.md).
+
 # VeriSilo Managed Browser v0.1.0 RC1
 
 This RC is a self-contained Windows x64 build for local evaluation. It includes
