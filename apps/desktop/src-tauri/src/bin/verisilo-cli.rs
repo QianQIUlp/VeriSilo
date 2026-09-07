@@ -86,7 +86,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         "create" => {
             let body = create_payload(&args)?;
-            print_value(api("POST", "/v1/silos", Some(&body))?, json_out, print_created)
+            print_value(api("POST", create_path(&args), Some(&body))?, json_out, print_created)
         }
         "create-batch" => create_batch(&args, json_out),
         "page" => page_command(&args, json_out),
@@ -311,7 +311,9 @@ VeriSilo 本机命令行（需要时自动在后台启动本机服务）
   verisilo-cli stop <名称或id>
   verisilo-cli delete <名称或id> --yes
   verisilo-cli create --name <名称> [--network direct|clash] [--mixed-port 7897] [--group 组] [--node 节点] [--preset balanced-zh-cn]
-  verisilo-cli create --request                         # 从 stdin 读取完整 JSON
+  verisilo-cli create --standard --name <名称> --browser-kind chrome|edge --executable-path <路径> [--network direct|clash]
+  verisilo-cli create --request                         # 从 stdin 读取 Managed JSON；Standard 字段会自动选择
+  verisilo-cli create --standard --request              # 从 stdin 读取完整 Standard JSON
   verisilo-cli create-batch --prefix <名称> --count <数量> [create 的网络与身份参数]
   verisilo-cli create-batch --request                   # 从 stdin 读取 JSON 数组
   verisilo-cli page <名称或id> snapshot
@@ -457,7 +459,25 @@ fn create_payload(args: &[String]) -> Result<Value, String> {
         }
         return Ok(value);
     }
+    let standard = args.iter().any(|arg| arg == "--standard");
     let name = flag(args, "--name").ok_or_else(|| "用法：verisilo-cli create --name <名称>".to_owned())?;
+    if standard {
+        let browser_kind = flag(args, "--browser-kind").ok_or_else(|| {
+            "用法：verisilo-cli create --standard --browser-kind chrome|edge --executable-path <路径>".to_owned()
+        })?;
+        let executable_path = flag(args, "--executable-path").ok_or_else(|| {
+            "用法：verisilo-cli create --standard --browser-kind chrome|edge --executable-path <路径>".to_owned()
+        })?;
+        let network = flag(args, "--network").unwrap_or_else(|| "direct".to_owned());
+        return Ok(json!({
+            "name": name,
+            "color": "#5b5ce2",
+            "browserKind": browser_kind,
+            "executablePath": executable_path,
+            "executionTarget": {"kind": "local"},
+            "networkProfile": network_profile_payload(args, &network)?,
+        }));
+    }
     let network = flag(args, "--network").unwrap_or_else(|| "clash".to_owned());
     let preset = flag(args, "--preset").unwrap_or_else(|| {
         if network == "clash" {
@@ -467,13 +487,7 @@ fn create_payload(args: &[String]) -> Result<Value, String> {
         }
     });
     let follow = network != "direct";
-    let network_profile = match network.as_str() {
-        "direct" => json!({ "mode": "direct", "proxyRequired": false }),
-        "clash" => clash_profile(args)?,
-        _ => {
-            return Err("create --network 只支持 direct 或 clash。".to_owned());
-        }
-    };
+    let network_profile = network_profile_payload(args, &network)?;
     Ok(json!({
         "name": name,
         "color": "#5b5ce2",
@@ -481,6 +495,22 @@ fn create_payload(args: &[String]) -> Result<Value, String> {
         "followNetworkExit": follow,
         "networkProfile": network_profile,
     }))
+}
+
+fn network_profile_payload(args: &[String], network: &str) -> Result<Value, String> {
+    match network {
+        "direct" => Ok(json!({ "mode": "direct", "proxyRequired": false })),
+        "clash" => clash_profile(args),
+        _ => Err("create --network 只支持 direct 或 clash。".to_owned()),
+    }
+}
+
+fn create_path(args: &[String]) -> &'static str {
+    if args.iter().any(|arg| arg == "--standard") {
+        "/v1/silos/standard"
+    } else {
+        "/v1/silos"
+    }
 }
 
 fn create_batch(args: &[String], json_out: bool) -> Result<(), String> {
@@ -515,7 +545,7 @@ fn create_batch(args: &[String], json_out: bool) -> Result<(), String> {
     let mut created = Vec::with_capacity(bodies.len());
     for (offset, body) in bodies.iter().enumerate() {
         let index = offset + 1;
-        match api("POST", "/v1/silos", Some(body)) {
+        match api("POST", create_path(args), Some(body)) {
             Ok(silo) => {
                 if !json_out {
                     print_created(&silo)?;
@@ -935,5 +965,35 @@ mod tests {
         .expect("vault flag");
         assert_eq!(vault, "agent");
         assert_eq!(args, ["status", "--json"]);
+    }
+
+    #[test]
+    fn standard_create_payload_matches_desktop_contract() {
+        let payload = super::create_payload(&[
+            "create".to_owned(),
+            "--standard".to_owned(),
+            "--name".to_owned(),
+            "Chrome QA".to_owned(),
+            "--browser-kind".to_owned(),
+            "chrome".to_owned(),
+            "--executable-path".to_owned(),
+            "C:/Program Files/Google/Chrome/Application/chrome.exe".to_owned(),
+        ])
+        .expect("standard create payload");
+        assert_eq!(payload["browserKind"], "chrome");
+        assert_eq!(
+            payload["executionTarget"],
+            serde_json::json!({ "kind": "local" })
+        );
+        assert_eq!(
+            payload["networkProfile"],
+            serde_json::json!({ "mode": "direct", "proxyRequired": false })
+        );
+        assert!(payload.get("identityPreset").is_none());
+        assert_eq!(
+            super::create_path(&["create".to_owned(), "--standard".to_owned()]),
+            "/v1/silos/standard"
+        );
+        assert_eq!(super::create_path(&["create".to_owned()]), "/v1/silos");
     }
 }

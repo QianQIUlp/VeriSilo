@@ -21,11 +21,11 @@ use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::application::{
-    create_managed_silo_with, delete_silo_with, desktop_status_with, diagnose_silo_with,
-    initialize_vault_with, launch_silo_with, list_silos_with, lock_vault_with, page_action_with,
-    stop_silo_with, unlock_vault_with, DesktopCore,
+    create_managed_silo_with, create_silo, delete_silo_with, desktop_status_with,
+    diagnose_silo_with, initialize_vault_with, launch_silo_with, list_silos_with, lock_vault_with,
+    page_action_with, stop_silo_with, unlock_vault_with, DesktopCore,
 };
-use crate::domain::{active_vault_name, app_data_root, CreateManagedSiloInput};
+use crate::domain::{active_vault_name, app_data_root, CreateManagedSiloInput, CreateSiloInput};
 use crate::mihomo::diagnose_local_clash;
 
 pub const DISCOVERY_FILE: &str = "local-api.json";
@@ -494,12 +494,8 @@ fn dispatch(state: &DesktopCore, request: &ApiRequest) -> (u16, serde_json::Valu
         ("POST", "/v1/vault/unlock") => dispatch_vault_passphrase(state, request, false),
         ("POST", "/v1/vault/lock") => map_result(lock_vault_with(state)),
         ("GET", "/v1/silos") => map_result(list_silos_with(state).map_err(map_locked)),
-        ("POST", "/v1/silos") => {
-            match serde_json::from_slice::<CreateManagedSiloInput>(&request.body) {
-                Ok(input) => map_result(create_managed_silo_with(state, input)),
-                Err(error) => (400, error_body(&format!("创建参数无效：{error}"))),
-            }
-        }
+        ("POST", "/v1/silos") => dispatch_create_silo(state, &request.body, false),
+        ("POST", "/v1/silos/standard") => dispatch_create_silo(state, &request.body, true),
         ("GET", "/v1/clash") => (200, ok_body(diagnose_local_clash(""))),
         ("GET", "/v1/cli") => (
             200,
@@ -518,6 +514,35 @@ fn dispatch(state: &DesktopCore, request: &ApiRequest) -> (u16, serde_json::Valu
             (404, error_body("没有这个本机 API 路径。"))
         }
     }
+}
+
+fn dispatch_create_silo(
+    state: &DesktopCore,
+    body: &[u8],
+    standard_hint: bool,
+) -> (u16, serde_json::Value) {
+    let value = match serde_json::from_slice::<serde_json::Value>(body) {
+        Ok(value) => value,
+        Err(error) => return (400, error_body(&format!("创建参数无效：{error}"))),
+    };
+    if standard_hint || is_standard_create_request(&value) {
+        return match serde_json::from_value::<CreateSiloInput>(value) {
+            Ok(input) => map_result(create_silo(state, input)),
+            Err(error) => (400, error_body(&format!("Standard 创建参数无效：{error}"))),
+        };
+    }
+    match serde_json::from_value::<CreateManagedSiloInput>(value) {
+        Ok(input) => map_result(create_managed_silo_with(state, input)),
+        Err(error) => (400, error_body(&format!("创建参数无效：{error}"))),
+    }
+}
+
+fn is_standard_create_request(value: &serde_json::Value) -> bool {
+    value.as_object().is_some_and(|object| {
+        ["browserKind", "executablePath", "executionTarget", "engine"]
+            .iter()
+            .any(|field| object.contains_key(*field))
+    })
 }
 
 fn dispatch_vault_passphrase(
@@ -689,7 +714,7 @@ fn write_json(stream: &mut TcpStream, status: u16, body: &serde_json::Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_silo_path, percent_decode};
+    use super::{is_standard_create_request, parse_silo_path, percent_decode};
 
     #[test]
     fn silo_paths_split_id_and_action() {
@@ -707,5 +732,39 @@ mod tests {
     #[test]
     fn percent_decode_keeps_ascii() {
         assert_eq!(percent_decode("shop-1"), "shop-1");
+    }
+
+    #[test]
+    fn create_requests_keep_standard_and_managed_shapes_distinct() {
+        let standard = serde_json::json!({
+            "name": "standard",
+            "color": "#5b5ce2",
+            "browserKind": "chrome",
+            "executablePath": "C:/Chrome/chrome.exe",
+            "networkProfile": { "mode": "direct", "proxyRequired": false }
+        });
+        assert!(is_standard_create_request(&standard));
+        assert!(serde_json::from_value::<crate::domain::CreateSiloInput>(standard).is_ok());
+
+        let managed = serde_json::json!({
+            "name": "managed",
+            "color": "#5b5ce2",
+            "identityPreset": "balanced-en-us",
+            "networkProfile": { "mode": "direct", "proxyRequired": false }
+        });
+        assert!(!is_standard_create_request(&managed));
+        assert!(serde_json::from_value::<crate::domain::CreateManagedSiloInput>(managed).is_ok());
+
+        let mut invalid_standard = serde_json::json!({
+            "name": "invalid-standard",
+            "color": "#5b5ce2",
+            "browserKind": "chrome",
+            "executablePath": "C:/Chrome/chrome.exe",
+            "networkProfile": { "mode": "direct", "proxyRequired": false }
+        });
+        invalid_standard["identityPreset"] = serde_json::json!("balanced-en-us");
+        assert!(
+            serde_json::from_value::<crate::domain::CreateSiloInput>(invalid_standard).is_err()
+        );
     }
 }
