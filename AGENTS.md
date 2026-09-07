@@ -8,6 +8,9 @@
 用 `baseline advance` 显式推进）→ 在边界内修改 → `verify` + `check` 通过 → 提交并交给 integration。
 `check` 报两类不同问题：scope violation（worktree 内越界修改，exit 2）与
 WORKSPACE CONTAMINATION（主检出被污染，exit 3）。
+`baseline/dev` 是本地专属引用，永不推送远端；远端只保留稳定主线
+`codex/camoufox-m3-engine-adapter`，由用户在每轮收口时合并 baseline 并只推送该分支，
+agent 从不执行 push。
 Lane 范围、修改边界与验证命令的唯一事实源是 [scripts/agent-task.mjs](scripts/agent-task.mjs) 顶部配置。
 
 并行开发、工作树隔离或桌面结构调整的手工细节先读

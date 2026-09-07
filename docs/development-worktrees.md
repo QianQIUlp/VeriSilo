@@ -35,6 +35,8 @@ Agent 任务的共同分叉点是 canonical baseline ref `refs/heads/baseline/de
 （查看：`node scripts/agent-task.mjs baseline`；只能由 integration 在一轮汇总验证通过后
 用 `baseline advance` 显式推进，见 [agent-task-routing.md](agent-task-routing.md)）。
 手工流程也应从同一 ref 创建工作分支，不要从任意本地 HEAD 分叉。
+`baseline/dev` 是本地专属引用，永不推送远端；每轮收口由用户把它合并进稳定主线
+`codex/camoufox-m3-engine-adapter` 并只推送该分支，远端不出现任何 workflow 引用。
 
 新工作树只包含提交中的文件。分支前先把当前需要的源码（包括新增文件）提交，
 不要把本机生成的 Host 构建目录、浏览器包或旧 evidence 混入源码提交。

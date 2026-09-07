@@ -77,6 +77,8 @@ baseline/dev = B1   之后的新任务统一从 B1 开始
 - `baseline/dev` 是 **development/integration baseline**，不是 RC，也不代表任何产品语义已完成；RC 候选与验收仍走 acceptance 流程。
 - 新任务默认且只能从它创建（`start` 内部解析该 ref；ref 不存在则 fail fast 并给出建立命令）。
 - **baseline 只能由 integration 显式推进**：`node scripts/agent-task.mjs baseline advance <sha|ref>`；非后代提交（回退/分叉）需要 `--force` 显式确认。某个 lane 分支上多提交几个 commit 不会使 baseline 漂移。
+- **`baseline/dev` 是本地专属引用，永不推送远端**。远端只保留稳定主线 `codex/camoufox-m3-engine-adapter`；`stable/checkpoint-*` 是本地只读冻结存档，`agent/*` 是本地审计留档。不要执行 `git push --all` / `--mirror`。
+- **轮次收口顺序固定**：integration 在本地推进 `baseline/dev` → 用户在主检出 `git merge baseline/dev` 把成果收进稳定主线 → 用户 `git push origin codex/camoufox-m3-engine-adapter`。agent 从不执行 push。
 - 查看当前指向：`node scripts/agent-task.mjs baseline`。
 
 ## 修改边界（scope guard 与 contamination guard）
