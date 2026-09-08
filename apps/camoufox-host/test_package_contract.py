@@ -36,6 +36,7 @@ from provision_artifact import (  # noqa: E402
     _atomic_first_writer,
     _network_identity_from_ipwhois,
     decode_seed,
+    apply_identity_overrides,
 )
 from host_v1 import read_provision_frame  # noqa: E402
 
@@ -70,6 +71,12 @@ def _manifest() -> dict:
 
 
 def main() -> int:
+    # BrowserForge may place the available area below/right of the screen origin.
+    # A full-screen preset must replace that origin along with its dimensions.
+    config = {"screen.availTop": 4, "screen.availLeft": 8}
+    apply_identity_overrides(config, window=(1280, 800), hardware_concurrency=None)
+    assert 0 <= config["screen.availTop"] + config["screen.availHeight"] <= config["screen.height"]
+    assert 0 <= config["screen.availLeft"] + config["screen.availWidth"] <= config["screen.width"]
     assert len(PROVISION_PRESETS) == 4
     assert set(PROVISION_PRESETS) == {
         "balanced-en-us",
