@@ -5,7 +5,7 @@ use super::identity::{
     managed_browser_package_root, managed_proxy_error, managed_vault_error,
     provision_managed_artifact,
 };
-use super::runtime::{desktop_status_with, diagnostic_status_for_silo};
+use super::runtime::diagnostic_status_for_silo;
 use super::DesktopCore;
 use crate::domain::{
     CreateSiloInput, ManagedIdentityPreset, NetworkProfile, ProxyScheme as SiloProxyScheme, Silo,
