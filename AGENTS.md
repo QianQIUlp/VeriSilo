@@ -4,13 +4,16 @@
 按 [Agent 任务路由工作流](docs/agent-task-routing.md) 自主完成 ——
 判定 lane（`ui` / `core` / `host` / `qa` / `integration`）→
 `node scripts/agent-task.mjs start --lane <lane> --task "<任务>"` 创建隔离任务工作区
-（一律从 canonical baseline `refs/heads/baseline/dev` 分叉；baseline 只能由 integration
-用 `baseline advance` 显式推进）→ 在边界内修改 → `verify` + `check` 通过 → 提交并交给 integration。
+（脚本先 fetch/prune `origin`，并要求本地 `baseline/dev` 与 canonical
+`origin/baseline/dev` 精确相等）→ 在边界内修改 → `verify` + `check` 通过 → 提交并发布自己的 task branch。
 `check` 报两类不同问题：scope violation（worktree 内越界修改，exit 2）与
 WORKSPACE CONTAMINATION（主检出被污染，exit 3）。
-`baseline/dev` 是本地专属引用，永不推送远端；远端只保留稳定主线
-`codex/camoufox-m3-engine-adapter`，由用户在每轮收口时合并 baseline 并只推送该分支，
-agent 从不执行 push。
+`origin/baseline/dev` 是 canonical development source；本地 `baseline/dev` 是其工作引用，
+正常状态必须精确相等。task/integration branch 完成 verify + check + commit 后按 exact refspec
+推送到 `origin`，fetch 后核对远端 SHA；禁止 force push、`git push --all` 和 `git push --mirror`。
+`codex/camoufox-m3-engine-adapter` 保留为稳定主线，但不再是新 task 的 canonical development source。
+integration 通过 `baseline advance` 显式推进本地 baseline，再用 `baseline publish` 非强制发布
+`origin/baseline/dev` 并核对三方 SHA；baseline 只能由 integration 推进。
 Lane 范围、修改边界与验证命令的唯一事实源是 [scripts/agent-task.mjs](scripts/agent-task.mjs) 顶部配置。
 
 并行开发、工作树隔离或桌面结构调整的手工细节先读
@@ -20,8 +23,11 @@ Lane 范围、修改边界与验证命令的唯一事实源是 [scripts/agent-ta
 development-worktrees.md「三档开发循环」）：纯 UI/UX 修改用 UI Preview
 （真实组件 + Mock API + Vite HMR）；触到 Tauri command、application、Vault/runtime
 或前后端集成用 Tauri dev（前端 HMR、Rust 增量编译自动重启）；只有 installer/安装行为、
-production 打包行为或发布验收才进入 RC installer 流程。不要为 Preview 或 Tauri dev
-能覆盖的修改构建或安装 release artifact。
+production 打包行为或发布验收才进入 RC installer 流程。普通 Pre-RC verify 不执行显式
+desktop production build；不要为 Preview 或 Tauri dev 能覆盖的修改构建或安装 release artifact。
+能由 CLI + real backend 诚实验证的 Vault、Silo、生命周期、Managed、Network、持久化和恢复优先
+用 CLI；CLI 无法表达的视觉/交互再用 HMR/Preview，并记录 coverage boundary。Mock/Preview evidence
+不能冒充 runtime evidence。Agent 不得自行打开 RC/release gate；必须有用户明确的新指令。
 
 ## 默认读取路径
 

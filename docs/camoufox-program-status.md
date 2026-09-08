@@ -3,7 +3,7 @@
 - 状态：**当前路由页**
 - 更新日期：2026-09-07
 - 当前稳定产品分支：`codex/camoufox-m3-engine-adapter`
-- 当前 canonical development source：`refs/heads/baseline/dev`
+- 当前 canonical development source：`origin/baseline/dev`（本地工作引用为 `baseline/dev`，正常时两者精确相等）
 - 本轮起始 documented checkpoint：`df971186beeb2a3ee806f9975cdd72b90d34bd5a`；固定 SHA 不作为持续 source ref
 - 当前 source-bound RC：**无**
 
@@ -132,7 +132,7 @@ release checks 自动产生；只有 release-readiness 条件满足后，才从�
 
 ### Pre-RC product stabilization
 
-当前 canonical development source 是 `refs/heads/baseline/dev`；`df971186beeb2a3ee806f9975cdd72b90d34bd5a`
+当前 canonical development source 是 `origin/baseline/dev`（本地工作引用为 `baseline/dev`）；`df971186beeb2a3ee806f9975cdd72b90d34bd5a`
 只是本轮起始 documented checkpoint，不是持续有效的 source ref。当前没有 current-source RC。
 现有 `artifacts/release/managed-browser/v0.1.0-rc1` 只是历史候选：
 它来自 `6497828aa0643f94fed3ae708734eef6b85f8305`、source dirty 为 `true`，installer

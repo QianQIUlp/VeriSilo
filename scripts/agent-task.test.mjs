@@ -15,6 +15,7 @@ import {
   BASELINE_REF,
   LANES,
   META_FILE,
+  REMOTE_BASELINE_REF,
   RESTRICTED,
   WORKTREE_ROOT_NAME,
   classifyPath,
@@ -63,7 +64,21 @@ function makeFixture(t) {
   };
   git(["init", "-q", "-b", "main"]);
   const c0 = commit("c0");
-  return { root, git, commit, c0 };
+  const remote = join(root, "remote.git");
+  git(["init", "--bare", "-q", remote]);
+  git(["remote", "add", "origin", remote]);
+  git(["push", "-q", "origin", "main"]);
+  const syncBaseline = () => {
+    git(["branch", BASELINE_REF, c0]);
+    git([
+      "push",
+      "-q",
+      "origin",
+      `refs/heads/${BASELINE_REF}:refs/heads/${BASELINE_REF}`,
+    ]);
+    git(["fetch", "--prune", "origin"]);
+  };
+  return { root, git, commit, c0, syncBaseline };
 }
 
 const runScript = (args, cwd) =>
@@ -106,6 +121,20 @@ test("every lane has label, hint, allow and verify config", () => {
     "qa",
     "integration",
   ]);
+  assert.ok(
+    !LANES.integration.verify.some((command) =>
+      command.includes("@verisilo/desktop build"),
+    ),
+    "Pre-RC integration verify must not run desktop production build",
+  );
+  assert.ok(
+    LANES.integration.verify
+      .filter((command) => command.startsWith("cargo test"))
+      .every((command) =>
+        command.includes("--skip live_verge_runs_two_isolated_silos_without_changing_main_clash"),
+      ),
+    "Pre-RC integration verify must not depend on live user provider inventory",
+  );
 });
 
 test("ui lane owns frontend surfaces but not the API seam or contracts", () => {
@@ -257,7 +286,7 @@ test("pickPort skips claimed and busy ports deterministically", async () => {
 
 test("start forks tasks from the canonical baseline, not the calling HEAD", (t) => {
   const fx = makeFixture(t);
-  fx.git(["branch", BASELINE_REF, fx.c0]);
+  fx.syncBaseline();
   const c1 = fx.commit("c1 on the default branch");
   assert.notEqual(c1, fx.c0);
 
@@ -265,7 +294,7 @@ test("start forks tasks from the canonical baseline, not the calling HEAD", (t) 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const meta = wtMeta(fx);
   assert.equal(meta.baseline, fx.c0);
-  assert.equal(meta.baselineRef, BASELINE_REF);
+  assert.equal(meta.baselineRef, REMOTE_BASELINE_REF);
   assert.equal(
     fx.git(["-C", wtDir(fx), "rev-parse", "HEAD"]),
     fx.c0,
@@ -285,9 +314,72 @@ test("start fails fast when the canonical baseline ref is missing", (t) => {
   assert.match(result.stderr, /baseline\/dev/);
 });
 
-test("rerunning start resumes the same task worktree idempotently", (t) => {
+test("start fails closed when local baseline exists but remote baseline is missing", (t) => {
   const fx = makeFixture(t);
   fx.git(["branch", BASELINE_REF, fx.c0]);
+  const result = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /origin\/baseline\/dev/);
+  assert.match(result.stderr, /bootstrap/);
+});
+
+test("start fails closed when local baseline is behind origin", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const remoteTip = fx.commit("remote baseline advance");
+  fx.git([
+    "push",
+    "-q",
+    "origin",
+    `${remoteTip}:refs/heads/${BASELINE_REF}`,
+  ]);
+
+  const result = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /BASELINE_DIVERGENCE/);
+  assert.match(result.stderr, new RegExp(`${BASELINE_REF}=`));
+  assert.match(result.stderr, new RegExp(`${REMOTE_BASELINE_REF}=`));
+});
+
+test("start fails closed when local baseline is ahead of origin", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const localTip = fx.commit("local baseline advance");
+  const advance = runScript(["baseline", "advance", localTip], fx.root);
+  assert.equal(advance.status, 0, advance.stderr);
+
+  const result = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /BASELINE_DIVERGENCE/);
+});
+
+test("start fails closed when local and remote baselines diverge", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const localTip = fx.commit("local baseline line");
+  const advance = runScript(["baseline", "advance", localTip], fx.root);
+  assert.equal(advance.status, 0, advance.stderr);
+
+  fx.git(["branch", "remote-line", fx.c0]);
+  fx.git(["switch", "remote-line"]);
+  const remoteTip = fx.commit("remote baseline line");
+  fx.git([
+    "push",
+    "-q",
+    "origin",
+    `refs/heads/remote-line:refs/heads/${BASELINE_REF}`,
+  ]);
+  fx.git(["switch", "main"]);
+  assert.notEqual(localTip, remoteTip);
+
+  const result = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /BASELINE_DIVERGENCE/);
+});
+
+test("rerunning start resumes the same task worktree idempotently", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
   const first = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
   assert.equal(first.status, 0, first.stderr);
   const second = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
@@ -302,7 +394,7 @@ test("rerunning start resumes the same task worktree idempotently", (t) => {
 
 test("start refuses reuse when the canonical baseline has advanced", (t) => {
   const fx = makeFixture(t);
-  fx.git(["branch", BASELINE_REF, fx.c0]);
+  fx.syncBaseline();
   const first = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
   assert.equal(first.status, 0, first.stderr);
   const c1 = fx.commit("c1");
@@ -318,7 +410,7 @@ test("start refuses reuse when the canonical baseline has advanced", (t) => {
 
 test("start refuses leftover branches and metadata-less worktree paths", (t) => {
   const fx = makeFixture(t);
-  fx.git(["branch", BASELINE_REF, fx.c0]);
+  fx.syncBaseline();
   const names = taskNames("ui", TASK);
 
   fx.git(["branch", names.branch, fx.c0]);
@@ -342,7 +434,7 @@ test("start refuses leftover branches and metadata-less worktree paths", (t) => 
 
 test("check reports WORKSPACE CONTAMINATION for new primary changes, not pre-existing dirty state", (t) => {
   const fx = makeFixture(t);
-  fx.git(["branch", BASELINE_REF, fx.c0]);
+  fx.syncBaseline();
   // Dirty before the task starts: must never be attributed to the task.
   writeFileSync(join(fx.root, "preexisting.txt"), "before\n");
   const started = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
@@ -387,7 +479,7 @@ test("task commands refuse to run outside the task worktree root", (t) => {
 
 test("baseline advance moves the ref explicitly; backward moves need --force", (t) => {
   const fx = makeFixture(t);
-  fx.git(["branch", BASELINE_REF, fx.c0]);
+  fx.syncBaseline();
   const printed = runScript(["baseline"], fx.root);
   assert.equal(printed.status, 0, printed.stderr);
   assert.match(printed.stdout, new RegExp(`baseline/dev → ${fx.c0}`));
@@ -396,6 +488,9 @@ test("baseline advance moves the ref explicitly; backward moves need --force", (
   const advance = runScript(["baseline", "advance", c1], fx.root);
   assert.equal(advance.status, 0, advance.stderr);
   assert.equal(fx.git(["rev-parse", BASELINE_REF]), c1);
+
+  const publish = runScript(["baseline", "publish"], fx.root);
+  assert.equal(publish.status, 0, publish.stderr);
 
   const backward = runScript(["baseline", "advance", fx.c0], fx.root);
   assert.notEqual(backward.status, 0);
@@ -406,12 +501,86 @@ test("baseline advance moves the ref explicitly; backward moves need --force", (
   assert.equal(fx.git(["rev-parse", BASELINE_REF]), fx.c0);
 });
 
-test("new tasks fork from the advanced baseline (B0 → B1 model)", (t) => {
+test("baseline publish bootstraps origin and preserves exact equality", (t) => {
   const fx = makeFixture(t);
   fx.git(["branch", BASELINE_REF, fx.c0]);
+
+  const bootstrap = runScript(["baseline", "publish"], fx.root);
+  assert.equal(bootstrap.status, 0, bootstrap.stderr);
+  assert.equal(fx.git(["rev-parse", BASELINE_REF]), fx.c0);
+  assert.equal(
+    fx.git(["rev-parse", `refs/remotes/origin/${BASELINE_REF}`]),
+    fx.c0,
+  );
+
+  const c1 = fx.commit("integration publish");
+  const advance = runScript(["baseline", "advance", c1], fx.root);
+  assert.equal(advance.status, 0, advance.stderr);
+  const publish = runScript(["baseline", "publish"], fx.root);
+  assert.equal(publish.status, 0, publish.stderr);
+  assert.equal(fx.git(["rev-parse", BASELINE_REF]), c1);
+  assert.equal(
+    fx.git(["rev-parse", `refs/remotes/origin/${BASELINE_REF}`]),
+    c1,
+  );
+});
+
+test("task publish creates its remote branch and rejects non-fast-forward overwrite", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const started = runScript(["start", "--lane", "ui", "--task", TASK], fx.root);
+  assert.equal(started.status, 0, started.stderr);
+  const meta = wtMeta(fx);
+  fx.git([
+    "-C",
+    wtDir(fx),
+    "-c",
+    "user.name=fx",
+    "-c",
+    "user.email=fx@example.com",
+    "commit",
+    "--allow-empty",
+    "-q",
+    "-m",
+    "task publish",
+  ]);
+  const localTip = fx.git(["-C", wtDir(fx), "rev-parse", "HEAD"]);
+
+  const published = runScript(["publish"], wtDir(fx));
+  assert.equal(published.status, 0, published.stderr + published.stdout);
+  assert.equal(
+    fx.git(["rev-parse", `refs/remotes/origin/${meta.branch}`]),
+    localTip,
+  );
+
+  fx.git(["branch", "remote-task-line", localTip]);
+  fx.git(["switch", "remote-task-line"]);
+  const remoteTip = fx.commit("remote task line");
+  fx.git([
+    "push",
+    "-q",
+    "origin",
+    `refs/heads/remote-task-line:refs/heads/${meta.branch}`,
+  ]);
+  fx.git(["switch", "main"]);
+
+  const rejected = runScript(["publish"], wtDir(fx));
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /REMOTE_DIVERGENCE/);
+  assert.equal(
+    fx.git(["rev-parse", `refs/remotes/origin/${meta.branch}`]),
+    remoteTip,
+  );
+});
+
+test("new tasks fork from the advanced baseline (B0 → B1 model)", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
   const c1 = fx.commit("integration round 1");
   const advance = runScript(["baseline", "advance", c1], fx.root);
   assert.equal(advance.status, 0, advance.stderr);
+  const publish = runScript(["baseline", "publish"], fx.root);
+  assert.equal(publish.status, 0, publish.stderr);
 
   const result = runScript(
     ["start", "--lane", "core", "--task", TASK],

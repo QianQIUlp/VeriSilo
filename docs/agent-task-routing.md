@@ -10,7 +10,8 @@ Agent 自己完成：判定 lane → 创建任务工作区 → 按边界修改 �
 
 ```bash
 # 1) 判定 lane（见下表），在主检出（primary checkout）创建任务工作区；
-#    任务一律自动从 canonical baseline（refs/heads/baseline/dev）分叉，与当前 shell 在哪个分支无关
+#    start 会 fetch/prune origin，并要求本地 baseline/dev 与 origin/baseline/dev 精确相等，
+#    与当前 shell 在哪个分支无关
 node scripts/agent-task.mjs start --lane ui --task "重新设计创建 Silo 的 UX"
 #    输出 JSON：branch / worktree 目录 / vault / port / baseline，以及下一步命令
 
@@ -22,11 +23,15 @@ pnpm install
 
 # 4) 工作、小步提交
 
-# 5) 结束前，两项都必须通过（注意：用主检出里的脚本副本，worktree 里的副本随 baseline 更新）
-node C:/<primary>/scripts/agent-task.mjs verify   # lane 最小充分验证；exit 1=失败
-node C:/<primary>/scripts/agent-task.mjs check    # exit 0=通过 · exit 2=scope violation · exit 3=WORKSPACE CONTAMINATION
+# 5) 结束前，两项都必须通过
+node scripts/agent-task.mjs verify   # lane 最小充分验证；exit 1=失败
+node scripts/agent-task.mjs check    # exit 0=通过 · exit 2=scope violation · exit 3=WORKSPACE CONTAMINATION
 
-# 6) 提交后任务即"可集成"；integration agent 用 list 发现并合并 agent/* 分支
+# 6) 提交并发布自己的 task branch；publish 只允许非强制 fast-forward
+git add -A && git commit -m "..."
+node scripts/agent-task.mjs publish
+
+# 7) integration 用 list 发现 task；远端 branch 是可审计输入
 node scripts/agent-task.mjs list
 ```
 
@@ -50,7 +55,7 @@ Lane = 责任与修改边界；Task（worktree）= 一次实际工作。**同一
 | `core`        | 桌面业务层、领域模型、Tauri/CLI 入口、EngineAdapter 接入 | 修复创建 Silo 的 Vault 写入顺序；CLI 输出问题          | 只动前端展示，或缺陷在 Python Host                |
 | `host`        | Python Host、Camoufox 补丁、engine package 构建脚本      | 修复 Camoufox 启动异常（定位在 host_v1）；更新补丁系列 | 缺陷最终落在 Rust launcher/adapter —— 那是 `core` |
 | `qa`          | 复现步骤、验收测试、evidence（不改产品代码）             | 检查安装流程有没有 bug；对某候选回归                   | 已定位修复方案 → 修复任务回 owning lane           |
-| `integration` | 跨层、共享契约、汇总出候选                               | NetworkProfile 加字段贯通前后端；合并本批任务出 RC     | 单一层内可完成 → 用对应 lane                      |
+| `integration` | 跨层、共享契约、汇总开发状态                             | NetworkProfile 加字段贯通前后端；合并本批任务供 QA     | 单一层内可完成 → 用对应 lane                      |
 
 判定规则：
 
@@ -61,25 +66,27 @@ Lane = 责任与修改边界；Task（worktree）= 一次实际工作。**同一
 
 ## Canonical baseline（B0 → B1）
 
-所有任务从固定的 canonical baseline 分叉，baseline 绝不隐式等于"某次执行 start 时 shell 所在分支的 HEAD"：
+所有任务从同步后的 remote canonical baseline 分叉，baseline 绝不隐式等于"某次执行 start 时
+shell 所在分支的 HEAD"：
 
 ```text
-baseline/dev = B0
+origin/baseline/dev = B0
+baseline/dev = B0（本地工作引用，必须与上行精确相等）
 ├─ agent/ui/...      （worktree，从 B0 分叉）
 ├─ agent/core/...    （worktree，从 B0 分叉）
 ├─ agent/qa/...      （worktree，从 B0 分叉）
 └─ integration 汇总并验证通过
    ↓ 显式推进（唯一的推进方式）
-baseline/dev = B1   之后的新任务统一从 B1 开始
+baseline/dev = origin/baseline/dev = B1   之后的新任务统一从 B1 开始
 ```
 
-- 存储就是一个 Git 分支 ref `refs/heads/baseline/dev`：可版本控制、`git rev-parse` 可解析、reflog 可审计；没有数据库、daemon 或 registry。
-- `baseline/dev` 是 **development/integration baseline**，不是 RC，也不代表任何产品语义已完成；RC 候选与验收仍走 acceptance 流程。
-- 新任务默认且只能从它创建（`start` 内部解析该 ref；ref 不存在则 fail fast 并给出建立命令）。
-- **baseline 只能由 integration 显式推进**：`node scripts/agent-task.mjs baseline advance <sha|ref>`；非后代提交（回退/分叉）需要 `--force` 显式确认。某个 lane 分支上多提交几个 commit 不会使 baseline 漂移。
-- **`baseline/dev` 是本地专属引用，永不推送远端**。远端只保留稳定主线 `codex/camoufox-m3-engine-adapter`；`stable/checkpoint-*` 是本地只读冻结存档，`agent/*` 是本地审计留档。不要执行 `git push --all` / `--mirror`。
-- **轮次收口顺序固定**：integration 在本地推进 `baseline/dev` → 用户在主检出 `git merge baseline/dev` 把成果收进稳定主线 → 用户 `git push origin codex/camoufox-m3-engine-adapter`。agent 从不执行 push。
-- 查看当前指向：`node scripts/agent-task.mjs baseline`。
+- canonical identity 是 remote ref `origin/baseline/dev`；本地 `baseline/dev` 是工作引用，正常状态必须精确相等。
+- 两者都可由 `git rev-parse` 解析并由 Git reflog/remote history 审计；没有数据库、daemon 或 registry。
+- 新任务只能在 fetch/prune 后从两者 exact-equal 的 baseline 创建；remote 缺失或 local/remote 不一致时 `start` fail closed，不从任意 shell HEAD 启动。
+- **baseline 只能由 integration 显式推进**：先 `baseline advance <sha|ref>`，再 `baseline publish`。发布只允许 fast-forward 或首次 bootstrap，禁止 force。
+- 普通 task 完成 verify + check + commit 后运行 `node scripts/agent-task.mjs publish`；脚本 fetch 后核对 `origin/agent/...` 与本地 SHA。远端不能 fast-forward 时报告 `REMOTE_DIVERGENCE`，不覆盖。
+- `codex/camoufox-m3-engine-adapter` 保留为稳定主线，但不再是新 task 的 canonical development source；`stable/checkpoint-*` 与历史 refs 不参与日常路由。不要执行 `git push --all` / `--mirror`。
+- 查看当前指向与同步状态：`node scripts/agent-task.mjs baseline`。
 
 ## 修改边界（scope guard 与 contamination guard）
 
@@ -107,7 +114,7 @@ baseline/dev = B1   之后的新任务统一从 B1 开始
 | `core`        | desktop cargo check + harness `application::` tests                                 | 触到窗口/托盘/进程路径时补 owning module focused tests                                            |
 | `host`        | package contract + page command 测试                                                | `test_identity_artifact.py` 需 numpy（有条件则跑）；内核/包/指纹结论必须来自真实 runtime evidence |
 | `qa`          | （无自动化命令）                                                                    | 验证=证据：复现步骤 + 实际观察 + 针对的确切候选版本；修复回 owning lane                           |
-| `integration` | 递归 check/test、desktop build、两个 crate 的 cargo check/test、Host 测试、脚本自测 | 完整自动化之后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行                |
+| `integration` | 递归 check/test、两个 crate 的 cargo check/test、Host 测试、脚本自测（Pre-RC 不含 desktop production build；排除依赖用户本机 provider inventory 的 live test） | 完整自动化之后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行 |
 
 不要把"配置声明/测试通过/编译成功"冒充尚未取得的 runtime/product Gate；lane 验证只覆盖其名称所指的范围。
 
@@ -123,19 +130,37 @@ lane 级 verify 之外，运行验证实例时用「足以验证当前修改的�
   触到 Tauri command、application、Vault/runtime 或前后端集成时使用；前端 HMR、
   Rust 增量编译后自动重启，不构建 installer。
 - **Mode C — RC / Release**：只有 installer/安装行为变化、production 打包行为或发布验收
-  才进入，走专用环境 acceptance 流程，不与开发实例混用。
+  才进入，且必须有用户明确打开 RC/release gate；走专用环境 acceptance 流程，不与开发实例混用。
 
 `ui` / `qa` 等纯前端 lane 默认 Mode A；`core` / `host` 及跨层任务默认 Mode B；
 不要为 Preview 或 Tauri dev 能覆盖的修改构建或安装 release artifact。
 
+## CLI-first 与 RC 用户 gate
+
+- 能由 CLI + real backend 诚实验证的 Vault、Silo、生命周期、Managed、Network、持久化与恢复，
+  优先用 CLI；这不是第二套 desktop/browser automation。
+- CLI 无法表达某个行为时，记录 coverage boundary，不自动把整轮 QA 判为 BLOCKED，也不为每个
+  UI/browser 场景扩 CLI。需要视觉、交互、文案或状态核对时使用 Vite HMR/Preview；Mock/Preview
+  evidence 不能冒充 runtime evidence。
+- 只有 CLI/HMR 都不能诚实验证且确实需要真实 Tauri/runtime 集成时才进入 Desktop Dev；仍不
+  install、package 或 release build。
+- Agent 不得因“看起来 bug 很少”、代码能 build 或静态检查通过而自行开始 package、RC、installer
+  或 clean Windows acceptance。必须由用户通过新指令明确打开 RC/release gate；Pre-RC 的 QA
+  收敛信号只用于 release-readiness 判断，不是自动触发器。
+
 ## Integration 工作流
 
-1. 各任务 worktree 完成 verify + check 后提交，形成可集成 commit。
-2. `start --lane integration --task "..."` 创建集成工作区；`node scripts/agent-task.mjs list` 发现全部 `agent/*` 分支。
-3. 逐个 `git merge --no-ff agent/<lane>/<branch>`；冲突按"任务归属 lane 的 owning code"原则解决，契约冲突退回显式契约任务。
-4. 运行 integration verify（完整自动化套件）。
-5. **显式推进 canonical baseline**：`node scripts/agent-task.mjs baseline advance <集成结果 SHA>`（B0 → B1）。此后新任务统一从新 baseline 开始；此动作只能由 integration 在验证通过后执行。
-6. 形成确定 RC 候选后，安装/覆盖安装/用户旅程验收在**专用环境**由专门验收任务执行——不与任何开发实例混用。已有 RC1 证据保留，新候选单独标识。
+1. 各任务 worktree 完成 verify + check 后提交，并用 `node scripts/agent-task.mjs publish` 发布自己的
+   `agent/<lane>/...` branch；输入必须可从 origin fetch 到，不能以本地孤立 commit 代替。
+2. `start --lane integration --task "..."` 创建集成工作区；integration fetch 后只合并已核对的 remote task SHA。
+3. 逐个 `git merge --no-ff origin/agent/<lane>/<branch>`；冲突按任务归属 lane 的 owning code 原则解决，
+   契约冲突退回显式契约任务。
+4. 运行迁移后的 integration verify（Pre-RC 不执行显式 desktop production build），再做组合 smoke、scope、
+   contamination 和最终 diff 检查。
+5. 验证通过后由 integration 执行 `baseline advance <集成结果 SHA>`，再执行 `baseline publish`；fetch 后必须
+   证明 `baseline/dev == origin/baseline/dev`。发布只允许 fast-forward/首次 bootstrap，禁止 force。
+6. 当前产品阶段是 Pre-RC product stabilization。只有用户明确打开 RC/release gate 且 release-readiness
+   条件满足后，才冻结 source-bound RC；随后安装/覆盖安装/用户旅程验收在专用环境执行，不与开发实例混用。
 
 ## 运行隔离与共享资源
 

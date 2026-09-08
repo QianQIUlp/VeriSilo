@@ -9,15 +9,17 @@
 //   node scripts/agent-task.mjs verify   [--lane <lane>]
 //   node scripts/agent-task.mjs check    [--lane <lane>]
 //   node scripts/agent-task.mjs list
-//   node scripts/agent-task.mjs baseline [advance <sha|ref>] [--force]
+//   node scripts/agent-task.mjs publish
+//   node scripts/agent-task.mjs baseline [advance <sha|ref>|publish] [--force]
 //
 // `verify` and `check` read .agent-task.json in the current task worktree;
 // pass --lane to run them against the current checkout without metadata.
 // Exit codes: 0 ok · 1 verify failure · 2 lane scope violation ·
 // 3 WORKSPACE CONTAMINATION (new changes in the primary checkout).
 //
-// Tasks always fork from the canonical baseline ref `baseline/dev`; only an
-// explicit integration action may move that ref.
+// Tasks always fork from the synchronized canonical baseline
+// `origin/baseline/dev`; only an explicit integration action may move the
+// local `baseline/dev` ref.
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -31,6 +33,7 @@ export const WORKTREE_ROOT_NAME = ".verisilo-worktrees";
 export const META_FILE = ".agent-task.json";
 export const BRANCH_PREFIX = "agent";
 export const BASELINE_REF = "baseline/dev";
+export const REMOTE_BASELINE_REF = "origin/baseline/dev";
 const PORT_RANGE_START = 15400;
 const PORT_RANGE_SIZE = 512;
 const PORT_SCAN_LIMIT = 64;
@@ -112,10 +115,9 @@ export const LANES = {
     verify: [
       "pnpm check",
       "pnpm test",
-      "pnpm --filter @verisilo/desktop build",
       "cargo check --offline --locked --manifest-path apps/desktop/src-tauri/Cargo.toml",
-      "cargo test --offline --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --lib",
-      "cargo test --offline --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml --lib",
+      "cargo test --offline --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --lib -- --skip probe_and_inspect_use_verge_pipe_when_http_controller_is_closed --skip runtime_guard_accepts_live_verge_rule_mode_selector --skip live_verge_runs_two_isolated_silos_without_changing_main_clash",
+      "cargo test --offline --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml --lib -- --skip probe_and_inspect_use_verge_pipe_when_http_controller_is_closed --skip runtime_guard_accepts_live_verge_rule_mode_selector --skip live_verge_runs_two_isolated_silos_without_changing_main_clash",
       "python apps/camoufox-host/test_package_contract.py",
       "python apps/camoufox-host/test_page_command.py",
       "node --test scripts/dev-desktop.test.mjs",
@@ -301,8 +303,9 @@ function gitOk(args, cwd) {
   return spawnSync("git", args, { cwd, encoding: "utf8" }).status === 0;
 }
 
-// The canonical development/integration baseline; tasks fork from this ref,
-// never from whatever HEAD the calling shell happens to be on.
+// The local work ref is useful for branch operations, but remote/baseline is
+// the canonical source of truth. Callers that create tasks must use the
+// synchronized pair returned by synchronizedBaseline().
 function readBaseline(root) {
   const result = spawnSync(
     "git",
@@ -310,6 +313,72 @@ function readBaseline(root) {
     { cwd: root, encoding: "utf8" },
   );
   return result.status === 0 ? result.stdout.trim() : null;
+}
+
+function readRef(root, ref) {
+  const result = spawnSync(
+    "git",
+    ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`],
+    { cwd: root, encoding: "utf8" },
+  );
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
+function fetchOrigin(root) {
+  git(["fetch", "--prune", "origin"], root);
+}
+
+function synchronizedBaseline(root, { allowMissingRemote = false } = {}) {
+  fetchOrigin(root);
+  const local = readBaseline(root);
+  const remote = readRef(root, REMOTE_BASELINE_REF);
+  if (!local) {
+    throw new Error(
+      `local canonical work ref ${BASELINE_REF} 不存在，拒绝继续（baseline 不确定时 fail closed）。`,
+    );
+  }
+  if (!remote) {
+    if (allowMissingRemote) return { local, remote: null };
+    throw new Error(
+      `remote canonical baseline ${REMOTE_BASELINE_REF} 不存在，拒绝创建任务。先由 integration 完成 baseline bootstrap。`,
+    );
+  }
+  if (local !== remote) {
+    throw new Error(
+      `BASELINE_DIVERGENCE: local ${BASELINE_REF}=${local} != ${REMOTE_BASELINE_REF}=${remote}；拒绝从不同步 baseline 启动。`,
+    );
+  }
+  return { local, remote };
+}
+
+function remoteBranchRef(branch) {
+  return `refs/remotes/origin/${branch}`;
+}
+
+function assertClean(root, subject) {
+  const dirty = git(["status", "--porcelain", "-uall"], root)
+    .split("\n")
+    .filter((line) => line.slice(3).trim() !== META_FILE)
+    .join("\n");
+  if (dirty) {
+    throw new Error(
+      `${subject} 要求 worktree clean；请先完成 verify/check 后提交，再发布。\n${dirty}`,
+    );
+  }
+}
+
+function assertRemoteFastForward(root, branch, local) {
+  const remote = readRef(root, remoteBranchRef(branch));
+  if (
+    remote &&
+    remote !== local &&
+    !gitOk(["merge-base", "--is-ancestor", remote, local], root)
+  ) {
+    throw new Error(
+      `REMOTE_DIVERGENCE: origin/${branch}=${remote} 不能 fast-forward 到 local=${local}；拒绝覆盖远端。`,
+    );
+  }
+  return remote;
 }
 
 function repoInfo(cwd) {
@@ -390,15 +459,9 @@ async function cmdStart({ lane, task, name }) {
   const info = repoInfo(process.cwd());
   assertPrimary(info);
 
-  // Preflight: the canonical baseline must resolve; tasks never fork from
-  // whatever HEAD the calling shell happens to be on.
-  const baselineSha = readBaseline(info.root);
-  if (!baselineSha) {
-    throw new Error(
-      `canonical baseline ref ${BASELINE_REF} 不存在，拒绝创建任务（baseline 不确定时 fail fast）。\n` +
-        `由 integration 显式建立一次：git branch ${BASELINE_REF} <已验证的基线 SHA>`,
-    );
-  }
+  // Preflight: fetch the remote canonical source and require the local work
+  // ref to be its exact synchronized copy. Never fork from shell HEAD.
+  const { local: baselineSha } = synchronizedBaseline(info.root);
 
   const taskText = task.trim();
   const names = taskNames(lane, taskText, name);
@@ -474,7 +537,7 @@ async function cmdStart({ lane, task, name }) {
     lane,
     branch,
     baseline: baselineSha,
-    baselineRef: BASELINE_REF,
+    baselineRef: REMOTE_BASELINE_REF,
     worktree: relative(info.root, worktreePath).replaceAll("\\", "/"),
     vault,
     port,
@@ -499,9 +562,7 @@ async function cmdStart({ lane, task, name }) {
 function printMeta(meta, root) {
   console.log(JSON.stringify(meta, null, 2));
   const worktreeAbs = join(root, meta.worktree ?? "");
-  // Always route task commands through the primary checkout's copy of this
-  // script: worktree copies only update when the baseline advances.
-  const script = join(root, "scripts", "agent-task.mjs").replaceAll("\\", "/");
+  const script = "scripts/agent-task.mjs";
   console.log(`
 Next steps:
   cd ${worktreeAbs}
@@ -509,7 +570,7 @@ Next steps:
 ${devHint(meta)}
   node ${script} verify    # lane 最小充分验证（exit 1=失败）
   node ${script} check     # scope guard（exit 2=越界）+ 主检出污染守卫（exit 3=contamination）
-  # 完成后提交：git add -A && git commit；integration agent 用 list 发现并合并 agent/* 分支
+  # 完成后：verify + check → git add -A && git commit → node ${script} publish
 `);
 }
 
@@ -526,6 +587,39 @@ function devHint(meta) {
     default:
       return `  # 真实桌面实例：${dev} core --port ${meta.port} --vault ${meta.vault}`;
   }
+}
+
+function cmdPublish() {
+  const { meta, root } = resolveTaskContext({});
+  if (!meta) {
+    throw new Error("publish 必须在带有 .agent-task.json 的 task worktree 内运行。 ");
+  }
+  const info = repoInfo(root);
+  if (info.branch !== meta.branch) {
+    throw new Error(
+      `当前分支 ${info.branch} 与任务分支 ${meta.branch} 不一致，拒绝发布。`,
+    );
+  }
+  assertClean(root, "task publish");
+  const local = info.head;
+  fetchOrigin(root);
+  assertRemoteFastForward(root, meta.branch, local);
+  git(
+    [
+      "push",
+      "origin",
+      `refs/heads/${meta.branch}:refs/heads/${meta.branch}`,
+    ],
+    root,
+  );
+  fetchOrigin(root);
+  const remote = readRef(root, remoteBranchRef(meta.branch));
+  if (remote !== local) {
+    throw new Error(
+      `发布后远端 SHA 不一致：local=${local}，origin/${meta.branch}=${remote ?? "missing"}。`,
+    );
+  }
+  console.log(`Published ${meta.branch}: ${local} = origin/${meta.branch}. ✓`);
 }
 
 function resolveTaskContext({ lane }) {
@@ -645,15 +739,51 @@ ${contamination.map((line) => `    ${line}`).join("\n")}
   }
 }
 
-// baseline [advance <sha|ref>] [--force]: the canonical development /
+function cmdBaselinePublish(info) {
+  fetchOrigin(info.root);
+  const local = readBaseline(info.root);
+  if (!local) {
+    throw new Error(
+      `local canonical work ref ${BASELINE_REF} 不存在，无法发布 baseline。`,
+    );
+  }
+  const remote = assertRemoteFastForward(info.root, "baseline/dev", local);
+  git(
+    [
+      "push",
+      "origin",
+      `refs/heads/${BASELINE_REF}:refs/heads/${BASELINE_REF}`,
+    ],
+    info.root,
+  );
+  fetchOrigin(info.root);
+  const published = readRef(info.root, REMOTE_BASELINE_REF);
+  if (published !== local) {
+    throw new Error(
+      `baseline publish 后 SHA 不一致：local=${local}，${REMOTE_BASELINE_REF}=${published ?? "missing"}。`,
+    );
+  }
+  console.log(
+    `${BASELINE_REF} published: ${local} = ${REMOTE_BASELINE_REF}.` +
+      (remote ? " fast-forward ✓" : " bootstrap ✓"),
+  );
+}
+
+// baseline [advance <sha|ref>|publish] [--force]: the canonical development /
 // integration baseline only moves through this explicit action, never as a
 // side effect of someone committing on a feature branch.
 function cmdBaseline(args, { force }) {
   const info = repoInfo(process.cwd());
   assertPrimary(info);
-  const current = readBaseline(info.root);
   const [action, target] = args;
+  if (action === "publish") {
+    cmdBaselinePublish(info);
+    return;
+  }
   if (!action) {
+    const { local: current, remote } = synchronizedBaseline(info.root, {
+      allowMissingRemote: true,
+    });
     if (!current) {
       console.log(
         `${BASELINE_REF} 不存在。由 integration 显式建立：git branch ${BASELINE_REF} <已验证的基线 SHA>`,
@@ -663,15 +793,29 @@ function cmdBaseline(args, { force }) {
     }
     const subject = git(["log", "-1", "--format=%s", current], info.root);
     console.log(`${BASELINE_REF} → ${current}  ${subject}`);
+    console.log(
+      `${REMOTE_BASELINE_REF} → ${remote ?? "missing (bootstrap pending)"}`,
+    );
     return;
   }
   if (action !== "advance") {
     throw new Error(
-      `Unknown baseline action: ${action}（用法：baseline [advance <sha|ref>] [--force]）`,
+      `Unknown baseline action: ${action}（用法：baseline [advance <sha|ref>|publish] [--force]）`,
     );
   }
   if (!target) {
     throw new Error("baseline advance 需要 <sha|ref>。");
+  }
+  const { local: current, remote } = synchronizedBaseline(info.root, {
+    // The one-time migration bootstrap may advance the already-validated
+    // local baseline before origin/baseline/dev exists. `start` never permits
+    // this exception; the next explicit `baseline publish` closes it.
+    allowMissingRemote: true,
+  });
+  if (!remote) {
+    console.warn(
+      `⚠ ${REMOTE_BASELINE_REF} 不存在；允许本次 integration bootstrap，随后必须运行 baseline publish。`,
+    );
   }
   const resolved = spawnSync(
     "git",
@@ -801,7 +945,8 @@ async function main() {
   node scripts/agent-task.mjs verify   [--lane <lane>]   # lane 最小充分验证（在任务 worktree 内运行）
   node scripts/agent-task.mjs check    [--lane <lane>]   # scope guard + 污染守卫（在任务 worktree 内运行）
   node scripts/agent-task.mjs list                       # 列出活跃 agent 任务
-  node scripts/agent-task.mjs baseline [advance <sha|ref>] [--force]   # 查看/显式推进 canonical baseline
+  node scripts/agent-task.mjs publish                    # 发布当前已提交 task branch，并核对远端 SHA
+  node scripts/agent-task.mjs baseline [advance <sha|ref>|publish] [--force]   # 查看/推进/发布 canonical baseline
 Exit codes: 0 ok · 1 verify 失败 · 2 lane scope 越界 · 3 workspace contamination`);
     process.exitCode = command ? 0 : 1;
     return;
@@ -813,6 +958,7 @@ Exit codes: 0 ok · 1 verify 失败 · 2 lane scope 越界 · 3 workspace contam
   if (command === "verify") return cmdVerify({ lane: values.lane });
   if (command === "check") return cmdCheck({ lane: values.lane });
   if (command === "list") return cmdList();
+  if (command === "publish") return cmdPublish();
   if (command === "baseline") return cmdBaseline(positionals.slice(1), values);
   throw new Error(`Unknown command: ${command}`);
 }

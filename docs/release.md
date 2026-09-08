@@ -2,7 +2,8 @@
 
 ## Current release status
 
-The current canonical development source is `refs/heads/baseline/dev`; the fixed
+The current canonical development source is `origin/baseline/dev` (with local
+`baseline/dev` required to match it exactly); the fixed
 revision `df971186beeb2a3ee806f9975cdd72b90d34bd5a` is only a documented
 checkpoint. The project is in **Pre-RC product stabilization**. There is no current-source
 RC. The local `artifacts/release/managed-browser/v0.1.0-rc1` directory is a

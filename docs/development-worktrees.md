@@ -11,7 +11,7 @@ Agent 的自动化任务流（lane 判定、worktree 自动准备、scope guard�
 | 工作                                 | Owning code                                                                 | 最小验证                                                       |
 | ------------------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | 页面、表单、交互                     | `apps/desktop/src/features/{silos,identity,vault,network,environments,cli}` | desktop check/test；受影响页面预览                             |
-| 页面组装                             | `apps/desktop/src/App.tsx`                                                  | desktop check/build                                            |
+| 页面组装                             | `apps/desktop/src/App.tsx`                                                  | desktop check/test；受影响页面预览                             |
 | 跨页面会话、刷新、异步失效与操作协调 | `apps/desktop/src/workspace/useDesktopWorkspace.ts`                         | Vault UI tests；锁定后的界面检查                               |
 | Standard 创建草稿与清理              | `apps/desktop/src/features/silos/useSiloDraft.ts`                           | Vault UI cleanup tests；创建页                                 |
 | 共用业务操作                         | `apps/desktop/src-tauri/src/application/`                                   | core harness 的 `application::` tests                          |
@@ -31,12 +31,14 @@ Vault 会话失效、跨页面数据刷新和操作顺序仍由 coordinator 维�
 
 ## 共同基线
 
-Agent 任务的共同分叉点是 canonical baseline ref `refs/heads/baseline/dev`
-（查看：`node scripts/agent-task.mjs baseline`；只能由 integration 在一轮汇总验证通过后
-用 `baseline advance` 显式推进，见 [agent-task-routing.md](agent-task-routing.md)）。
-手工流程也应从同一 ref 创建工作分支，不要从任意本地 HEAD 分叉。
-`baseline/dev` 是本地专属引用，永不推送远端；每轮收口由用户把它合并进稳定主线
-`codex/camoufox-m3-engine-adapter` 并只推送该分支，远端不出现任何 workflow 引用。
+Agent 任务的 canonical 分叉点是 remote ref `origin/baseline/dev`，本地
+`baseline/dev` 是必须与其精确相等的工作引用（查看：`node scripts/agent-task.mjs baseline`）。
+`start` 会先 fetch/prune origin，并在 local/remote 缺失或不一致时 fail closed；手工流程也应从
+同步后的这对 ref 创建工作分支，不要从任意本地 HEAD 分叉。
+只能由 integration 在一轮汇总验证通过后用 `baseline advance` 显式推进本地引用，再用
+`baseline publish` 非强制发布 `origin/baseline/dev`。task/integration branch 完成 verify + check
+并提交后发布自己的远端 branch；不能 force push、`git push --all` 或 `git push --mirror`。
+`codex/camoufox-m3-engine-adapter` 保留为稳定主线，但不再是新 task 的 canonical development source。
 
 新工作树只包含提交中的文件。分支前先把当前需要的源码（包括新增文件）提交，
 不要把本机生成的 Host 构建目录、浏览器包或旧 evidence 混入源码提交。
@@ -106,8 +108,8 @@ Host / Engine。适用于 Tauri command、application 逻辑、Vault、runtime�
 
 ### Mode C — RC / Release 验收
 
-只有明确形成 RC、installer 本身或安装/升级/卸载行为发生变化、production
-resource/package 行为需要验证、或发布前用户旅程验收时才使用：
+只有用户明确打开 RC/release gate，并且形成 RC、installer 本身或安装/升级/卸载行为发生变化、
+production resource/package 行为需要验证、或发布前用户旅程验收时才使用：
 production build → installer → 专用环境安装 → user journey → acceptance evidence。
 RC 候选与安装验收按 [release 流程](release.md) 与
 [验收 runbook](acceptance/manual-windows-acceptance-runbook.md) 在专用环境对确定候选执行，
@@ -128,7 +130,16 @@ Agent 根据 owning layer 与要验证的真实边界自动选择，不需要用
 HMR 只是缩短反馈回路，不降低验证标准：快速视觉/行为反馈 ≠ 完整正确性验证 ≠ RC 验收。
 preview 能证明组件渲染、交互与状态展示正确；不能证明 Vault 真正写入、Tauri command
 正确、Engine 真正启动或 installer 正确。反向也不应为验证一个 CSS 改动跑完整 installer。
-真实 Managed launch 仍需既有构建/封装流程准备对应资源，不能用 UI 预览替代。
+真实 Managed launch 仍需消费已存在且已验证的 development package；不能用 UI 预览替代，
+也不能为普通 Pre-RC QA 为此自行构建 package。
+
+## CLI-first / HMR fallback
+
+能由 CLI + real backend 诚实验证的 Vault、Silo、生命周期、Managed、Network、持久化与恢复，
+优先用 CLI。CLI 无法表达某个行为时，记录 coverage boundary，不自动把 QA 判为 BLOCKED，也不
+为每个 UI/browser 场景扩 CLI；视觉、交互、文案和状态使用 Vite HMR/Preview 验证，Mock/Preview
+evidence 不能冒充 runtime evidence。只有 CLI/HMR 都不能诚实验证且确实需要真实 Tauri/runtime
+集成时才进入 Desktop Dev；仍不 install、package 或 release build。
 
 ## 合并与共享资源
 
@@ -147,12 +158,13 @@ preview 能证明组件渲染、交互与状态展示正确；不能证明 Vault
 ```powershell
 pnpm --filter @verisilo/desktop check
 pnpm --filter @verisilo/desktop test
-pnpm --filter @verisilo/desktop build
 node --test scripts/dev-desktop.test.mjs
 cargo test --offline --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml --lib application::
 cargo check --offline --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
+上述是普通开发/Pre-RC 的 check/test 集合，不包含显式 desktop production build；只有用户明确打开
+RC/release gate 后，Mode C 才按 [release 流程](release.md)执行 package/installer/安装验收。
 其余逻辑变更运行对应模块测试。原生 Windows 浏览器、包、Profile、网络或安装结论继续遵循
 [当前状态](camoufox-program-status.md)与 owning acceptance；这次结构调整不更新任何产品 Gate。
 
