@@ -2758,13 +2758,24 @@ async def release_session(
 
 async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
     """Process one frame. Returns True when the host should shut down."""
+    # Correlation contract: once a frame reliably parses into an object whose
+    # "id" is a valid request id (1..128 chars, the same rule validate_request
+    # enforces), every error response must echo that id so the caller can
+    # attribute the failure. `id: null` stays reserved for frames that carry no
+    # trustworthy id (invalid JSON/UTF-8, non-object, duplicate keys, or an
+    # invalid id); a validation error that occurs after the id was parsed must
+    # never be masked as an uncorrelated response.
+    request_id: Optional[str] = None
     try:
         obj = parse_frame(raw)
+        candidate = obj.get("id")
+        if isinstance(candidate, str) and 1 <= len(candidate) <= 128:
+            request_id = candidate
         request_id, command, params = validate_request(obj)
     except ProtocolError as exc:
         _send(
             {
-                "id": None,
+                "id": request_id,
                 "ok": False,
                 "error": {"code": exc.code, "message": str(exc)},
             }
