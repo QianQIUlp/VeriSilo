@@ -193,6 +193,16 @@ describe("desktop product copy", () => {
     ).toBeGreaterThanOrEqual(3);
   });
 
+  it("keeps raw capability tokens and network jargon out of the create main path", () => {
+    const componentsSource = readSource("./shared/components.tsx");
+    expect(componentsSource).not.toContain("<code>{state}</code>");
+    for (const label of ["本机原生", "跟随本机", "当前不可用"]) {
+      expect(componentsSource).toContain(label);
+    }
+    expect(createPanelSource).not.toContain("WebRTC 与 DNS");
+    expect(createPanelSource).toContain("网络特征检查");
+  });
+
   it("polls only an active local stock runtime without reloading sensitive panels", () => {
     const appSource = workspaceSource;
     const pollStart = appSource.indexOf(

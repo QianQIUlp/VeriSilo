@@ -111,6 +111,7 @@ export function ManagedSiloForm({
   const [nodeName, setNodeName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const hasProxy = networkMode !== "direct";
@@ -288,8 +289,8 @@ export function ManagedSiloForm({
           <p className="eyebrow">托管身份浏览器</p>
           <h2>创建托管身份浏览器</h2>
           <p>
-            选择网络出口和网站可见身份。创建后立刻能看到 UA、语言、时区、屏幕和
-            WebGL；第一次启动前还可以在 Silo 的编辑页微调或换一套指纹。
+            选择网络出口和网站可见身份。第一次启动前还可以在 Silo
+            的编辑页微调或换一套指纹。
           </p>
         </div>
         <span className="provider-health healthy">独立浏览器已就绪</span>
@@ -682,82 +683,6 @@ export function ManagedSiloForm({
                 <option value="balanced-de-de">Deutsch</option>
               </select>
             </label>
-            <label htmlFor="managed-timezone">
-              时区
-              <select
-                disabled={busy || (hasProxy && followNetworkExit)}
-                id="managed-timezone"
-                onChange={(event) => setTimezone(event.target.value)}
-                value={timezone}
-              >
-                {TIMEZONE_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label htmlFor="managed-screen">
-              屏幕
-              <select
-                disabled={busy}
-                id="managed-screen"
-                onChange={(event) => {
-                  const [widthText, heightText] = event.target.value.split("x");
-                  const width = Number(widthText);
-                  const height = Number(heightText);
-                  if (Number.isInteger(width) && Number.isInteger(height)) {
-                    setScreenWidth(width);
-                    setScreenHeight(height);
-                  }
-                }}
-                value={`${screenWidth}x${screenHeight}`}
-              >
-                {managedScreenChoices.map(([width, height]) => (
-                  <option
-                    key={`${width}x${height}`}
-                    value={`${width}x${height}`}
-                  >
-                    {width}×{height}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label htmlFor="managed-cores">
-              CPU 核数
-              <select
-                disabled={busy}
-                id="managed-cores"
-                onChange={(event) =>
-                  setHardwareConcurrency(
-                    event.target.value === "" ? "" : Number(event.target.value),
-                  )
-                }
-                value={hardwareConcurrency}
-              >
-                <option value="">由引擎选择</option>
-                {managedCoreChoices.map((cores) => (
-                  <option key={cores} value={cores}>
-                    {cores} 核
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label htmlFor="managed-gpu">
-              GPU / WebGL
-              <select
-                disabled={busy}
-                id="managed-gpu"
-                onChange={(event) => setGpuPreset(event.target.value)}
-                value={gpuPreset}
-              >
-                {GPU_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
           {hasProxy ? (
             <label className="check-field">
@@ -771,13 +696,120 @@ export function ManagedSiloForm({
             </label>
           ) : null}
           <p className="form-hint">
-            User-Agent 跟随内置 Firefox 内核，不能改成 Chrome。Canvas / Audio
-            噪声在创建时生成，创建后在 Silo
-            的编辑页点「换一套指纹」会重新生成。字体目前跟随这台电脑。 WebRTC
-            在走代理时用出口 IP，直连时由引擎生成，不会露出这台电脑的网卡地址。
-            创建后能看到完整 UA、时区和 WebGL。
+            网站会看到一套由 VeriSilo 管理的独立身份：语言按这里的选择，其余特征使用托管引擎的安全默认值；创建后可在身份详情里查看实际结果。
           </p>
         </fieldset>
+        <button
+          aria-expanded={advancedOpen}
+          className="create-advanced-toggle"
+          disabled={busy}
+          onClick={() => setAdvancedOpen(!advancedOpen)}
+          type="button"
+        >
+          <span>
+            <strong>高级身份设置</strong>
+            <small>精确屏幕尺寸、CPU 核数、GPU 与时区手工覆盖</small>
+          </span>
+          <span className="create-advanced-state">
+            {advancedOpen ? "收起" : "使用安全默认值"}
+          </span>
+        </button>
+        {advancedOpen ? (
+          <fieldset className="managed-network-fieldset managed-advanced-fieldset">
+            <legend>高级身份参数</legend>
+            <div className="form-grid identity-grid">
+              <label htmlFor="managed-timezone">
+                时区
+                <select
+                  disabled={busy || (hasProxy && followNetworkExit)}
+                  id="managed-timezone"
+                  onChange={(event) => setTimezone(event.target.value)}
+                  value={timezone}
+                >
+                  {TIMEZONE_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label htmlFor="managed-screen">
+                屏幕
+                <select
+                  disabled={busy}
+                  id="managed-screen"
+                  onChange={(event) => {
+                    const [widthText, heightText] =
+                      event.target.value.split("x");
+                    const width = Number(widthText);
+                    const height = Number(heightText);
+                    if (Number.isInteger(width) && Number.isInteger(height)) {
+                      setScreenWidth(width);
+                      setScreenHeight(height);
+                    }
+                  }}
+                  value={`${screenWidth}x${screenHeight}`}
+                >
+                  {managedScreenChoices.map(([width, height]) => (
+                    <option
+                      key={`${width}x${height}`}
+                      value={`${width}x${height}`}
+                    >
+                      {width}×{height}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label htmlFor="managed-cores">
+                CPU 核数
+                <select
+                  disabled={busy}
+                  id="managed-cores"
+                  onChange={(event) =>
+                    setHardwareConcurrency(
+                      event.target.value === "" ? "" : Number(event.target.value),
+                    )
+                  }
+                  value={hardwareConcurrency}
+                >
+                  <option value="">由引擎选择</option>
+                  {managedCoreChoices.map((cores) => (
+                    <option key={cores} value={cores}>
+                      {cores} 核
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label htmlFor="managed-gpu">
+                GPU / WebGL
+                <select
+                  disabled={busy}
+                  id="managed-gpu"
+                  onChange={(event) => setGpuPreset(event.target.value)}
+                  value={gpuPreset}
+                >
+                  {GPU_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {hasProxy && followNetworkExit ? (
+              <p className="form-hint">
+                时区、语言和地理位置正在跟随代理出口；关闭上面的跟随选择后才能手工固定时区。
+              </p>
+            ) : null}
+            <p className="form-hint">
+              User-Agent 跟随内置 Firefox 内核，不能改成 Chrome。Canvas / Audio
+              噪声在创建时生成，创建后在 Silo
+              的编辑页点「换一套指纹」会重新生成。字体目前跟随这台电脑。WebRTC
+              在走代理时用出口 IP，直连时由引擎生成，不会露出这台电脑的网卡地址。
+              创建后可在身份详情里看到完整 UA、时区和 WebGL。
+            </p>
+          </fieldset>
+        ) : null}
         <div className="submit-row">
           <div>
             <strong>只创建独立的托管浏览器 Profile</strong>

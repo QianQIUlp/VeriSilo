@@ -1019,7 +1019,7 @@ export function CreateSiloPanel({
                 <dd>跟随当前显示设备，创建时不伪装为固定值</dd>
               </div>
               <div>
-                <dt>WebRTC 与 DNS</dt>
+                <dt>网络特征检查</dt>
                 <dd>创建时尚未测量；启动后从浏览器侧边栏主动检查</dd>
               </div>
               {localExecution && browserKind === "edge" ? (
