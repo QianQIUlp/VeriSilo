@@ -1,6 +1,6 @@
 # Managed Artifact P1 接手文档
 
-更新：2026-09-08。状态：**BLOCKED / 未完成产品验收**。用户要求停止继续验收，先交接给其他 agent。
+更新：2026-09-08。状态：**产品验收已完成，修复生效**（见文末「产品验收结果」）。前半部分为交接时快照，保留未改。
 
 ## 工作区与授权边界
 
@@ -157,3 +157,20 @@ Managed **start** 的 single-active 错误为 `managed_another_silo_running`（L
 9. 根据新变化执行最低充分验证、verify/check/scope/contamination/final diff，补齐最终报告并提交；不 push，不 advance baseline，不开始下一轮 QA。
 
 最终只能在完整验收达成时报告 `MANAGED_ARTIFACT_P1_FIXED`；当前应报告 `BLOCKED`，不能声称 Managed CLI create/start/stop/restart 已通过。
+
+## 产品验收结果（2026-09-08 续）
+
+签名与包：用户本机执行 `p1-sign-package.ps1` 后，manifest keyId = production pin `57f3b44c…`，`recheck_formal_package` 通过（1431 成员，tree SHA 与 manifest 一致）。签名字节级证据：`packageManifestSha256 = 6551e914…` 与磁盘 manifest 字节 SHA 一致，且 Managed start 记录的 `signerCertificateSha256` 即该 pin——production trust 链以已签名 manifest 实际通过。
+
+真实隔离 Vault `host-managed-artifact-p1-1ba11b`（CLI driver 证据：`artifacts/p1-managed-accept.json`、`artifacts/p1-managed-accept-phase{1,2,3}.log`）：
+
+1. Standard A（既有记录重启）running 时执行 `create --name 'Managed B' --network direct --preset balanced-zh-cn`：成功，无 ArtifactIntegrityError（id `a49b5887-9009-4906-ada4-c45bf9ea17c7`，adapter camoufox，binding `identity-1bb38820eb726ff8bad3f82b` / v5 / raw SHA `3db7ed90…`）。
+2. 同 preset/network 二次 `Managed C`：成功（`identity-9a4220cf…` / `bd76aec6…`），fresh 生成路径稳定。
+3. Standard running 时 `start Managed B` → 精确错误 `managed_another_silo_running`（非完整性错误）。
+4. 关闭 Standard（本机 stock browser 产品要求用户关窗；taskkill /F 后 Chromium 残留 `lockfile`，产品如实进入 `recovery_required` 且不删锁；确认无进程绑定后用户侧移除陈旧锁，产品 reconcile → stopped）。
+5. Managed start → stop → service restart + unlock → readback：binding/adapter/network 与首次一致，`identityLocked` 保持；reopen 后再次 start → stop 成功。Camoufox 真实 profile/engine-state 生成于 silo 目录，`camoufox-host/v1 running` observed-on-this-host，engineRevision `…-formal-v3`。
+6. 磁盘 Artifact 自洽：`silos/<id>/identity/identity-….json` raw SHA == binding `artifactFileSha256`，`verify_artifact_raw` strict 通过（Managed B 实测；Managed C 未 start 不物化 identity 文件，其 binding 在加密 Vault 记录内）。
+7. Standard 回归：fresh `Standard B` create 成功；Standard A 重启 start/readback 正常。
+8. 损坏 Artifact 拒绝证据沿用上文（verifier 代码零改动）。
+
+收尾：本任务 QA 进程已 `service stop` 清理；未 push、未 advance baseline、未开始下一轮 QA。
