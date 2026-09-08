@@ -1083,6 +1083,12 @@ impl RuntimeManager {
             .unwrap_or_else(RuntimeActivation::idle)
     }
 
+    pub(crate) fn cached_activation(&self) -> RuntimeActivation {
+        self.activation
+            .clone()
+            .unwrap_or_else(RuntimeActivation::idle)
+    }
+
     pub(crate) fn active_managed_camoufox_silo_id(&mut self) -> Option<Uuid> {
         let activation = self.activation();
         let silo_id = activation.active_silo_id?;

@@ -280,6 +280,99 @@ pub fn inspect_configs(controller_url: &str, secret: &str) -> Result<Value, Miho
     Ok(configuration)
 }
 
+/// Silo diagnostics never discover controllers or request the global inventory.
+pub fn diagnose_binding(
+    binding: &ExternalMihomoBinding,
+    authentication: Option<&MihomoControllerAuthentication>,
+) -> ClashDiagnose {
+    let secret = authentication.map_or("", MihomoControllerAuthentication::secret);
+    let mut diagnosis = ClashDiagnose {
+        mixed_port: None,
+        controller_url: Some(binding.controller_url.clone()),
+        mode: None,
+        socks_port: None,
+        configured_mixed_port: None,
+        detail: String::new(),
+        groups: Vec::new(),
+    };
+    let result = (|| -> Result<(), MihomoError> {
+        validate_secret(secret)?;
+        let configs = inspect_configs(&binding.controller_url, secret)?;
+        diagnosis.mode = configs
+            .get("mode")
+            .and_then(Value::as_str)
+            .and_then(|value| bounded_controller_text(value, 64))
+            .map(str::to_owned);
+        diagnosis.socks_port = configs.get("socks-port").and_then(Value::as_u64);
+        diagnosis.configured_mixed_port = configs.get("mixed-port").and_then(Value::as_u64);
+        let read_proxy = |name: &str| -> Result<Value, MihomoError> {
+            let mut url = Url::parse("http://localhost/proxies/").unwrap();
+            url.path_segments_mut().unwrap().pop_if_empty().push(name);
+            let body = Zeroizing::new(controller_request(
+                &binding.controller_url,
+                "GET",
+                url.path(),
+                secret,
+                None,
+            )?);
+            serde_json::from_slice(&body).map_err(|_| MihomoError::InvalidResponse)
+        };
+        let group = read_proxy(&binding.selector_group)?;
+        let members = group
+            .get("all")
+            .and_then(Value::as_array)
+            .ok_or(MihomoError::InvalidResponse)?;
+        if !members
+            .iter()
+            .any(|name| name.as_str() == Some(&binding.node_name))
+        {
+            return Err(MihomoError::NodeNotFound {
+                group: binding.selector_group.clone(),
+                node: binding.node_name.clone(),
+            });
+        }
+        let node = read_proxy(&binding.node_name)?;
+        let selected = group
+            .get("now")
+            .and_then(Value::as_str)
+            .ok_or(MihomoError::InvalidResponse)?
+            == binding.node_name;
+        diagnosis.groups.push(MihomoSelectorGroup {
+            name: binding.selector_group.clone(),
+            // A different selection is reported as drift, without disclosing its name.
+            selected: selected.then(|| binding.node_name.clone()),
+            nodes: vec![MihomoNode {
+                name: binding.node_name.clone(),
+                proxy_type: node
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .and_then(|value| bounded_controller_text(value, 64))
+                    .map(str::to_owned),
+                delay_ms: latest_delay(&node),
+                alive: node.get("alive").and_then(Value::as_bool),
+            }],
+        });
+        if !selected {
+            return Err(MihomoError::SelectionNotApplied {
+                group: binding.selector_group.clone(),
+                node: binding.node_name.clone(),
+            });
+        }
+        if node.get("alive").and_then(Value::as_bool) == Some(false) {
+            return Err(MihomoError::NodeUnavailable(binding.node_name.clone()));
+        }
+        if diagnosis.mode.as_deref() == Some("direct") {
+            return Err(MihomoError::DirectFallbackPossible);
+        }
+        Ok(())
+    })();
+    diagnosis.detail = match result {
+        Ok(()) => "已读取当前 Silo 绑定的 Clash 配置与节点状态。".to_owned(),
+        Err(error) => error.to_string(),
+    };
+    diagnosis
+}
+
 pub fn diagnose_local_clash(secret: &str) -> ClashDiagnose {
     let probe = probe_local_clash(secret);
     let mut mode = None;
@@ -1888,6 +1981,56 @@ mod tests {
             node_name: "Tokyo 01".to_owned(),
             controller_secret_reference: None,
         }
+    }
+
+    #[test]
+    fn bound_diagnosis_preserves_errors_without_disclosing_other_nodes() {
+        for (mode, selected, alive, expected) in [
+            ("rule", "unrelated-account-node", true, "没有保持"),
+            ("rule", "Tokyo 01", false, "当前不可用"),
+            ("direct", "Tokyo 01", true, "直连模式"),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let binding = test_binding(listener.local_addr().unwrap());
+            let server = thread::spawn(move || {
+                for (path, body) in [
+                    ("/configs", serde_json::json!({"mode": mode})),
+                    (
+                        "/proxies/GLOBAL",
+                        serde_json::json!({"now": selected, "all": ["Tokyo 01", "unrelated-account-node"]}),
+                    ),
+                    (
+                        "/proxies/Tokyo%2001",
+                        serde_json::json!({"type": "Socks5", "alive": alive}),
+                    ),
+                ] {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    assert!(read_request(&mut stream).starts_with(&format!("GET {path} HTTP/1.1")));
+                    write_json(&mut stream, &body.to_string());
+                }
+            });
+            let diagnosis = super::diagnose_binding(&binding, None);
+            server.join().unwrap();
+            assert!(diagnosis.detail.contains(expected));
+            assert!(!serde_json::to_string(&diagnosis)
+                .unwrap()
+                .contains("unrelated-account-node"));
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let binding = test_binding(listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            assert!(read_request(&mut stream).starts_with("GET /configs HTTP/1.1"));
+            write!(
+                stream,
+                "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        });
+        let diagnosis = super::diagnose_binding(&binding, None);
+        server.join().unwrap();
+        assert!(diagnosis.detail.contains("401"));
+        assert!(diagnosis.groups.is_empty());
     }
 
     #[test]

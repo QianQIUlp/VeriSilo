@@ -73,6 +73,202 @@ fn temporary_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("verisilo-lib-{label}-{}", Uuid::new_v4()))
 }
 
+#[test]
+fn silo_diagnosis_scopes_provider_requests_and_evidence() {
+    use super::{diagnose_silo_with, initialize_vault_with, DesktopCore};
+    use crate::domain::{ExternalMihomoBinding, ProxyScheme};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    // Fail before exercising the production path if local discovery is reintroduced:
+    // this test must never probe a developer's real Clash installation.
+    assert!(!include_str!("silos.rs").contains("diagnose_local_clash"));
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let root = temporary_root("diagnostic-scope");
+    fs::create_dir_all(&root).unwrap();
+    let browser = root.join("chrome.exe");
+    fs::write(&browser, []).unwrap();
+    fs::write(
+        browser.with_extension("version-output"),
+        "Google Chrome 126.0.6478.127\n",
+    )
+    .unwrap();
+    {
+        let core = DesktopCore::open(root.clone(), root.join("resources"));
+        initialize_vault_with(&core, "synthetic diagnostic passphrase").unwrap();
+        let fixed = |binding| NetworkProfile::FixedProxy {
+            proxy_required: true,
+            scheme: ProxyScheme::Socks5,
+            host: "127.0.0.1".to_owned(),
+            port: 7890,
+            bypass_list: vec![],
+            credential_reference: None,
+            external_mihomo: binding,
+        };
+        let profiles = [
+            NetworkProfile::Direct {
+                proxy_required: false,
+            },
+            fixed(None),
+            NetworkProfile::Pac {
+                proxy_required: false,
+                pac_url: "https://example.test/qa.pac".to_owned(),
+            },
+            fixed(Some(ExternalMihomoBinding {
+                controller_url: format!("http://{address}/"),
+                selector_group: "QA group".to_owned(),
+                node_name: "QA node".to_owned(),
+                controller_secret_reference: None,
+            })),
+        ];
+        let mut silos = Vec::new();
+        for (index, network_profile) in profiles.into_iter().enumerate() {
+            let bound = network_profile.external_mihomo_binding().is_some();
+            silos.push(
+                core.vault
+                    .lock()
+                    .unwrap()
+                    .create_silo(
+                        &root,
+                        CreateSiloInput {
+                            name: format!("QA silo {index}"),
+                            color: "#5b5ce2".to_owned(),
+                            browser_kind: BrowserKind::Chrome,
+                            executable_path: browser.to_string_lossy().into_owned(),
+                            execution_target: SiloExecutionTarget::Local,
+                            network_profile,
+                            engine: Default::default(),
+                            proxy_credentials: None,
+                            mihomo_controller_secret: bound.then(|| {
+                                crate::domain::MihomoControllerSecretInput {
+                                    secret: "synthetic-controller-secret".to_owned(),
+                                }
+                            }),
+                        },
+                    )
+                    .unwrap(),
+            );
+        }
+        for silo in &silos[..3] {
+            let diagnosis = diagnose_silo_with(&core, silo.id).unwrap();
+            assert!(diagnosis.get("clash").is_none());
+            assert_eq!(
+                diagnosis["network"],
+                serde_json::to_value(&silo.network_profile).unwrap()
+            );
+            assert_eq!(diagnosis["runtimeState"], "idle");
+            assert_eq!(diagnosis["active"], false);
+            assert_eq!(diagnosis["vault"], "unlocked");
+        }
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
+        let server = std::thread::spawn(move || {
+            for (path, body) in [
+                (
+                    "/configs",
+                    r#"{"mode":"rule","socks-port":7890,"mixed-port":0,"secret":"unrelated-account"}"#,
+                ),
+                (
+                    "/proxies/QA%20group",
+                    r#"{"type":"Selector","now":"QA node","all":["QA node","unrelated-account-node"]}"#,
+                ),
+                (
+                    "/proxies/QA%20node",
+                    r#"{"type":"Socks5","alive":true,"history":[{"delay":42}],"account":"unrelated-account"}"#,
+                ),
+            ] {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "missing synthetic request"
+                            );
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        Err(error) => panic!("{error}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                assert!(request.starts_with(&format!("GET {path} HTTP/1.1\r\n")));
+                assert!(request.contains("Authorization: Bearer synthetic-controller-secret\r\n"));
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+            listener
+        });
+        let diagnosis = diagnose_silo_with(&core, silos[3].id).unwrap();
+        let listener = server.join().unwrap();
+        assert_eq!(diagnosis["clash"]["mode"], "rule");
+        assert_eq!(diagnosis["clash"]["groups"][0]["nodes"][0]["delayMs"], 42);
+        assert_eq!(diagnosis["clash"]["groups"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            diagnosis["clash"]["groups"][0]["nodes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(!diagnosis.to_string().contains("unrelated-account"));
+        assert!(!diagnosis
+            .to_string()
+            .contains("synthetic-controller-secret"));
+        // A synthetic stale environment record for a different local Silo fails
+        // reconciliation before any environment backend is contacted.
+        {
+            let mut environment = core.environment_runtime.lock().unwrap();
+            environment.activation.active_silo_id = Some(silos[1].id);
+            environment.activation.state = crate::domain::RuntimeState::RecoveryRequired;
+            environment.activation.message = Some("QA other Silo provider error".to_owned());
+            environment.wsl_distribution = Some("QA-stale-distribution".to_owned());
+        }
+        let direct = diagnose_silo_with(&core, silos[0].id).unwrap();
+        assert!(direct["runtimeState"].is_null());
+        assert!(direct["runtimeMessage"].is_null());
+        assert_eq!(
+            core.environment_runtime
+                .lock()
+                .unwrap()
+                .activation
+                .message
+                .as_deref(),
+            Some("QA other Silo provider error"),
+            "another Silo must not be reconciled by diagnose"
+        );
+        let related = diagnose_silo_with(&core, silos[1].id).unwrap();
+        assert_eq!(related["runtimeState"], "recovery_required");
+        assert!(related["runtimeMessage"].as_str().is_some());
+        let direct = diagnose_silo_with(&core, silos[0].id).unwrap();
+        assert!(direct["runtimeState"].is_null());
+        assert!(direct["runtimeMessage"].is_null());
+        assert!(direct.get("clash").is_none());
+        assert!(!direct.to_string().contains("QA node"));
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn wsl_silo(id: Uuid, distribution: &str) -> Silo {
     Silo {
         id,
