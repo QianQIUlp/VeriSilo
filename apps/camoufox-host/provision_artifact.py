@@ -209,6 +209,8 @@ def apply_identity_overrides(
     config["screen.height"] = height
     config["screen.availWidth"] = width
     config["screen.availHeight"] = height
+    config["screen.availLeft"] = 0
+    config["screen.availTop"] = 0
     config["window.outerWidth"] = width
     config["window.outerHeight"] = height
     if hardware_concurrency is not None:
