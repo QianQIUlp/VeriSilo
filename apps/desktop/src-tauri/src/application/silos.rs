@@ -5,7 +5,7 @@ use super::identity::{
     managed_browser_package_root, managed_proxy_error, managed_vault_error,
     provision_managed_artifact,
 };
-use super::runtime::desktop_status_with;
+use super::runtime::diagnostic_status_for_silo;
 use super::DesktopCore;
 use crate::domain::{
     CreateSiloInput, ManagedIdentityPreset, NetworkProfile, ProxyScheme as SiloProxyScheme, Silo,
@@ -39,24 +39,36 @@ pub(crate) fn diagnose_silo_with(
         .into_iter()
         .find(|silo| silo.id == silo_id)
         .ok_or_else(|| format!("没有找到 Silo {silo_id}。"))?;
-    let status = desktop_status_with(state)?;
+    let status = diagnostic_status_for_silo(state, silo_id)?;
     let active = status.activation.active_silo_id == Some(silo.id);
-    Ok(serde_json::json!({
+    let runtime_is_related = status.activation.active_silo_id.is_none() || active;
+    let mut diagnosis = serde_json::json!({
         "siloId": silo.id,
         "name": silo.name,
         "adapter": silo.adapter_id(),
         "identityLocked": silo.identity_locked_at.is_some(),
         "network": silo.network_profile,
-        "runtimeState": status.activation.state,
-        "runtimeMessage": status.activation.message,
+        "runtimeState": runtime_is_related.then_some(&status.activation.state),
+        "runtimeMessage": status.activation.message.as_ref().filter(|_| runtime_is_related),
         "active": active,
-        "clash": mihomo::diagnose_local_clash(""),
         "vault": status.vault.state,
         "websiteIdentity": status
             .website_identity
             .as_ref()
             .filter(|identity| identity.silo_id == silo.id),
-    }))
+    });
+    if let Some(binding) = silo.network_profile.external_mihomo_binding() {
+        let authentication = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?
+            .mihomo_controller_authentication_for_silo(silo.id)
+            .map_err(|error| error.to_string())?;
+        diagnosis["clash"] =
+            serde_json::to_value(mihomo::diagnose_binding(binding, authentication.as_ref()))
+                .map_err(|error| error.to_string())?;
+    }
+    Ok(diagnosis)
 }
 
 pub(crate) fn page_action_with(

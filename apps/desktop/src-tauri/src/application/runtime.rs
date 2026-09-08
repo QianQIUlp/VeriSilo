@@ -181,6 +181,44 @@ pub(crate) fn desktop_status_with(state: &DesktopCore) -> Result<DesktopStatus, 
     })
 }
 
+pub(crate) fn diagnostic_status_for_silo(
+    state: &DesktopCore,
+    silo_id: Uuid,
+) -> Result<DesktopStatus, String> {
+    {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        let runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+        let environment = state
+            .environment_runtime
+            .lock()
+            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+        let vault_status = vault.status(&state.root);
+        let activation = if environment.has_active_silo() {
+            environment.activation.clone()
+        } else {
+            runtime.cached_activation()
+        };
+        if matches!(vault_status.state, VaultLockState::Unlocked)
+            && activation.active_silo_id.is_some_and(|id| id != silo_id)
+        {
+            // Do not refresh/reconcile another Silo's provider while diagnosing
+            // this one. Its lifecycle/watchdog remains responsible for health.
+            return Ok(DesktopStatus {
+                vault: vault_status,
+                activation,
+                website_identity: None,
+            });
+        }
+    }
+    desktop_status_with(state)
+}
+
 pub(crate) fn recheck_silo_browser(
     state: &DesktopCore,
     silo_id: Uuid,
