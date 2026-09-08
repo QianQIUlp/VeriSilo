@@ -158,7 +158,8 @@ fn silo_diagnosis_scopes_provider_requests_and_evidence() {
                 diagnosis["network"],
                 serde_json::to_value(&silo.network_profile).unwrap()
             );
-            assert_eq!(diagnosis["runtimeState"], "idle");
+            assert!(diagnosis["runtimeState"].is_null());
+            assert!(diagnosis["runtimeMessage"].is_null());
             assert_eq!(diagnosis["active"], false);
             assert_eq!(diagnosis["vault"], "unlocked");
         }
@@ -266,6 +267,150 @@ fn silo_diagnosis_scopes_provider_requests_and_evidence() {
             matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
         );
     }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn diagnosis_attributes_global_stopped_evidence_only_to_the_silo_that_ran() {
+    use super::{diagnose_silo_with, initialize_vault_with, unlock_vault_with, DesktopCore};
+
+    let root = temporary_root("diagnose-stopped-attribution");
+    fs::create_dir_all(&root).unwrap();
+    let browser = root.join("chrome.exe");
+    fs::write(&browser, []).unwrap();
+    fs::write(
+        browser.with_extension("version-output"),
+        "Google Chrome 126.0.6478.127\n",
+    )
+    .unwrap();
+    let passphrase = "diagnose stopped attribution passphrase";
+    let (ran_id, fresh_id) = {
+        let core = DesktopCore::open(root.clone(), root.join("resources"));
+        initialize_vault_with(&core, passphrase).unwrap();
+        let input = |name: &str| CreateSiloInput {
+            name: name.to_owned(),
+            color: "#5b5ce2".to_owned(),
+            browser_kind: BrowserKind::Chrome,
+            executable_path: browser.to_string_lossy().into_owned(),
+            execution_target: SiloExecutionTarget::Local,
+            network_profile: NetworkProfile::Direct {
+                proxy_required: false,
+            },
+            engine: Default::default(),
+            proxy_credentials: None,
+            mihomo_controller_secret: None,
+        };
+        let mut vault = core.vault.lock().unwrap();
+        let ran = vault.create_silo(&root, input("ran then stopped")).unwrap();
+        let fresh = vault.create_silo(&root, input("never started")).unwrap();
+        (ran.id, fresh.id)
+    };
+    // Persist the minimal record of the Silo that actually ran and then
+    // stopped, exactly as the desktop runtime leaves it after a converged
+    // session. `active_silo_id` is consequently None for both Silos.
+    let record = format!(
+        r#"{{"siloId":"{ran_id}","pid":424242,"startedAt":"2026-09-08T00:00:00Z","lastSeenAt":"2026-09-08T00:01:00Z","state":"stopped"}}"#
+    );
+    fs::create_dir_all(root.join("runtime")).unwrap();
+    fs::write(root.join("runtime").join("browser-session.json"), record).unwrap();
+    {
+        let core = DesktopCore::open(root.clone(), root.join("resources"));
+        unlock_vault_with(&core, passphrase).unwrap();
+        // The never-started Silo has no attributable runtime evidence and must
+        // not inherit the global stopped presentation (QA-R1-03).
+        let fresh_diagnosis = diagnose_silo_with(&core, fresh_id).unwrap();
+        assert!(
+            fresh_diagnosis["runtimeState"].is_null(),
+            "never-started Silo must not inherit the global stopped state: {fresh_diagnosis}"
+        );
+        assert!(fresh_diagnosis["runtimeMessage"].is_null());
+        assert_eq!(fresh_diagnosis["active"], false);
+        // The Silo that really ran keeps its attributable stopped evidence.
+        let ran_diagnosis = diagnose_silo_with(&core, ran_id).unwrap();
+        assert_eq!(ran_diagnosis["runtimeState"], "stopped");
+        assert!(ran_diagnosis["runtimeMessage"].as_str().is_some());
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn global_status_stops_presenting_a_historical_observation_without_an_active_silo() {
+    use super::{desktop_status_with, initialize_vault_with, DesktopCore};
+
+    let root = temporary_root("identity-historical-observation");
+    fs::create_dir_all(&root).unwrap();
+    let browser = root.join("chrome.exe");
+    fs::write(&browser, []).unwrap();
+    fs::write(
+        browser.with_extension("version-output"),
+        "Google Chrome 126.0.6478.127\n",
+    )
+    .unwrap();
+    let core = DesktopCore::open(root.clone(), root.join("resources"));
+    initialize_vault_with(&core, "historical identity passphrase").unwrap();
+    let managed = core
+        .vault
+        .lock()
+        .unwrap()
+        .create_silo(
+            &root,
+            CreateSiloInput {
+                name: "historical managed silo".to_owned(),
+                color: "#5b5ce2".to_owned(),
+                browser_kind: BrowserKind::Chrome,
+                executable_path: browser.to_string_lossy().into_owned(),
+                execution_target: SiloExecutionTarget::Local,
+                network_profile: NetworkProfile::Direct {
+                    proxy_required: false,
+                },
+                engine: Default::default(),
+                proxy_credentials: None,
+                mihomo_controller_secret: None,
+            },
+        )
+        .unwrap();
+    // Persist a page-script observation for that Silo, as a previous managed
+    // session would have left it after the Silo stopped.
+    let session_dir = root
+        .join("silos")
+        .join(managed.id.to_string())
+        .join("engine-state")
+        .join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(
+        session_dir.join("observed.json"),
+        r#"{
+  "generatedAtUtc": "2026-09-08T01:02:03Z",
+  "observedFull": {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0",
+    "language": "zh-CN",
+    "languages": ["zh-CN", "zh"],
+    "platform": "Win32",
+    "screen": {"width": 1920, "height": 1080, "colorDepth": 24},
+    "hardwareConcurrency": 8,
+    "webdriver": false,
+    "session": {"timezone": "Asia/Shanghai"}
+  }
+}"#,
+    )
+    .unwrap();
+    {
+        let mut runtime = core.runtime.lock().unwrap();
+        // While that Silo is active its observation hydrates as the current
+        // identity, attributed to this exact Silo.
+        runtime.hydrate_website_identity(Some(managed.id));
+        let observation = runtime.website_identity().expect("current observation");
+        assert_eq!(observation.silo_id, managed.id);
+    }
+    // With no active Silo the global status must stop presenting the old
+    // observation as the current identity (QA-R1-02).
+    let status = desktop_status_with(&core).unwrap();
+    assert!(
+        status.website_identity.is_none(),
+        "a historical observation must not be presented as the current global identity"
+    );
+    // The persisted evidence itself is not deleted by the fix.
+    assert!(session_dir.join("observed.json").exists());
     fs::remove_dir_all(root).unwrap();
 }
 

@@ -880,6 +880,17 @@ impl RuntimeManager {
         self.record.as_ref().map(|record| record.silo_id)
     }
 
+    /// Silo id of the persisted record only while it documents a stopped
+    /// session. This is the only durable attribution for the global no-active
+    /// activation: `active_silo_id == None` alone never proves that the
+    /// stopped state belongs to a specific Silo.
+    pub(crate) fn stopped_record_silo_id(&self) -> Option<Uuid> {
+        self.record
+            .as_ref()
+            .filter(|record| record.state == RuntimeState::Stopped)
+            .map(|record| record.silo_id)
+    }
+
     pub fn needs_reconciliation(&self) -> bool {
         self.child.is_none()
             && self
@@ -1208,14 +1219,18 @@ impl RuntimeManager {
     }
 
     pub(crate) fn hydrate_website_identity(&mut self, silo_id: Option<Uuid>) {
+        let Some(silo_id) = silo_id else {
+            // Without an active Silo, a captured observation is historical
+            // evidence of a previously stopped Silo. It stays on disk but must
+            // not be presented as the current global identity.
+            self.website_identity = None;
+            return;
+        };
         if let Some(current) = &self.website_identity {
-            if silo_id.is_none() || silo_id == Some(current.silo_id) {
+            if silo_id == current.silo_id {
                 return;
             }
         }
-        let Some(silo_id) = silo_id else {
-            return;
-        };
         self.capture_website_identity(silo_id);
     }
 
@@ -4296,6 +4311,55 @@ mod tests {
         managed_profiles_are_quiescent_for_vault_restore, runtime_allows_vault_restore,
         write_runtime_record, RuntimeHealthContext, RuntimeManager, RuntimeRecord,
     };
+
+    fn test_observation(silo_id: Uuid) -> crate::website_identity::WebsiteIdentityObservation {
+        crate::website_identity::WebsiteIdentityObservation {
+            silo_id,
+            observed_at: Utc::now(),
+            source: crate::website_identity::WebsiteIdentitySource::PageScript,
+            user_agent: "QA observation user agent".to_owned(),
+            language: "zh-CN".to_owned(),
+            languages: vec!["zh-CN".to_owned()],
+            platform: "Win32".to_owned(),
+            oscpu: None,
+            timezone: "Asia/Shanghai".to_owned(),
+            screen_width: 1920,
+            screen_height: 1080,
+            color_depth: None,
+            device_pixel_ratio: None,
+            hardware_concurrency: 8,
+            webgl_vendor: "QA vendor".to_owned(),
+            webgl_renderer: "QA renderer".to_owned(),
+            do_not_track: None,
+            max_touch_points: None,
+            webdriver: Some(false),
+        }
+    }
+
+    #[test]
+    fn hydrating_identity_without_active_silo_drops_the_historical_observation() {
+        let mut runtime = RuntimeManager::default();
+        let ran = Uuid::new_v4();
+        let other = Uuid::new_v4();
+
+        // The same Silo still active keeps its observation.
+        runtime.website_identity = Some(test_observation(ran));
+        runtime.hydrate_website_identity(Some(ran));
+        assert_eq!(runtime.website_identity().unwrap().silo_id, ran);
+
+        // Without an active Silo the observation becomes historical evidence of
+        // the stopped Silo and must not be presented as the current identity
+        // (QA-R1-02).
+        runtime.website_identity = Some(test_observation(ran));
+        runtime.hydrate_website_identity(None);
+        assert!(runtime.website_identity().is_none());
+
+        // Switching to another active Silo never keeps the previous Silo's
+        // observation; without a resolvable engine state it becomes None.
+        runtime.website_identity = Some(test_observation(ran));
+        runtime.hydrate_website_identity(Some(other));
+        assert!(runtime.website_identity().is_none());
+    }
     #[cfg(unix)]
     use crate::domain::ExternalMihomoBinding;
     use crate::domain::ProxyScheme;
