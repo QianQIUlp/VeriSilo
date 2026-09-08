@@ -88,11 +88,7 @@ export function CapabilityState({
     inherit: "跟随本机",
     unavailable: "当前不可用",
   } as const;
-  return (
-    <span className={`capability-state ${state}`}>
-      <code>{state}</code> · {labels[state]}
-    </span>
-  );
+  return <span className={`capability-state ${state}`}>{labels[state]}</span>;
 }
 
 export function NetworkOption({
