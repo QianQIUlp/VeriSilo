@@ -8,9 +8,9 @@ use super::identity::{
 use super::runtime::diagnostic_status_for_silo;
 use super::DesktopCore;
 use crate::domain::{
-    CreateSiloInput, ManagedIdentityPreset, NetworkProfile, ProxyScheme as SiloProxyScheme, Silo,
-    SiloExecutionTarget, SiloStorageUsage, UpdateSiloEngineInput, UpdateSiloInput,
-    UpdateSiloNetworkInput,
+    CreateSiloInput, ManagedIdentityPreset, NetworkProfile, ProxyScheme as SiloProxyScheme,
+    RuntimeState, Silo, SiloExecutionTarget, SiloStorageUsage, UpdateSiloEngineInput,
+    UpdateSiloInput, UpdateSiloNetworkInput,
 };
 use crate::environment::backend::{EnvironmentBackendId, EnvironmentOperation};
 use crate::environment::EnvironmentOperationRequest;
@@ -41,7 +41,20 @@ pub(crate) fn diagnose_silo_with(
         .ok_or_else(|| format!("没有找到 Silo {silo_id}。"))?;
     let status = diagnostic_status_for_silo(state, silo_id)?;
     let active = status.activation.active_silo_id == Some(silo.id);
-    let runtime_is_related = status.activation.active_silo_id.is_none() || active;
+    // The global activation describes this Silo only when it names it as
+    // active, or when the persisted runtime record attributes the last stopped
+    // session to this exact Silo. `active_silo_id == None` alone never proves
+    // that the global state belongs to the requested Silo; a never-started or
+    // inactive Silo must not inherit another run's state or failure message.
+    let runtime_is_related = active
+        || (status.activation.active_silo_id.is_none()
+            && matches!(status.activation.state, RuntimeState::Stopped)
+            && state
+                .runtime
+                .lock()
+                .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
+                .stopped_record_silo_id()
+                == Some(silo.id));
     let mut diagnosis = serde_json::json!({
         "siloId": silo.id,
         "name": silo.name,

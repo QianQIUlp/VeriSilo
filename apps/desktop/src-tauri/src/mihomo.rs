@@ -368,6 +368,13 @@ pub fn diagnose_binding(
     })();
     diagnosis.detail = match result {
         Ok(()) => "已读取当前 Silo 绑定的 Clash 配置与节点状态。".to_owned(),
+        // This diagnosis is scoped to the exact bound controller. The generic
+        // ControllerUnreachable copy suggests discovering another local Clash,
+        // which is the wrong recovery path for an explicit binding.
+        Err(MihomoError::ControllerUnreachable) => format!(
+            "当前 Silo 绑定的 Clash 控制口 {} 无法连接。请确认这个已绑定的控制器正在运行，检查它的地址、进程或 Secret；必要时在 Silo 网络设置里更新该绑定。诊断不会探测本机其他 Clash。",
+            binding.controller_url
+        ),
         Err(error) => error.to_string(),
     };
     diagnosis
@@ -2031,6 +2038,27 @@ mod tests {
         server.join().unwrap();
         assert!(diagnosis.detail.contains("401"));
         assert!(diagnosis.groups.is_empty());
+    }
+
+    #[test]
+    fn bound_diagnosis_offline_reports_the_bound_controller_without_discovery_copy() {
+        // Simulate the exact bound controller going offline: bind a loopback
+        // port and release it, so connecting to that address is refused.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let binding = test_binding(address);
+        let diagnosis = super::diagnose_binding(&binding, None);
+        // The diagnosis stays scoped to the exact bound controller and never
+        // discovers another local Clash (QA-R1-04).
+        assert_eq!(diagnosis.controller_url.as_deref(), Some(binding.controller_url.as_str()));
+        assert!(diagnosis.groups.is_empty());
+        assert!(diagnosis.detail.contains("当前 Silo 绑定的 Clash 控制口"));
+        assert!(diagnosis.detail.contains(&binding.controller_url));
+        assert!(diagnosis.detail.contains("更新该绑定"));
+        let serialized = serde_json::to_string(&diagnosis).unwrap();
+        assert!(!serialized.contains("查找本机 Clash"));
+        assert!(!serialized.contains("内核管道"));
     }
 
     #[test]
