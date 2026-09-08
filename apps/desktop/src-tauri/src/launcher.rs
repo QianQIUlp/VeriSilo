@@ -385,6 +385,7 @@ struct CamoufoxHostTransport {
     stdin: Option<ChildStdin>,
     receiver: mpsc::Receiver<Result<CamoufoxHostResponse, String>>,
     next_request_id: u64,
+    desynced: Option<String>,
     #[cfg(test)]
     wire_snapshot: Vec<Vec<u8>>,
 }
@@ -431,6 +432,7 @@ impl CamoufoxHostTransport {
             stdin: Some(stdin),
             receiver,
             next_request_id: 1,
+            desynced: None,
             #[cfg(test)]
             wire_snapshot: Vec::new(),
         })
@@ -442,6 +444,11 @@ impl CamoufoxHostTransport {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, LauncherError> {
+        if let Some(reason) = self.desynced.as_deref() {
+            return Err(LauncherError::RuntimeReceipt(format!(
+                "Camoufox Host transport is desynced and refuses further requests: {reason}"
+            )));
+        }
         let request_id = format!("m3-{}", self.next_request_id);
         self.next_request_id = self.next_request_id.checked_add(1).ok_or_else(|| {
             LauncherError::RuntimeReceipt("Camoufox Host request ID exhausted its bound".to_owned())
@@ -475,12 +482,19 @@ impl CamoufoxHostTransport {
             .receiver
             .recv_timeout(timeout)
             .map_err(|error| {
+                self.desynced = Some(format!(
+                    "{command} request {request_id} timed out after {timeout:?}; the Host may still emit its response later, so frame correlation can no longer be proven"
+                ));
                 LauncherError::RuntimeReceipt(format!(
                     "Camoufox Host response timeout/EOF: {error}"
                 ))
             })?
             .map_err(LauncherError::RuntimeReceipt)?;
         if response.id.as_deref() != Some(request_id.as_str()) {
+            self.desynced = Some(format!(
+                "a response arrived while {request_id} was outstanding and carried id {}",
+                response.id.as_deref().unwrap_or("<missing>")
+            ));
             return Err(LauncherError::RuntimeReceipt(
                 "Camoufox Host response ID did not match the outstanding request".to_owned(),
             ));
@@ -6078,6 +6092,131 @@ process.stdin.on('end', () => {
         };
         assert!(status.success());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn fake_camoufox_host_transport_correlates_requests_and_quarantines_after_late_response() {
+        // Part 1: healthy wire keeps strict request/response correlation:
+        // request N -> response N, then request N+1 -> response N+1.
+        {
+            let (root, plan, arguments) = fake_camoufox_host_fixture("normal");
+            let mut command = std::process::Command::new(&plan.executable_path);
+            command.args(&arguments);
+            command.stdin(std::process::Stdio::piped());
+            command.stdout(std::process::Stdio::piped());
+            command.stderr(std::process::Stdio::null());
+            let mut child = command.spawn().expect("start fake Host for sequencing");
+            let mut transport = super::CamoufoxHostTransport::attach(&mut child)
+                .expect("attach fake Host for sequencing");
+            transport
+                .request("hello", serde_json::json!({}), Duration::from_secs(2))
+                .expect("hello matches request 1");
+            transport
+                .request(
+                    "launch",
+                    serde_json::json!({
+                        "artifactId": "identity-m3-fake",
+                        "profileId": "silo-22222222222242228222222222222222",
+                        "expectedArtifactFileSha256": "a".repeat(64),
+                    }),
+                    Duration::from_secs(2),
+                )
+                .expect("launch matches request 2");
+            let page_params = serde_json::json!({
+                "action": "snapshot",
+                "sessionId": "11111111-1111-4111-8111-111111111111",
+            });
+            transport
+                .request("page", page_params.clone(), Duration::from_secs(2))
+                .expect("page matches request 3");
+            transport
+                .request("page", page_params, Duration::from_secs(2))
+                .expect("page matches request 4");
+            drop(transport);
+            super::terminate_just_spawned_child(&mut child);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        // Part 2: when a response outlives the client timeout, the transport
+        // must quarantine itself so the next request refuses honestly instead
+        // of consuming the stale frame and reporting a false correlation
+        // failure (the QA-R1-01 mechanism). The inline fake Host delays its
+        // page response past a short client timeout to seed the exact
+        // stale-frame desync observed in QA.
+        {
+            let root = std::env::temp_dir()
+                .join(format!("verisilo-camoufox-late-host-{}", Uuid::new_v4()));
+            fs::create_dir_all(&root).expect("late-response temp root");
+            let script = root.join("late-host.py");
+            fs::write(
+                &script,
+                r#"
+import json, sys, time
+for raw in sys.stdin.buffer:
+    request = json.loads(raw)
+    request_id = request.get("id")
+    command = request.get("command")
+    if command == "hello":
+        print(json.dumps({"id": request_id, "ok": True, "result": {}}), flush=True)
+    elif command == "page":
+        time.sleep(1.5)
+        print(json.dumps({"id": request_id, "ok": True, "result": {}}), flush=True)
+"#,
+            )
+            .expect("write late-response fake Host script");
+            let python = if cfg!(target_os = "windows") {
+                "python"
+            } else {
+                "python3"
+            };
+            let mut command = std::process::Command::new(python);
+            command.arg(&script);
+            command.stdin(std::process::Stdio::piped());
+            command.stdout(std::process::Stdio::piped());
+            command.stderr(std::process::Stdio::null());
+            let mut child = command.spawn().expect("start fake Host for late response");
+            let mut transport = super::CamoufoxHostTransport::attach(&mut child)
+                .expect("attach fake Host for late response");
+            transport
+                .request("hello", serde_json::json!({}), Duration::from_secs(2))
+                .expect("hello before the late page response");
+            let timeout_error = transport
+                .request(
+                    "page",
+                    serde_json::json!({
+                        "action": "snapshot",
+                        "sessionId": "11111111-1111-4111-8111-111111111111",
+                    }),
+                    Duration::from_millis(300),
+                )
+                .expect_err("the late page response must time out");
+            assert!(
+                timeout_error.to_string().contains("response timeout/EOF"),
+                "unexpected first error: {timeout_error}"
+            );
+            let desync_error = transport
+                .request(
+                    "page",
+                    serde_json::json!({
+                        "action": "windows",
+                        "sessionId": "11111111-1111-4111-8111-111111111111",
+                    }),
+                    Duration::from_secs(2),
+                )
+                .expect_err("the transport must refuse after the timeout");
+            let desync_text = desync_error.to_string();
+            assert!(
+                desync_text.contains("desynced and refuses further requests"),
+                "the follow-up request must fail with the quarantine reason: {desync_text}"
+            );
+            assert!(
+                !desync_text.contains("response ID did not match"),
+                "the stale frame must not be consumed as a response: {desync_text}"
+            );
+            drop(transport);
+            super::terminate_just_spawned_child(&mut child);
+            let _ = fs::remove_dir_all(root);
+        }
     }
 
     #[test]
