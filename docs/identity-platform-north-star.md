@@ -2,6 +2,16 @@
 
 状态：**规范性产品意图**。本文描述 VeriSilo 长期要解决的问题和不应随单个里程碑漂移的原则。阶段进度以[Camoufox Managed Engine 状态](camoufox-program-status.md)为准，工程边界以对应实现和验收文档为准。
 
+> **VeriSilo is a local-first, fail-closed, evidence-backed identity runtime for persistent browser identities.**
+>
+> VeriSilo 是一个面向持久浏览器身份的本地优先、失败关闭、以运行证据为基础的身份运行环境。
+
+产品中心问题是：**声明的身份、引擎与网络策略，是否真的按照声明运行？**
+
+因此，产品差异化优先落在 Identity Integrity、Execution Integrity、Network Integrity、
+Runtime Evidence 和 Attribution，而不是更大的工作站功能数量。`local-first` 本身不是
+独占优势；产品方向不追求成为广泛的 Simprint/AdsPower workstation clone。
+
 ## 面向谁、解决什么问题
 
 VeriSilo 面向希望在本机长期管理多个浏览器身份的普通用户和个人开发者。目标体验是：
@@ -120,9 +130,15 @@ VeriSilo 不提供“匿名分数”，不宣传“不可检测”，不把单�
 
 长期产品顺序仍然是 Standard、Managed、Isolated 三层并存。2026-08 的风险优先阶段完成了 Camoufox standalone、Artifact、原生 Windows Host 和 M3-0 contract 接缝；FP1–FP4 以及 clean M3-WI Attempt 4 随后完成了各自冻结边界内的资格链。这里的历史结果不改变三层产品模型，也不把任一层的证据扩大为整体产品或发布验收。
 
-当前阶段是 **Pre-RC product stabilization**。Managed Identity 的生产 adapter/package/signing、Desktop signer pin、创建与运行路径、网络绑定和 current-user NSIS 已实现；当前没有 current-source RC。下一轮遵循 `QA → targeted fix → integration → baseline advance → fresh QA`，直到 release-readiness 条件满足，再从届时 canonical baseline 冻结新的 source-bound RC。旧 RC1、FP1–FP4 和 M3-WI 合同只作为历史证据，不作为今天的下一任务。
+当前 source/package/installed acceptance 主线已经完成到 `v0.1.0-rc2`：其 source 是
+`c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，并已在 pristine Windows Sandbox 完成安装后
+生命周期验收。它是 current-source locally accepted installed candidate，不是 GitHub Release、
+公开 shipped release 或 Windows Authenticode signed release；strict standard-user 语义仍未
+证明。后续默认方向是 accepted differentiated roadmap，优先推进五项 integrity/evidence
+能力；真实回归、新产品代码、新 candidate 或新的 release Gate 才重新触发对应 QA/build/
+acceptance。旧 RC1、FP1–FP4 和 M3-WI 合同只作为历史证据。
 
-当前阶段、Gate 和未验证边界以[Camoufox Managed Engine 状态页](camoufox-program-status.md)为准；稳定架构理由与重评条件见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。
+当前阶段、Gate 和未验证边界以[Camoufox Managed Engine 状态页](camoufox-program-status.md)为准；稳定架构理由与重评条件见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)，本次 Simprint 源码尽调见[Simprint source-level due diligence](simprint-source-due-diligence-2026-09-09.md)。
 
 ## 变更规则
 

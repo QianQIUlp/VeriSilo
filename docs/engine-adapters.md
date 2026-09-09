@@ -5,9 +5,12 @@ V0.7 has a repository-side controlled-engine lifecycle, a production
 The Formal-v3 Camoufox Host package is built as a distributable internal
 package, signed with detached CMS, and checked against the public certificate
 pin embedded in the Desktop release build. The private signing key remains
-outside the repository. Package/build checks and native qualification are
-separate from current product runtime acceptance; the current source has no
-source-bound RC.
+outside the repository. Package/build checks, native qualification, and
+installed product acceptance are separate evidence layers. The current-source
+`v0.1.0-rc2` candidate passed packaged runtime and installed lifecycle
+acceptance in the exact pristine Windows Sandbox documented in
+[the Camoufox program status](camoufox-program-status.md); it is not a public
+release, and outer Desktop/installer Authenticode remains unsigned.
 
 The authoritative implementation is
 `apps/desktop/src-tauri/src/engine.rs`. The package schema and development
@@ -17,7 +20,7 @@ assembled by `scripts/build-camoufox-host-package.py` and
 
 ## Camoufox integration boundary
 
-The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) accepted the connection between a schema-v3 Host package, the dedicated `camoufox-host-jsonl-v1` transport, `EngineAdapter`, and `RuntimeManager` at checkpoint `e96ef3f`. Later implementation added the production package builder, Formal-v3 detached CMS signing, the Desktop signer pin, the production adapter path, Managed Silo product flow, and current-user NSIS packaging. These are implemented; current clean Windows product acceptance remains a separate release-readiness boundary.
+The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) accepted the connection between a schema-v3 Host package, the dedicated `camoufox-host-jsonl-v1` transport, `EngineAdapter`, and `RuntimeManager` at checkpoint `e96ef3f`. Later implementation added the production package builder, Formal-v3 detached CMS signing, the Desktop signer pin, the production adapter path, Managed Silo product flow, and current-user NSIS packaging. These are implemented; the current-source rc2 package and installed lifecycle have now also been accepted in the exact pristine Windows Sandbox evidence environment. Strict non-admin semantics, broader Windows compatibility, and public release remain separate boundaries.
 
 Native Windows M2-W has accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. The M3-0 contract remains the historical boundary for the fake-Host slice and its honest evidence semantics; the current production adapter consumes the signed schema-v3 package and still keeps `verified: false` evidence below `verified` until direct product evidence exists. See [the Camoufox program status](camoufox-program-status.md).
 
@@ -28,8 +31,9 @@ FP1 through FP4 qualified the final Formal-v3 candidate on this native Windows
 host, with `verified: false`; FP4 means bounded ordinary-site product
 compatibility, not anti-detection, universal compatibility, or desktop product
 acceptance. Clean M3-WI Attempt 4 then passed its test-only two-cycle
-qualification. These historical qualification results do not create an FP5 or
-replace the current pre-RC product QA loop.
+qualification. These historical qualification results do not create an FP5;
+the current-source rc2 installed acceptance is a separate, bounded product
+evidence layer recorded in the status page.
 
 For Camoufox, the Resolved Identity Artifact is the sole runtime identity
 authority. The generic Silo schema may carry an `IdentityTemplate` beside the
@@ -132,8 +136,9 @@ passed to Host `--tree-manifest`; the package tree is never passed to the
 standalone browser-tree loader. The production package builder and release
 verifier use the same bindings, add the detached CMS signature and pinned
 signer, and reject tampered or incomplete packages before launch. A successful
-package check still does not prove the browser signals or current user journey
-until direct runtime evidence exists.
+package check does not by itself prove the browser signals or a user journey;
+rc2's separate packaged-runtime and installed-lifecycle evidence is recorded
+in the status page and remains bounded to its exact environment.
 
 Manifest schemas v2 and v3 are defined by
 `engine-package.schema.json`. The loader rejects relative roots, traversal,
@@ -284,9 +289,10 @@ constraints, strict evidence phases, and site fallback.
 
 ## External release blockers
 
-The remaining product/release boundary is direct evidence from the current
-source on a clean Windows 11 user journey. Additional release-level
-compatibility beyond the frozen FP4 matrix, Canvas/WebGL/font observations
+The remaining product/release boundaries are strict unelevated standard-user
+install/reinstall/uninstall semantics, broader Windows hardware/edition
+compatibility, public promotion and outer Authenticode signing, and additional
+compatibility beyond the frozen FP4 matrix. Canvas/WebGL/font observations
 beyond the accepted bounded candidate, TLS ClientHello captures, direct QUIC
 observations, license review, and signer lifecycle operations remain separate
 claims or release work. Tests, package verification, and placeholder JSON must
@@ -294,5 +300,6 @@ never be presented as those runtime facts.
 
 The historical RC1 artifact is superseded for current acceptance. Its internal
 CMS package/signature and the current production adapter implementation are
-real release inputs, but they do not turn the historical artifact into a
-current-source candidate or supply the missing clean Windows runtime evidence.
+real release inputs, but they do not turn the historical artifact into the
+current-source rc2 candidate. The rc2 candidate remains local-only: no Git tag,
+GitHub Release, or public promotion exists.

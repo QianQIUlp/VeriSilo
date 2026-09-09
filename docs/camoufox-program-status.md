@@ -1,11 +1,14 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**当前路由页**
-- 更新日期：2026-09-07
+- 更新日期：2026-09-09
 - 当前稳定产品分支：`codex/camoufox-m3-engine-adapter`
 - 当前 canonical development source：`origin/baseline/dev`（本地工作引用为 `baseline/dev`，正常时两者精确相等）
 - 本轮起始 documented checkpoint：`df971186beeb2a3ee806f9975cdd72b90d34bd5a`；固定 SHA 不作为持续 source ref
-- 当前 source-bound RC：**无**
+- 当前 source-bound candidate：**v0.1.0-rc2**（当前源码、已在 Windows Sandbox 安装验收；不是公开发布）
+- `RC_SOURCE_SHA`：`c1688d5a392ffa69ae77c246bcb4bb78b083e26f`
+- rc2 installer SHA-256：`3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`
+- rc2 没有 Git tag、GitHub Release 或公开发布记录；文档变化不改变其 source binding
 
 本文只保留当前事实、下一任务和关键证据索引。旧 checkpoint、失败 run、完整 hash 表与历史
 措辞由 Git、lock/result、evidence 和对应历史合同保存，不再永久追加到默认必读页。
@@ -28,19 +31,66 @@ Silo = Persistent Profile
 ```
 
 Standard Silo 长期保留。Camoufox Managed Engine 的 standalone、资格链、生产 package/
-adapter、Managed Silo 产品路径和 current-user NSIS 已实现到各自文档边界；当前产品阶段是
-**Pre-RC product stabilization**。Profile、Artifact、Engine、Network 与 Evidence 不合并，
-`configured`、`applied`、`observed`、`verified` 与 `unavailable` 不混用。
+adapter、Managed Silo 产品路径、current-user NSIS，以及 current-source rc2 的 packaged
+runtime 和 Windows Sandbox 安装验收，均已达到各自文档边界。Profile、Artifact、Engine、
+Network 与 Evidence 不合并，`configured`、`applied`、`observed`、`verified` 与 `unavailable`
+不混用。
 
-当前循环是：
+当前 source/package/installed acceptance 主线是：
 
 ```text
-QA → targeted fix → integration → baseline advance → fresh QA
+source stabilization → rc2 build → package verification → packaged runtime
+→ pristine Windows Sandbox installed lifecycle
 ```
 
-当前不创建 FP5，也不重新执行输入未变化的 FP1–FP4。RC 不因时间、build 成功或静态
-release checks 自动产生；只有 release-readiness 条件满足后，才从届时 canonical baseline
-冻结新的 source-bound RC。
+当前 rc2 是 **current-source locally accepted installed candidate in Windows Sandbox**，不是
+shipped 或 public release。后续默认方向回到 accepted differentiated roadmap，优先增强
+identity/execution/network integrity、runtime evidence 与 attribution；只有真实回归、新产品
+代码、新 candidate 或新的 release Gate 才重新触发相应 QA/build/acceptance。当前不创建 FP5，
+也不重跑输入未变化的 FP1–FP4。
+
+## v0.1.0-rc2 current-source installed acceptance
+
+rc2 的固定身份仍为：
+
+```text
+releaseVersion = v0.1.0-rc2
+RC_SOURCE_SHA = c1688d5a392ffa69ae77c246bcb4bb78b083e26f
+installerSha256 = 3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3
+```
+
+候选 package 已具备 current dual-boot Formal-v3 exact bindings、current Host、detached
+CMS signature、approved signer/public pin match、package-tree verification、release
+provenance 和 SBOM/license evidence。现有 packaged Managed runtime 已完成：
+
+```text
+provision → hello → launch → page snapshot → page windows → status → close → shutdown
+```
+
+response-ID correlation 通过。既有 stale development package 不支持 `page` 的 coverage
+boundary 已关闭。
+
+安装验收 evidence：
+
+- QA branch：`origin/agent/qa/v0-1-0-rc2-installed-69d6d6`
+- evidence tip：`df1b82fe3ca2f071a4b6676adc92db046558cdd3`
+- 环境：pristine/disposable Windows Sandbox，Microsoft Windows 11 Enterprise `10.0.26100`，AMD64
+- candidate transfer integrity、install、Desktop GUI、Vault initialize/lock/unlock、Standard
+  create/first start/second start、Managed provision/package verification/first start/second
+  start、Desktop restart persistence、same-version reinstall、Vault/Standard/Managed preservation、
+  Managed post-reinstall start、uninstall、application binary removal 和 test-data preservation：**PASS**；
+  `reinstallAfterUninstall=NOT_RUN_OPTIONAL`
+- 最终分类：`CURRENT_SOURCE_INSTALLED_PRODUCT_ACCEPTED_IN_WINDOWS_SANDBOX` / `CLEAN_DISPOSABLE_WINDOWS_SANDBOX_ACCEPTANCE_PASS`
+
+Sandbox 使用的 `WDAGUtilityAccount` 具有 `IsAdministrator = true`。因此 strict standard-user
+install/reinstall/uninstall semantics 仍为 **NOT_PROVEN**；这不是 installer lifecycle failure，
+也不是 rc2 acceptance pending，而是未来 public-release/promotion boundary。外层 Desktop/NSIS
+Authenticode 仍为 unsigned；内部 engine CMS signature 与外层 Authenticode 是不同边界。
+
+已知但不阻塞的观察项：`MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE`，分类为
+`LOW / NON_BLOCKING_UX_INCONSISTENCY`。首次 Managed close/Direct stop 时曾短暂显示
+proxy/network mismatch；随后 Managed second start 与 post-reinstall start 均通过。本轮不声称
+该 UX 已修复。
 
 ## M3 研究结论
 
@@ -110,7 +160,8 @@ release checks 自动产生；只有 release-readiness 条件满足后，才从�
 | clean M3-WI | **Passed on this native Windows host** at Attempt 4；真实 Desktop RuntimeManager / test-only adapter / Host / Browser 两周期闭合，`verified:false` |
 | production package/signing/UI/S1 stabilization | **Implemented/build closed** in the current source；内部 CMS 签名 package、Desktop public pin、production adapter、Managed Silo UI/network/run path、outer-unsigned current-user NSIS，以及 S1 的 Create Silo UX、reconcile-stopped lifecycle、BUG-01 和 acceptance-driver 修复已进入当前源码 |
 | Historical local `v0.1.0-rc1` artifact | **Historical candidate / superseded / never runtime-accepted**；source `6497828aa0643f94fed3ae708734eef6b85f8305`, dirty `true`, verifier passed for 1403 files, acceptance `Pending`, `verified:false`, `runtimeAcceptance:null` |
-| Current source release readiness | **Pre-RC product stabilization**；没有 current-source RC，当前先做真实产品 QA、定向修复、integration 和 fresh QA |
+| v0.1.0-rc2 current-source candidate | **Current-source installed product accepted in pristine Windows Sandbox**；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；不是 Git tag、GitHub Release 或公开发布 |
+| Current source release readiness | **Current-source locally accepted installed candidate**；rc2 已在 exact Windows Sandbox 完成安装后生命周期验收；strict standard-user install/reinstall/uninstall semantics 仍 `NOT_PROVEN`，外层 Authenticode 仍 unsigned |
 
 ## 当前未证明的边界
 
@@ -118,47 +169,46 @@ release checks 自动产生；只有 release-readiness 条件满足后，才从�
 - 实际浏览器 DNS 路径、TLS ClientHello、QUIC、跨主机重放与“不可检测”未验证或 unavailable；
 - FP3 不证明 Camoufox 原生 Geolocation provider 或 exhaustive native address inventory；
 - FP4 只覆盖冻结的 V5 live-site matrix，不声明 universal compatibility；login、payment 与 CAPTCHA 未测试；
-- clean M3-WI 的既有 Attempt 4 仍只证明当时的 test-only adapter 路径；它不自动证明当前源码
-  的 production package/adapter。当前源码中的 `packageVerification`、`verifiedAdapter` 和精确
-  runtime bindings 尚未在 clean Windows 11 用户路径中直接验收；
-- 历史 RC1 installer 与 Desktop 外层明确为 `authenticode=false`；它是本地 unsigned、已 superseded
-  candidate，不是当前 source-bound RC 或公开可信签名发布；
-- 当前 source-bound installer / repair-reinstall / uninstall / clean Windows 11 acceptance 尚未运行；
-- Formal-v3 runtime observation 只覆盖本机绑定 candidate/Artifacts；Voices 只覆盖 A1、A2、B1
-  各自三秒 top-window trace，不是 exhaustive exclusion；Managed Identity 的生产路径已实现，
-  但当前 source-bound RC 尚未冻结，也尚未通过最终 Windows 用户验收或作为正式产品 shipped。
+- clean M3-WI 的既有 Attempt 4 仍只证明当时的 test-only adapter 路径；rc2 已另外在 pristine
+  Windows Sandbox 直接验收 current-source package/adapter、精确 runtime bindings 和安装后生命周期，
+  但这不外推为所有 Windows hardware/edition 或 strict non-admin 用户路径；
+- rc2 Sandbox 使用的 `WDAGUtilityAccount` 具有 `IsAdministrator = true`；strict unelevated
+  standard-user install/reinstall/uninstall semantics 仍为 `NOT_PROVEN`，这是 future public-release /
+  promotion boundary，而不是 installer lifecycle failure；
+- rc2 的 Desktop/NSIS 外层仍为 `authenticode=false` / unsigned；内部 engine detached CMS
+  signature、approved signer/public pin 与外层 Windows Authenticode 是不同边界；rc2 没有 Git tag、
+  GitHub Release 或公开发布；
+- Formal-v3 runtime observation 只覆盖 current-source rc2 在本次 Sandbox 中绑定的 candidate/Artifacts；
+  Voices 只覆盖 A1、A2、B1 各自三秒 top-window trace，不是 exhaustive exclusion；FP4 及现有安装验收
+  仍不声明 universal site compatibility、undetectability、login/payment/CAPTCHA、完整 TLS ClientHello、
+  完整 QUIC、exhaustive browser DNS-path 或字体隔离（`fontMode=inherit`）。
 
 ## 当前下一任务
 
-### Pre-RC product stabilization
+### Accepted differentiated roadmap
 
-当前 canonical development source 是 `origin/baseline/dev`（本地工作引用为 `baseline/dev`）；`df971186beeb2a3ee806f9975cdd72b90d34bd5a`
-只是本轮起始 documented checkpoint，不是持续有效的 source ref。当前没有 current-source RC。
-现有 `artifacts/release/managed-browser/v0.1.0-rc1` 只是历史候选：
-它来自 `6497828aa0643f94fed3ae708734eef6b85f8305`、source dirty 为 `true`，installer
-SHA-256 为 `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`，verifier
-对 1403 个文件通过，但 acceptance 为 `Pending`、`verified:false`、`runtimeAcceptance:null`；
-它已 superseded，且从未做过 runtime acceptance。
+当前 canonical development source 是 `origin/baseline/dev`（本地工作引用为 `baseline/dev`，
+正常时两者精确相等）。`c1688d5a392ffa69ae77c246bcb4bb78b083e26f` 是 rc2 的固定 source binding，
+不是会随开发继续推进的 canonical ref；当前候选版本是 `v0.1.0-rc2`，不是公开发布。
 
-当前先做真实产品 QA、bug fixing 和 regression，按以下循环推进：
+历史 `artifacts/release/managed-browser/v0.1.0-rc1` 仍保留为 superseded、从未 runtime-accepted
+的候选记录；其原始 source、dirty 状态、installer hash、verifier 和 Pending acceptance 不变。
+
+当前 source/package/installed acceptance 主线已经完成到：
 
 ```text
-QA → targeted fix → integration → baseline advance → fresh QA
+source stabilization → rc2 build → package verification → packaged runtime
+→ pristine Windows Sandbox installed lifecycle
 ```
 
-Release-readiness 决策需要在同一个 canonical baseline 上同时满足：
+后续默认工程方向回到已接受的 differentiated roadmap，优先增强 Identity Integrity、Execution
+Integrity、Network Integrity、Runtime Evidence 与 Attribution，而不是追求更广的 workstation
+feature parity。只有真实回归、新产品代码、新 candidate 或新的 release Gate 才重新触发相应
+QA/build/acceptance；不要为了流程重跑输入未变化的 FP1–FP4，也不要创建 FP5。
 
-1. 所有已知 release-blocking P0/P1 产品缺陷关闭；
-2. 高影响 P2 UX 问题已修复，或被显式判定为不阻塞；
-3. 连续两轮独立、完整的用户旅程 QA 没有发现新的 release-blocking defect。
-
-这两轮是 release-readiness 决策规则，不是“没有任何 bug”的声明。满足后，才从届时
-canonical baseline 冻结新的 source-bound RC；RC freeze 之后才执行 installer、repair
-reinstall、uninstall 和 clean Windows 11 等候选专属 acceptance。下一 RC 的版本号在
-本任务中不决定。
-
-不要创建 FP5，也不要重跑输入未变化的 FP1–FP4；只有 QA 暴露可复现、可归因且直接影响
-当前产品路径的新 blocker 时，才回到 owning code 修复并取得新的证据。
+rc2 的 Sandbox 验收是 current-source locally accepted installed candidate 的直接证据，不是
+shipped/public release，也不证明 strict non-admin、所有 Windows hardware、universal site
+compatibility 或未列明的浏览器/网络能力。
 
 ## 历史资格链与后续发布路径
 
@@ -170,14 +220,15 @@ Formal-v3 build/provenance
 → FP4 bounded ordinary-site compatibility
 → clean M3-WI Attempt 4 native qualification
 → production package/signing/adapter + Managed Silo UI + current-user NSIS
-→ 当前 pre-RC product stabilization
-→ release-readiness decision
-→ future source-bound RC freeze
-→ installer / repair-reinstall / uninstall / clean Windows 11 acceptance
+→ v0.1.0-rc2 source-bound freeze
+→ package verification + packaged runtime
+→ pristine Windows Sandbox installed acceptance
+→ accepted differentiated roadmap
 ```
 
-前半段是已经闭合的历史资格链，后半段是当前与未来的 release-readiness 路径；它们不
-构成新的研究 Gate，也不把历史 RC1 变成当前候选。
+前半段是已经闭合的资格链，后半段记录 rc2 的 source-bound candidate、package/runtime 与
+pristine Windows Sandbox 安装验收；rc2 仍不是公开发布，也没有 strict standard-user 证明。
+这条记录不构成新的研究 Gate，也不把历史 RC1 变成当前候选。
 
 ## 关键证据索引
 
@@ -202,6 +253,8 @@ Formal-v3 build/provenance
 | clean M3-WI input contract | `docs/camoufox-m3-wi-clean-contract.md`；SHA-256 `acdc725dbbb1ccb0c39571cea43f6eb7ef3137429f4f8b256ec764f3be20af74`；Attempts 1–3 immutable Failed，Attempt 4 Passed |
 | clean M3-WI Attempt 4 | `artifacts/camoufox-m3-wi-clean-attempt-4/run-report.json`；SHA-256 `edd08b83497e09a73a0a0e29203475f1e9163b20366b2dd7c899aea8634262fe`；native evidence SHA-256 `2f292585a010dbdc3cad35bfcf26b14800bad402ed4a160c5123f41005c972ad`；revision `26ded609bf5bf52882c9ba37496f783ab2b01681`；**Passed on this native Windows host**，`verified:false` |
 | Historical RC1 release artifact | `artifacts/release/managed-browser/v0.1.0-rc1`；source revision `6497828aa0643f94fed3ae708734eef6b85f8305`；source dirty `true`；installer SHA-256 `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`；verifier `Managed-browser release verification passed for 1403 files.`；acceptance `Pending`、`verified:false`、`runtimeAcceptance:null`；historical candidate, superseded, never runtime-accepted |
+| v0.1.0-rc2 source-bound candidate | source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`；installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；current-source locally accepted installed candidate；无 Git tag、GitHub Release 或公开发布；外层 Authenticode unsigned，内部 engine CMS signature/public pin 分开 |
+| v0.1.0-rc2 Windows Sandbox installed acceptance | QA branch `origin/agent/qa/v0-1-0-rc2-installed-69d6d6`；evidence tip `df1b82fe3ca2f071a4b6676adc92db046558cdd3`；Windows 11 Enterprise `10.0.26100` / AMD64 / pristine disposable Sandbox；`CURRENT_SOURCE_INSTALLED_PRODUCT_ACCEPTED_IN_WINDOWS_SANDBOX`；strict standard-user semantics `NOT_PROVEN`；`MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE` 为 LOW/non-blocking |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |

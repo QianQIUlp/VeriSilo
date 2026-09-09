@@ -71,7 +71,8 @@ recovery Gate。在原授权和风险范围内，修复已确认或证据支持�
 
 ## 不可弱化的产品边界
 
-- Standard Silo 长期保留；当前处于 Camoufox Managed Engine 的 pre-RC product stabilization，优先通过真实产品 QA、定向修复和 integration 关闭 release-blocking 风险；
+- Standard Silo 长期保留；当前产品阶段、候选状态和下一任务以 [Camoufox 当前状态](docs/camoufox-program-status.md) 为准，不在本文件硬编码易变化阶段；
+- 新产品/功能提案默认必须说明其是否增强 Identity Integrity、Execution Integrity、Network Integrity、Runtime Evidence 或 Attribution；不因竞品 feature parity 自动进入 roadmap；
 - Profile、Identity Artifact、Engine、Network Policy 与 Evidence 保持不同生命周期；
 - 原生 Windows 专属结论不能由 Linux、WSL 或 Wine 结果替代；
 - 不同时扩张 Controlled Chromium、WSL、VMware、Hyper-V 与 Remote；

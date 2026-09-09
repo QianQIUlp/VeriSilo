@@ -7,7 +7,7 @@ VeriSilo 不把浏览器扩展当作全部产品，也不把独立 `user-data-di
 | 层级           | 版本      | 状态                                         | 主要边界                                                 |
 | -------------- | --------- | -------------------------------------------- | -------------------------------------------------------- |
 | 独立 Silo      | V0.1–V0.6 | 基线部分实现                                 | 独立浏览器 Profile、网站数据、权限、历史和启动级网络配置 |
-| 受控浏览器引擎 | V0.7      | M0–M2-W、M3-0、FP1–FP4 与 clean M3-WI Attempt 4 已在各自证据层闭合；生产 package/adapter/UI/NSIS 已实现，当前产品验收待 pre-RC QA | 协调浏览器可见信号、引擎网络能力和跨上下文一致性         |
+| 受控浏览器引擎 | V0.7      | M0–M2-W、M3-0、FP1–FP4 与 clean M3-WI Attempt 4 已在各自证据层闭合；生产 package/adapter/UI/NSIS 已实现，current-source rc2 已在 pristine Windows Sandbox 完成安装后生命周期验收 | 协调浏览器可见信号、引擎网络能力和跨上下文一致性         |
 | 本地虚拟环境   | V0.8      | 已列入路线                                   | 独立操作系统、字体、设备视图和每环境网络出口             |
 | 自托管远程环境 | V0.9      | 已列入路线                                   | 远程浏览器会话、独立网络栈、持久环境和生命周期审计       |
 
@@ -61,7 +61,7 @@ V0.5 不再只有路线文字：contracts、Companion 与桌面 UI 共享版本�
 
 ### 当前优先级
 
-Standard Silo 仍是长期产品基础层。V0.7 的 Camoufox 资格链已经完成，生产 package/adapter、Desktop signer pin、Managed Silo 创建与运行路径和 current-user NSIS 已实现；旧 M3-WI 失败调查与 clean Attempt 4 保持历史证据边界。当前工程阶段是 **Pre-RC product stabilization**，按 `QA → targeted fix → integration → baseline advance → fresh QA` 推进。当前证据、Gate、release-readiness 条件和未验证边界见[Camoufox Managed Engine 状态](camoufox-program-status.md)，稳定路线原因见[Camoufox-first 决策](camoufox-managed-engine-decision.md)。
+Standard Silo 仍是长期产品基础层。V0.7 的 Camoufox 资格链已经完成，生产 package/adapter、Desktop signer pin、Managed Silo 创建与运行路径和 current-user NSIS 已实现；旧 M3-WI 失败调查与 clean Attempt 4 保持历史证据边界。当前-source `v0.1.0-rc2` 已完成 packaged runtime 与 pristine Windows Sandbox 安装后生命周期验收，但 strict unelevated standard-user 语义、更广 Windows 矩阵、外层 Authenticode 和公开发布仍未证明。当前默认方向是 accepted differentiated roadmap，优先增强身份、执行、网络、运行证据与归属完整性；当前证据与未验证边界见[Camoufox Managed Engine 状态](camoufox-program-status.md)，稳定路线原因见[Camoufox-first 决策](camoufox-managed-engine-decision.md)。
 
 Controlled Chromium 不再与 Camoufox 并行开发。只有 Chromium 专属 API/扩展生态成为明确需求、需要直接控制 Chromium TLS/QUIC 或 V8 行为、Camoufox 无法满足兼容性/维护/分发要求，或项目资源足以承担长期 patch 与多平台构建时，才重新评估。
 

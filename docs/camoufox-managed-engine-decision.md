@@ -117,11 +117,12 @@ FP1 deterministic Artifact projection
 → production package/signing、Managed Silo UI 与 current-user NSIS implementation
 ```
 
-上面是已经闭合的历史资格链，不是新的执行顺序。当前是 **Pre-RC product stabilization**，
-按状态页定义的 `QA → targeted fix → integration → baseline advance → fresh QA` 循环推进；
-只有 release-readiness 条件满足后，才冻结新的 source-bound RC 并执行候选专属 Windows
-installer acceptance。旧 M3-WI、FP1/FP2 generation、diagnostic build 与 one-shot 执行历史
-只在调查对应 evidence 时读取，不构成新任务的默认流程模板。
+上面是已经闭合的历史资格链，不是新的执行顺序。当前阶段、候选状态与下一任务由[状态页](camoufox-program-status.md)
+维护；当前 `v0.1.0-rc2` 已在 exact pristine Windows Sandbox 完成安装验收，但不是公开发布。
+Camoufox-first 仍是当前 Managed Engine strategy；已接受的产品方向是 **B — NARROW /
+DIFFERENTIATE**，不切换内核、不删除 Standard Silo，也不把路线扩展成 broad workstation
+feature-parity 竞赛。旧 M3-WI、FP1/FP2 generation、diagnostic build 与 one-shot 执行历史只在
+调查对应 evidence 时读取，不构成新任务的默认流程模板。
 
 ## 重评或变更条件
 

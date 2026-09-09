@@ -159,8 +159,10 @@ lane 级 verify 之外，运行验证实例时用「足以验证当前修改的�
    contamination 和最终 diff 检查。
 5. 验证通过后由 integration 执行 `baseline advance <集成结果 SHA>`，再执行 `baseline publish`；fetch 后必须
    证明 `baseline/dev == origin/baseline/dev`。发布只允许 fast-forward/首次 bootstrap，禁止 force。
-6. 当前产品阶段是 Pre-RC product stabilization。只有用户明确打开 RC/release gate 且 release-readiness
-   条件满足后，才冻结 source-bound RC；随后安装/覆盖安装/用户旅程验收在专用环境执行，不与开发实例混用。
+6. 当前产品阶段、候选状态与下一任务以 [Camoufox 状态页](camoufox-program-status.md) 为准；当前
+   `v0.1.0-rc2` installed acceptance 已记录，默认方向是 accepted differentiated roadmap。只有用户
+   明确打开 RC/release gate 且 release-readiness 条件满足后，才执行新的候选构建或发布验收；
+   安装/覆盖安装/用户旅程验收在专用环境执行，不与开发实例混用。
 
 ## 运行隔离与共享资源
 

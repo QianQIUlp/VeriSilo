@@ -3,10 +3,18 @@
 ## Current release status
 
 The current canonical development source is `origin/baseline/dev` (with local
-`baseline/dev` required to match it exactly); the fixed
-revision `df971186beeb2a3ee806f9975cdd72b90d34bd5a` is only a documented
-checkpoint. The project is in **Pre-RC product stabilization**. There is no current-source
-RC. The local `artifacts/release/managed-browser/v0.1.0-rc1` directory is a
+`baseline/dev` required to match it exactly); fixed revisions are documented
+checkpoints, not moving source refs. The current source-bound candidate is
+**v0.1.0-rc2**, locally
+accepted through packaged runtime and installed lifecycle in the exact pristine
+Windows Sandbox recorded in [the Camoufox program status](camoufox-program-status.md).
+It has no Git tag, GitHub Release, or public promotion. The outer Desktop/NSIS
+binaries remain unsigned for Authenticode; the internal engine detached CMS
+signature and public signer pin are a separate trust boundary. Strict
+unelevated standard-user install/reinstall/uninstall semantics remain
+unproven.
+
+The local `artifacts/release/managed-browser/v0.1.0-rc1` directory is a
 historical candidate and must not be used as the current product candidate:
 
 - source revision: `6497828aa0643f94fed3ae708734eef6b85f8305`;
@@ -16,9 +24,36 @@ historical candidate and must not be used as the current product candidate:
 - acceptance: `Pending`, `verified:false`, `runtimeAcceptance:null`;
 - classification: historical candidate, superseded for current acceptance, never runtime-accepted.
 
-The next RC version is intentionally not chosen here. It can be frozen only
-after the release-readiness conditions on the [Camoufox program status](camoufox-program-status.md)
-are satisfied on one canonical baseline.
+No additional RC version is chosen here. Any future candidate requires a new
+source binding and an explicit release-readiness decision on one canonical
+baseline.
+
+## Current v0.1.0-rc2 candidate
+
+The current candidate is bound to:
+
+- source revision: `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`;
+- installer SHA-256: `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`;
+- internal Formal-v3 package: exact asset bindings, package-tree verification,
+  detached CMS signature, approved signer/public pin match, release provenance,
+  and SBOM/license evidence;
+- packaged Managed runtime: `provision → hello → launch → page snapshot → page
+  windows → status → close → shutdown`, including response-ID correlation;
+- installed acceptance: Standard and Managed lifecycle, restart persistence,
+  same-version reinstall, data preservation, and uninstall passed in a pristine
+  Windows 11 Enterprise `10.0.26100` / AMD64 Sandbox.
+
+The installed acceptance evidence is indexed by QA branch
+`origin/agent/qa/v0-1-0-rc2-installed-69d6d6` at tip
+`df1b82fe3ca2f071a4b6676adc92db046558cdd3`. Its `WDAGUtilityAccount` is an
+administrator, so the strict standard-user boundary is `NOT_PROVEN`, not a
+lifecycle failure. The low-severity
+`MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE` remains a documented,
+non-blocking UX observation; it is not claimed fixed here.
+
+This candidate is local-only and is not a shipped or public release. The
+release architecture and build semantics below remain valid, while the
+historical RC1-specific profile must not be read as rc2's acceptance state.
 
 ## Historical Managed Browser v0.1.0-rc1 profile (build semantics retained)
 
