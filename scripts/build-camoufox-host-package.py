@@ -25,7 +25,7 @@ HOST_DIR = Path(__file__).resolve().parents[1] / "apps" / "camoufox-host"
 if str(HOST_DIR) not in sys.path:
     sys.path.insert(0, str(HOST_DIR))
 
-from browser_tree import load_tree_manifest, verify_tree
+from browser_tree import RUNTIME_TREE_EXTRAS, load_tree_manifest, verify_tree
 from package_contract import (
     BROWSER_TREE_NAME,
     BROWSER_DIRECTORY,
@@ -539,8 +539,6 @@ def _stage(
         layout.browser_tree.write_bytes(browser_tree_raw)
         package_asset = _package_asset_lock(formal, sha256_bytes(browser_tree_raw))
         _write_json(layout.asset_lock, package_asset)
-        package_tree = build_package_tree(staging)
-        package_tree_raw = _write_json(layout.package_tree, package_tree)
         host_sha = sha256_file(layout.host)
         manifest = {
             "schemaVersion": 3,
@@ -563,7 +561,7 @@ def _stage(
             },
             "treeManifest": {
                 "relativePath": PACKAGE_TREE_NAME,
-                "sha256": sha256_bytes(package_tree_raw),
+                "sha256": "0" * 64,
             },
             "browserTreeManifest": {
                 "relativePath": BROWSER_TREE_NAME,
@@ -573,13 +571,53 @@ def _stage(
             "browserRelease": FORMAL_V3_BROWSER_RELEASE,
             "browserAssetSha256": FORMAL_V3_ARCHIVE_SHA256,
         }
-        validate_v3_manifest(manifest, allow_unsigned=True)
+
+        def _bind_package_tree() -> bytes:
+            package_tree = build_package_tree(staging)
+            package_tree_raw = _write_json(layout.package_tree, package_tree)
+            manifest["treeManifest"]["sha256"] = sha256_bytes(package_tree_raw)
+            validate_v3_manifest(manifest, allow_unsigned=True)
+            _write_json(layout.root / PACKAGE_MANIFEST_NAME, manifest)
+            return package_tree_raw
+
+        # First pass: a consistent manifest/package tree so the packaged-Host
+        # smoke can start against the staging layout.
+        package_tree_raw = _bind_package_tree()
+        pre_smoke_entries = {
+            entry["path"]: entry["sha256"]
+            for entry in build_package_tree(staging)["entries"]
+        }
+        # The smoke runs the packaged Host's own hello/provision path, whose
+        # cache seeding junctions the staged browser root and generates
+        # deterministic runtime cache files (browser/version.json).  Every
+        # Desktop/Host package recheck is exact, so the shipped package must
+        # declare exactly those runtime-produced bytes; any other smoke
+        # drift is a builder failure.
+        _smoke_packaged_host(layout, Path(temporary))
+        post_smoke_entries = {
+            entry["path"]: entry["sha256"]
+            for entry in build_package_tree(staging)["entries"]
+        }
+        missing = sorted(set(pre_smoke_entries) - set(post_smoke_entries))
+        changed = sorted(
+            path
+            for path in set(pre_smoke_entries) & set(post_smoke_entries)
+            if pre_smoke_entries[path] != post_smoke_entries[path]
+        )
+        added = sorted(set(post_smoke_entries) - set(pre_smoke_entries))
+        allowed_added = {f"{BROWSER_DIRECTORY}/{name}" for name in RUNTIME_TREE_EXTRAS}
+        if missing or changed or any(path not in allowed_added for path in added):
+            _fail(
+                "packaged-Host smoke changed the staged package: "
+                f"missing={missing} changed={changed} added={added}"
+            )
+        if added:
+            package_tree_raw = _bind_package_tree()
         payload = manifest_signing_payload(manifest)
         unsigned_manifest_path = Path(temporary) / "engine-package.unsigned.json"
         payload_path = Path(temporary) / "engine-package.payload.bin"
         _write_json(unsigned_manifest_path, manifest)
         payload_path.write_bytes(payload)
-        _write_json(layout.root / PACKAGE_MANIFEST_NAME, manifest)
         if sign:
             if os.name != "nt":
                 _fail("CMS signing is available only on Windows")
@@ -608,7 +646,6 @@ def _stage(
         final_manifest = _read_formal_json(layout.root / PACKAGE_MANIFEST_NAME)
         validate_v3_manifest(final_manifest, allow_unsigned=not sign)
         recheck_formal_package(layout.root, final_manifest)
-        _smoke_packaged_host(layout, Path(temporary))
         shutil.copytree(staging, out)
         # Keep unsigned canonical inputs beside (not inside) the package:
         # putting either in package-tree.json would create a hash cycle.  The
