@@ -7,8 +7,10 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const profile = "managed-browser-windows";
-const releaseVersion = "v0.1.0-rc1";
-const installerName = `VeriSilo-Managed-Browser-${releaseVersion}-x64-setup.exe`;
+const releaseVersionPattern = /^v[0-9]+\.[0-9]+\.[0-9]+-rc[0-9]+$/u;
+function installerNameFor(releaseVersion) {
+  return `VeriSilo-Managed-Browser-${releaseVersion}-x64-setup.exe`;
+}
 const runtimeStepNames = [
   "installCurrentUser",
   "vaultInitializeUnlock",
@@ -38,23 +40,24 @@ const lifecycleNames = [
   "applicationRemoved",
   "dataPreserved",
 ];
-const requiredFiles = new Set([
-  "verisilo.exe",
-  installerName,
-  "README.txt",
-  "LICENSE",
-  "THIRD_PARTY_NOTICES.md",
-  "windows-acceptance-report.json",
-  "windows-acceptance-report.md",
-  "authenticode-status.json",
-  "dependency-licenses.json",
-  "sbom/dependency-inventory.json",
-  "sbom/bom.cyclonedx.json",
-  "sbom/bom.spdx.json",
-  "SHA256SUMS",
-  "provenance.json",
-]);
-const allowedTopLevel = new Set([...requiredFiles, "sbom", "engine-package"]);
+function requiredFilesFor(installerName) {
+  return new Set([
+    "verisilo.exe",
+    installerName,
+    "README.txt",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "windows-acceptance-report.json",
+    "windows-acceptance-report.md",
+    "authenticode-status.json",
+    "dependency-licenses.json",
+    "sbom/dependency-inventory.json",
+    "sbom/bom.cyclonedx.json",
+    "sbom/bom.spdx.json",
+    "SHA256SUMS",
+    "provenance.json",
+  ]);
+}
 const forbiddenPath =
   /(?:^|\/)(?:hyper[-_ ]?v|vhdx?|environment|extension|native[-_ ]?host|hooks?|wsl|sandbox|portable|updater)(?:\/|$)/iu;
 const checksumLinePattern = /^([0-9a-f]{64})  (.+)$/u;
@@ -104,7 +107,9 @@ async function collectFiles(directory, relativeDirectory = "") {
   return files.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function assertReleaseShape(files) {
+function assertReleaseShape(files, installerName) {
+  const requiredFiles = requiredFilesFor(installerName);
+  const allowedTopLevel = new Set([...requiredFiles, "sbom", "engine-package"]);
   const paths = new Set(files.map((file) => file.path));
   for (const required of requiredFiles) {
     if (!paths.has(required)) {
@@ -271,13 +276,14 @@ function verifyAcceptanceReport(report, packageInfo, installerSha256) {
     report.schema !== "urn:verisilo:managed-browser-windows-acceptance:1" ||
     report.schemaVersion !== 1 ||
     report.profile !== profile ||
-    report.release !== releaseVersion ||
+    typeof report.release !== "string" ||
+    !releaseVersionPattern.test(report.release) ||
     !["Pending", "Passed", "Failed", "Inconclusive"].includes(report.status) ||
     typeof report.verified !== "boolean" ||
     typeof report.basis !== "string" ||
     report.basis.length === 0 ||
     report.desktopExecutable !== "verisilo.exe" ||
-    report.installer !== installerName ||
+    report.installer !== installerNameFor(report.release) ||
     report.outerAuthenticode !== "unsigned" ||
     report.enginePackageRoot !== "engine-package" ||
     report.dataRoot !== "%LOCALAPPDATA%\\io.verisilo.app" ||
@@ -287,7 +293,7 @@ function verifyAcceptanceReport(report, packageInfo, installerSha256) {
       JSON.stringify(["dataPolicy"]) ||
     report.uninstaller?.dataPolicy !== "preserve"
   ) {
-    fail("Managed-browser acceptance report is not the bounded RC1 contract.");
+    fail("Managed-browser acceptance report is not the bounded candidate contract.");
   }
   if (report.status === "Pending") {
     if (report.verified !== false || report.runtimeAcceptance !== null) {
@@ -453,14 +459,14 @@ function verifyInventory(report, inventory, cyclonedx, spdx) {
   }
 }
 
-function verifyProvenance(provenance) {
+function verifyProvenance(provenance, releaseVersion) {
   if (
     provenance?.schema !== "urn:verisilo:release-provenance:1" ||
     provenance.schemaVersion !== 1 ||
     provenance.build?.artifactProfile !== profile ||
     provenance.build?.signingState !== "unsigned" ||
     provenance.build?.authenticode !== false ||
-    provenance.build?.promotionState !== "LOCAL_RC1_ONLY" ||
+    provenance.build?.promotionState !== "LOCAL_CANDIDATE_ONLY" ||
     provenance.build?.hyperVImageSource !== null ||
     typeof provenance.build?.runnerOs !== "string" ||
     typeof provenance.build?.runnerArch !== "string" ||
@@ -532,7 +538,21 @@ export async function verifyRelease(
   pythonCommand = "python",
 ) {
   const files = await collectFiles(directory);
-  assertReleaseShape(files);
+  const report = parseJson(
+    await readFile(path.join(directory, "windows-acceptance-report.json")),
+    "windows-acceptance-report.json",
+  );
+  if (
+    typeof report?.release !== "string" ||
+    !releaseVersionPattern.test(report.release)
+  ) {
+    fail(
+      "Managed-browser acceptance report must carry a strict candidate release version.",
+    );
+  }
+  const releaseVersion = report.release;
+  const installerName = installerNameFor(releaseVersion);
+  assertReleaseShape(files, installerName);
   const resolvedDirectory = path.resolve(directory);
   const resolvedPackageDirectory = path.resolve(packageDirectory);
   if (
@@ -545,10 +565,6 @@ export async function verifyRelease(
   const packageInfo = await verifyEnginePackage(
     resolvedPackageDirectory,
     pythonCommand,
-  );
-  const report = parseJson(
-    await readFile(path.join(directory, "windows-acceptance-report.json")),
-    "windows-acceptance-report.json",
   );
   verifyAcceptanceReport(
     report,
@@ -592,6 +608,7 @@ export async function verifyRelease(
       await readFile(path.join(directory, "provenance.json")),
       "provenance.json",
     ),
+    releaseVersion,
   );
   await verifyChecksums(directory, files);
   process.stdout.write(
@@ -616,11 +633,18 @@ function selfTest() {
   if (forbiddenPath.test("sbom/bom.spdx.json")) {
     fail("Managed-browser verifier self-test rejected a valid SBOM path.");
   }
-  assertReleaseShape([
-    ...[...requiredFiles].map((filePath) => ({ path: filePath })),
-    { path: "engine-package/camoufox.exe" },
-    { path: "engine-package/hooks/fixture.ps1" },
-  ]);
+  const fixtureRelease = "v9.8.7-rc12";
+  const installerName = installerNameFor(fixtureRelease);
+  assertReleaseShape(
+    [
+      ...[...requiredFilesFor(installerName)].map((filePath) => ({
+        path: filePath,
+      })),
+      { path: "engine-package/camoufox.exe" },
+      { path: "engine-package/hooks/fixture.ps1" },
+    ],
+    installerName,
+  );
   const report = {
     schemaVersion: 1,
     mode: "Unsigned",
@@ -645,7 +669,7 @@ function selfTest() {
     schema: "urn:verisilo:managed-browser-windows-acceptance:1",
     schemaVersion: 1,
     profile,
-    release: releaseVersion,
+    release: fixtureRelease,
     status: "Pending",
     verified: false,
     basis: "fixture",
@@ -697,12 +721,45 @@ function selfTest() {
   if (!acceptedPassedStatus) {
     fail("Managed-browser verifier self-test accepted a completed status.");
   }
+  let malformedReleaseRejected = false;
+  try {
+    verifyAcceptanceReport(
+      { ...acceptance, release: "v0.1.0-rc2-x" },
+      packageInfo,
+      "e".repeat(64),
+    );
+  } catch {
+    malformedReleaseRejected = true;
+  }
+  if (!malformedReleaseRejected) {
+    fail(
+      "Managed-browser verifier self-test accepted a malformed release version.",
+    );
+  }
+  let installerMismatchRejected = false;
+  try {
+    verifyAcceptanceReport(
+      { ...acceptance, installer: installerNameFor("v0.1.0-rc1") },
+      packageInfo,
+      "e".repeat(64),
+    );
+  } catch {
+    installerMismatchRejected = true;
+  }
+  if (!installerMismatchRejected) {
+    fail(
+      "Managed-browser verifier self-test accepted a mismatched installer name.",
+    );
+  }
   let rejected = false;
   try {
-    assertReleaseShape([
-      { path: "verisilo.exe" },
-      { path: "environment/probe.txt" },
-    ]);
+    assertReleaseShape(
+      [
+        { path: "verisilo.exe" },
+        { path: "environment/probe.txt" },
+      ],
+      installerName,
+    );
   } catch {
     rejected = true;
   }

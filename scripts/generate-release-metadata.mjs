@@ -18,6 +18,23 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifestName = "SHA256SUMS";
 const provenanceName = "provenance.json";
 const excludedNames = new Set([manifestName, provenanceName]);
+const releaseVersionPattern = /^v[0-9]+\.[0-9]+\.[0-9]+-rc[0-9]+$/u;
+
+async function managedBrowserReleaseVersion(directory) {
+  const report = await readFile(
+    path.join(directory, "windows-acceptance-report.json"),
+    "utf8",
+  )
+    .then(JSON.parse)
+    .catch(() => undefined);
+  const release = report?.release;
+  if (typeof release !== "string" || !releaseVersionPattern.test(release)) {
+    throw new Error(
+      "The release directory must contain a windows-acceptance-report.json whose release field is a strict candidate version (e.g. v0.1.0-rc2).",
+    );
+  }
+  return release;
+}
 const provenanceProfiles = {
   "managed-browser-windows": {
     inputPaths: [
@@ -255,7 +272,7 @@ async function sourceInputs(profileName) {
   );
 }
 
-async function readVersions(profileName) {
+async function readVersions(profileName, directory) {
   if (profileName === "remote-agent") {
     const cargo = await readFile(
       path.join(root, "crates/verisilo-remote-backend/Cargo.toml"),
@@ -294,7 +311,7 @@ async function readVersions(profileName) {
       packageManager: rootPackage.packageManager,
       desktop: tauriConfig.version,
       cargo: cargoVersion,
-      managedBrowser: "v0.1.0-rc1",
+      managedBrowser: await managedBrowserReleaseVersion(directory),
     };
   }
   const [extensionPackage, extensionManifest, remoteAgentCargo] =
@@ -357,7 +374,7 @@ async function verifiedSigning(directory, profileName) {
       process.env.VERISILO_SIGNING_STATE !== "unsigned"
     ) {
       throw new Error(
-        "Managed-browser RC1 must remain outer-unsigned by default.",
+        "Managed-browser candidate must remain outer-unsigned by default.",
       );
     }
     return { signingState, signerCertificateSha256: null };
@@ -405,7 +422,7 @@ async function expectedProvenance(files, directory, profileName) {
     directory,
     profileName,
   );
-  const versions = await readVersions(profileName);
+  const versions = await readVersions(profileName, directory);
   return {
     schema: "urn:verisilo:release-provenance:1",
     schemaVersion: 1,
@@ -436,7 +453,7 @@ async function expectedProvenance(files, directory, profileName) {
         profileName === "windows"
           ? "NOT_PROMOTABLE"
           : profileName === "managed-browser-windows"
-            ? "LOCAL_RC1_ONLY"
+            ? "LOCAL_CANDIDATE_ONLY"
             : null,
       node: process.version,
       packageManager: versions.packageManager ?? null,
@@ -579,6 +596,11 @@ async function selfTest() {
         "utf8",
       );
       if (profileName === "managed-browser-windows") {
+        await writeFile(
+          path.join(candidate, "windows-acceptance-report.json"),
+          stableJson({ release: "v9.8.7-rc12" }),
+          "utf8",
+        );
         await writeFile(
           path.join(candidate, "authenticode-status.json"),
           stableJson({

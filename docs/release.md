@@ -56,8 +56,11 @@ Apify fingerprint datapoints, language-tags and tzdata data plus their package
 metadata for the one-folder Host output. The builder then executes the frozen
 Host hello and one Direct Artifact provision from the staged package.
 
-The historical profile writes exactly `artifacts/release/managed-browser/v0.1.0-rc1`,
-then generates the managed-browser Python/Camoufox/Firefox SBOM and license
+The builder writes exactly
+`artifacts/release/managed-browser/<ReleaseVersion>`; the historical RC1 build
+wrote `artifacts/release/managed-browser/v0.1.0-rc1` and must never be
+overwritten or silently deleted. It then generates the managed-browser
+Python/Camoufox/Firefox SBOM and license
 evidence, `SHA256SUMS`, `provenance.json`, `authenticode-status.json`, and the
 pending `windows-acceptance-report.json`/`.md`, `README.txt`, and
 `engine-package/**` files, then runs

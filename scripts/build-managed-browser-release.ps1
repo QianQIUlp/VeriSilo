@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [string]$EnginePackage,
-  [string]$OutputDirectory = 'artifacts/release/managed-browser/v0.1.0-rc1',
+  [string]$ReleaseVersion,
+  [string]$OutputDirectory,
   [string]$Python = 'python',
   [ValidateSet('x86_64-pc-windows-msvc')]
   [string]$TargetTriple = 'x86_64-pc-windows-msvc',
@@ -13,8 +14,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$releaseVersion = 'v0.1.0-rc1'
-$installerName = "VeriSilo-Managed-Browser-$releaseVersion-x64-setup.exe"
+$releaseVersionPattern = '^v[0-9]+\.[0-9]+\.[0-9]+-rc[0-9]+$'
+$installerName = $null
 $targetRoot = Join-Path $root 'apps/desktop/src-tauri/target'
 $stagedPackage = Join-Path $targetRoot 'verisilo-managed-browser-resources/engine-package'
 $desktopBinary = Join-Path $targetRoot "$TargetTriple/release/verisilo.exe"
@@ -55,6 +56,14 @@ function Write-Utf8NoBom {
     [Parameter(Mandatory = $true)] [string]$Content
   )
   [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
+}
+
+function Assert-ReleaseVersion {
+  param([Parameter(Mandatory = $true)] [string]$Value)
+  if ($Value -cnotmatch $releaseVersionPattern) {
+    throw "ReleaseVersion '$Value' is not a strict candidate version (expected a lowercase version such as v0.1.0-rc2)."
+  }
+  return $Value
 }
 
 function Set-ReleaseEnvironment {
@@ -132,6 +141,29 @@ function Assert-ManagedConfig {
 
 function Self-Test {
   Set-Location -LiteralPath $root
+  $null = Assert-ReleaseVersion 'v0.1.0-rc2'
+  $null = Assert-ReleaseVersion 'v9.8.7-rc12'
+  foreach ($bad in @(
+    '0.1.0-rc2',
+    'v0.1.0-rc2-x',
+    'v0.1.0',
+    'v0.1.0-beta1',
+    'V0.1.0-rc2',
+    'v0.1.0-RC2',
+    'v0.1.0-rc2 ',
+    'v.1.0-rc2',
+    ''
+  )) {
+    $rejected = $false
+    try {
+      $null = Assert-ReleaseVersion $bad
+    } catch {
+      $rejected = $true
+    }
+    if (-not $rejected) {
+      throw "ReleaseVersion self-test accepted the malformed candidate version '$bad'."
+    }
+  }
   $previousSignerPins = $env:VERISILO_ENGINE_SIGNER_SHA256
   try {
     $env:VERISILO_ENGINE_SIGNER_SHA256 = 'a' * 64
@@ -155,8 +187,33 @@ if ([string]::IsNullOrWhiteSpace($EnginePackage)) {
   }
 }
 
+if (-not $Check) {
+  if ([string]::IsNullOrWhiteSpace($ReleaseVersion)) {
+    throw '-ReleaseVersion is required to build a candidate; pass the explicit source-bound candidate version (e.g. -ReleaseVersion v0.1.0-rc2).'
+  }
+}
+if (-not [string]::IsNullOrWhiteSpace($ReleaseVersion)) {
+  $ReleaseVersion = Assert-ReleaseVersion $ReleaseVersion.Trim()
+  $installerName = "VeriSilo-Managed-Browser-$ReleaseVersion-x64-setup.exe"
+}
+
 Set-Location -LiteralPath $root
 Set-ReleaseEnvironment
+if (-not $Check -and $env:VERISILO_SOURCE_DIRTY -eq 'true') {
+  throw 'The release source tree is dirty; a candidate build requires a clean canonical checkout.'
+}
+if (-not [string]::IsNullOrWhiteSpace($ReleaseVersion)) {
+  $defaultOutput = "artifacts/release/managed-browser/$ReleaseVersion"
+  if ($PSBoundParameters.ContainsKey('OutputDirectory')) {
+    if (-not $OutputDirectory.TrimEnd('/\').EndsWith($ReleaseVersion, [StringComparison]::Ordinal)) {
+      throw "OutputDirectory '$OutputDirectory' does not end with candidate version '$ReleaseVersion'; the output path must come from the same ReleaseVersion."
+    }
+  } else {
+    $OutputDirectory = $defaultOutput
+  }
+} elseif ($Check -and -not $PSBoundParameters.ContainsKey('OutputDirectory')) {
+  throw '-Check requires either -OutputDirectory or -ReleaseVersion to locate the release directory.'
+}
 $releasePath = if ([IO.Path]::IsPathRooted($OutputDirectory)) {
   [IO.Path]::GetFullPath($OutputDirectory)
 } else {
@@ -211,7 +268,37 @@ if ($installers.Count -ne 1) {
 New-Item -ItemType Directory -Force -Path $releasePath | Out-Null
 Copy-Item -LiteralPath $desktopBinary -Destination (Join-Path $releasePath 'verisilo.exe')
 Copy-Item -LiteralPath $installers[0].FullName -Destination (Join-Path $releasePath $installerName)
-Copy-Item -LiteralPath (Join-Path $root 'docs/managed-browser-rc1.md') -Destination (Join-Path $releasePath 'README.txt')
+Write-Utf8NoBom -Path (Join-Path $releasePath 'README.txt') -Content @"
+VeriSilo Managed Browser candidate $releaseVersion
+==================================================
+
+This candidate is a self-contained Windows x64 build for local evaluation. It
+bundles the current CMS-signed Camoufox engine package; the target computer
+does not need Git, Python, uv, Node, Rust, or a separately installed Camoufox.
+
+The release folder contains verisilo.exe, the exact current-user NSIS installer
+$installerName, the signed engine-package/ tree, SHA256SUMS, provenance.json,
+authenticode-status.json, pending windows-acceptance-report.json/.md, SBOM and
+license evidence, LICENSE, and THIRD_PARTY_NOTICES.md. It contains no Hyper-V
+or environment files, extension files, Native Host binaries, or installer
+hooks.
+
+The installer and verisilo.exe are intentionally outer-unsigned for this local
+candidate; authenticode-status.json records that unsigned boundary. The engine
+package carries a mandatory detached CMS signature and is rejected before
+launch if its signer, manifest, Host, or browser tree does not match the pin
+embedded in the Desktop build.
+
+Install and start: run the installer as the current user, then create or unlock
+the local Vault and choose Create Silo. Reinstalling the same version repairs
+the application while preserving the Vault and Silo data under
+%LOCALAPPDATA%\io.verisilo.app. Uninstall removes the application but never
+silently deletes that data.
+
+The Windows acceptance report is Pending; it changes only when a real packaged
+runtime acceptance run supplies evidence. This generated guide contains no
+runtime result and claims no public release.
+"@
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination $releasePath
 Copy-Item -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md') -Destination $releasePath
 
@@ -274,4 +361,4 @@ Invoke-Checked 'pnpm' @('run', 'managed-browser:licenses', '--', '--out', (Join-
 Invoke-Checked 'node' @('scripts/generate-release-metadata.mjs', '--dir', $releasePath, '--profile', 'managed-browser-windows')
 Invoke-Checked 'node' @('scripts/generate-release-metadata.mjs', '--dir', $releasePath, '--profile', 'managed-browser-windows', '--check')
 Invoke-Checked 'node' @($verifier, '--check', '--release', $releasePath, '--engine-package', $finalPackage, '--python', $Python)
-Write-Output "Managed-browser RC1 staged at $releasePath"
+Write-Output "Managed-browser release candidate $releaseVersion staged at $releasePath"
