@@ -39,16 +39,19 @@ Camoufox / Managed Identity 普通任务先读：
 Standard Silo、EngineAdapter 或环境后端任务先读各自 owning 文档/代码；只有它实际依赖
 当前 Camoufox Gate 时才读 Camoufox 状态页。
 
-只有任务可能改变产品语义、架构路线或长期能力边界时，才额外读取：
+只有任务可能改变产品语义、架构路线、长期能力边界或较大产品功能面时，才额外读取：
 
 1. [身份平台北极星](docs/identity-platform-north-star.md)；
-2. [Camoufox-first 决策](docs/camoufox-managed-engine-decision.md)。
+2. [Camoufox-first 决策](docs/camoufox-managed-engine-decision.md)；
+3. [可验证身份运行时产品决策](docs/verifiable-identity-runtime-decision.md)。
+
+若任务涉及“是否补齐商业指纹浏览器常见功能”、与 Simprint/其他开源竞品的能力重合，或准备扩张团队/工作区、通用 RPA、REST/MCP 大工具集、syncer、账号资产管理、通用代理运营后台、Controlled Chromium patch 广度，必须先读第 3 项；需要核查其竞争事实时再读[Simprint × VeriSilo 源码级技术尽调](docs/simprint-verisilo-technical-due-diligence.md)，并注意该报告只证明冻结基线上的源码事实，不自动代表竞争对手未来版本。
 
 只有在委派复杂工作、创建新 Gate 或审阅外部 evidence package 时，才读取
 [Agent 协作协议](docs/agent-operating-model.md)。历史任务合同、旧 run 和 superseded
 checkpoint 不属于默认上下文；仅在调查对应事实时按状态页链接读取。
 
-若多个事实源真正冲突，权威顺序是：产品北极星 → 已接受架构决策 → 当前任务合同
+若多个事实源真正冲突，权威顺序是：产品北极星 → 已接受架构/产品决策 → 当前任务合同
 → 当前状态 → 实现与直接证据。历史合同中的旧“当前状态”不覆盖状态页标明的新状态。
 
 ## 成本与验证
@@ -76,4 +79,6 @@ recovery Gate。在原授权和风险范围内，修复已确认或证据支持�
 - 原生 Windows 专属结论不能由 Linux、WSL 或 Wine 结果替代；
 - 不同时扩张 Controlled Chromium、WSL、VMware、Hyper-V 与 Remote；
 - 不混用 `configured`、`applied`、`observed`、`verified` 与 `unavailable`；
-- 配置声明、测试通过或编译成功都不能冒充尚未取得的 runtime/product Gate。
+- 配置声明、测试通过或编译成功都不能冒充尚未取得的 runtime/product Gate；
+- VeriSilo 的长期差异化是 Identity Integrity、Execution Integrity、Network Integrity、Runtime Evidence 与 Attribution；新的较大功能如果一个维度都不增强，默认不进入主路线图；
+- 不因为“商业指纹浏览器通常有”就默认扩张通用工作台、自动化或 Chromium patch 广度；若新证据显示这些能力成为核心用户需求，先通过新的显式产品决策重评。
