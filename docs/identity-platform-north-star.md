@@ -25,7 +25,28 @@ VeriSilo 面向希望在本机长期管理多个浏览器身份的普通用户�
 → 查看当前实际应用和观测到的证据
 ```
 
+长期产品结果不止于 `create → launch`。完整体验还应包括：
+
+```text
+declare identity/network intent
+→ run
+→ see what actually happened
+→ detect mismatch/staleness/unavailability
+```
+
 用户不应被要求理解浏览器源码构建、WSL、虚拟机、Profile 目录或 Artifact JSON，才能完成最基本的创建、启动和继续使用。托管身份 Silo 向用户展示网站可见身份摘要，并允许在首次成功启动前微调语言、屏幕、硬件并发，以及时区/语言/地理是否跟随网络出口；首次启动后身份保持稳定。底层种子和原始 Artifact 仍不进入页面。
+
+VeriSilo 可以服务普通的本地多 Profile 用户；但 Managed Identity 的核心差异化受众，是把浏览器身份或账号视为长期资产、对身份漂移、网络降级和事后归因敏感的用户。这些用户更可能具有：
+
+```text
+persistent identities
+high cost of accidental correlation
+long-lived sessions/accounts
+need for diagnosis/audit
+need to know what actually ran
+```
+
+这是基于 Simprint source review 的产品假设（product thesis），不是市场调研证明；也不把产品重新定位成 enterprise compliance platform。
 
 ## Silo 的领域定义
 
@@ -116,6 +137,8 @@ Resolved Identity Artifact 是底层重放制品，不等同于最终用户配�
 - `unavailable` 必须作为正常结果保留，不能被默认值或推测替代。
 
 VeriSilo 不提供“匿名分数”，不宣传“不可检测”，不把单一反检测网站结果当成总体验收，也不把 Profile 隔离、代理或虚拟机控制面回执夸大为完整设备身份验证。
+
+Durable evidence roadmap：**expected-vs-observed reconciliation** 是把 Resolved Identity Artifact 的期望身份与网站实际观测身份做自动调和、并给出 matched / mismatched / unavailable / stale 解释与呈现的长期产品方向；它是缩小 `observed → verified` 差距的主要产品路线，只有满足未来 capability-specific verification contract 时才升级为 `verified`，观测值相等不自动提升 verified。本页只记录方向，不固定具体实现。
 
 ## 长期非目标
 
