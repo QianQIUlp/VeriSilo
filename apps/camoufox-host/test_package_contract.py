@@ -14,6 +14,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from package_contract import (  # noqa: E402
     FORMAL_V3_ARCHIVE_SHA256,
+    FORMAL_V3_ARCHIVE_SIZE,
+    FORMAL_V3_BUILD_ID,
+    FORMAL_V3_BUILD_RESULT_SHA256,
+    FORMAL_V3_EXECUTABLE_SHA256,
+    FORMAL_V3_PROPERTIES_SHA256,
+    FORMAL_V3_RUNTIME_TREE_SHA256,
+    FORMAL_V3_SOURCE_COMMIT,
+    FORMAL_V3_SOURCE_LOCK_SHA256,
+    FORMAL_V3_SOURCE_STAMP,
+    FORMAL_V3_SOURCE_TREE,
     PackageLayout,
     PackageContractError,
     build_package_tree,
@@ -268,6 +278,149 @@ def main() -> int:
     else:
         raise AssertionError("path traversal accepted")
     assert safe_relative_path("browser/fonts/Academy Engraved LET Fonts.ttf")
+
+    # Dual-boot Formal-v3 build-input contract regression: the production
+    # package builder binds the frozen inputs directly and must reject every
+    # stale/historical binding (including the old FP3 runtime-asset lock).
+    import importlib.util
+
+    repo_root = Path(__file__).resolve().parents[2]
+    builder_path = repo_root / "scripts" / "build-camoufox-host-package.py"
+    builder_spec = importlib.util.spec_from_file_location(
+        "build_camoufox_host_package", builder_path
+    )
+    builder = importlib.util.module_from_spec(builder_spec)
+    builder_spec.loader.exec_module(builder)
+
+    def _dual_boot_record() -> dict:
+        return {
+            "recordType": "verisilo-camoufox-r1-formal-build-run/v1",
+            "runId": "r1formal-v3-win11dual-20260902",
+            "buildMode": "formal",
+            "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-formal-v3",
+            "formalSource": True,
+            "diagnosticOnly": False,
+            "claims": {
+                "browserLaunches": 0,
+                "compiled": True,
+                "formalR1Passed": False,
+                "formalSource": True,
+                "runtimeVerified": False,
+                "windowsRuntimeObserved": False,
+            },
+            "completeAppliedPatchOrder": [
+                "0000", "0001", "0002", "0003", "0003a",
+                "0004", "0005", "0006", "0007",
+            ],
+            "startedAtUtc": "2026-09-02T12:41:00.688104Z",
+            "completedAtUtc": "2026-09-02T13:54:52.797012Z",
+            "archive": {
+                "name": "camoufox-152.0.4-beta.28-win.x86_64.zip",
+                "sha256": FORMAL_V3_ARCHIVE_SHA256,
+                "sizeBytes": FORMAL_V3_ARCHIVE_SIZE,
+                "camoufoxExeSha256": FORMAL_V3_EXECUTABLE_SHA256,
+                "buildId": FORMAL_V3_BUILD_ID,
+                "sourceStamp": FORMAL_V3_SOURCE_STAMP,
+                "treeManifest": {
+                    "name": "windows-extraction-tree.json",
+                    "sha256": builder.FORMAL_V3_EXTRACTION_TREE_SHA256,
+                    "sizeBytes": builder.FORMAL_V3_EXTRACTION_TREE_SIZE,
+                    "entryCount": 514,
+                },
+            },
+            "inputs": {
+                "sourceLockSha256": FORMAL_V3_SOURCE_LOCK_SHA256,
+                "completeAppliedPatchOrder": [
+                    "0000", "0001", "0002", "0003", "0003a",
+                    "0004", "0005", "0006", "0007",
+                ],
+                "verisiloCommit": "6497828aa0643f94fed3ae708734eef6b85f8305",
+                "verisiloTree": "3b796a461ad80e8cad82bad5cc6d73b8f8a1e58a",
+                "upstreamCommit": "0583c3ec94f5a9df5cb2d09553fbfe80589b6e2d",
+                "upstreamTree": "1435d544d9b61dee7fcf74cf92462952ca43d38e",
+                "upstreamPatchCount": 50,
+            },
+        }
+
+    builder.validate_formal_build_record(_dual_boot_record())
+
+    def _reject_record(mutate) -> None:
+        candidate = _dual_boot_record()
+        mutate(candidate)
+        try:
+            builder.validate_formal_build_record(candidate)
+        except PackageContractError:
+            pass
+        else:
+            raise AssertionError("invalid Formal-v3 build record accepted")
+
+    # The pre-dual-boot kernel/inputs must not be accepted as the current build.
+    _reject_record(lambda r: r["archive"].__setitem__(
+        "sha256", "032ca1a43f7e8082cf9e36668fd5b58cf4a27f4f41d0f7be833c3d2eb9c2abd5"))
+    _reject_record(lambda r: r["archive"].__setitem__(
+        "camoufoxExeSha256", "b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f142a6"))
+    _reject_record(lambda r: r["archive"].__setitem__(
+        "sizeBytes", 493493005))
+    # Historical run identity and any source-binding drift stay rejected.
+    _reject_record(lambda r: r.__setitem__("runId", "r1formal-v3-engine-20260827t031900z"))
+    _reject_record(lambda r: r["inputs"].__setitem__("sourceLockSha256", "0" * 64))
+    _reject_record(lambda r: r["claims"].__setitem__("compiled", False))
+    _reject_record(lambda r: r.__setitem__(
+        "completeAppliedPatchOrder", ["0000", "0001", "0002"]))
+    _reject_record(lambda r: r.__setitem__("recordType", "verisilo-r1-formal-build-result/v1"))
+
+    # The committed build record must be exactly the pinned dual-boot record.
+    build_result_path = (
+        repo_root / "apps" / "camoufox-host" / "lock"
+        / "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-build-result.json"
+    )
+    build_result_raw = build_result_path.read_bytes()
+    assert sha256_bytes(build_result_raw) == FORMAL_V3_BUILD_RESULT_SHA256
+    builder.validate_formal_build_record(json.loads(build_result_raw))
+
+    # The committed source lock must declare exactly this build-record path.
+    source_lock_path = (
+        repo_root / "apps" / "camoufox-host" / "lock"
+        / "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json"
+    )
+    source_lock_raw = source_lock_path.read_bytes()
+    assert sha256_bytes(source_lock_raw) == FORMAL_V3_SOURCE_LOCK_SHA256
+    builder.validate_source_lock_content(json.loads(source_lock_raw))
+
+    # The generated package asset lock binds exactly the dual-boot inputs.
+    expected_lock = {
+        "schema": "verisilo-camoufox-package-asset/v1",
+        "assetKind": "self-built",
+        "verified": False,
+        "evidenceClass": "compiled-not-runtime-verified",
+        "package": "camoufox",
+        "release": "v152.0.4-beta.28",
+        "platform": "windows-x86_64",
+        "pythonPackage": "camoufox==0.5.4",
+        "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-formal-v3",
+        "sha256": FORMAL_V3_ARCHIVE_SHA256,
+        "browserExecutableSha256": FORMAL_V3_EXECUTABLE_SHA256,
+        "sizeBytes": FORMAL_V3_ARCHIVE_SIZE,
+        "executableRelativePath": "camoufox.exe",
+        "buildId": FORMAL_V3_BUILD_ID,
+        "sourceStamp": FORMAL_V3_SOURCE_STAMP,
+        "propertiesJsonSha256": FORMAL_V3_PROPERTIES_SHA256,
+        "sourceBinding": {
+            "commit": FORMAL_V3_SOURCE_COMMIT,
+            "tree": FORMAL_V3_SOURCE_TREE,
+            "sourceLockSha256": FORMAL_V3_SOURCE_LOCK_SHA256,
+            "completeAppliedPatchOrder": [
+                "0000", "0001", "0002", "0003", "0003a",
+                "0004", "0005", "0006", "0007",
+            ],
+        },
+        "buildResultSha256": FORMAL_V3_BUILD_RESULT_SHA256,
+        "browserTreeManifestSha256": FORMAL_V3_RUNTIME_TREE_SHA256,
+    }
+    assert builder._package_asset_lock(
+        {"build": _dual_boot_record()}, FORMAL_V3_RUNTIME_TREE_SHA256
+    ) == expected_lock
+
     print("Camoufox Host package contract self-test passed")
     return 0
 

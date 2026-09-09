@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Build the bounded VeriSilo Camoufox Host schema-v3 package.
 
-This is a package builder, not a release workflow.  It consumes an already
-frozen Formal-v3 browser output, stages a fixed tree, and optionally invokes
-the Windows SignedCms helper with a PFX path and password environment name.
-The password is never accepted as an argument.
+This is a package builder, not a release workflow.  It consumes the frozen
+dual-boot Formal-v3 browser output, binds it directly through the pinned
+source lock, build record, and browser tree, stages a fixed tree, and
+optionally invokes the Windows SignedCms helper with a PFX path and password
+environment name.  The password is never accepted as an argument.
 """
 
 from __future__ import annotations
@@ -26,11 +27,11 @@ if str(HOST_DIR) not in sys.path:
 
 from browser_tree import load_tree_manifest, verify_tree
 from package_contract import (
-    ASSET_LOCK_NAME,
     BROWSER_TREE_NAME,
     BROWSER_DIRECTORY,
     FORMAL_V3_ARCHIVE_SHA256,
     FORMAL_V3_ARCHIVE_SIZE,
+    FORMAL_V3_BUILD_ID,
     FORMAL_V3_BUILD_RESULT_SHA256,
     FORMAL_V3_BROWSER_RELEASE,
     FORMAL_V3_CHANNEL,
@@ -39,11 +40,13 @@ from package_contract import (
     FORMAL_V3_EXECUTABLE_SHA256,
     FORMAL_V3_HOST_VERSION,
     FORMAL_V3_PLATFORM,
-    FORMAL_V3_RUNTIME_ASSET_LOCK_SHA256,
-    FORMAL_V3_RUNTIME_TREE_CANONICAL_SHA256,
+    FORMAL_V3_PROPERTIES_SHA256,
     FORMAL_V3_RUNTIME_TREE_SHA256,
     FORMAL_V3_RUNTIME_TREE_SIZE,
+    FORMAL_V3_SOURCE_COMMIT,
     FORMAL_V3_SOURCE_LOCK_SHA256,
+    FORMAL_V3_SOURCE_STAMP,
+    FORMAL_V3_SOURCE_TREE,
     HOST_NAME,
     PACKAGE_MANIFEST_NAME,
     PACKAGE_TREE_NAME,
@@ -61,9 +64,43 @@ from package_contract import (
 )
 
 PYINSTALLER_VERSION = "6.22.2"
+REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_LOCK_DEFAULT = HOST_DIR / "lock" / "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json"
 BUILD_RESULT_DEFAULT = HOST_DIR / "lock" / "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-build-result.json"
 SIGNER_HELPER = Path(__file__).with_name("sign-camoufox-host-manifest.ps1")
+# The dual-boot clean build is bound directly through the pinned frozen
+# inputs (source lock, build record, browser tree, browser executable).
+# The historical FP3 intermediate runtime-asset lock is not a build input.
+FORMAL_V3_PATCH_ORDER = [
+    "0000",
+    "0001",
+    "0002",
+    "0003",
+    "0003a",
+    "0004",
+    "0005",
+    "0006",
+    "0007",
+]
+FORMAL_V3_BUILD_RECORD_TYPE = "verisilo-camoufox-r1-formal-build-run/v1"
+FORMAL_V3_BUILD_RUN_ID = "r1formal-v3-win11dual-20260902"
+FORMAL_V3_BUILD_TARGET = "x86_64-pc-windows-msvc"
+FORMAL_V3_ARCHIVE_NAME = "camoufox-152.0.4-beta.28-win.x86_64.zip"
+FORMAL_V3_EXTRACTION_TREE_NAME = "windows-extraction-tree.json"
+FORMAL_V3_EXTRACTION_TREE_SHA256 = "ec342bfa1fec6101c88d1170b9ca0749e9080e4e1908d0ee61508b962526468d"
+FORMAL_V3_EXTRACTION_TREE_SIZE = 95902
+FORMAL_V3_UPSTREAM_PATCH_COUNT = 50
+FORMAL_V3_BUILD_RESULT_RELPATH = (
+    "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-build-result.json"
+)
+FORMAL_V3_CLAIMS = {
+    "browserLaunches": 0,
+    "compiled": True,
+    "formalR1Passed": False,
+    "formalSource": True,
+    "runtimeVerified": False,
+    "windowsRuntimeObserved": False,
+}
 CAPABILITIES = [
     "identity_template",
     "ua_ua_ch",
@@ -91,19 +128,95 @@ def _read_formal_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def validate_source_lock_content(source: dict[str, Any]) -> None:
+    """Structural checks on the frozen Formal-v3 source lock content."""
+    if source.get("engineRevision") != FORMAL_V3_ENGINE_REVISION:
+        _fail("Formal-v3 source lock is not the frozen candidate")
+    if source.get("completeAppliedPatchOrder") != FORMAL_V3_PATCH_ORDER:
+        _fail("Formal-v3 source lock patch order is not the frozen candidate")
+    build_result_binding = source.get("buildResultBinding")
+    if (
+        type(build_result_binding) is not dict
+        or set(build_result_binding) != {"path", "status", "sourceLockImmutableAfterCheckpoint"}
+        or build_result_binding.get("path") != FORMAL_V3_BUILD_RESULT_RELPATH
+        or build_result_binding.get("status") != "absent-until-clean-build"
+        or build_result_binding.get("sourceLockImmutableAfterCheckpoint") is not True
+    ):
+        _fail("Formal-v3 source lock build-result binding is not exact")
+    build_binding = source.get("buildBinding")
+    if type(build_binding) is not dict or build_binding.get("target") != FORMAL_V3_BUILD_TARGET:
+        _fail("Formal-v3 source lock build binding is not exact")
+
+
+def validate_formal_build_record(build: dict[str, Any]) -> None:
+    """Structural checks on the frozen dual-boot Formal-v3 build record."""
+    if type(build) is not dict or build.get("recordType") != FORMAL_V3_BUILD_RECORD_TYPE:
+        _fail("Formal-v3 build record is not a formal build run record")
+    if build.get("engineRevision") != FORMAL_V3_ENGINE_REVISION:
+        _fail("Formal-v3 build record engine revision is not the frozen candidate")
+    if (
+        build.get("buildMode") != "formal"
+        or build.get("formalSource") is not True
+        or build.get("diagnosticOnly") is not False
+    ):
+        _fail("Formal-v3 build record classification is not exact")
+    if build.get("runId") != FORMAL_V3_BUILD_RUN_ID:
+        _fail("Formal-v3 build record run id is not the frozen dual-boot build")
+    if build.get("claims") != FORMAL_V3_CLAIMS:
+        _fail("Formal-v3 build record claims are not the frozen dual-boot candidate")
+    if build.get("completeAppliedPatchOrder") != FORMAL_V3_PATCH_ORDER:
+        _fail("Formal-v3 build record patch order is not the frozen candidate")
+    if type(build.get("startedAtUtc")) is not str or type(build.get("completedAtUtc")) is not str:
+        _fail("Formal-v3 build record has no build window")
+    archive = build.get("archive")
+    if (
+        type(archive) is not dict
+        or archive.get("name") != FORMAL_V3_ARCHIVE_NAME
+        or archive.get("sha256") != FORMAL_V3_ARCHIVE_SHA256
+        or archive.get("sizeBytes") != FORMAL_V3_ARCHIVE_SIZE
+        or archive.get("camoufoxExeSha256") != FORMAL_V3_EXECUTABLE_SHA256
+        or archive.get("buildId") != FORMAL_V3_BUILD_ID
+        or archive.get("sourceStamp") != FORMAL_V3_SOURCE_STAMP
+    ):
+        _fail("Formal-v3 build record archive binding is not exact")
+    extraction_tree = archive.get("treeManifest")
+    if (
+        type(extraction_tree) is not dict
+        or extraction_tree.get("name") != FORMAL_V3_EXTRACTION_TREE_NAME
+        or extraction_tree.get("sha256") != FORMAL_V3_EXTRACTION_TREE_SHA256
+        or extraction_tree.get("sizeBytes") != FORMAL_V3_EXTRACTION_TREE_SIZE
+        or type(extraction_tree.get("entryCount")) is not int
+    ):
+        _fail("Formal-v3 build record extraction-tree binding is not exact")
+    inputs = build.get("inputs")
+    if (
+        type(inputs) is not dict
+        or inputs.get("sourceLockSha256") != FORMAL_V3_SOURCE_LOCK_SHA256
+        or inputs.get("completeAppliedPatchOrder") != FORMAL_V3_PATCH_ORDER
+        or inputs.get("upstreamPatchCount") != FORMAL_V3_UPSTREAM_PATCH_COUNT
+        or type(inputs.get("verisiloCommit")) is not str
+        or type(inputs.get("verisiloTree")) is not str
+        or type(inputs.get("upstreamCommit")) is not str
+        or type(inputs.get("upstreamTree")) is not str
+    ):
+        _fail("Formal-v3 build record source binding is not exact")
+
+
 def validate_formal_v3_inputs(
     source_lock_path: Path,
     build_result_path: Path,
-    runtime_asset_lock_path: Path,
     browser_root: Path,
     frozen_browser_tree_path: Path,
 ) -> dict[str, Any]:
-    """Validate only the frozen Formal-v3 inputs needed by this package."""
+    """Validate only the frozen Formal-v3 inputs needed by this package.
 
+    The dual-boot clean build is bound directly through the pinned source
+    lock, the pinned build record, and the pinned browser tree; the
+    historical FP3 intermediate runtime-asset lock is not a build input.
+    """
     for path in (
         source_lock_path,
         build_result_path,
-        runtime_asset_lock_path,
         frozen_browser_tree_path,
     ):
         if path.is_symlink() or not path.is_file():
@@ -114,131 +227,23 @@ def validate_formal_v3_inputs(
     if sha256_bytes(source_raw) != FORMAL_V3_SOURCE_LOCK_SHA256:
         _fail("Formal-v3 source lock SHA-256 is not the frozen input")
     source = strict_json_loads(source_raw, source_lock_path.name)
-    if type(source) is not dict or source.get("engineRevision") != FORMAL_V3_ENGINE_REVISION:
-        _fail("Formal-v3 source lock is not the frozen candidate")
+    if type(source) is not dict:
+        _fail("Formal-v3 source lock must contain one JSON object")
+    validate_source_lock_content(source)
 
     build_raw = build_result_path.read_bytes()
     if sha256_bytes(build_raw) != FORMAL_V3_BUILD_RESULT_SHA256:
-        _fail("Formal-v3 build-result SHA-256 is not the frozen input")
+        _fail("Formal-v3 build record SHA-256 is not the frozen input")
+    try:
+        build_result_relpath = build_result_path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        build_result_relpath = None
+    if build_result_relpath != source["buildResultBinding"]["path"]:
+        _fail("Formal-v3 build record is not the source-lock-declared build result")
     build = strict_json_loads(build_raw, build_result_path.name)
     if type(build) is not dict:
-        _fail("Formal-v3 build result must be an object")
-    claims = build.get("claims")
-    if (
-        build.get("engineRevision") != FORMAL_V3_ENGINE_REVISION
-        or build.get("platform") != "windows-x86_64"
-        or build.get("target") != "x86_64-pc-windows-msvc"
-        or build.get("formalSource") is not True
-        or build.get("diagnosticOnly") is not False
-        or type(claims) is not dict
-        or claims.get("compiled") is not True
-    ):
-        _fail("Formal-v3 build result classification is not exact")
-    source_binding = build.get("sourceBinding")
-    if type(source_binding) is not dict or set(source_binding) != {
-        "commit", "tree", "sourceLock", "completeAppliedPatchOrder"
-    }:
-        _fail("Formal-v3 build result has no source binding")
-    source_ref = source_binding.get("sourceLock")
-    if (
-        type(source_ref) is not dict
-        or set(source_ref) != {"path", "sha256", "sizeBytes"}
-        or source_ref.get("sha256") != FORMAL_V3_SOURCE_LOCK_SHA256
-        or source_ref.get("path") != "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json"
-        or source_ref.get("sizeBytes") != len(source_raw)
-    ):
-        _fail("Formal-v3 build result source binding is not exact")
-    build_info = build.get("build")
-    if type(build_info) is not dict:
-        _fail("Formal-v3 build result has no build provenance")
-    build_raw_ref = build_info.get("buildResult")
-    host_provenance_ref = build_info.get("hostProvenance")
-    if (
-        type(build_raw_ref) is not dict
-        or build_raw_ref.get("recordType") != "verisilo-camoufox-r1-formal-build-run/v1"
-        or build_raw_ref.get("sha256") != "299f78c7cb08354eca62aa6c07770a168772d80dfc71a969b862ea3f7c28404a"
-        or build_raw_ref.get("sizeBytes") != 4821
-        or type(host_provenance_ref) is not dict
-        or host_provenance_ref.get("recordType") != "verisilo-r1-formal-build-host-provenance/v1"
-        or host_provenance_ref.get("sha256") != "0c76fadc8957e3cc3d2c0bac12cb853d1e26e301fc025e2248ecfed067d49fef"
-        or host_provenance_ref.get("sizeBytes") != 5297
-    ):
-        _fail("Formal-v3 build provenance is not exact")
-    archive = build.get("archive")
-    if type(archive) is not dict or archive.get("sha256") != FORMAL_V3_ARCHIVE_SHA256 or archive.get("sizeBytes") != FORMAL_V3_ARCHIVE_SIZE:
-        _fail("Formal-v3 archive binding is not exact")
-    if (
-        archive.get("executableRelativePath") != "camoufox.exe"
-        or archive.get("camoufoxExeSha256") != FORMAL_V3_EXECUTABLE_SHA256
-        or archive.get("buildId") != build_info.get("mozBuildDate")
-    ):
-        _fail("Formal-v3 browser executable binding is not exact")
-
-    runtime_raw = runtime_asset_lock_path.read_bytes()
-    if sha256_bytes(runtime_raw) != FORMAL_V3_RUNTIME_ASSET_LOCK_SHA256:
-        _fail("Formal-v3 runtime asset lock SHA-256 is not the frozen input")
-    runtime = strict_json_loads(runtime_raw, runtime_asset_lock_path.name)
-    if (
-        type(runtime) is not dict
-        or runtime.get("schema") != "verisilo-camoufox-fp1-r1-runtime-asset/v1"
-        or runtime.get("assetKind") != "self-built"
-        or runtime.get("verified") is not False
-        or runtime.get("evidenceClass") != "compiled-not-runtime-verified"
-        or runtime.get("engineRevision") != FORMAL_V3_ENGINE_REVISION
-    ):
-        _fail("runtime asset lock is not the Formal-v3 candidate")
-    runtime_archive = runtime.get("archive")
-    if (
-        type(runtime_archive) is not dict
-        or runtime_archive.get("sha256") != FORMAL_V3_ARCHIVE_SHA256
-        or runtime_archive.get("sizeBytes") != FORMAL_V3_ARCHIVE_SIZE
-        or runtime_archive.get("executableRelativePath") != "camoufox.exe"
-        or runtime_archive.get("camoufoxExeSha256") != FORMAL_V3_EXECUTABLE_SHA256
-        or runtime_archive.get("buildId") != archive.get("buildId")
-        or runtime_archive.get("sourceStamp") != archive.get("sourceStamp")
-    ):
-        _fail("runtime asset lock archive binding is not exact")
-    runtime_source = runtime.get("sourceBinding")
-    if runtime_source != source_binding:
-        _fail("runtime asset lock source binding is not exact")
-    runtime_build = runtime.get("buildBinding")
-    if type(runtime_build) is not dict:
-        _fail("runtime asset lock has no build provenance")
-    if (
-        runtime_build.get("runId") != build.get("runId")
-        or runtime_build.get("target") != build.get("target")
-        or runtime_build.get("mozBuildDate") != build_info.get("mozBuildDate")
-        or runtime_build.get("companionBuildResult") != {
-            "path": "apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-build-result.json",
-            "sha256": FORMAL_V3_BUILD_RESULT_SHA256,
-            "sizeBytes": len(build_raw),
-        }
-        or runtime_build.get("rawBuildResult") != {
-            "path": "artifacts/camoufox-formal-r1/r1formal-v3-engine-20260827t031900z/out/build-result.json",
-            "sha256": build_raw_ref["sha256"],
-            "sizeBytes": build_raw_ref["sizeBytes"],
-        }
-        or runtime_build.get("hostProvenance") != {
-            "path": "artifacts/camoufox-formal-r1/r1formal-v3-engine-20260827t031900z/provenance/host-provenance.json",
-            "sha256": host_provenance_ref["sha256"],
-            "sizeBytes": host_provenance_ref["sizeBytes"],
-        }
-    ):
-        _fail("runtime asset lock build provenance is not exact")
-    runtime_tree = runtime.get("runtimeTree")
-    runtime_tree_ref = runtime_tree.get("manifest") if type(runtime_tree) is dict else None
-    if (
-        type(runtime_tree) is not dict
-        or runtime_tree.get("root") != "artifacts/camoufox-fp2-formal-r1-attempt-8/browser"
-        or runtime_tree.get("fileCount") != 503
-        or runtime_tree.get("totalBytes") != 982405560
-        or type(runtime_tree_ref) is not dict
-        or runtime_tree_ref.get("path") != "artifacts/camoufox-fp2-formal-r1-attempt-8/formal-v3-browser-tree-manifest.json"
-        or runtime_tree_ref.get("sha256") != FORMAL_V3_RUNTIME_TREE_SHA256
-        or runtime_tree_ref.get("sizeBytes") != FORMAL_V3_RUNTIME_TREE_SIZE
-        or runtime_tree_ref.get("canonicalSha256") != FORMAL_V3_RUNTIME_TREE_CANONICAL_SHA256
-    ):
-        _fail("runtime asset lock tree binding is not exact")
+        _fail("Formal-v3 build record must contain one JSON object")
+    validate_formal_build_record(build)
 
     frozen_tree_raw = frozen_browser_tree_path.read_bytes()
     if (
@@ -249,17 +254,18 @@ def validate_formal_v3_inputs(
     frozen_tree = load_tree_manifest(frozen_browser_tree_path)
     if frozen_tree.get("treeRootLabel") != browser_root.name:
         _fail("frozen browser tree root label does not match browser root")
-    tree_ref = runtime.get("runtimeTree", {}).get("manifest", {})
-    if tree_ref.get("sha256") != sha256_bytes(frozen_tree_raw):
-        _fail("frozen browser tree SHA-256 does not match the runtime lock")
     verify_tree(browser_root, frozen_tree)
     executable = browser_root / "camoufox.exe"
     if sha256_file(executable) != FORMAL_V3_EXECUTABLE_SHA256:
         _fail("final browser executable does not match Formal-v3")
+    properties = browser_root / "properties.json"
+    if properties.is_symlink() or not properties.is_file():
+        _fail("Formal-v3 browser properties.json is missing")
+    if sha256_file(properties) != FORMAL_V3_PROPERTIES_SHA256:
+        _fail("Formal-v3 browser properties.json does not match the frozen input")
     return {
         "source": source,
         "build": build,
-        "runtime": runtime,
         "browserTree": frozen_tree,
         "browserTreeSha256": sha256_bytes(frozen_tree_raw),
         "browserExecutableSha256": sha256_file(executable),
@@ -341,9 +347,7 @@ def _build_pyinstaller(source: Path, python: str, work_root: Path) -> Path:
 
 
 def _package_asset_lock(formal: dict[str, Any], browser_tree_sha256: str) -> dict[str, Any]:
-    runtime = formal["runtime"]
-    source = runtime["sourceBinding"]
-    archive = runtime["archive"]
+    archive = formal["build"]["archive"]
     return {
         "schema": "verisilo-camoufox-package-asset/v1",
         "assetKind": "self-built",
@@ -360,12 +364,12 @@ def _package_asset_lock(formal: dict[str, Any], browser_tree_sha256: str) -> dic
         "executableRelativePath": "camoufox.exe",
         "buildId": archive["buildId"],
         "sourceStamp": archive["sourceStamp"],
-        "propertiesJsonSha256": archive["propertiesJsonSha256"],
+        "propertiesJsonSha256": FORMAL_V3_PROPERTIES_SHA256,
         "sourceBinding": {
-            "commit": source["commit"],
-            "tree": source["tree"],
-            "sourceLockSha256": source["sourceLock"]["sha256"],
-            "completeAppliedPatchOrder": source["completeAppliedPatchOrder"],
+            "commit": FORMAL_V3_SOURCE_COMMIT,
+            "tree": FORMAL_V3_SOURCE_TREE,
+            "sourceLockSha256": FORMAL_V3_SOURCE_LOCK_SHA256,
+            "completeAppliedPatchOrder": list(FORMAL_V3_PATCH_ORDER),
         },
         "buildResultSha256": FORMAL_V3_BUILD_RESULT_SHA256,
         "browserTreeManifestSha256": browser_tree_sha256,
@@ -488,7 +492,6 @@ def _stage(
     *,
     browser_root: Path,
     frozen_tree: Path,
-    asset_lock: Path,
     supervisor: Path,
     probe: Path,
     host_executable: Path | None,
@@ -506,7 +509,6 @@ def _stage(
     formal = validate_formal_v3_inputs(
         source_lock,
         build_result,
-        asset_lock,
         browser_root,
         frozen_tree,
     )
@@ -664,7 +666,6 @@ def main() -> int:
     parser.add_argument("--out", type=Path)
     parser.add_argument("--browser-root", type=Path)
     parser.add_argument("--browser-tree-manifest", type=Path)
-    parser.add_argument("--asset-lock", type=Path, help="Frozen Formal-v3 runtime asset lock")
     parser.add_argument("--supervisor", type=Path)
     parser.add_argument("--probe", type=Path)
     parser.add_argument("--host-executable", type=Path)
@@ -699,7 +700,6 @@ def main() -> int:
             "--out": args.out,
             "--browser-root": args.browser_root,
             "--browser-tree-manifest": args.browser_tree_manifest,
-            "--asset-lock": args.asset_lock,
             "--supervisor": args.supervisor,
             "--probe": args.probe,
         }
@@ -710,7 +710,6 @@ def main() -> int:
             args.out.absolute(),
             browser_root=args.browser_root.absolute(),
             frozen_tree=args.browser_tree_manifest.absolute(),
-            asset_lock=args.asset_lock.absolute(),
             supervisor=args.supervisor.absolute(),
             probe=args.probe.absolute(),
             host_executable=args.host_executable.absolute() if args.host_executable else None,
