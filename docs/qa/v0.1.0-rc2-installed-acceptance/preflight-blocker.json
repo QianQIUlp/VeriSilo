@@ -1,0 +1,73 @@
+{
+  "schema": "verisilo-installed-product-acceptance-evidence/v1",
+  "recordedAtUtc": "2026-09-09T09:17:43.6624935Z",
+  "candidate": {
+    "releaseVersion": "v0.1.0-rc2",
+    "rcSourceSha": "c1688d5a392ffa69ae77c246bcb4bb78b083e26f",
+    "originBaselineDevSha": "c1688d5a392ffa69ae77c246bcb4bb78b083e26f",
+    "originIntegrationSha": "c1688d5a392ffa69ae77c246bcb4bb78b083e26f",
+    "installer": {
+      "name": "VeriSilo-Managed-Browser-v0.1.0-rc2-x64-setup.exe",
+      "bytes": 434774995,
+      "sourceSha256": "3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3",
+      "disposableWindowsSha256": null,
+      "transferIntegrity": "NOT_RUN_BLOCKED_BY_PREFLIGHT"
+    },
+    "identity": {
+      "sha256SumsPath": "artifacts/release/managed-browser/v0.1.0-rc2/SHA256SUMS",
+      "provenancePath": "artifacts/release/managed-browser/v0.1.0-rc2/provenance.json",
+      "provenanceSha256": "22bbee4bc91982878a585953d515cf8497a1442f60227cd44e361f04e4e012b3",
+      "provenanceSourceRevision": "c1688d5a392ffa69ae77c246bcb4bb78b083e26f",
+      "provenanceManagedBrowserVersion": "v0.1.0-rc2",
+      "outerSigningState": "unsigned",
+      "engineManifestPath": "engine-package/engine-package.json",
+      "engineManifestSha256": "addad7b30175b0ef559392d5df02768f758d0826527cd5b05bbbe72c59ea9e8d",
+      "engineSignerKeyId": "57f3b44cf572571e8b133c6b605b061e0d1c4d9dd75a490b14f658c292bebd93",
+      "enginePackageTreeSha256": "70b982419b8bd13d12b4d06416418eac1966860c55c89cd8b7500e578893740c",
+      "engineBrowserTreeSha256": "d77002d0f872a1ca57675d9b3bc2f9d88769e406d2d082cd94b07d78c9f075e6"
+    }
+  },
+  "preflight": {
+    "connectedHost": {
+      "windows": "Microsoft Windows 11 Pro",
+      "version": "10.0.26200",
+      "build": "26200",
+      "manufacturer": "HUAWEI",
+      "model": "MCLG-XX",
+      "sessionUser": "qiu",
+      "elevationClass": "STANDARD_USER",
+      "usageClassification": "PRIMARY_DEVELOPMENT_HOST_NOT_DISPOSABLE"
+    },
+    "existingDisposableContextChecks": {
+      "hyperVFeature": "DISABLED",
+      "windowsSandboxFeature": "DISABLED",
+      "windowsSandboxExecutable": "ABSENT",
+      "hyperVManagementModule": "ABSENT",
+      "hyperVServices": "ABSENT",
+      "virtualBoxCli": "ABSENT",
+      "vmwareCli": "ABSENT",
+      "commonLocalVmPaths": "ABSENT",
+      "windowsSandboxConfigsInCheckedLocations": "ABSENT"
+    },
+    "safeDisposableContext": false,
+    "result": "LOCAL_INSTALL_LIFECYCLE_BLOCKED_NO_DISPOSABLE_CONTEXT"
+  },
+  "acceptance": {
+    "install": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "firstDesktopLaunch": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "vaultJourney": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "standardJourney": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "managedFirstLaunch": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "managedSecondLaunch": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "desktopRestartPersistence": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "sameVersionReinstall": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "retainedDataProof": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "uninstall": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "reinstallAfterUninstall": "NOT_RUN_BLOCKED_BY_PREFLIGHT",
+    "cleanWindows11Acceptance": "NOT_PROVEN"
+  },
+  "defects": [],
+  "releaseDirectoryModified": false,
+  "finalVerdict": "CURRENT_SOURCE_PACKAGE_ACCEPTED_INSTALLER_LIFECYCLE_PENDING",
+  "reason": "LOCAL_INSTALL_LIFECYCLE_BLOCKED_NO_DISPOSABLE_CONTEXT"
+}

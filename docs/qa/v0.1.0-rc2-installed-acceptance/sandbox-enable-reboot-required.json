@@ -1,0 +1,45 @@
+{
+  "schema": "verisilo-windows-sandbox-acceptance-evidence/v1",
+  "recordedAtUtc": "2026-09-09T09:40:26.2189784Z",
+  "candidate": {
+    "releaseVersion": "v0.1.0-rc2",
+    "rcSourceSha": "c1688d5a392ffa69ae77c246bcb4bb78b083e26f",
+    "originBaselineDevSha": "c1688d5a392ffa69ae77c246bcb4bb78b083e26f",
+    "installerSha256": "3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3"
+  },
+  "host": {
+    "windows": "Microsoft Windows 11 Pro",
+    "version": "10.0.26200",
+    "build": "26200",
+    "architecture": "x64",
+    "hypervisorPresent": true
+  },
+  "windowsSandbox": {
+    "featureName": "Containers-DisposableClientVM",
+    "featureStateBefore": "DISABLED",
+    "enableExitCode": 0,
+    "featureStateAfter": "ENABLED",
+    "restartNeeded": true,
+    "automaticRestartPerformed": false,
+    "sandboxExecutablePresentBeforeRestart": false
+  },
+  "acceptance": {
+    "sandboxLaunch": "NOT_RUN_REBOOT_REQUIRED",
+    "guestEnvironmentClassification": "NOT_RUN_REBOOT_REQUIRED",
+    "candidateTransferIntegrity": "NOT_RUN_REBOOT_REQUIRED",
+    "install": "NOT_RUN_REBOOT_REQUIRED",
+    "desktopGui": "NOT_RUN_REBOOT_REQUIRED",
+    "vault": "NOT_RUN_REBOOT_REQUIRED",
+    "standard": "NOT_RUN_REBOOT_REQUIRED",
+    "managedFirstStart": "NOT_RUN_REBOOT_REQUIRED",
+    "managedSecondStart": "NOT_RUN_REBOOT_REQUIRED",
+    "desktopRestartPersistence": "NOT_RUN_REBOOT_REQUIRED",
+    "sameVersionReinstall": "NOT_RUN_REBOOT_REQUIRED",
+    "uninstall": "NOT_RUN_REBOOT_REQUIRED",
+    "dataPreservation": "NOT_RUN_REBOOT_REQUIRED",
+    "reinstallAfterUninstall": "NOT_RUN_REBOOT_REQUIRED"
+  },
+  "hostEvidencePath": "artifacts/rc2-sandbox-acceptance/host-sandbox-enable.json",
+  "releaseDirectoryModified": false,
+  "status": "WINDOWS_SANDBOX_ENABLED_REBOOT_REQUIRED"
+}

@@ -1,0 +1,56 @@
+{
+  "schema": "verisilo-windows-sandbox-installed-acceptance/v1",
+  "recordedAtUtc": "2026-09-09T11:56:37.5568531Z",
+  "candidate": {
+    "releaseVersion": "v0.1.0-rc2",
+    "rcSourceSha": "c1688d5a392ffa69ae77c246bcb4bb78b083e26f",
+    "installerSha256": "3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3",
+    "engineSignerKeyId": "57f3b44cf572571e8b133c6b605b061e0d1c4d9dd75a490b14f658c292bebd93",
+    "engineManifestSha256": "addad7b30175b0ef559392d5df02768f758d0826527cd5b05bbbe72c59ea9e8d"
+  },
+  "environment": {
+    "type": "Windows Sandbox",
+    "disposable": true,
+    "pristineInstance": true,
+    "windowsEdition": "Microsoft Windows 11 Enterprise",
+    "windowsVersion": "10.0.26100",
+    "windowsBuild": "26100",
+    "architecture": "AMD64",
+    "username": "7DE6EF28-B27F-4\\WDAGUtilityAccount",
+    "isAdministrator": true
+  },
+  "acceptance": {
+    "candidateTransferIntegrity": "PASS",
+    "install": "PASS",
+    "desktopGui": "PASS",
+    "vault": "PASS",
+    "standard": "PASS",
+    "managedFirstStart": "PASS",
+    "managedSecondStart": "PASS",
+    "desktopRestartPersistence": "PASS",
+    "sameVersionReinstall": "PASS",
+    "uninstall": "PASS",
+    "dataPreservation": "PASS",
+    "reinstallAfterUninstall": "NOT_RUN_OPTIONAL"
+  },
+  "classifications": {
+    "cleanDisposableWindowsSandboxAcceptance": "PASS",
+    "strictStandardUserInstallSemantics": "NOT_PROVEN",
+    "strictStandardUserReinstallSemantics": "NOT_PROVEN",
+    "strictStandardUserUninstallSemantics": "NOT_PROVEN",
+    "strictSemanticsReason": "WINDOWS_SANDBOX_ACCOUNT_IS_ADMINISTRATOR"
+  },
+  "defects": [
+    {
+      "id": "MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE",
+      "severity": "LOW",
+      "classification": "NON_BLOCKING_UX_INCONSISTENCY",
+      "owningLayer": "Desktop managed lifecycle/network status reporting",
+      "observation": "After closing the first Managed browser and stopping the Direct-configured Silo, Desktop transiently reported a proxy/network mismatch. The second start and post-reinstall start both passed.",
+      "impact": "Confusing status feedback; no observed functional impact."
+    }
+  ],
+  "hostRuntimeEvidencePath": "artifacts/rc2-sandbox-acceptance",
+  "releaseDirectoryModified": false,
+  "finalVerdict": "CURRENT_SOURCE_INSTALLED_PRODUCT_ACCEPTED_IN_WINDOWS_SANDBOX"
+}
