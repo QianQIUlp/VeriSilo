@@ -17,6 +17,8 @@ VeriSilo 面向希望在本机长期管理多个浏览器身份的普通用户�
 
 用户不应被要求理解浏览器源码构建、WSL、虚拟机、Profile 目录或 Artifact JSON，才能完成最基本的创建、启动和继续使用。托管身份 Silo 向用户展示网站可见身份摘要，并允许在首次成功启动前微调语言、屏幕、硬件并发，以及时区/语言/地理是否跟随网络出口；首次启动后身份保持稳定。底层种子和原始 Artifact 仍不进入页面。
 
+2026-09-09 的源码级竞争审查进一步收窄了产品定位：VeriSilo 不再以“功能更完整的开源商业指纹浏览器工作台”为长期扩张目标，而是优先成为一个**本地优先、fail-closed、以可验证身份为核心的隔离浏览器运行时**。完整决策与重评条件见[可验证身份运行时产品决策](verifiable-identity-runtime-decision.md)，证据基础见[Simprint × VeriSilo 源码级技术尽调](simprint-verisilo-technical-due-diligence.md)。
+
 ## Silo 的领域定义
 
 一个可重放的 Silo 身份由彼此独立但明确绑定的部分组成：
@@ -107,6 +109,20 @@ Resolved Identity Artifact 是底层重放制品，不等同于最终用户配�
 
 VeriSilo 不提供“匿名分数”，不宣传“不可检测”，不把单一反检测网站结果当成总体验收，也不把 Profile 隔离、代理或虚拟机控制面回执夸大为完整设备身份验证。
 
+## 差异化产品 Gate
+
+新的较大产品功能，默认应强化至少一个长期核心维度：
+
+1. **Identity Integrity** — 身份不静默漂移；
+2. **Execution Integrity** — 正确引擎执行正确身份；
+3. **Network Integrity** — 网络策略不泄漏、不静默降级；
+4. **Runtime Evidence** — 能直接观察、验证或诚实标记实际发生了什么；
+5. **Attribution** — 证据能准确归属于正确 Silo / run / binding。
+
+一个功能如果一个维度都不增强，默认不因为“商业指纹浏览器通常有”而进入主路线图。需要团队/工作区、通用 RPA、通用 REST/MCP 大工具集、syncer、账号资产管理、通用代理运营后台或其他多环境工作台能力时，必须基于新的明确用户需求和收益证据单独重评。
+
+这条 Gate 不禁止做必要的桌面 UX。创建、启动、停止、继续使用、诊断和理解证据所需的低摩擦 UI 仍是产品必需部分。
+
 ## 长期非目标
 
 - 不承诺绕过风控、反欺诈或网站关联分析，也不把产品定位为“万能反检测浏览器”。
@@ -115,6 +131,7 @@ VeriSilo 不提供“匿名分数”，不宣传“不可检测”，不把单�
 - 不要求所有用户进入虚拟机或受控引擎；Standard Silo 始终可以独立成立。
 - 不把多个受控浏览器内核的并行维护当作默认路线；每新增一个引擎都需要明确需求、资源与独立证据。
 - 不把 Profile、身份配置、代理秘密和证据合并成一个不可迁移、不可审计的黑盒目录。
+- 不与已有开源项目进行“工作台功能数量”或“浏览器 patch 数量”的军备竞赛；只有直接服务于 VeriSilo 核心完整性与证据模型的能力才默认进入主线。
 
 ## 长期顺序与当前执行阶段
 
@@ -122,7 +139,7 @@ VeriSilo 不提供“匿名分数”，不宣传“不可检测”，不把单�
 
 当前阶段是 **Pre-RC product stabilization**。Managed Identity 的生产 adapter/package/signing、Desktop signer pin、创建与运行路径、网络绑定和 current-user NSIS 已实现；当前没有 current-source RC。下一轮遵循 `QA → targeted fix → integration → baseline advance → fresh QA`，直到 release-readiness 条件满足，再从届时 canonical baseline 冻结新的 source-bound RC。旧 RC1、FP1–FP4 和 M3-WI 合同只作为历史证据，不作为今天的下一任务。
 
-当前阶段、Gate 和未验证边界以[Camoufox Managed Engine 状态页](camoufox-program-status.md)为准；稳定架构理由与重评条件见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)。
+当前阶段、Gate 和未验证边界以[Camoufox Managed Engine 状态页](camoufox-program-status.md)为准；稳定架构理由与重评条件见[Camoufox-first Managed Engine 决策](camoufox-managed-engine-decision.md)；产品差异化边界与竞争重评条件见[可验证身份运行时产品决策](verifiable-identity-runtime-decision.md)。
 
 ## 变更规则
 
@@ -132,4 +149,5 @@ VeriSilo 不提供“匿名分数”，不宣传“不可检测”，不把单�
 - 将 WSL、Hyper-V、VMware 或 Remote 设为普通 Silo 默认执行层；
 - 合并 Profile、Identity Artifact、网络秘密或证据生命周期；
 - 弱化 `configured`、`applied`、`observed`、`verified`、`unavailable` 的区别；
-- 将“协调稳定身份”改为每次启动重新随机。
+- 将“协调稳定身份”改为每次启动重新随机；
+- 恢复以通用多环境工作台功能完整度或 Chromium patch 广度作为 VeriSilo 的主要竞争目标。
