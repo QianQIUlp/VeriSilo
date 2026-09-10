@@ -788,9 +788,31 @@ impl RuntimeManager {
         &mut self,
         silo_id: Uuid,
     ) -> Result<RuntimeActivation, LauncherError> {
-        self.refresh();
-        if self
+        let active_silo_id_before_refresh = self
             .activation
+            .as_ref()
+            .and_then(|activation| activation.active_silo_id);
+        self.refresh();
+        let activation = self.activation.as_ref().cloned();
+        let runtime_is_quiescent = self.child.is_none()
+            && self.proxy_relay.is_none()
+            && self.health_context.is_none()
+            && self.engine_runtime.is_none()
+            && self.profile_lease.is_none();
+        // The refresh can finish the browser-close transition and clear the
+        // active ID before the stop guard runs. The pre-refresh ID attributes
+        // that transition; a repeated stop relies on the stopped record plus
+        // a quiescent runtime instead.
+        let stopped_requested_silo = activation.as_ref().is_some_and(|activation| {
+            activation.active_silo_id.is_none()
+                && activation.state == RuntimeState::Stopped
+                && (active_silo_id_before_refresh == Some(silo_id)
+                    || (self.stopped_record_silo_id() == Some(silo_id) && runtime_is_quiescent))
+        });
+        if stopped_requested_silo {
+            return Ok(activation.expect("stopped runtime has an activation"));
+        }
+        if activation
             .as_ref()
             .and_then(|activation| activation.active_silo_id)
             != Some(silo_id)
@@ -4615,7 +4637,7 @@ mod tests {
     use super::spawn_engine_child_with;
     use super::{
         managed_profiles_are_quiescent_for_vault_restore, runtime_allows_vault_restore,
-        write_runtime_record, RuntimeHealthContext, RuntimeManager, RuntimeRecord,
+        write_runtime_record, LauncherError, RuntimeHealthContext, RuntimeManager, RuntimeRecord,
     };
 
     fn test_observation(silo_id: Uuid) -> crate::website_identity::WebsiteIdentityObservation {
@@ -6861,6 +6883,70 @@ for raw in sys.stdin.buffer:
         assert!(runtime.child.is_none());
         assert!(runtime.engine_runtime.is_none());
         assert!(runtime.profile_lease.is_none());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn fake_camoufox_stop_is_idempotent_after_external_browser_close() {
+        let (root, mut runtime, silo) = fake_camoufox_runtime_launch_fixture(
+            "browser-exited",
+            NetworkProfile::Direct {
+                proxy_required: false,
+            },
+        );
+        let managed_profiles = vec![PathBuf::from(&silo.profile_directory)];
+        let running = runtime
+            .launch(&silo, &managed_profiles, None, None)
+            .expect("fake Host launch before stop request");
+        assert_eq!(running.state, RuntimeState::Running);
+
+        let stopped = runtime
+            .stop_managed_camoufox(silo.id)
+            .expect("stop must accept refresh-reconciled browser closure");
+        assert_eq!(stopped.state, RuntimeState::Stopped);
+        assert!(stopped.active_silo_id.is_none());
+        let network = stopped.network_evidence.expect("network evidence");
+        assert!(matches!(
+            network.provider,
+            crate::domain::RuntimeNetworkProvider::Direct
+        ));
+        assert_eq!(network.configuration, RuntimeEvidenceState::Configured);
+        assert_eq!(network.browser_routing, RuntimeEvidenceState::NotRequested);
+        assert_eq!(network.exit, RuntimeEvidenceState::NotRequested);
+        assert_eq!(runtime.stopped_record_silo_id(), Some(silo.id));
+        assert_eq!(
+            runtime.record.as_ref().map(|record| &record.state),
+            Some(&RuntimeState::Stopped)
+        );
+
+        let stopped_again = runtime
+            .stop_managed_camoufox(silo.id)
+            .expect("an already stopped target remains idempotent");
+        assert_eq!(stopped_again.state, RuntimeState::Stopped);
+        assert!(stopped_again.active_silo_id.is_none());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn fake_camoufox_stop_rejects_a_different_active_silo() {
+        let (root, mut runtime, active_silo_id) = fake_camoufox_runtime_manager("normal");
+        let wrong_silo_id = Uuid::new_v4();
+        let error = runtime
+            .stop_managed_camoufox(wrong_silo_id)
+            .expect_err("stop must reject a different active Silo");
+        assert!(matches!(
+            error,
+            LauncherError::InvalidNetwork(detail)
+                if detail.contains("not the active local runtime")
+        ));
+        assert_eq!(
+            runtime.cached_activation().active_silo_id,
+            Some(active_silo_id)
+        );
+        assert!(runtime.child.is_some());
+        if let Some(child) = runtime.child.as_mut() {
+            super::terminate_just_spawned_child(child);
+        }
         let _ = fs::remove_dir_all(root);
     }
 
