@@ -12,10 +12,10 @@ use std::{
 };
 
 use serde_json::{json, Value};
-use verisilo_desktop_lib::local_api::load_discovery;
 use verisilo_desktop_lib::domain::{
     active_vault_name, available_vault_names, select_vault_name, DEFAULT_VAULT_NAME,
 };
+use verisilo_desktop_lib::local_api::load_discovery;
 use zeroize::Zeroize;
 
 fn main() -> ExitCode {
@@ -86,7 +86,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         "create" => {
             let body = create_payload(&args)?;
-            print_value(api("POST", create_path(&args), Some(&body))?, json_out, print_created)
+            print_value(
+                api("POST", create_path(&args), Some(&body))?,
+                json_out,
+                print_created,
+            )
         }
         "create-batch" => create_batch(&args, json_out),
         "page" => page_command(&args, json_out),
@@ -209,11 +213,7 @@ fn vault_command(args: &[String], json_out: bool) -> Result<(), String> {
                 print_vault,
             )
         }
-        Some("lock") => print_value(
-            api("POST", "/v1/vault/lock", None)?,
-            json_out,
-            print_vault,
-        ),
+        Some("lock") => print_value(api("POST", "/v1/vault/lock", None)?, json_out, print_vault),
         _ => Err("用法：verisilo-cli vault list|init|unlock|lock".to_owned()),
     }
 }
@@ -241,9 +241,8 @@ fn service_command(args: &[String], json_out: bool) -> Result<(), String> {
 
 fn same_service(previous: Option<&verisilo_desktop_lib::local_api::LocalApiDiscovery>) -> bool {
     load_discovery().ok().is_some_and(|current| {
-        previous.is_some_and(|previous| {
-            current.pid == previous.pid && current.token == previous.token
-        })
+        previous
+            .is_some_and(|previous| current.pid == previous.pid && current.token == previous.token)
     })
 }
 
@@ -376,7 +375,13 @@ fn api(method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> 
     }
 }
 
-fn api_connection() -> Result<(verisilo_desktop_lib::local_api::LocalApiDiscovery, TcpStream), String> {
+fn api_connection() -> Result<
+    (
+        verisilo_desktop_lib::local_api::LocalApiDiscovery,
+        TcpStream,
+    ),
+    String,
+> {
     let stale_discovery = load_discovery().ok();
     if let Ok(connection) = connect_discovered_api() {
         return Ok(connection);
@@ -409,8 +414,13 @@ fn discovery_changed(
     old.is_none_or(|old| old.pid != new.pid || old.token != new.token)
 }
 
-fn connect_discovered_api(
-) -> Result<(verisilo_desktop_lib::local_api::LocalApiDiscovery, TcpStream), String> {
+fn connect_discovered_api() -> Result<
+    (
+        verisilo_desktop_lib::local_api::LocalApiDiscovery,
+        TcpStream,
+    ),
+    String,
+> {
     let discovery = load_discovery()?;
     let host_port = discovery
         .url
@@ -439,7 +449,11 @@ fn start_background_service() -> Result<(), String> {
 
 fn sibling_desktop_path() -> Result<PathBuf, String> {
     let current = env::current_exe().map_err(|error| error.to_string())?;
-    let name = if cfg!(windows) { "verisilo.exe" } else { "verisilo" };
+    let name = if cfg!(windows) {
+        "verisilo.exe"
+    } else {
+        "verisilo"
+    };
     let path = current
         .parent()
         .map(|parent| parent.join(name))
@@ -460,7 +474,8 @@ fn create_payload(args: &[String]) -> Result<Value, String> {
         return Ok(value);
     }
     let standard = args.iter().any(|arg| arg == "--standard");
-    let name = flag(args, "--name").ok_or_else(|| "用法：verisilo-cli create --name <名称>".to_owned())?;
+    let name =
+        flag(args, "--name").ok_or_else(|| "用法：verisilo-cli create --name <名称>".to_owned())?;
     if standard {
         let browser_kind = flag(args, "--browser-kind").ok_or_else(|| {
             "用法：verisilo-cli create --standard --browser-kind chrome|edge --executable-path <路径>".to_owned()
@@ -520,7 +535,9 @@ fn create_batch(args: &[String], json_out: bool) -> Result<(), String> {
         let values = value
             .as_array()
             .filter(|values| (1..=100).contains(&values.len()))
-            .ok_or_else(|| "create-batch request 必须是包含 1 到 100 个对象的 JSON 数组。".to_owned())?;
+            .ok_or_else(|| {
+                "create-batch request 必须是包含 1 到 100 个对象的 JSON 数组。".to_owned()
+            })?;
         if values.iter().any(|value| !value.is_object()) {
             return Err("create-batch request 中的每一项都必须是 JSON 对象。".to_owned());
         }
@@ -553,12 +570,18 @@ fn create_batch(args: &[String], json_out: bool) -> Result<(), String> {
                 created.push(silo);
             }
             Err(error) => {
-                return Err(format!("批量创建在第 {index} 个失败（此前已创建 {} 个）：{error}", created.len()));
+                return Err(format!(
+                    "批量创建在第 {index} 个失败（此前已创建 {} 个）：{error}",
+                    created.len()
+                ));
             }
         }
     }
     if json_out {
-        println!("{}", serde_json::to_string_pretty(&created).map_err(|error| error.to_string())?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&created).map_err(|error| error.to_string())?
+        );
     }
     Ok(())
 }
@@ -597,7 +620,11 @@ fn page_command(args: &[String], json_out: bool) -> Result<(), String> {
             serde_json::from_str::<Value>(&text)
                 .map_err(|error| format!("page request JSON 无效：{error}"))?
         }
-        other => return Err(format!("不支持页面动作 `{other}`。运行 verisilo-cli help。")),
+        other => {
+            return Err(format!(
+                "不支持页面动作 `{other}`。运行 verisilo-cli help。"
+            ))
+        }
     };
     let path = format!("/v1/silos/{}/page", url_encode(&spec));
     print_value(api("POST", &path, Some(&body))?, json_out, print_page)
@@ -628,7 +655,9 @@ fn clash_profile(args: &[String]) -> Result<Value, String> {
                 .and_then(Value::as_u64)
                 .map(|port| port as u16)
         })
-        .ok_or_else(|| "没有找到 Clash 代理端口。请加 --mixed-port 7897，或先打开 Clash Verge。".to_owned())?;
+        .ok_or_else(|| {
+            "没有找到 Clash 代理端口。请加 --mixed-port 7897，或先打开 Clash Verge。".to_owned()
+        })?;
     let controller = flag(args, "--controller").or_else(|| {
         probed
             .as_ref()
@@ -670,7 +699,9 @@ fn first_live_selection(clash: &Value) -> Option<(String, String)> {
         let nodes = group.get("nodes")?.as_array()?;
         let chosen = selected
             .and_then(|selected| {
-                nodes.iter().find(|node| node.get("name").and_then(Value::as_str) == Some(selected))
+                nodes
+                    .iter()
+                    .find(|node| node.get("name").and_then(Value::as_str) == Some(selected))
             })
             .or_else(|| nodes.first())?;
         let node_name = chosen.get("name")?.as_str()?.to_owned();
@@ -715,7 +746,10 @@ fn print_value(
     printer: fn(&Value) -> Result<(), String>,
 ) -> Result<(), String> {
     if json_out {
-        println!("{}", serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
+        );
         Ok(())
     } else {
         printer(&value)
@@ -762,7 +796,10 @@ fn print_app(value: &Value) -> Result<(), String> {
 fn print_vault(value: &Value) -> Result<(), String> {
     println!(
         "保险库：{}",
-        value.get("state").and_then(Value::as_str).unwrap_or("unknown")
+        value
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
     );
     Ok(())
 }
@@ -783,24 +820,42 @@ fn print_page(value: &Value) -> Result<(), String> {
             }
         }
         if let Some(page) = value.get("page") {
-            println!("页面窗口：{}", serde_json::to_string(page).unwrap_or_default());
+            println!(
+                "页面窗口：{}",
+                serde_json::to_string(page).unwrap_or_default()
+            );
         }
         return Ok(());
     }
     if let Some(url) = value.get("url").and_then(Value::as_str) {
         println!("URL：{url}");
     }
-    if let Some(title) = value.get("title").and_then(Value::as_str).filter(|value| !value.is_empty()) {
+    if let Some(title) = value
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
         println!("标题：{title}");
     }
     if let Some(path) = value.get("path").and_then(Value::as_str) {
         println!("截图：{path}");
     }
     if let Some(result) = value.get("value") {
-        println!("{}", serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string()));
-    } else if let Some(aria) = value.get("aria").and_then(Value::as_str).filter(|value| !value.is_empty()) {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string())
+        );
+    } else if let Some(aria) = value
+        .get("aria")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
         println!("{aria}");
-    } else if let Some(text) = value.get("text").and_then(Value::as_str).filter(|value| !value.is_empty()) {
+    } else if let Some(text) = value
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
         println!("{text}");
     }
     Ok(())
@@ -844,7 +899,10 @@ fn print_identity(value: &Value) -> Result<(), String> {
 }
 
 fn print_identity_line(label: &str, value: Option<&Value>) {
-    if let Some(text) = value.and_then(Value::as_str).filter(|text| !text.is_empty()) {
+    if let Some(text) = value
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+    {
         println!("{label}：{text}");
     }
 }
@@ -860,7 +918,10 @@ fn print_silos(value: &Value) -> Result<(), String> {
     }
     for silo in list {
         let id = silo.get("id").and_then(Value::as_str).unwrap_or("?");
-        let name = silo.get("name").and_then(Value::as_str).unwrap_or("(未命名)");
+        let name = silo
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("(未命名)");
         let adapter = silo
             .pointer("/engine/adapter")
             .and_then(Value::as_str)
@@ -903,8 +964,14 @@ fn print_diagnose(value: &Value) -> Result<(), String> {
     );
     println!(
         "运行：{} {}",
-        value.get("runtimeState").and_then(Value::as_str).unwrap_or("?"),
-        value.get("runtimeMessage").and_then(Value::as_str).unwrap_or("")
+        value
+            .get("runtimeState")
+            .and_then(Value::as_str)
+            .unwrap_or("?"),
+        value
+            .get("runtimeMessage")
+            .and_then(Value::as_str)
+            .unwrap_or("")
     );
     if let Some(clash) = value.get("clash") {
         print_clash(clash)?;

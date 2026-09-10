@@ -69,6 +69,7 @@ const activation: RuntimeActivation = {
     endpointLabel: "127.0.0.1:43210 -> proxy.private.example:1080",
     safeguards: ["contains untrusted labels but never enters the report"],
   },
+  identityEvidence: null,
 };
 
 function input(): LocalSiloReportInput {

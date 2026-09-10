@@ -3,11 +3,7 @@
 //! The Host writes `observed.json` during launch. That file is observed
 //! evidence from the probe page, not a verified product Gate.
 
-use std::{
-    fs,
-    path::Path,
-    time::SystemTime,
-};
+use std::{fs, path::Path, time::SystemTime};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -84,10 +80,7 @@ fn valid_session_id(session_id: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
-fn parse_observed_file(
-    path: &Path,
-    silo_id: Uuid,
-) -> Option<WebsiteIdentityObservation> {
+fn parse_observed_file(path: &Path, silo_id: Uuid) -> Option<WebsiteIdentityObservation> {
     let metadata = regular_file_metadata(path)?;
     if metadata.len() == 0 || metadata.len() > MAX_OBSERVED_JSON_BYTES {
         return None;
@@ -102,10 +95,9 @@ fn parse_observed_file(
     let screen = observed.get("screen")?;
     let session = observed.get("session").unwrap_or(&serde_json::Value::Null);
     let languages = json_string_list(observed.get("languages"));
-    let language = json_string(observed, "language")
-        .or_else(|| languages.first().cloned())?;
-    let timezone = json_string(session, "timezone")
-        .or_else(|| json_string(observed, "timezone"))?;
+    let language = json_string(observed, "language").or_else(|| languages.first().cloned())?;
+    let timezone =
+        json_string(session, "timezone").or_else(|| json_string(observed, "timezone"))?;
     let (screen_width, screen_height) = screen_size(screen)?;
     Some(WebsiteIdentityObservation {
         silo_id,
@@ -132,7 +124,9 @@ fn parse_observed_file(
             .unwrap_or_else(|| "未读到".to_owned()),
         do_not_track: json_string(observed, "doNotTrack"),
         max_touch_points: json_u32(observed, "maxTouchPoints"),
-        webdriver: observed.get("webdriver").and_then(serde_json::Value::as_bool),
+        webdriver: observed
+            .get("webdriver")
+            .and_then(serde_json::Value::as_bool),
     })
 }
 
@@ -257,12 +251,9 @@ mod tests {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0",
         );
         let silo_id = Uuid::nil();
-        let observation = load_session_observation(
-            &dir,
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            silo_id,
-        )
-        .expect("observation");
+        let observation =
+            load_session_observation(&dir, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", silo_id)
+                .expect("observation");
         assert_eq!(observation.source, WebsiteIdentitySource::PageScript);
         assert_eq!(observation.language, "zh-CN");
         assert_eq!(observation.timezone, "Asia/Shanghai");
@@ -285,12 +276,10 @@ mod tests {
             Uuid::new_v4().simple()
         ));
         fs::create_dir_all(&dir).expect("temp dir");
-        assert!(load_session_observation(
-            &dir,
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            Uuid::nil()
-        )
-        .is_none());
+        assert!(
+            load_session_observation(&dir, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Uuid::nil())
+                .is_none()
+        );
         assert!(load_session_observation(&dir, "not-a-session", Uuid::nil()).is_none());
         let _ = fs::remove_dir_all(&dir);
     }

@@ -3819,8 +3819,11 @@ fn load_and_verify_package(
         verify_camoufox_package_tree(&loaded.package_root, &loaded.manifest)?;
         verify_camoufox_package_layout(&loaded.package_root, &loaded.manifest)?;
     }
-    let mut verification =
-        verifier.verify(&loaded.manifest_bytes, &loaded.executable_path, &loaded.manifest)?;
+    let mut verification = verifier.verify(
+        &loaded.manifest_bytes,
+        &loaded.executable_path,
+        &loaded.manifest,
+    )?;
     verification.package_manifest_sha256 = sha256_hex_bytes(&loaded.manifest_bytes);
     verification.package_tree_sha256 = loaded
         .manifest
@@ -4332,7 +4335,9 @@ fn collect_package_files(
     Ok(())
 }
 
-fn read_camoufox_provision_response(bytes: &[u8]) -> Result<CamoufoxProvisionResponse, EngineError> {
+fn read_camoufox_provision_response(
+    bytes: &[u8],
+) -> Result<CamoufoxProvisionResponse, EngineError> {
     let payload = if bytes.first().is_some_and(|byte| *byte == b'{') {
         bytes
     } else {

@@ -52,6 +52,7 @@ from identity_policy import (
     build_projection,
     configured_identity_digest,
     observed_website_digest,
+    reconcile_website_identity,
     verify_artifact_raw,
     verify_browser_binding,
 )
@@ -1098,6 +1099,7 @@ class CamoufoxHost:
             "configuredIdentityDigest": None,
             "observedWebsiteDigest": None,
             "observedSignals": None,
+            "identityEvidence": None,
             "exitStatus": None,
             "failure": None,
             "xvfb": None,
@@ -1137,6 +1139,7 @@ class CamoufoxHost:
             "artifactFileSha256": file_sha,
             "configuredIdentityDigest": session["configuredIdentityDigest"],
             "observedWebsiteDigest": session["observedWebsiteDigest"],
+            "identityEvidence": session.get("identityEvidence"),
             "observedPublicAddress": session.get("observedPublicAddress"),
             "bootCountBefore": session["bootCountBefore"],
             "bootCountAfter": session["bootCountAfter"],
@@ -1502,9 +1505,14 @@ class CamoufoxHost:
 
         with _active_launch_stage("observed.write"):
             signals = extract_observed_website_signals(observed, font_mode)
+            observed_at = utcnow()
+            identity_evidence = reconcile_website_identity(
+                artifact, signals, observed_at
+            )
             session["configuredIdentityDigest"] = disk_digest
             session["observedWebsiteDigest"] = observed_website_digest(signals)
             session["observedSignals"] = signals
+            session["identityEvidence"] = identity_evidence
             projection = build_projection(
                 artifact["artifactId"],
                 session["sessionId"],
@@ -1513,9 +1521,10 @@ class CamoufoxHost:
                 signals,
             )
             observed_payload = {
-                "generatedAtUtc": utcnow(),
+                "generatedAtUtc": observed_at,
                 "projection": projection,
                 "observedFull": observed,
+                "identityEvidence": identity_evidence,
                 "hostFontControls": host_controls,
                 "hostFontMasking": host_controls_result,
                 "mediaDeviceReadiness": media_readiness,
@@ -1831,6 +1840,7 @@ class CamoufoxHost:
             "artifactFileSha256": session["artifactFileSha256"],
             "configuredIdentityDigest": session["configuredIdentityDigest"],
             "observedWebsiteDigest": session["observedWebsiteDigest"],
+            "identityEvidence": session.get("identityEvidence"),
             "exitStatus": session["exitStatus"],
             "exitFileObserved": session.get("exitFileObserved"),
             "quarantine": session.get("quarantine"),
@@ -2642,6 +2652,7 @@ def write_session_state(session: dict) -> None:
         "artifactDigest": session["artifactDigest"],
         "configuredIdentityDigest": session["configuredIdentityDigest"],
         "observedWebsiteDigest": session["observedWebsiteDigest"],
+        "identityEvidence": session.get("identityEvidence"),
         "exitStatus": session["exitStatus"],
         "failure": session["failure"],
         "bootCountBefore": session["bootCountBefore"],

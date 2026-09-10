@@ -2051,7 +2051,10 @@ mod tests {
         let diagnosis = super::diagnose_binding(&binding, None);
         // The diagnosis stays scoped to the exact bound controller and never
         // discovers another local Clash (QA-R1-04).
-        assert_eq!(diagnosis.controller_url.as_deref(), Some(binding.controller_url.as_str()));
+        assert_eq!(
+            diagnosis.controller_url.as_deref(),
+            Some(binding.controller_url.as_str())
+        );
         assert!(diagnosis.groups.is_empty());
         assert!(diagnosis.detail.contains("当前 Silo 绑定的 Clash 控制口"));
         assert!(diagnosis.detail.contains(&binding.controller_url));

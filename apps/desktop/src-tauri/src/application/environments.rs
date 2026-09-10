@@ -96,6 +96,7 @@ impl EnvironmentRuntimeState {
                             browser_verification: None,
                             engine_evidence: None,
                             network_evidence: None,
+                            identity_evidence: None,
                         },
                         wsl_distribution: Some(record.distribution),
                         reconciled: false,
@@ -114,6 +115,7 @@ impl EnvironmentRuntimeState {
                         browser_verification: None,
                         engine_evidence: None,
                         network_evidence: None,
+                        identity_evidence: None,
                     },
                     wsl_distribution: None,
                     reconciled: false,
@@ -133,6 +135,7 @@ impl EnvironmentRuntimeState {
                     browser_verification: None,
                     engine_evidence: None,
                     network_evidence: None,
+                    identity_evidence: None,
                 },
                 wsl_distribution: None,
                 reconciled: false,
@@ -466,6 +469,7 @@ pub(crate) fn reconcile_environment_runtime_if_needed(
                         browser_verification: None,
                         engine_evidence: None,
                         network_evidence: None,
+                        identity_evidence: None,
                     };
                     runtime.wsl_distribution = None;
                     runtime.recovery_blocked = false;
@@ -574,6 +578,7 @@ pub(crate) fn reconcile_environment_runtime_if_needed(
             browser_verification: None,
             engine_evidence: None,
             network_evidence: None,
+            identity_evidence: None,
         };
         runtime.wsl_distribution = Some(distribution);
         runtime.reconciled = true;
@@ -615,6 +620,7 @@ pub(crate) fn reconcile_environment_runtime_if_needed(
             browser_verification: None,
             engine_evidence: None,
             network_evidence: None,
+            identity_evidence: None,
         };
         runtime.wsl_distribution = None;
         runtime.reconciled = true;
@@ -678,6 +684,7 @@ pub(crate) fn stop_environment_runtime_for_vault_lock(state: &DesktopCore) {
             browser_verification: None,
             engine_evidence: None,
             network_evidence: None,
+            identity_evidence: None,
         };
         runtime.wsl_distribution = None;
         runtime.recovery_blocked = false;
@@ -839,6 +846,7 @@ pub(crate) fn execute_environment_backend(
                 browser_verification: None,
                 engine_evidence: None,
                 network_evidence: None,
+                identity_evidence: None,
             };
             environment_runtime.wsl_distribution = None;
         }

@@ -5,10 +5,10 @@
 The current canonical development source is `origin/baseline/dev` (with local
 `baseline/dev` required to match it exactly); fixed revisions are documented
 checkpoints, not moving source refs. The current source-bound candidate is
-**v0.1.0-rc2**, locally
+**v0.1.0-rc2**, `PUBLIC_GITHUB_PRERELEASE`, locally
 accepted through packaged runtime and installed lifecycle in the exact pristine
 Windows Sandbox recorded in [the Camoufox program status](camoufox-program-status.md).
-It has no Git tag, GitHub Release, or public promotion. The outer Desktop/NSIS
+The outer Desktop/NSIS
 binaries remain unsigned for Authenticode; the internal engine detached CMS
 signature and public signer pin are a separate trust boundary. Strict
 unelevated standard-user install/reinstall/uninstall semantics remain
@@ -51,7 +51,7 @@ lifecycle failure. The low-severity
 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE` remains a documented,
 non-blocking UX observation; it is not claimed fixed here.
 
-This candidate is local-only and is not a shipped or public release. The
+This candidate is publicly available as a GitHub pre-release. The
 release architecture and build semantics below remain valid, while the
 historical RC1-specific profile must not be read as rc2's acceptance state.
 

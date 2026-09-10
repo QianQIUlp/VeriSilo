@@ -21,17 +21,18 @@ use uuid::Uuid;
 
 use crate::domain::{
     hide_windows_console, verify_browser_descriptor, BrowserVerificationState,
-    ExternalMihomoBinding, NetworkProfile, RuntimeActivation, RuntimeEngineEvidence,
-    RuntimeEvidenceState, RuntimeNetworkEvidence, RuntimeNetworkEvidenceProvenance,
-    RuntimePackageVerification, RuntimeState, Silo,
-};
-use crate::website_identity::{
-    load_latest_observation, load_session_observation, WebsiteIdentityObservation,
+    ExternalMihomoBinding, IdentityEvidenceState, NetworkProfile, RuntimeActivation,
+    RuntimeEngineEvidence, RuntimeEvidenceState, RuntimeIdentityEvidence, RuntimeIdentitySignal,
+    RuntimeNetworkEvidence, RuntimeNetworkEvidenceProvenance, RuntimePackageVerification,
+    RuntimeState, Silo,
 };
 #[cfg(test)]
 use crate::engine::EngineAdapter;
 #[cfg(target_os = "windows")]
 use crate::vault::chromium_profile_sentinel_exists;
+use crate::website_identity::{
+    load_latest_observation, load_session_observation, WebsiteIdentityObservation,
+};
 use crate::{
     engine::{
         production_engine_adapter_for_silo, read_engine_bootstrap_ack_frame,
@@ -68,6 +69,7 @@ const STOCK_BROWSER_OWNERSHIP_STABILITY: Duration = Duration::from_millis(350);
 const ENGINE_PROTOCOL_CHANNEL_CAPACITY: usize = 32;
 const HTTP_AUTH_EVIDENCE_LOOKBACK_SECONDS: i64 = 15;
 const EVIDENCE_CLOCK_SKEW_SECONDS: i64 = 5;
+const CAMOUFOX_IDENTITY_EVIDENCE_SCHEMA: &str = "verisilo-camoufox-identity-evidence/v0";
 pub(crate) const RUNTIME_HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(test)]
 const M3_WI_REAL_HOST_ADAPTER_VERSION: &str = "m3-wi-test-only-real-host";
@@ -201,6 +203,7 @@ struct CamoufoxHostRuntime {
     state_root: PathBuf,
     binding: CamoufoxHostLaunch,
     observed_website_digest: Option<String>,
+    identity_evidence: Option<CamoufoxHostIdentityEvidence>,
     observed_public_address: Option<String>,
     evidence_class: String,
     closed_confirmed: bool,
@@ -262,6 +265,28 @@ struct CamoufoxHostHello {
     evidence_class: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostIdentitySignal {
+    signal: String,
+    expected: Value,
+    observed: Value,
+    state: IdentityEvidenceState,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostIdentityEvidence {
+    schema: String,
+    observed_at: DateTime<Utc>,
+    state: IdentityEvidenceState,
+    signals: Vec<CamoufoxHostIdentitySignal>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -277,6 +302,8 @@ struct CamoufoxHostLaunchResult {
     configured_identity_digest: Option<String>,
     #[serde(default)]
     observed_website_digest: Option<String>,
+    #[serde(default)]
+    identity_evidence: Option<CamoufoxHostIdentityEvidence>,
     #[serde(default)]
     observed_public_address: Option<String>,
     #[serde(default)]
@@ -320,6 +347,8 @@ struct CamoufoxHostStatusResult {
     configured_identity_digest: Option<String>,
     #[serde(default)]
     observed_website_digest: Option<String>,
+    #[serde(default)]
+    identity_evidence: Option<CamoufoxHostIdentityEvidence>,
     #[serde(default)]
     exit_status: Option<i32>,
     #[serde(default)]
@@ -555,6 +584,8 @@ struct RuntimeRecord {
     started_at: DateTime<Utc>,
     last_seen_at: DateTime<Utc>,
     state: RuntimeState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    identity_evidence: Option<RuntimeIdentityEvidence>,
 }
 
 #[derive(Debug, Error)]
@@ -606,6 +637,7 @@ impl RuntimeManager {
             browser_verification: None,
             engine_evidence: None,
             network_evidence: None,
+            identity_evidence: None,
         }).or_else(|| record.as_ref().map(|record| {
             let stopped = record.state == RuntimeState::Stopped;
             RuntimeActivation {
@@ -625,6 +657,7 @@ impl RuntimeManager {
                 browser_verification: None,
                 engine_evidence: None,
                 network_evidence: None,
+                identity_evidence: record.identity_evidence.clone(),
             }
         }));
         Self {
@@ -935,6 +968,7 @@ impl RuntimeManager {
         let Some(record) = self.record.as_ref() else {
             return self.activation();
         };
+        let persisted_identity_evidence = record.identity_evidence.clone();
         if record.silo_id != silo.id {
             self.activation = Some(RuntimeActivation {
                 active_silo_id: None,
@@ -947,6 +981,7 @@ impl RuntimeManager {
                 browser_verification: None,
                 engine_evidence: None,
                 network_evidence: None,
+                identity_evidence: None,
             });
             self.persist_current_record(RuntimeState::Failed);
             return self.activation.clone().expect("activation was set");
@@ -1096,7 +1131,9 @@ impl RuntimeManager {
                 .flatten(),
             engine_evidence: Some(engine_evidence),
             network_evidence: Some(evidence),
+            identity_evidence: persisted_identity_evidence,
         });
+        self.reconcile_identity_evidence(silo);
         self.persist_current_record(state);
         self.activation.clone().expect("activation was set")
     }
@@ -1112,6 +1149,56 @@ impl RuntimeManager {
         self.activation
             .clone()
             .unwrap_or_else(RuntimeActivation::idle)
+    }
+
+    pub(crate) fn reconcile_identity_evidence(&mut self, silo: &Silo) {
+        let state_to_persist = {
+            let Some(activation) = self.activation.as_mut() else {
+                return;
+            };
+            let Some(evidence) = activation.identity_evidence.as_mut() else {
+                return;
+            };
+            let binding = silo.engine.camoufox_artifact_binding();
+            let binding_matches = binding.is_some_and(|binding| {
+                evidence.silo_id == silo.id
+                    && evidence.engine_adapter == crate::engine::EngineAdapterId::Camoufox
+                    && evidence.artifact_id == binding.artifact_id
+                    && evidence.artifact_file_sha256 == binding.artifact_file_sha256
+            });
+            let active_runtime_matches = activation.active_silo_id.is_none()
+                || activation
+                    .network_evidence
+                    .as_ref()
+                    .is_some_and(|network| network.runtime_id == evidence.runtime_id);
+            if !binding_matches || !active_runtime_matches {
+                evidence.state = IdentityEvidenceState::Stale;
+                evidence.reason = Some(
+                    "这份网站身份观察不再属于当前 Silo 的 Artifact 或活动 runtime。".to_owned(),
+                );
+                Some(activation.state.clone())
+            } else {
+                None
+            }
+        };
+        if let Some(state) = state_to_persist {
+            self.persist_current_record(state);
+        }
+    }
+
+    pub(crate) fn mark_identity_evidence_stale(&mut self, reason: &str) {
+        let state_to_persist = {
+            let Some(activation) = self.activation.as_mut() else {
+                return;
+            };
+            let Some(evidence) = activation.identity_evidence.as_mut() else {
+                return;
+            };
+            evidence.state = IdentityEvidenceState::Stale;
+            evidence.reason = Some(reason.to_owned());
+            activation.state.clone()
+        };
+        self.persist_current_record(state_to_persist);
     }
 
     pub(crate) fn active_managed_camoufox_silo_id(&mut self) -> Option<Uuid> {
@@ -1227,7 +1314,10 @@ impl RuntimeManager {
         let object = params.as_object_mut().ok_or_else(|| {
             LauncherError::RuntimeReceipt("page action must be a JSON object".to_owned())
         })?;
-        object.insert("sessionId".to_owned(), Value::String(host.session_id.clone()));
+        object.insert(
+            "sessionId".to_owned(),
+            Value::String(host.session_id.clone()),
+        );
         host.transport
             .request("page", params, Duration::from_secs(65))
     }
@@ -1431,6 +1521,7 @@ impl RuntimeManager {
                 browser_verification: None,
                 engine_evidence: Some(engine_evidence),
                 network_evidence: None,
+                identity_evidence: None,
             });
             return Err(error);
         }
@@ -1455,6 +1546,7 @@ impl RuntimeManager {
                     browser_verification: Some(verification),
                     engine_evidence: Some(engine_evidence),
                     network_evidence: None,
+                    identity_evidence: None,
                 });
                 return Err(error);
             }
@@ -1481,6 +1573,7 @@ impl RuntimeManager {
                     proxy_authentication.is_some(),
                     configured_adapter,
                 )),
+                identity_evidence: None,
             });
             return Err(error);
         }
@@ -1514,6 +1607,7 @@ impl RuntimeManager {
                 browser_verification: browser_verification.clone(),
                 engine_evidence: Some(engine_evidence.clone()),
                 network_evidence: Some(network_evidence),
+                identity_evidence: None,
             });
             return Err(error);
         }
@@ -1525,6 +1619,7 @@ impl RuntimeManager {
             browser_verification: browser_verification.clone(),
             engine_evidence: Some(engine_evidence.clone()),
             network_evidence: Some(network_evidence.clone()),
+            identity_evidence: None,
         });
 
         let mut runtime_profile_directories = managed_profile_directories.to_vec();
@@ -1560,6 +1655,7 @@ impl RuntimeManager {
                     browser_verification: browser_verification.clone(),
                     engine_evidence: Some(engine_evidence.clone()),
                     network_evidence: Some(network_evidence),
+                    identity_evidence: None,
                 });
                 return Err(LauncherError::ProfileUnmanaged);
             }
@@ -1572,6 +1668,7 @@ impl RuntimeManager {
                     browser_verification: browser_verification.clone(),
                     engine_evidence: Some(engine_evidence.clone()),
                     network_evidence: Some(network_evidence),
+                    identity_evidence: None,
                 });
                 return Err(LauncherError::ProfileInUse);
             }
@@ -1592,6 +1689,7 @@ impl RuntimeManager {
                         browser_verification: browser_verification.clone(),
                         engine_evidence: Some(engine_evidence.clone()),
                         network_evidence: Some(network_evidence.clone()),
+                        identity_evidence: None,
                     });
                     error
                 },
@@ -1632,6 +1730,7 @@ impl RuntimeManager {
                         browser_verification: browser_verification.clone(),
                         engine_evidence: Some(engine_evidence.clone()),
                         network_evidence: Some(network_evidence.clone()),
+                        identity_evidence: None,
                     });
                     error
                 })?;
@@ -1657,6 +1756,7 @@ impl RuntimeManager {
                                 browser_verification: browser_verification.clone(),
                                 engine_evidence: Some(engine_evidence.clone()),
                                 network_evidence: Some(network_evidence.clone()),
+                                identity_evidence: None,
                             });
                             error
                         })?,
@@ -1673,6 +1773,7 @@ impl RuntimeManager {
                 browser_verification: browser_verification.clone(),
                 engine_evidence: Some(engine_evidence.clone()),
                 network_evidence: Some(network_evidence.clone()),
+                identity_evidence: None,
             });
             error
         })?;
@@ -1713,6 +1814,7 @@ impl RuntimeManager {
                 browser_verification: browser_verification.clone(),
                 engine_evidence: Some(engine_evidence.clone()),
                 network_evidence: Some(network_evidence.clone()),
+                identity_evidence: None,
             });
         })?;
 
@@ -1737,6 +1839,7 @@ impl RuntimeManager {
                         browser_verification: browser_verification.clone(),
                         engine_evidence: Some(engine_evidence.clone()),
                         network_evidence: Some(network_evidence),
+                        identity_evidence: None,
                     });
                     return Err(error);
                 }
@@ -1765,6 +1868,7 @@ impl RuntimeManager {
                         browser_verification: browser_verification.clone(),
                         engine_evidence: Some(engine_evidence.clone()),
                         network_evidence: Some(network_evidence),
+                        identity_evidence: None,
                     });
                     return Err(error);
                 }
@@ -1790,6 +1894,7 @@ impl RuntimeManager {
                 browser_verification: browser_verification.clone(),
                 engine_evidence: Some(engine_evidence.clone()),
                 network_evidence: Some(network_evidence),
+                identity_evidence: None,
             });
             return Err(error);
         }
@@ -1819,6 +1924,7 @@ impl RuntimeManager {
                     browser_verification: browser_verification.clone(),
                     engine_evidence: Some(engine_evidence.clone()),
                     network_evidence: Some(network_evidence.clone()),
+                    identity_evidence: None,
                 });
                 launcher_error
             })?;
@@ -1858,6 +1964,7 @@ impl RuntimeManager {
                     browser_verification: browser_verification.clone(),
                     engine_evidence: Some(engine_evidence.clone()),
                     network_evidence: Some(network_evidence),
+                    identity_evidence: None,
                 });
                 return Err(error);
             }
@@ -1871,6 +1978,7 @@ impl RuntimeManager {
             browser_verification: browser_verification.clone(),
             engine_evidence: Some(engine_evidence.clone()),
             network_evidence: Some(network_evidence.clone()),
+            identity_evidence: None,
         });
 
         let launch_arguments = if engine_plan.transport == EngineTransport::CamoufoxHostJsonlV1 {
@@ -1940,6 +2048,7 @@ impl RuntimeManager {
                         network_evidence.browser_routing = RuntimeEvidenceState::Failed;
                         network_evidence
                     }),
+                    identity_evidence: None,
                 });
                 return Err(error);
             }
@@ -1968,6 +2077,7 @@ impl RuntimeManager {
                     browser_verification: browser_verification.clone(),
                     engine_evidence: Some(engine_evidence),
                     network_evidence: Some(network_evidence),
+                    identity_evidence: None,
                 });
                 return Err(error);
             }
@@ -1990,6 +2100,7 @@ impl RuntimeManager {
                 browser_verification: browser_verification.clone(),
                 engine_evidence: Some(engine_evidence),
                 network_evidence: Some(network_evidence),
+                identity_evidence: None,
             });
             return Err(error);
         }
@@ -2010,6 +2121,7 @@ impl RuntimeManager {
                 browser_verification: browser_verification.clone(),
                 engine_evidence: Some(engine_evidence),
                 network_evidence: Some(network_evidence),
+                identity_evidence: None,
             });
             return Err(error);
         }
@@ -2047,6 +2159,7 @@ impl RuntimeManager {
                     browser_verification: browser_verification.clone(),
                     engine_evidence: Some(engine_evidence),
                     network_evidence: Some(network_evidence),
+                    identity_evidence: None,
                 });
                 return Err(error);
             }
@@ -2083,22 +2196,40 @@ impl RuntimeManager {
                         network_evidence.browser_routing = RuntimeEvidenceState::Failed;
                         network_evidence.clone()
                     }),
+                    identity_evidence: None,
                 });
                 error
             })?;
-            if let Some(address) = host_runtime
-                .and_then(|runtime| runtime.observed_public_address.as_deref())
+            if let Some(address) =
+                host_runtime.and_then(|runtime| runtime.observed_public_address.as_deref())
             {
                 network_evidence.exit = RuntimeEvidenceState::Observed;
                 network_evidence.endpoint_label = Some(format!(
                     "{} · 出口 {address}",
-                    network_evidence.endpoint_label.as_deref().unwrap_or("专属代理")
+                    network_evidence
+                        .endpoint_label
+                        .as_deref()
+                        .unwrap_or("专属代理")
                 ));
             }
         }
         mark_browser_routing_applied(&silo.network_profile, &mut network_evidence);
         let started_at = Utc::now();
         let runtime_id = network_evidence.runtime_id;
+        let identity_evidence = if uses_camoufox_host {
+            runtime.as_ref().and_then(|runtime| match runtime {
+                EngineRuntimeProtocol::CamoufoxHost(host) => Some(bind_camoufox_identity_evidence(
+                    host.identity_evidence.as_ref(),
+                    silo.id,
+                    runtime_id,
+                    &host.session_id,
+                    &host.binding,
+                )),
+                EngineRuntimeProtocol::Native { .. } => None,
+            })
+        } else {
+            None
+        };
         let activation = RuntimeActivation {
             active_silo_id: Some(silo.id),
             state: RuntimeState::Running,
@@ -2113,6 +2244,7 @@ impl RuntimeManager {
             browser_verification,
             engine_evidence: Some(engine_evidence),
             network_evidence: Some(network_evidence),
+            identity_evidence,
         };
         self.child = Some(child);
         self.profile_lease = Some(profile_lease);
@@ -2139,6 +2271,7 @@ impl RuntimeManager {
             started_at,
             last_seen_at: started_at,
             state: RuntimeState::Running,
+            identity_evidence: activation.identity_evidence.clone(),
         });
         self.activation = Some(activation.clone());
         self.persist_current_record(RuntimeState::Running);
@@ -2289,6 +2422,10 @@ impl RuntimeManager {
             browser_verification,
             engine_evidence: Some(engine_evidence),
             network_evidence: Some(evidence),
+            identity_evidence: self
+                .activation
+                .as_ref()
+                .and_then(|activation| activation.identity_evidence.clone()),
         });
         self.persist_current_record(state);
         Ok(self.activation.clone().expect("activation was set"))
@@ -2327,8 +2464,7 @@ impl RuntimeManager {
                     .to_owned(),
             ));
         }
-        silo
-            .network_profile
+        silo.network_profile
             .external_mihomo_binding()
             .ok_or_else(|| {
                 LauncherError::InvalidNetwork("该 Silo 未配置外部 Mihomo 绑定。".to_owned())
@@ -2576,7 +2712,10 @@ impl RuntimeManager {
 
     fn probe_camoufox_host_status(&mut self, deadline: Instant, persist_runtime_record: bool) {
         enum ProbeOutcome {
-            Running { observed_website_digest: Option<String> },
+            Running {
+                observed_website_digest: Option<String>,
+                identity_evidence: Option<CamoufoxHostIdentityEvidence>,
+            },
             BrowserClosed,
             Failed(LauncherError),
         }
@@ -2610,6 +2749,7 @@ impl RuntimeManager {
                     match validate_camoufox_host_status_binding(&status, &session_id, &binding) {
                         Ok(()) => ProbeOutcome::Running {
                             observed_website_digest: status.observed_website_digest,
+                            identity_evidence: status.identity_evidence,
                         },
                         Err(error) => ProbeOutcome::Failed(error),
                     }
@@ -2620,11 +2760,42 @@ impl RuntimeManager {
         match outcome {
             ProbeOutcome::Running {
                 observed_website_digest,
+                identity_evidence,
             } => {
                 if let Some(EngineRuntimeProtocol::CamoufoxHost(host)) =
                     self.engine_runtime.as_mut()
                 {
                     host.observed_website_digest = observed_website_digest;
+                    if identity_evidence.is_some() {
+                        host.identity_evidence = identity_evidence.clone();
+                    }
+                }
+                if let Some(identity_evidence) = identity_evidence {
+                    let binding = match self.engine_runtime.as_ref() {
+                        Some(EngineRuntimeProtocol::CamoufoxHost(host)) => host.binding.clone(),
+                        _ => return,
+                    };
+                    let session_id = match self.engine_runtime.as_ref() {
+                        Some(EngineRuntimeProtocol::CamoufoxHost(host)) => host.session_id.clone(),
+                        _ => return,
+                    };
+                    if let Some(activation) = self.activation.as_mut() {
+                        if let (Some(silo_id), Some(runtime_id)) = (
+                            activation.active_silo_id,
+                            activation
+                                .network_evidence
+                                .as_ref()
+                                .map(|evidence| evidence.runtime_id),
+                        ) {
+                            activation.identity_evidence = Some(bind_camoufox_identity_evidence(
+                                Some(&identity_evidence),
+                                silo_id,
+                                runtime_id,
+                                &session_id,
+                                &binding,
+                            ));
+                        }
+                    }
                 }
             }
             ProbeOutcome::BrowserClosed => {
@@ -2774,10 +2945,14 @@ impl RuntimeManager {
                         "Camoufox Host exited before close/shutdown and exact process-tree confirmation; profile ownership remains held fail-closed."
                             .to_owned(),
                     ),
-                    browser_verification,
-                    engine_evidence,
-                    network_evidence,
-                });
+            browser_verification,
+            engine_evidence,
+            network_evidence,
+            identity_evidence: self
+                .activation
+                .as_ref()
+                .and_then(|activation| activation.identity_evidence.clone()),
+        });
                 if persist_runtime_record {
                     self.persist_current_record(RuntimeState::VerificationFailed);
                 }
@@ -2813,6 +2988,10 @@ impl RuntimeManager {
                         browser_verification,
                         engine_evidence,
                         network_evidence,
+                        identity_evidence: self
+                            .activation
+                            .as_ref()
+                            .and_then(|activation| activation.identity_evidence.clone()),
                     });
                     // Exact child exit is a terminal ownership transition. It
                     // must reach disk even when the watchdog observed it first.
@@ -2846,6 +3025,10 @@ impl RuntimeManager {
                 browser_verification,
                 engine_evidence,
                 network_evidence,
+                identity_evidence: self
+                    .activation
+                    .as_ref()
+                    .and_then(|activation| activation.identity_evidence.clone()),
             });
             if persist_runtime_record || stock_profile_release_completed {
                 self.persist_current_record(RuntimeState::Stopped);
@@ -2986,6 +3169,10 @@ impl RuntimeManager {
         };
         record.last_seen_at = Utc::now();
         record.state = state;
+        record.identity_evidence = self
+            .activation
+            .as_ref()
+            .and_then(|activation| activation.identity_evidence.clone());
         if let Some(path) = self.record_path.as_ref() {
             let _ = write_runtime_record(path, record);
         }
@@ -3467,7 +3654,7 @@ fn spawn_camoufox_host(
             return Err(error);
         }
     };
-    let _ = status;
+    let identity_evidence = status.identity_evidence.or(launch.identity_evidence);
     Ok(SpawnedEngine {
         child,
         bootstrap_ack: None,
@@ -3478,6 +3665,7 @@ fn spawn_camoufox_host(
                 state_root: PathBuf::from(&hello.state_root),
                 binding: binding.clone(),
                 observed_website_digest: launch.observed_website_digest,
+                identity_evidence,
                 observed_public_address: launch.observed_public_address,
                 evidence_class: launch
                     .evidence_class
@@ -3610,6 +3798,9 @@ fn validate_camoufox_host_launch(
     launch: &CamoufoxHostLaunchResult,
     binding: &CamoufoxHostLaunch,
 ) -> Result<(), LauncherError> {
+    if let Some(identity_evidence) = launch.identity_evidence.as_ref() {
+        validate_camoufox_host_identity_evidence(identity_evidence)?;
+    }
     if launch.state != "running"
         || launch.artifact_id != binding.artifact_id
         || launch.profile_id != binding.profile_id
@@ -3633,6 +3824,104 @@ fn validate_camoufox_host_launch(
     Ok(())
 }
 
+fn validate_camoufox_host_identity_evidence(
+    evidence: &CamoufoxHostIdentityEvidence,
+) -> Result<(), LauncherError> {
+    if evidence.schema != CAMOUFOX_IDENTITY_EVIDENCE_SCHEMA
+        || evidence.signals.len() > 32
+        || evidence
+            .signals
+            .iter()
+            .any(|signal| signal.signal.trim().is_empty() || signal.signal.len() > 64)
+        || evidence
+            .reason
+            .as_ref()
+            .is_some_and(|reason| reason.len() > 512)
+        || evidence.signals.iter().any(|signal| {
+            signal
+                .reason
+                .as_ref()
+                .is_some_and(|reason| reason.len() > 512)
+        })
+    {
+        return Err(LauncherError::RuntimeReceipt(
+            "Camoufox Host identity evidence exceeded its typed schema bounds".to_owned(),
+        ));
+    }
+    let has_mismatch = evidence
+        .signals
+        .iter()
+        .any(|signal| signal.state == IdentityEvidenceState::Mismatched);
+    let has_comparable = evidence.signals.iter().any(|signal| {
+        matches!(
+            signal.state,
+            IdentityEvidenceState::Matched | IdentityEvidenceState::Mismatched
+        )
+    });
+    let valid_state = match evidence.state {
+        IdentityEvidenceState::Matched => !has_mismatch,
+        IdentityEvidenceState::Mismatched => has_mismatch,
+        IdentityEvidenceState::Unavailable => !has_comparable && !has_mismatch,
+        IdentityEvidenceState::Stale => false,
+    };
+    if !valid_state
+        || evidence
+            .signals
+            .iter()
+            .any(|signal| signal.state == IdentityEvidenceState::Stale)
+    {
+        return Err(LauncherError::RuntimeReceipt(
+            "Camoufox Host identity evidence state did not match its signal results".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn bind_camoufox_identity_evidence(
+    host_evidence: Option<&CamoufoxHostIdentityEvidence>,
+    silo_id: Uuid,
+    runtime_id: Uuid,
+    session_id: &str,
+    binding: &CamoufoxHostLaunch,
+) -> RuntimeIdentityEvidence {
+    let Some(host_evidence) = host_evidence else {
+        return RuntimeIdentityEvidence {
+            silo_id,
+            runtime_id,
+            session_id: session_id.to_owned(),
+            artifact_id: binding.artifact_id.clone(),
+            artifact_file_sha256: binding.artifact_file_sha256.clone(),
+            engine_adapter: crate::engine::EngineAdapterId::Camoufox,
+            observed_at: Utc::now(),
+            state: IdentityEvidenceState::Unavailable,
+            signals: Vec::new(),
+            reason: Some("Camoufox Host did not return identity evidence.".to_owned()),
+        };
+    };
+    RuntimeIdentityEvidence {
+        silo_id,
+        runtime_id,
+        session_id: session_id.to_owned(),
+        artifact_id: binding.artifact_id.clone(),
+        artifact_file_sha256: binding.artifact_file_sha256.clone(),
+        engine_adapter: crate::engine::EngineAdapterId::Camoufox,
+        observed_at: host_evidence.observed_at,
+        state: host_evidence.state.clone(),
+        signals: host_evidence
+            .signals
+            .iter()
+            .map(|signal| RuntimeIdentitySignal {
+                signal: signal.signal.clone(),
+                expected: signal.expected.clone(),
+                observed: signal.observed.clone(),
+                state: signal.state.clone(),
+                reason: signal.reason.clone(),
+            })
+            .collect(),
+        reason: host_evidence.reason.clone(),
+    }
+}
+
 fn camoufox_status_browser_session_ended(status: &CamoufoxHostStatusResult) -> bool {
     status.quarantine.is_none() && status.state == "failed"
 }
@@ -3650,6 +3939,9 @@ fn validate_camoufox_host_status_binding(
     session_id: &str,
     binding: &CamoufoxHostLaunch,
 ) -> Result<(), LauncherError> {
+    if let Some(identity_evidence) = status.identity_evidence.as_ref() {
+        validate_camoufox_host_identity_evidence(identity_evidence)?;
+    }
     if status.state != "running"
         || status.session_id.as_deref() != Some(session_id)
         || status.artifact_id.as_deref() != Some(binding.artifact_id.as_str())
@@ -4378,9 +4670,10 @@ mod tests {
     use crate::domain::ExternalMihomoBinding;
     use crate::domain::ProxyScheme;
     use crate::domain::{
-        BrowserDescriptor, BrowserKind, NetworkProfile, RuntimeActivation, RuntimeEngineEvidence,
-        RuntimeEvidenceState, RuntimeNetworkEvidence, RuntimeNetworkEvidenceProvenance,
-        RuntimeState, Silo, SiloExecutionTarget, SCHEMA_VERSION,
+        BrowserDescriptor, BrowserKind, IdentityEvidenceState, NetworkProfile, RuntimeActivation,
+        RuntimeEngineEvidence, RuntimeEvidenceState, RuntimeIdentityEvidence,
+        RuntimeNetworkEvidence, RuntimeNetworkEvidenceProvenance, RuntimeState, Silo,
+        SiloExecutionTarget, SCHEMA_VERSION,
     };
     use crate::engine::{
         BrowserFamily, CamoufoxArtifactBindingV1, CamoufoxHostLaunch, DerivedIdentityToken,
@@ -4470,6 +4763,7 @@ mod tests {
             browser_verification: None,
             engine_evidence: Some(RuntimeEngineEvidence::configured(adapter, false)),
             network_evidence: None,
+            identity_evidence: None,
         };
         let mut managed = RuntimeManager {
             activation: Some(activation(EngineAdapterId::Camoufox)),
@@ -4482,6 +4776,52 @@ mod tests {
             ..RuntimeManager::default()
         };
         assert_eq!(stock.active_managed_camoufox_silo_id(), None);
+    }
+
+    #[test]
+    fn identity_evidence_becomes_stale_when_artifact_or_runtime_binding_changes() {
+        let mut silo = test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        silo.engine = SiloEngineConfig::Camoufox {
+            identity_template: None,
+            fallback_rules: Vec::new(),
+            artifact_binding: Some(CamoufoxArtifactBindingV1 {
+                artifact_id: "identity-current".to_owned(),
+                artifact_file_sha256: "a".repeat(64),
+                schema: CAMOUFOX_ARTIFACT_SCHEMA.to_owned(),
+            }),
+        };
+        let evidence = RuntimeIdentityEvidence {
+            silo_id: silo.id,
+            runtime_id: Uuid::new_v4(),
+            session_id: "session-old".to_owned(),
+            artifact_id: "identity-old".to_owned(),
+            artifact_file_sha256: "b".repeat(64),
+            engine_adapter: EngineAdapterId::Camoufox,
+            observed_at: Utc::now(),
+            state: IdentityEvidenceState::Matched,
+            signals: Vec::new(),
+            reason: None,
+        };
+        let mut runtime = RuntimeManager {
+            activation: Some(RuntimeActivation {
+                active_silo_id: None,
+                state: RuntimeState::Stopped,
+                updated_at: Utc::now(),
+                message: None,
+                browser_verification: None,
+                engine_evidence: None,
+                network_evidence: None,
+                identity_evidence: Some(evidence),
+            }),
+            ..RuntimeManager::default()
+        };
+        runtime.reconcile_identity_evidence(&silo);
+        assert_eq!(
+            runtime.cached_activation().identity_evidence.unwrap().state,
+            IdentityEvidenceState::Stale
+        );
     }
 
     fn http_runtime_manager() -> (RuntimeManager, Silo, Uuid, TcpListener) {
@@ -4517,6 +4857,7 @@ mod tests {
                 browser_verification: None,
                 engine_evidence: None,
                 network_evidence: Some(evidence),
+                identity_evidence: None,
             }),
             proxy_relay: Some(relay),
             health_context: Some(RuntimeHealthContext {
@@ -5439,6 +5780,7 @@ process.stdin.on('end', () => {
                 browser_verification: None,
                 engine_evidence: Some(evidence),
                 network_evidence: None,
+                identity_evidence: None,
             }),
             engine_runtime: spawned.runtime.take(),
             profile_lease: Some(profile_lease),
@@ -5921,6 +6263,7 @@ process.stdin.on('end', () => {
             started_at: Utc::now(),
             last_seen_at: Utc::now(),
             state: RuntimeState::Running,
+            identity_evidence: None,
         };
         let runtime_record_path = root.join("runtime-record.json");
         write_runtime_record(&runtime_record_path, &runtime_record)
@@ -6578,6 +6921,7 @@ for raw in sys.stdin.buffer:
                 browser_verification: None,
                 engine_evidence: Some(engine_evidence),
                 network_evidence: None,
+                identity_evidence: None,
             }),
             engine_runtime: spawned.runtime,
             ..RuntimeManager::default()
@@ -7319,6 +7663,7 @@ for raw in sys.stdin.buffer:
             started_at: now,
             last_seen_at: now,
             state: RuntimeState::Running,
+            identity_evidence: None,
         };
         write_runtime_record(&record_path, &record).expect("persist running stock record");
         let mut runtime = RuntimeManager {
@@ -7331,6 +7676,7 @@ for raw in sys.stdin.buffer:
                 browser_verification: None,
                 engine_evidence: None,
                 network_evidence: Some(evidence),
+                identity_evidence: None,
             }),
             health_context: Some(RuntimeHealthContext {
                 silo,
@@ -7405,6 +7751,7 @@ for raw in sys.stdin.buffer:
             browser_verification: None,
             engine_evidence: None,
             network_evidence: Some(second_evidence.clone()),
+            identity_evidence: None,
         });
         runtime.health_context = Some(RuntimeHealthContext {
             silo: silo_for_recheck.clone(),
@@ -7527,6 +7874,7 @@ for raw in sys.stdin.buffer:
             started_at: now,
             last_seen_at: now,
             state: RuntimeState::Running,
+            identity_evidence: None,
         };
         write_runtime_record(&path, &record).expect("persist runtime record");
         let value: serde_json::Value =
@@ -7569,6 +7917,7 @@ for raw in sys.stdin.buffer:
                 started_at: now,
                 last_seen_at: now,
                 state: RuntimeState::Running,
+                identity_evidence: None,
             },
         )
         .expect("write recovery record");
@@ -7600,6 +7949,7 @@ for raw in sys.stdin.buffer:
                 started_at: now,
                 last_seen_at: now,
                 state: RuntimeState::Running,
+                identity_evidence: None,
             },
         )
         .expect("write recovery record");
@@ -7614,7 +7964,8 @@ for raw in sys.stdin.buffer:
         );
         let activation = runtime.revoke_secrets_for_vault_lock();
         assert_eq!(
-            activation.state, RuntimeState::Stopped,
+            activation.state,
+            RuntimeState::Stopped,
             "locking the Vault must not fail-close a stopped session"
         );
 
@@ -7651,20 +8002,24 @@ for raw in sys.stdin.buffer:
                 started_at: now,
                 last_seen_at: now,
                 state: RuntimeState::Running,
+                identity_evidence: None,
             },
         )
         .expect("write recovery record");
 
         let mut runtime = RuntimeManager::open(&root);
-        let activation =
-            runtime.reconcile_persisted(&silo, Some(MihomoControllerAuthentication::new(
+        let activation = runtime.reconcile_persisted(
+            &silo,
+            Some(MihomoControllerAuthentication::new(
                 "controller-secret".to_owned(),
-            )));
+            )),
+        );
         assert_eq!(activation.active_silo_id, None);
         assert_eq!(activation.state, RuntimeState::Stopped);
         let activation = runtime.revoke_secrets_for_vault_lock();
         assert_eq!(
-            activation.state, RuntimeState::Stopped,
+            activation.state,
+            RuntimeState::Stopped,
             "revocation without an owned runtime must not flip the persisted stopped state"
         );
         assert!(runtime.prepare_for_vault_restore().is_some());
@@ -7694,6 +8049,7 @@ for raw in sys.stdin.buffer:
                 started_at: now,
                 last_seen_at: now,
                 state: RuntimeState::Running,
+                identity_evidence: None,
             },
         )
         .expect("write recovery record");
@@ -7708,7 +8064,8 @@ for raw in sys.stdin.buffer:
         );
         let activation = runtime.revoke_secrets_for_vault_lock();
         assert_eq!(
-            activation.state, RuntimeState::Running,
+            activation.state,
+            RuntimeState::Running,
             "a direct session without runtime credentials keeps running across a Vault lock"
         );
 
@@ -7754,6 +8111,7 @@ for raw in sys.stdin.buffer:
                 started_at: now,
                 last_seen_at: now,
                 state: RuntimeState::Failed,
+                identity_evidence: None,
             }),
             ..RuntimeManager::default()
         };
@@ -7792,6 +8150,7 @@ for raw in sys.stdin.buffer:
             started_at: now,
             last_seen_at: now,
             state: RuntimeState::Stopped,
+            identity_evidence: None,
         };
         write_runtime_record(&record_path, &record).expect("persist stale stopped record");
         let silo = test_silo(NetworkProfile::Direct {
@@ -7864,6 +8223,7 @@ for raw in sys.stdin.buffer:
                 started_at: now,
                 last_seen_at: now,
                 state: RuntimeState::Running,
+                identity_evidence: None,
             },
         )
         .expect("write recovery record");
@@ -8212,6 +8572,7 @@ for raw in sys.stdin.buffer:
             browser_verification: None,
             engine_evidence: None,
             network_evidence: None,
+            identity_evidence: None,
         });
 
         runtime.revoke_secrets_for_vault_lock();
