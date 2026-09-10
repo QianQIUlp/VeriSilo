@@ -28,6 +28,7 @@ const languageHref = locale === "zh" ? "/" : "/zh/";
       </a>
 
       <nav class="primary-nav" aria-label={content.navigation.aria}>
+        <a href="#download">{content.navigation.download}</a>
         <a href="#milestone">{content.navigation.milestone}</a>
         <a href="#how">{content.navigation.how}</a>
         <a href="#evidence">{content.navigation.evidence}</a>
@@ -60,20 +61,26 @@ const languageHref = locale === "zh" ? "/" : "/zh/";
         <div class="hero-actions">
           <a
             class="button button--primary"
-            href={links.repository}
+            href={links.release}
             target="_blank"
             rel="noreferrer"
           >
             {content.hero.primaryAction}
             <span aria-hidden="true">↗</span>
           </a>
-          <a class="button button--text" href="#milestone">
+          <a
+            class="button button--text"
+            href={links.repository}
+            target="_blank"
+            rel="noreferrer"
+          >
             {content.hero.secondaryAction}
-            <span aria-hidden="true">↓</span>
+            <span aria-hidden="true">↗</span>
           </a>
+          <span class="hero-release-meta">{content.hero.releaseMeta}</span>
         </div>
         <p class="release-note">
-          <span aria-hidden="true">i</span>
+          <span aria-hidden="true">!</span>
           {content.hero.releaseNote}
         </p>
       </div>
@@ -346,6 +353,71 @@ const languageHref = locale === "zh" ? "/" : "/zh/";
         >
           {content.boundaries.docsAction}<span aria-hidden="true">↗</span>
         </a>
+      </div>
+    </section>
+
+    <section
+      class="section section--release page-shell"
+      id="download"
+      aria-labelledby="release-title"
+    >
+      <div class="section-heading section-heading--split">
+        <div>
+          <p class="eyebrow">{content.release.eyebrow}</p>
+          <h2 id="release-title">{content.release.title}</h2>
+        </div>
+        <p>{content.release.intro}</p>
+      </div>
+
+      <div class="release-grid">
+        <article class="release-card release-card--download">
+          <span class="release-card__label">{content.release.metaBadge}</span>
+          <div class="release-card__actions">
+            <a
+              class="button button--primary"
+              href={links.release}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {content.release.cta}
+              <span aria-hidden="true">↗</span>
+            </a>
+            <a
+              class="button button--outlined"
+              href={links.releaseInstaller}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {content.release.secondaryCta}
+              <span aria-hidden="true">↓</span>
+            </a>
+          </div>
+          <p class="release-card__note">
+            {content.release.releasePageLabel}
+            <span class="release-card__tags">
+              {content.release.releasePageItems.map((item) => <span>{item}</span>)}
+            </span>
+            <a class="text-link" href={links.release} target="_blank" rel="noreferrer">
+              {content.release.releasePageAction}<span aria-hidden="true">↗</span>
+            </a>
+          </p>
+        </article>
+
+        <article class="release-card release-card--unsigned">
+          <span class="release-card__label">{content.release.unsignedLabel}</span>
+          <h3>{content.release.unsignedTitle}</h3>
+          <ul class="release-card__items">
+            {content.release.unsignedItems.map((item) => <li>{item}</li>)}
+          </ul>
+        </article>
+
+        <article class="release-card release-card--verified">
+          <span class="release-card__label">{content.release.verifiedLabel}</span>
+          <h3>{content.release.verifiedTitle}</h3>
+          <ul class="release-card__items">
+            {content.release.verifiedItems.map((item) => <li>{item}</li>)}
+          </ul>
+        </article>
       </div>
     </section>
 

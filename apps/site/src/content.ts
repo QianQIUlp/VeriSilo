@@ -2,6 +2,9 @@ export type Locale = "en" | "zh";
 
 export const links = {
   repository: "https://github.com/QianQIUlp/VeriSilo",
+  release: "https://github.com/QianQIUlp/VeriSilo/releases/tag/v0.1.0-rc2",
+  releaseInstaller:
+    "https://github.com/QianQIUlp/VeriSilo/releases/download/v0.1.0-rc2/VeriSilo-Managed-Browser-v0.1.0-rc2-x64-setup.exe",
   architecture:
     "https://github.com/QianQIUlp/VeriSilo/blob/main/docs/architecture.md",
   capabilities:
@@ -20,7 +23,7 @@ export const copy = {
     meta: {
       title: "VeriSilo — Browser state, visibly separated",
       description:
-        "VeriSilo is a Windows-first, open-source browser environment isolation and privacy-auditing project for Chrome and Edge.",
+        "VeriSilo is a Windows-first, open-source browser environment isolation and privacy-auditing project: Standard Silos on Chrome or Edge, Managed Identity Silos on a controlled engine.",
     },
     skipLink: "Skip to content",
     homeLabel: "VeriSilo home",
@@ -28,6 +31,7 @@ export const copy = {
     languageLabel: "中文",
     navigation: {
       aria: "Primary navigation",
+      download: "Download",
       milestone: "Milestone",
       how: "How it works",
       evidence: "Evidence",
@@ -35,14 +39,49 @@ export const copy = {
       source: "Source",
     },
     hero: {
-      eyebrow: "WINDOWS-FIRST · OPEN SOURCE · 0.1 SOURCE MILESTONE",
+      eyebrow: "WINDOWS-FIRST · OPEN SOURCE · V0.1.0-RC2 PRE-RELEASE",
       titleLead: "Keep browser state",
       titleEmphasis: "in a Silo of its own.",
-      body: "VeriSilo launches Chrome or Edge in a separate, managed environment for every Silo. Browser-owned state stays in its own data directory, while the desktop app manages the Silo lifecycle, runtime binding, and optional network profile without importing or modifying the default browser profile.",
-      primaryAction: "Inspect the source",
-      secondaryAction: "View the current milestone",
+      body: "VeriSilo keeps browser state away from your default profile. A Standard Silo runs system Chrome or Edge in its own data directory; a Managed Identity Silo runs a controlled Camoufox engine bound to a Resolved Identity Artifact. The desktop app manages Silo lifecycle, runtime binding, and optional network profiles without importing or modifying the default browser profile.",
+      primaryAction: "Download v0.1.0-rc2",
+      secondaryAction: "Inspect the source",
+      releaseMeta: "Windows x64 · Pre-release",
       releaseNote:
-        "The 0.1 source milestone is complete. No signed Windows build is available yet.",
+        "The Windows installer is not code-signed yet, so Windows may show “Unknown publisher” or a SmartScreen prompt. This is a known v0.1.0-rc2 boundary.",
+    },
+    release: {
+      eyebrow: "PUBLIC PRE-RELEASE · V0.1.0-RC2",
+      title: "The first public Windows build is ready to try.",
+      intro:
+        "v0.1.0-rc2 is an early release candidate for evaluation and feedback, not a stable production release. VeriSilo stays local-first and fail-closed: Silos, Vault, and evidence live on your machine. Download and verification materials live on the GitHub Release page.",
+      cta: "Download v0.1.0-rc2",
+      secondaryCta: "Direct installer (.exe)",
+      metaBadge: "Windows x64 · Pre-release",
+      unsignedLabel: "UNSIGNED INSTALLER",
+      unsignedTitle: "What to expect on Windows",
+      unsignedItems: [
+        "The installer has no Windows Authenticode signature yet, so Windows may show “Unknown publisher” or a SmartScreen warning.",
+        "This is a known v0.1.0-rc2 boundary, not a change in how VeriSilo treats your data.",
+        "The Managed browser engine's internal CMS signature is a separate layer and does not replace Windows publisher signing.",
+      ],
+      verifiedLabel: "VERIFIED IN RC2 ACCEPTANCE",
+      verifiedTitle: "What rc2 has actually passed",
+      verifiedItems: [
+        "Installed lifecycle in a Windows 11 Sandbox",
+        "Standard and Managed silo launch",
+        "Persistence across restarts",
+        "Same-version reinstall",
+        "Uninstall with data preservation",
+      ],
+      releasePageLabel: "The GitHub Release page also carries:",
+      releasePageItems: [
+        "SHA256SUMS",
+        "Provenance",
+        "SBOM",
+        "License notices",
+        "Known limitations",
+      ],
+      releasePageAction: "Open the GitHub Release",
     },
     model: {
       aria: "Diagram showing the default browser profile separated from two VeriSilo data directories",
@@ -97,6 +136,7 @@ export const copy = {
           items: [
             "Encrypted local Vault and explicit Silo lifecycle.",
             "Separate Chrome or Edge data directories with runtime identity binding.",
+            "Managed Identity Silos run a controlled Camoufox engine bound to a Resolved Identity Artifact.",
             "Per-Silo direct, fixed-proxy, and external Mihomo network profiles.",
             "Fail-closed behavior for network paths that require a proxy.",
             "Optional Companion and Native Host evidence with local redacted reports.",
@@ -107,8 +147,8 @@ export const copy = {
           label: "NOT YET AVAILABLE",
           title: "Public distribution and stronger environments",
           items: [
-            "No signed Windows installer or browser-store version yet.",
-            "Fingerprint fields still come from the stock browser.",
+            "The v0.1.0-rc2 Windows x64 pre-release is available for evaluation; the installer is not signed yet.",
+            "Standard Silos keep the stock browser's fingerprint fields; Managed Identity Silos pair a controlled engine with a Resolved Identity Artifact instead.",
             "Real-machine verification does not yet cover every Windows and virtualization setup.",
             "Evidence covers documented cases, not every real machine.",
           ],
@@ -120,7 +160,7 @@ export const copy = {
           items: [
             "Keep one Silo stable across restarts.",
             "Keep Window, iframe, Worker, headers, and network observations consistent.",
-            "Coordinate browser-visible fields through a controlled engine.",
+            "Coordinate browser-visible fields through the managed identity engine.",
             "Apply, verify, restore, and fall back per site without claiming undetectability.",
           ],
         },
@@ -142,7 +182,7 @@ export const copy = {
         {
           label: "LAUNCH",
           title: "Start a bound browser environment",
-          body: "Launch Chrome or Edge with a dedicated data directory and an explicit runtime identity. Required proxy paths must fail closed instead of silently returning to the host network.",
+          body: "Launch the Silo's bound runtime — system Chrome or Edge with a dedicated data directory, or the managed identity engine — with an explicit runtime identity. Required proxy paths must fail closed instead of silently returning to the host network.",
           note: "Dedicated data directory · runtime identity",
         },
         {
@@ -177,8 +217,8 @@ export const copy = {
         },
         {
           tier: "UNSUPPORTED",
-          title: "Stock-browser fingerprint and hardware identity",
-          body: "The current Chrome and Edge path does not rewrite TLS, QUIC, or real hardware. Stronger browser engines and environments are future work, not current features.",
+          title: "Hardware identity and network-stack rewrite",
+          body: "Neither the Standard browser path nor the managed engine rewrites TLS, QUIC, exhaustive DNS paths, or real hardware. Isolated-machine environments remain future work, not current features.",
           tone: "unsupported",
         },
       ],
@@ -188,7 +228,7 @@ export const copy = {
       eyebrow: "LOCAL BY DESIGN",
       title: "The isolation core stays on your machine.",
       intro:
-        "The desktop app owns Silo lifecycle and runtime binding. Chrome or Edge owns the browser files. Network providers and the optional Companion add controlled routing and evidence without becoming device impersonation.",
+        "The desktop app owns Silo lifecycle and runtime binding. Standard Silos run system Chrome or Edge; Managed Identity Silos run the controlled Camoufox engine. Network providers and the optional Companion add controlled routing and evidence without becoming device impersonation.",
       nodes: [
         {
           kind: "CONTROL",
@@ -207,7 +247,7 @@ export const copy = {
         },
       ],
       footnote:
-        "Stock Chrome and Edge still expose their real browser engine and hardware environment. Stronger engines, virtual environments, and remote paths are separate future options, not current fingerprint protection.",
+        "Standard Silos still expose the stock browser engine and real hardware environment; Managed Identity Silos pair a controlled engine with a Resolved Identity Artifact. Neither rewrites the network stack or real hardware, and virtual or remote environments remain future options.",
       docsAction: "Open the architecture notes",
     },
     boundaries: {
@@ -238,13 +278,13 @@ export const copy = {
     source: {
       eyebrow: "0.1 SOURCE MILESTONE",
       title: "Inspect the claim before you trust it.",
-      body: "VeriSilo is being built in public under MPL-2.0. The 0.1 source milestone completes the first identity-isolation baseline, while the signed Windows build, controlled browser engine, and stronger environments remain unfinished.",
+      body: "VeriSilo is being built in public under MPL-2.0. The v0.1.0-rc2 Windows pre-release, including the Managed Identity engine, is available for evaluation on GitHub Releases; the signed installer and isolated-machine environments remain unfinished.",
       primaryAction: "View VeriSilo on GitHub",
       secondaryAction: "Build from source",
       statusLabel: "STATUS",
-      statusValue: "0.1 source milestone · pre-release",
+      statusValue: "v0.1.0-rc2 pre-release · Windows x64",
       platformLabel: "TARGET",
-      platformValue: "Windows · Chrome / Edge",
+      platformValue: "Windows · Chrome / Edge · Managed engine",
       licenseLabel: "SOURCE LICENSE",
       licenseValue: "MPL-2.0",
     },
@@ -258,7 +298,7 @@ export const copy = {
     meta: {
       title: "VeriSilo — 看得见边界的浏览器环境隔离",
       description:
-        "VeriSilo 是面向 Windows、开源的 Chrome 与 Edge 浏览器环境隔离和隐私审计项目。",
+        "VeriSilo 是面向 Windows 的开源浏览器环境隔离与隐私审计项目：Standard Silo 使用系统 Chrome / Edge，Managed Identity Silo 使用受控身份引擎。",
     },
     skipLink: "跳到主要内容",
     homeLabel: "VeriSilo 首页",
@@ -266,6 +306,7 @@ export const copy = {
     languageLabel: "EN",
     navigation: {
       aria: "主导航",
+      download: "下载",
       milestone: "当前阶段",
       how: "工作原理",
       evidence: "证据模型",
@@ -273,13 +314,43 @@ export const copy = {
       source: "源代码",
     },
     hero: {
-      eyebrow: "WINDOWS 优先 · 开源 · 0.1 源码里程碑",
+      eyebrow: "WINDOWS 优先 · 开源 · V0.1.0-RC2 预发布",
       titleLead: "把浏览器状态",
       titleEmphasis: "放进各自的 Silo。",
-      body: "VeriSilo 为每个 Silo 启动一套独立、受管理的 Chrome 或 Edge 环境。浏览器状态留在各自的数据目录中，桌面端负责 Silo 的生命周期、运行绑定与可选网络配置，不导入或修改默认浏览器 Profile。",
-      primaryAction: "查看源代码",
-      secondaryAction: "查看当前阶段",
-      releaseNote: "0.1 源码里程碑已经完成；签名 Windows 构建暂未提供。",
+      body: "VeriSilo 把浏览器状态与默认 Profile 分开：Standard Silo 以独立数据目录运行系统 Chrome 或 Edge；Managed Identity Silo 运行受控 Camoufox 引擎，并绑定 Resolved Identity Artifact。桌面端负责 Silo 生命周期、运行绑定与可选网络配置，不导入或修改默认浏览器 Profile。",
+      primaryAction: "下载 v0.1.0-rc2",
+      secondaryAction: "查看源代码",
+      releaseMeta: "Windows x64 · 预发布版",
+      releaseNote:
+        "Windows 安装包尚未进行 Authenticode 签名，Windows 可能显示“未知发布者”或 SmartScreen 提示。这是 v0.1.0-rc2 的已知边界。",
+    },
+    release: {
+      eyebrow: "公开预发布 · V0.1.0-RC2",
+      title: "第一个公开的 Windows 构建可以试用了。",
+      intro:
+        "v0.1.0-rc2 是用于评估与反馈的早期 Release Candidate，不是稳定的生产版本。VeriSilo 保持本地优先、fail-closed：Silo、Vault 与证据都留在你的机器上。下载与校验材料见 GitHub Release 页面。",
+      cta: "下载 v0.1.0-rc2",
+      secondaryCta: "直接下载安装包（.exe）",
+      metaBadge: "Windows x64 · 预发布版",
+      unsignedLabel: "未签名安装包",
+      unsignedTitle: "在 Windows 上你会看到什么",
+      unsignedItems: [
+        "安装包当前没有 Windows Authenticode 签名，Windows 可能显示“未知发布者”或 SmartScreen 警告。",
+        "这是 v0.1.0-rc2 的已知边界，不代表 VeriSilo 处理数据的方式发生变化。",
+        "Managed 浏览器引擎内部的 CMS 签名是另一层机制，不能替代 Windows 发布者签名。",
+      ],
+      verifiedLabel: "RC2 验收已覆盖",
+      verifiedTitle: "rc2 实际通过的内容",
+      verifiedItems: [
+        "Windows 11 Sandbox 中的安装生命周期",
+        "标准 Silo 与 Managed Silo 启动",
+        "跨重启的状态持久化",
+        "同版本覆盖安装",
+        "卸载并保留数据",
+      ],
+      releasePageLabel: "GitHub Release 页面同时提供：",
+      releasePageItems: ["SHA256SUMS", "Provenance", "SBOM", "许可声明", "已知限制"],
+      releasePageAction: "打开 GitHub Release",
     },
     model: {
       aria: "默认浏览器 Profile 与两个 VeriSilo 独立数据目录的隔离示意图",
@@ -333,6 +404,7 @@ export const copy = {
           items: [
             "本地加密 Vault 与明确的 Silo 生命周期。",
             "独立 Chrome / Edge 数据目录与运行身份绑定。",
+            "Managed Identity Silo 运行受控 Camoufox 引擎并绑定 Resolved Identity Artifact。",
             "每个 Silo 独立的直连、固定代理或外部 Mihomo 网络配置。",
             "对必须使用代理的网络路径采用 fail-closed。",
             "可选 Companion、Native Host 与本地脱敏证据报告。",
@@ -343,8 +415,8 @@ export const copy = {
           label: "尚未提供",
           title: "公开分发与更强环境",
           items: [
-            "暂无签名 Windows 安装包或商店版本。",
-            "指纹字段仍来自标准浏览器本身。",
+            "v0.1.0-rc2 Windows x64 预发布版已可下载评估；安装包尚未签名。",
+            "Standard Silo 的指纹字段仍来自系统浏览器本身；Managed Identity Silo 则由受控引擎与 Resolved Identity Artifact 承担身份。",
             "真机验证尚未覆盖所有 Windows 与虚拟化组合。",
             "证据覆盖已记录的场景，而非每一台真实机器。",
           ],
@@ -356,7 +428,7 @@ export const copy = {
           items: [
             "同一个 Silo 在重启后保持稳定。",
             "Window、iframe、Worker、请求头和网络观察之间不互相矛盾。",
-            "通过受控浏览器引擎协调网站可见字段。",
+            "通过 Managed 身份引擎协调网站可见字段。",
             "每项控制均支持应用、验证、恢复与按站点回退，不承诺“不可检测”。",
           ],
         },
@@ -378,7 +450,7 @@ export const copy = {
         {
           label: "启动",
           title: "运行绑定后的浏览器环境",
-          body: "使用独立数据目录和明确的运行身份启动 Chrome 或 Edge。必须使用代理的路径在失败时阻断连接，而不是静默回退到宿主网络。",
+          body: "以独立数据目录和明确的运行身份启动绑定的运行环境——系统 Chrome 或 Edge，或 Managed 身份引擎。必须使用代理的路径在失败时阻断连接，而不是静默回退到宿主网络。",
           note: "独立数据目录 · 运行身份",
         },
         {
@@ -412,8 +484,8 @@ export const copy = {
         },
         {
           tier: "不支持",
-          title: "标准浏览器路径下的指纹与硬件身份",
-          body: "当前 Chrome 和 Edge 路径不会改写 TLS、QUIC 或真实硬件。更强的浏览器引擎与环境属于未来工作，而非当前功能。",
+          title: "硬件身份与网络栈改写",
+          body: "标准浏览器路径和 Managed 引擎都不会改写 TLS、QUIC、穷举式 DNS 路径或真实硬件。Isolated Machine 等更强环境仍是未来工作，而非当前功能。",
           tone: "unsupported",
         },
       ],
@@ -423,7 +495,7 @@ export const copy = {
       eyebrow: "本地优先",
       title: "隔离核心留在你的设备上。",
       intro:
-        "桌面端负责 Silo 生命周期与运行绑定，Chrome 或 Edge 管理浏览器文件；网络 Provider 和可选 Companion 增加受控路由与证据，但不会因此变成设备伪装。",
+        "桌面端负责 Silo 生命周期与运行绑定：Standard Silo 运行系统 Chrome 或 Edge，Managed Identity Silo 运行受控 Camoufox 引擎；网络 Provider 和可选 Companion 增加受控路由与证据，但不会因此变成设备伪装。",
       nodes: [
         {
           kind: "控制",
@@ -442,7 +514,7 @@ export const copy = {
         },
       ],
       footnote:
-        "标准 Chrome 和 Edge 仍会暴露真实浏览器引擎与硬件环境。更强的引擎、虚拟环境和远程路径属于独立的未来选项，不是当前的指纹保护。",
+        "Standard Silo 仍会暴露系统浏览器的真实引擎与硬件环境；Managed Identity Silo 则由受控引擎与 Resolved Identity Artifact 承担身份。两者都不改写网络栈或真实硬件，虚拟与远程环境仍是未来选项。",
       docsAction: "查看架构说明",
     },
     boundaries: {
@@ -473,13 +545,13 @@ export const copy = {
     source: {
       eyebrow: "0.1 源码里程碑",
       title: "先审查主张，再决定是否信任。",
-      body: "VeriSilo 以 MPL-2.0 在公开仓库中开发。0.1 源码里程碑完成了第一阶段身份隔离基线，而签名 Windows 构建、受控浏览器引擎与更强的环境仍未完成。",
+      body: "VeriSilo 以 MPL-2.0 在公开仓库中开发。v0.1.0-rc2 Windows 预发布版（包含 Managed Identity 引擎）已在 GitHub Releases 提供评估；签名安装包与 Isolated Machine 等更强环境仍未完成。",
       primaryAction: "在 GitHub 查看 VeriSilo",
       secondaryAction: "从源码构建",
       statusLabel: "状态",
-      statusValue: "0.1 源码里程碑 · 发布前",
+      statusValue: "v0.1.0-rc2 预发布 · Windows x64",
       platformLabel: "目标平台",
-      platformValue: "Windows · Chrome / Edge",
+      platformValue: "Windows · Chrome / Edge · Managed 引擎",
       licenseLabel: "源码许可",
       licenseValue: "MPL-2.0",
     },
