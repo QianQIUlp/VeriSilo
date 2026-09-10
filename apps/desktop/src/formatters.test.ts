@@ -16,6 +16,7 @@ describe("desktop formatters", () => {
         message: null,
         engineEvidence: null,
         networkEvidence: null,
+        identityEvidence: null,
       }),
     ).toContain("结束会话");
   });
@@ -29,6 +30,7 @@ describe("desktop formatters", () => {
         message: "provider receipt UUID mismatch",
         engineEvidence: null,
         networkEvidence: null,
+        identityEvidence: null,
       }),
     ).toBe("浏览器没有打开成功");
   });

@@ -75,6 +75,18 @@ pub(crate) fn desktop_status_with(state: &DesktopCore) -> Result<DesktopStatus, 
     let mut activation;
     if matches!(vault_status.state, VaultLockState::Unlocked) {
         activation = reconcile_runtime_if_possible(&mut vault, &mut runtime);
+        if let Some(silo_id) = activation
+            .identity_evidence
+            .as_ref()
+            .map(|evidence| evidence.silo_id)
+        {
+            if let Ok(silo) = vault.get_silo(silo_id) {
+                runtime.reconcile_identity_evidence(&silo);
+            } else {
+                runtime.mark_identity_evidence_stale("这份网站身份观察所属的 Silo 已不存在。");
+            }
+            activation = runtime.cached_activation();
+        }
         // Reconciliation reads never renew activity, and may itself observe a
         // deadline crossed after the first status snapshot.
         vault_status = vault.status(&state.root);
@@ -324,6 +336,7 @@ pub(crate) fn recheck_silo_runtime(
                     browser_verification: None,
                     engine_evidence: None,
                     network_evidence: None,
+                    identity_evidence: None,
                 },
                 Err(error) => {
                     let stopped = (|| -> Result<(), String> {
@@ -356,6 +369,7 @@ pub(crate) fn recheck_silo_runtime(
                             browser_verification: None,
                             engine_evidence: None,
                             network_evidence: None,
+                            identity_evidence: None,
                         }
                     } else {
                         RuntimeActivation {
@@ -368,6 +382,7 @@ pub(crate) fn recheck_silo_runtime(
                             browser_verification: None,
                             engine_evidence: None,
                             network_evidence: None,
+                            identity_evidence: None,
                         }
                     }
                 }
@@ -487,6 +502,7 @@ pub(crate) fn stop_silo_with(
                 browser_verification: None,
                 engine_evidence: None,
                 network_evidence: None,
+                identity_evidence: None,
             };
             let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
                 "VeriSilo environment runtime state is unavailable.".to_owned()
@@ -693,6 +709,7 @@ pub(crate) fn launch_silo_with(
                     browser_verification: None,
                     engine_evidence: None,
                     network_evidence: None,
+                    identity_evidence: None,
                 };
                 environment_runtime.wsl_distribution = Some(distribution.clone());
                 environment_runtime.reconciled = true;
@@ -779,6 +796,7 @@ pub(crate) fn launch_silo_with(
                     browser_verification: None,
                     engine_evidence: None,
                     network_evidence: None,
+                    identity_evidence: None,
                 })
             })();
 
@@ -838,6 +856,7 @@ pub(crate) fn launch_silo_with(
                             browser_verification: None,
                             engine_evidence: None,
                             network_evidence: None,
+                            identity_evidence: None,
                         }
                     } else {
                         RuntimeActivation {
@@ -848,6 +867,7 @@ pub(crate) fn launch_silo_with(
                             browser_verification: None,
                             engine_evidence: None,
                             network_evidence: None,
+                            identity_evidence: None,
                         }
                     };
                     let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {

@@ -1623,6 +1623,7 @@ mod tests {
                     false,
                 )
             }),
+            identity_evidence: None,
         };
         let vault = VaultStatus {
             state: VaultLockState::Locked,
@@ -1903,6 +1904,7 @@ mod tests {
             browser_verification: None,
             engine_evidence: None,
             network_evidence: Some(network_evidence),
+            identity_evidence: None,
         };
         let vault = VaultStatus {
             state: if unlocked {

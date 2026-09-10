@@ -963,7 +963,9 @@ impl VaultRuntime {
         &mut self,
         silo_id: Uuid,
     ) -> Result<ManagedIdentityPreset, VaultError> {
-        Ok(self.managed_identity_intent_for_silo(silo_id)?.identity_preset)
+        Ok(self
+            .managed_identity_intent_for_silo(silo_id)?
+            .identity_preset)
     }
 
     pub fn managed_identity_intent_for_silo(
@@ -979,7 +981,9 @@ impl VaultRuntime {
             .and_then(|policy| policy.get("locale"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or("en-US");
-        let config = value.get("resolvedConfig").unwrap_or(&serde_json::Value::Null);
+        let config = value
+            .get("resolvedConfig")
+            .unwrap_or(&serde_json::Value::Null);
         let screen_width = config
             .get("screen.width")
             .and_then(serde_json::Value::as_u64)
@@ -1542,18 +1546,19 @@ impl VaultRuntime {
                 },
             )
         });
-        let stored_mihomo_controller_secret = input.mihomo_controller_secret.map(|controller_secret| {
-            let reference = Uuid::new_v4();
-            network_profile
-                .set_mihomo_controller_secret_reference(reference)
-                .expect("validated external Mihomo binding accepts a secret reference");
-            (
-                reference,
-                StoredMihomoControllerSecret {
-                    secret: controller_secret.secret,
-                },
-            )
-        });
+        let stored_mihomo_controller_secret =
+            input.mihomo_controller_secret.map(|controller_secret| {
+                let reference = Uuid::new_v4();
+                network_profile
+                    .set_mihomo_controller_secret_reference(reference)
+                    .expect("validated external Mihomo binding accepts a secret reference");
+                (
+                    reference,
+                    StoredMihomoControllerSecret {
+                        secret: controller_secret.secret,
+                    },
+                )
+            });
         let silo = Silo {
             id: silo_id,
             schema_version: SCHEMA_VERSION,
@@ -2212,7 +2217,9 @@ impl VaultRuntime {
         let quarantine = root.join("silos").join(format!(".deleting-{silo_id}"));
         let moved_to_quarantine = if managed_directory.exists() {
             remove_transient_camoufox_cache_links(
-                &managed_directory.join("engine-state").join("camoufox-cache"),
+                &managed_directory
+                    .join("engine-state")
+                    .join("camoufox-cache"),
             )?;
             ensure_tree_has_no_links_or_reparse_points(&managed_directory)?;
             if fs::symlink_metadata(&quarantine).is_ok() {
@@ -3417,7 +3424,8 @@ fn managed_identity_preview_from_artifact(
         platform: json_string(config, "navigator.platform")
             .unwrap_or("Win32")
             .to_owned(),
-        country_code: network.and_then(|value| json_string(value, "countryCode"))
+        country_code: network
+            .and_then(|value| json_string(value, "countryCode"))
             .map(str::to_owned),
         public_address: network
             .and_then(|value| json_string(value, "expectedPublicAddress"))
@@ -6312,7 +6320,10 @@ mod tests {
         vault
             .delete_silo(&root, silo.id, false, true)
             .expect("delete Silo containing internal cache junction");
-        assert_eq!(fs::read(target.join("keep.txt")).expect("target survives"), b"keep");
+        assert_eq!(
+            fs::read(target.join("keep.txt")).expect("target survives"),
+            b"keep"
+        );
 
         fs::remove_dir_all(root).expect("remove test vault directory");
     }

@@ -97,6 +97,7 @@ describe("scrubDesktopStatusForLockedUi", () => {
           },
           engineEvidence: null,
           networkEvidence: null,
+          identityEvidence: null,
         },
       },
       "2026-07-28T12:15:00.000Z",
@@ -111,6 +112,7 @@ describe("scrubDesktopStatusForLockedUi", () => {
         message: null,
         engineEvidence: null,
         networkEvidence: null,
+        identityEvidence: null,
       },
       websiteIdentity: null,
     });

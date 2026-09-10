@@ -16,6 +16,7 @@ import {
 
 import {
   ManagedIdentityFacts,
+  ManagedIdentityEvidence,
   ManagedStatusGroups,
 } from "../identity/IdentityDetails.js";
 
@@ -192,6 +193,12 @@ export function SiloList({
                     </div>
                   ) : null}
                 </dl>
+                {managedCamoufox ? (
+                  <ManagedIdentityEvidence
+                    activation={runtimeActivation}
+                    silo={silo}
+                  />
+                ) : null}
                 {silo.engine.adapter !== "stock" ? (
                   <ManagedStatusGroups
                     activation={runtimeActivation}

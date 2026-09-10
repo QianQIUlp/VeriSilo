@@ -55,7 +55,7 @@ import ipaddress
 import json
 import math
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -73,6 +73,7 @@ ARTIFACT_SCHEMA = ARTIFACT_SCHEMA_V5
 PROJECTION_SCHEMA = "verisilo-camoufox-stable-signal-projection/v3"
 CONFIG_DIGEST_SCHEMA = "verisilo-camoufox-configured-identity/v1"
 OBSERVED_DIGEST_SCHEMA = "verisilo-camoufox-observed-website/v2"
+IDENTITY_EVIDENCE_SCHEMA = "verisilo-camoufox-identity-evidence/v0"
 
 # Website-observed signals that must be identical across cold starts of the
 # same artifact. No artifactId, no internal seeds, no canvas, no
@@ -787,6 +788,230 @@ def observed_website_digest(signals: dict) -> str:
     return canonical_digest(
         {"schema": OBSERVED_DIGEST_SCHEMA, "signals": signals}
     )
+
+
+_UNAVAILABLE = object()
+
+
+def _project_observed_media_devices(value: Any) -> dict[str, int] | object:
+    if type(value) is not list:
+        return _UNAVAILABLE
+    counts = {"audioinput": 0, "videoinput": 0, "audiooutput": 0}
+    for device in value:
+        if type(device) is dict and device.get("kind") in counts:
+            counts[device["kind"]] += 1
+    return counts
+
+
+def _expected_media_device_counts(config: dict) -> dict[str, int]:
+    if config.get("mediaDevices:enabled") is not True:
+        return {"audioinput": 0, "videoinput": 0, "audiooutput": 0}
+    return {
+        "audioinput": int(config.get("mediaDevices:micros", 0)),
+        "videoinput": int(config.get("mediaDevices:webcams", 0)),
+        "audiooutput": int(config.get("mediaDevices:speakers", 0)),
+    }
+
+
+def _project_voices(value: Any) -> list[dict] | object:
+    if type(value) is not list:
+        return _UNAVAILABLE
+    projected = []
+    for voice in value:
+        if type(voice) is not dict:
+            continue
+        item = {key: voice[key] for key in ("name", "lang") if key in voice}
+        if "localService" in voice:
+            item["localService"] = voice["localService"]
+        elif "isLocalService" in voice:
+            item["localService"] = voice["isLocalService"]
+        if "voiceURI" in voice:
+            item["voiceURI"] = voice["voiceURI"]
+        elif "voiceUri" in voice:
+            item["voiceURI"] = voice["voiceUri"]
+        projected.append(item)
+    return projected
+
+
+def _identity_values_equal(expected: Any, observed: Any) -> bool:
+    if type(expected) is dict and type(observed) is dict:
+        return all(
+            key in observed and _identity_values_equal(value, observed[key])
+            for key, value in expected.items()
+        )
+    if type(expected) is list and type(observed) is list:
+        return len(expected) == len(observed) and all(
+            _identity_values_equal(expected_item, observed_item)
+            for expected_item, observed_item in zip(expected, observed)
+        )
+    return (
+        type(expected) is type(observed)
+        and canonical_json_bytes(expected) == canonical_json_bytes(observed)
+    )
+
+
+def _project_expected_screen(value: Any) -> dict | object:
+    if type(value) is not dict:
+        return _UNAVAILABLE
+    # Keep this aligned with extract_observed_website_signals(): the existing
+    # Host observation contract does not claim screen origin coordinates.
+    keys = ("width", "height", "availWidth", "availHeight", "colorDepth", "pixelDepth")
+    return {key: value.get(key) for key in keys}
+
+
+def reconcile_website_identity(
+    artifact: dict,
+    observed_signals: dict,
+    observed_at: str | None = None,
+) -> dict:
+    """Reconcile only Artifact values with an honest website observation.
+
+    This deliberately does not compare configured and observed digests: those
+    digests have different inputs. Values absent from the current Artifact
+    contract remain unavailable instead of being inferred from a seed or a
+    browser capability claim.
+    """
+
+    config = artifact.get("resolvedConfig", {})
+    declared = artifact.get("stableSignalsDeclared", {})
+    policy = artifact.get("policy", {})
+    stable_fields = set(policy.get("stableWebsiteFields", []))
+    observed_signals = observed_signals if type(observed_signals) is dict else {}
+    signals: list[dict] = []
+    comparable = 0
+    mismatched = 0
+    unavailable = 0
+
+    expected_values: dict[str, Any] = {}
+    for signal, expected in (
+        ("userAgent", declared.get("userAgent")),
+        ("language", declared.get("language")),
+        ("platform", config.get("navigator.platform")),
+        ("oscpu", config.get("navigator.oscpu")),
+        ("screen", declared.get("screen")),
+        ("devicePixelRatio", declared.get("devicePixelRatio")),
+        ("hardwareConcurrency", declared.get("hardwareConcurrency")),
+        ("historyLength", config.get("window.history.length")),
+        ("timezone", config.get("timezone")),
+        ("globalPrivacyControl", config.get(GPC_CONFIG_KEY)),
+        ("doNotTrack", config.get(DNT_CONFIG_KEY)),
+        ("webglVendor", declared.get("webglVendor")),
+    ):
+        if signal in stable_fields and expected is not None:
+            if signal == "screen":
+                expected = _project_expected_screen(expected)
+            expected_values[signal] = expected
+
+    if "mediaDevices" in stable_fields:
+        expected_values["mediaDevices"] = _expected_media_device_counts(config)
+
+    if "voices" in stable_fields and declared.get("voices") is not None:
+        expected_values["voices"] = _project_voices(declared["voices"])
+
+    if "utcOffsetMinutes" in stable_fields and config.get("timezone") is not None:
+        try:
+            when = datetime.fromisoformat(
+                (observed_at or datetime.now(timezone.utc).isoformat()).replace(
+                    "Z", "+00:00"
+                )
+            )
+            expected_values["utcOffsetMinutes"] = int(
+                -when.astimezone(ZoneInfo(config["timezone"]))
+                .utcoffset()
+                .total_seconds()
+                / 60
+            )
+        except (AttributeError, TypeError, ValueError, ZoneInfoNotFoundError):
+            pass
+
+    def add_signal(
+        signal: str,
+        expected: Any,
+        observed: Any,
+        reason: str | None = None,
+    ) -> None:
+        nonlocal comparable, mismatched, unavailable
+        if expected is _UNAVAILABLE or observed is _UNAVAILABLE or expected is None:
+            state = "unavailable"
+            unavailable += 1
+        elif observed is None:
+            state = "unavailable"
+            unavailable += 1
+            reason = reason or "页面没有返回这一项观察值。"
+        elif _identity_values_equal(expected, observed):
+            state = "matched"
+            comparable += 1
+        else:
+            state = "mismatched"
+            comparable += 1
+            mismatched += 1
+        result = {
+            "signal": signal,
+            "expected": None if expected is _UNAVAILABLE else expected,
+            "observed": None if observed is _UNAVAILABLE else observed,
+            "state": state,
+        }
+        if reason is not None:
+            result["reason"] = reason
+        signals.append(result)
+
+    for signal, expected in expected_values.items():
+        observed = observed_signals.get(signal)
+        if signal == "mediaDevices":
+            observed = _project_observed_media_devices(observed)
+        elif signal == "voices":
+            observed = _project_voices(observed)
+        add_signal(signal, expected, observed)
+
+    renderer = declared.get("webglRenderer")
+    if "webglRenderer" in stable_fields:
+        if type(renderer) is str and ", or similar" not in renderer.lower():
+            add_signal("webglRenderer", renderer, observed_signals.get("webglRenderer"))
+        else:
+            add_signal(
+                "webglRenderer",
+                _UNAVAILABLE,
+                observed_signals.get("webglRenderer"),
+                "Artifact 只声明了渲染器系列，当前 contract 不支持精确比较。",
+            )
+
+    if policy.get("fontMode") == "inherit":
+        add_signal(
+            "fonts",
+            _UNAVAILABLE,
+            _UNAVAILABLE,
+            "fontMode=inherit：字体指标由主机提供，当前不能诚实比较。",
+        )
+    elif policy.get("fontMode") == "managed":
+        add_signal(
+            "fonts",
+            _UNAVAILABLE,
+            observed_signals.get("fontUniverseWidths", _UNAVAILABLE),
+            "当前 Artifact 没有可直接比较的字体宽度期望值。",
+        )
+
+    if mismatched:
+        state = "mismatched"
+        reason = None
+    elif comparable:
+        state = "matched"
+        reason = (
+            "部分网站可见字段不在当前对账 contract 内。"
+            if unavailable
+            else None
+        )
+    else:
+        state = "unavailable"
+        reason = "没有取得足够的网站可见观察值。"
+
+    return {
+        "schema": IDENTITY_EVIDENCE_SCHEMA,
+        "observedAt": observed_at
+        or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "state": state,
+        "signals": signals,
+        **({"reason": reason} if reason is not None else {}),
+    }
 
 
 def diff_configs(disk: dict, sent: dict) -> dict:

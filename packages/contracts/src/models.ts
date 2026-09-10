@@ -579,6 +579,45 @@ export const runtimeStateSchema = z.enum([
 ]);
 export type RuntimeState = z.infer<typeof runtimeStateSchema>;
 
+export const identityEvidenceStateSchema = z.enum([
+  "matched",
+  "mismatched",
+  "unavailable",
+  "stale",
+]);
+export type IdentityEvidenceState = z.infer<typeof identityEvidenceStateSchema>;
+
+export const runtimeIdentitySignalSchema = z
+  .object({
+    signal: z.string().min(1).max(64),
+    expected: z.unknown(),
+    observed: z.unknown(),
+    state: identityEvidenceStateSchema,
+    reason: z.string().max(512).optional(),
+  })
+  .strict();
+export type RuntimeIdentitySignal = z.infer<
+  typeof runtimeIdentitySignalSchema
+>;
+
+export const runtimeIdentityEvidenceSchema = z
+  .object({
+    siloId: z.string().uuid(),
+    runtimeId: z.string().uuid(),
+    sessionId: z.string().min(1).max(128),
+    artifactId: z.string().min(1).max(128),
+    artifactFileSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    engineAdapter: engineAdapterIdSchema,
+    observedAt: z.string().datetime(),
+    state: identityEvidenceStateSchema,
+    signals: z.array(runtimeIdentitySignalSchema).max(32),
+    reason: z.string().max(512).optional(),
+  })
+  .strict();
+export type RuntimeIdentityEvidence = z.infer<
+  typeof runtimeIdentityEvidenceSchema
+>;
+
 export const runtimeActivationSchema = z
   .object({
     activeSiloId: z.string().uuid().nullable(),
@@ -588,6 +627,7 @@ export const runtimeActivationSchema = z
     browserVerification: browserVerificationSchema.optional(),
     engineEvidence: runtimeEngineEvidenceSchema.nullable(),
     networkEvidence: runtimeNetworkEvidenceSchema.nullable(),
+    identityEvidence: runtimeIdentityEvidenceSchema.nullable(),
   })
   .strict();
 export type RuntimeActivation = z.infer<typeof runtimeActivationSchema>;

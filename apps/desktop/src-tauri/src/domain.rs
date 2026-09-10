@@ -9,6 +9,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
@@ -749,8 +750,7 @@ impl ManagedIdentityIntent {
     }
 
     pub fn follow_network_exit(&self, has_proxy: bool) -> bool {
-        has_proxy
-            && (self.follow_network_exit || self.identity_preset.requires_proxy())
+        has_proxy && (self.follow_network_exit || self.identity_preset.requires_proxy())
     }
 
     pub fn host_preset(&self) -> ManagedIdentityPreset {
@@ -827,8 +827,7 @@ impl CreateManagedSiloInput {
                 "Managed identity browsers accept Direct or a required HTTP/SOCKS5 proxy, including a local Clash/Mihomo binding.".to_owned(),
             ));
         }
-        if direct && (self.proxy_credentials.is_some() || self.mihomo_controller_secret.is_some())
-        {
+        if direct && (self.proxy_credentials.is_some() || self.mihomo_controller_secret.is_some()) {
             return Err(DomainError::InvalidNetwork(
                 "Direct managed identity browsers cannot carry proxy credentials.".to_owned(),
             ));
@@ -1233,6 +1232,42 @@ impl Silo {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityEvidenceState {
+    Matched,
+    Mismatched,
+    Unavailable,
+    Stale,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeIdentitySignal {
+    pub signal: String,
+    pub expected: Value,
+    pub observed: Value,
+    pub state: IdentityEvidenceState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeIdentityEvidence {
+    pub silo_id: Uuid,
+    pub runtime_id: Uuid,
+    pub session_id: String,
+    pub artifact_id: String,
+    pub artifact_file_sha256: String,
+    pub engine_adapter: EngineAdapterId,
+    pub observed_at: DateTime<Utc>,
+    pub state: IdentityEvidenceState,
+    pub signals: Vec<RuntimeIdentitySignal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeActivation {
@@ -1244,6 +1279,7 @@ pub struct RuntimeActivation {
     pub browser_verification: Option<BrowserVerification>,
     pub engine_evidence: Option<RuntimeEngineEvidence>,
     pub network_evidence: Option<RuntimeNetworkEvidence>,
+    pub identity_evidence: Option<RuntimeIdentityEvidence>,
 }
 
 /// Separates configuration, process launch, package authenticity, bootstrap
@@ -1339,6 +1375,7 @@ impl RuntimeActivation {
             browser_verification: None,
             engine_evidence: None,
             network_evidence: None,
+            identity_evidence: None,
         }
     }
 }
@@ -1532,10 +1569,11 @@ pub const VAULT_NAME_ENV: &str = "VERISILO_VAULT_NAME";
 
 pub fn validate_vault_name(value: &str) -> Result<String, DomainError> {
     let valid = (1..=32).contains(&value.len())
-        && value
-            .bytes()
-            .enumerate()
-            .all(|(index, byte)| byte.is_ascii_lowercase() || byte.is_ascii_digit() || (index > 0 && matches!(byte, b'-' | b'_')));
+        && value.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || (index > 0 && matches!(byte, b'-' | b'_'))
+        });
     if !valid {
         return Err(DomainError::InvalidSilo(
             "Vault name must be 1..32 lowercase letters, digits, '-' or '_'.".to_owned(),
@@ -2000,14 +2038,8 @@ fn windows_file_product_version(path: &Path) -> Result<String, BrowserVerificati
     let root: Vec<u16> = "\\\0".encode_utf16().collect();
     let mut info_ptr: *mut u8 = std::ptr::null_mut();
     let mut info_len = 0_u32;
-    let queried = unsafe {
-        VerQueryValueW(
-            buffer.as_ptr(),
-            root.as_ptr(),
-            &mut info_ptr,
-            &mut info_len,
-        )
-    };
+    let queried =
+        unsafe { VerQueryValueW(buffer.as_ptr(), root.as_ptr(), &mut info_ptr, &mut info_len) };
     if queried == 0
         || info_ptr.is_null()
         || (info_len as usize) < std::mem::size_of::<VsFixedFileInfo>()
@@ -2182,7 +2214,6 @@ mod tests {
             !rendered.starts_with(r"\\?\"),
             "trusted tools must not be returned with an extended-length prefix: {rendered}"
         );
-
     }
 
     #[test]

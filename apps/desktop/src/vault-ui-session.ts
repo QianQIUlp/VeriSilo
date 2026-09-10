@@ -33,6 +33,7 @@ export function scrubDesktopStatusForLockedUi(
       message: null,
       engineEvidence: null,
       networkEvidence: null,
+      identityEvidence: null,
     },
     websiteIdentity: null,
   };

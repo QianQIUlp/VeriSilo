@@ -74,4 +74,74 @@ describe("Silo list presentation", () => {
     expect(populated).toContain("「正在用的空间」");
     expect(populated).toContain("先关闭它的浏览器窗口");
   });
+
+  it("shows reconciled identity evidence without calling it verified", () => {
+    const noAction = async () => {};
+    const managedSilo = {
+      ...previewSilo,
+      engine: {
+        adapter: "camoufox" as const,
+        artifactBinding: {
+          artifactId: "identity-preview",
+          artifactFileSha256: "0".repeat(64),
+          schema: "verisilo-camoufox-resolved-identity/v3" as const,
+        },
+      },
+    };
+    const status = {
+      ...previewStatus().activation,
+      activeSiloId: managedSilo.id,
+      state: "running" as const,
+      identityEvidence: {
+        siloId: managedSilo.id,
+        runtimeId: "11111111-1111-4111-8111-111111111111",
+        sessionId: "session-preview",
+        artifactId: "identity-preview",
+        artifactFileSha256: "0".repeat(64),
+        engineAdapter: "camoufox" as const,
+        observedAt: "2026-09-10T00:00:00.000Z",
+        state: "matched" as const,
+        signals: [
+          {
+            signal: "timezone",
+            expected: "UTC",
+            observed: "UTC",
+            state: "matched" as const,
+          },
+          {
+            signal: "fonts",
+            expected: null,
+            observed: null,
+            state: "unavailable" as const,
+            reason: "fontMode=inherit",
+          },
+        ],
+      },
+    };
+    const rendered = renderToStaticMarkup(
+      createElement(SiloList, {
+        activation: managedSilo.id,
+        busy: false,
+        managedEngineReady: true,
+        networkEvidence: [],
+        identityPreviews: {},
+        storageUsage: {},
+        onArchive: noAction,
+        onCreate: noAction,
+        onEdit: noAction,
+        onLaunch: noAction,
+        onRebindMihomo: noAction,
+        onRecheckBrowser: noAction,
+        onRecheckRuntime: noAction,
+        onStop: noAction,
+        runtimeActivation: status,
+        runtimeState: "running" as const,
+        silos: [managedSilo],
+      }),
+    );
+    expect(rendered).toContain("Identity evidence");
+    expect(rendered).toContain("Identity Matched");
+    expect(rendered).toContain("时区");
+    expect(rendered).not.toContain("Identity verified");
+  });
 });

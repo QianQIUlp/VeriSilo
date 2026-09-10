@@ -62,6 +62,7 @@ from identity_policy import (
     apply_voices_policy,
     identity_policy,
     observed_website_digest,
+    reconcile_website_identity,
     read_bundle_metadata,
     validate_artifact_strict,
     verify_browser_binding,
@@ -657,6 +658,92 @@ def test_observed_digest_payload_shape() -> None:
     ).decode()
     assert "artifactId" not in payload
     assert "canvasSeed" not in payload
+
+
+def test_identity_evidence_reconciles_values_and_keeps_boundaries() -> None:
+    artifact = load_fixture("identity-a")
+    config = artifact["resolvedConfig"]
+    declared = artifact["stableSignalsDeclared"]
+    observed = {
+        "userAgent": declared["userAgent"],
+        "language": declared["language"],
+        "platform": config["navigator.platform"],
+        "oscpu": config["navigator.oscpu"],
+        "screen": {
+            key: declared["screen"][key]
+            for key in (
+                "width",
+                "height",
+                "availWidth",
+                "availHeight",
+                "colorDepth",
+                "pixelDepth",
+            )
+        }
+        | {
+            "availLeft": 0,
+            "availTop": 0,
+        },
+        "devicePixelRatio": declared["devicePixelRatio"],
+        "hardwareConcurrency": declared["hardwareConcurrency"],
+        "historyLength": config["window.history.length"],
+        "mediaDevices": [
+            {"kind": "audioinput"},
+            {"kind": "videoinput"},
+        ],
+        "timezone": config["timezone"],
+        "utcOffsetMinutes": 0,
+        "globalPrivacyControl": config["navigator.globalPrivacyControl"],
+        "doNotTrack": config["navigator.doNotTrack"],
+        "webglVendor": declared["webglVendor"],
+        "webglRenderer": "NVIDIA GeForce GTX 980",
+        "voices": [
+            {
+                **voice,
+                "localService": voice["isLocalService"],
+                "voiceURI": voice["voiceUri"],
+            }
+            for voice in declared["voices"]
+        ],
+    }
+    evidence = reconcile_website_identity(
+        artifact, observed, "2026-09-10T00:00:00Z"
+    )
+    assert evidence["state"] == "matched"
+    assert evidence["schema"].endswith("identity-evidence/v0")
+    assert next(signal for signal in evidence["signals"] if signal["signal"] == "fonts")[
+        "state"
+    ] == "unavailable"
+
+    offset_artifact = copy.deepcopy(artifact)
+    offset_artifact["resolvedConfig"]["timezone"] = "America/Los_Angeles"
+    offset_observed = copy.deepcopy(observed)
+    offset_observed["timezone"] = "America/Los_Angeles"
+    offset_observed["utcOffsetMinutes"] = 420
+    offset_evidence = reconcile_website_identity(
+        offset_artifact, offset_observed, "2026-09-10T00:00:00Z"
+    )
+    offset_signal = next(
+        signal
+        for signal in offset_evidence["signals"]
+        if signal["signal"] == "utcOffsetMinutes"
+    )
+    assert offset_signal["expected"] == 420
+    assert offset_signal["state"] == "matched"
+
+    mismatch = copy.deepcopy(observed)
+    mismatch["timezone"] = "America/New_York"
+    changed = reconcile_website_identity(
+        artifact, mismatch, "2026-09-10T00:00:00Z"
+    )
+    assert changed["state"] == "mismatched"
+    timezone_signal = next(
+        signal for signal in changed["signals"] if signal["signal"] == "timezone"
+    )
+    assert timezone_signal["expected"] == "UTC"
+    assert timezone_signal["observed"] == "America/New_York"
+
+    assert reconcile_website_identity(artifact, {})["state"] == "unavailable"
 
 
 def test_windows_media_device_policy_is_deterministic() -> None:

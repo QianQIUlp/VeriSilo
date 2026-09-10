@@ -9,6 +9,8 @@ import { type Silo } from "@verisilo/contracts";
 
 import { useState } from "react";
 
+import { formatDate } from "../../shared/presentation.js";
+
 type ManagedUiState =
   | "configured"
   | "reachable"
@@ -393,6 +395,130 @@ export function ManagedIdentityFacts({
         </div>
       ) : null}
     </>
+  );
+}
+
+const identityEvidenceLabels = {
+  matched: ["Matched", "已匹配"],
+  mismatched: ["Mismatch", "不匹配"],
+  unavailable: ["Unavailable", "不可用"],
+  stale: ["Stale", "已过期"],
+} as const;
+
+const identitySignalLabels: Record<string, string> = {
+  userAgent: "浏览器标识",
+  language: "语言",
+  platform: "系统平台",
+  oscpu: "系统信息",
+  screen: "屏幕",
+  devicePixelRatio: "像素比例",
+  hardwareConcurrency: "硬件线程",
+  historyLength: "历史记录",
+  timezone: "时区",
+  utcOffsetMinutes: "UTC 偏移",
+  globalPrivacyControl: "GPC",
+  doNotTrack: "DNT",
+  mediaDevices: "媒体设备",
+  webglVendor: "WebGL 厂商",
+  webglRenderer: "WebGL 渲染器",
+  voices: "语音",
+  fonts: "字体",
+};
+
+function identityEvidenceValue(signal: string, value: unknown): string {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+  if (signal === "screen" && typeof value === "object" && value !== null) {
+    const screen = value as { width?: unknown; height?: unknown };
+    if (typeof screen.width === "number" && typeof screen.height === "number") {
+      return `${screen.width}×${screen.height}`;
+    }
+  }
+  if (
+    signal === "mediaDevices" &&
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  ) {
+    const counts = value as Record<string, unknown>;
+    return `麦克风 ${String(counts.audioinput ?? 0)} · 摄像头 ${String(counts.videoinput ?? 0)} · 输出 ${String(counts.audiooutput ?? 0)}`;
+  }
+  if (signal === "voices" && Array.isArray(value)) {
+    return `${value.length} 项`;
+  }
+  if (signal === "utcOffsetMinutes" && typeof value === "number") {
+    return `UTC${value >= 0 ? "+" : ""}${value / 60}`;
+  }
+  if (signal === "hardwareConcurrency" && typeof value === "number") {
+    return `${value} 线程`;
+  }
+  if (typeof value === "boolean") {
+    return value ? "开启" : "关闭";
+  }
+  if (typeof value === "object") {
+    return "已取得";
+  }
+  const text = String(value);
+  return text.length > 120 ? `${text.slice(0, 117)}…` : text;
+}
+
+export function ManagedIdentityEvidence({
+  activation,
+  silo,
+}: {
+  activation: DesktopStatus["activation"];
+  silo: Silo;
+}) {
+  const evidence =
+    activation.identityEvidence?.siloId === silo.id
+      ? activation.identityEvidence
+      : null;
+  const state = evidence?.state ?? "unavailable";
+  const [stateLabel, stateDescription] = identityEvidenceLabels[state];
+  const reason =
+    evidence?.reason ??
+    (evidence === null ? "启动这个 Managed Identity Silo 后，Host 才会取得网站观察。" : null);
+  const signals = evidence?.state === "stale" ? [] : (evidence?.signals ?? []);
+
+  return (
+    <section className={`identity-evidence ${state}`}>
+      <div className="identity-evidence-heading">
+        <div>
+          <p className="eyebrow">Identity evidence</p>
+          <strong>Identity {stateLabel}</strong>
+          <span>{stateDescription}</span>
+        </div>
+        {evidence !== null ? (
+          <small>Observed {formatDate(evidence.observedAt)} · Camoufox Host</small>
+        ) : null}
+      </div>
+      {reason !== null ? <p className="identity-evidence-reason">{reason}</p> : null}
+      {signals.length > 0 ? (
+        <details className="identity-evidence-details">
+          <summary>查看网站可见字段</summary>
+          <dl className="identity-evidence-table">
+            {signals.map((signal) => {
+              const label = identitySignalLabels[signal.signal] ?? signal.signal;
+              return (
+                <div className={`identity-evidence-row ${signal.state}`} key={signal.signal}>
+                  <dt>{label}</dt>
+                  <dd>
+                    <span>{identityEvidenceValue(signal.signal, signal.expected)}</span>
+                    <small>期望</small>
+                  </dd>
+                  <dd>
+                    <span>{identityEvidenceValue(signal.signal, signal.observed)}</span>
+                    <small>观察</small>
+                  </dd>
+                  {signal.reason ? <p>{signal.reason}</p> : null}
+                </div>
+              );
+            })}
+          </dl>
+        </details>
+      ) : null}
+    </section>
   );
 }
 

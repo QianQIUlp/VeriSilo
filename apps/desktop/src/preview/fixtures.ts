@@ -33,6 +33,7 @@ export function previewStatus(
       message: null,
       engineEvidence: null,
       networkEvidence: null,
+      identityEvidence: null,
     },
   };
 }

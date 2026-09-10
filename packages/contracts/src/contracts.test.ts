@@ -18,6 +18,7 @@ import {
   runtimeActivationSchema,
   runtimeCapabilitySchema,
   runtimeEngineEvidenceSchema,
+  runtimeIdentityEvidenceSchema,
   SCHEMA_VERSION,
   siloExecutionTargetSchema,
   siloSchema,
@@ -311,8 +312,32 @@ describe("VeriSilo contracts", () => {
           webRtc: "not_requested",
           safeguards: ["no_direct_fallback"],
         },
+        identityEvidence: null,
       }).networkEvidence?.exit,
     ).toBe("not_requested");
+  });
+
+  it("accepts bounded reconciled identity evidence without a verified claim", () => {
+    const evidence = runtimeIdentityEvidenceSchema.parse({
+      siloId: "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
+      runtimeId: "11111111-1111-4111-8111-111111111111",
+      sessionId: "session-preview",
+      artifactId: "identity-preview",
+      artifactFileSha256: "0".repeat(64),
+      engineAdapter: "camoufox",
+      observedAt: "2026-07-28T00:00:00.000Z",
+      state: "matched",
+      signals: [
+        {
+          signal: "timezone",
+          expected: "UTC",
+          observed: "UTC",
+          state: "matched",
+        },
+      ],
+    });
+    expect(evidence.state).toBe("matched");
+    expect("verified" in evidence).toBe(false);
   });
 
   it("does not treat a verified engine package as runtime adapter verification", () => {
