@@ -660,7 +660,8 @@
     margin-top: var(--space-8);
   }
 
-  .token-row span {
+  .token-row span,
+  .release-card__tags span {
     padding: 0.25rem 0.45rem;
     border: 0.0625rem solid var(--line);
     border-radius: var(--radius-sm);
@@ -942,7 +943,8 @@
     font-size: 1.35rem;
   }
 
-  .milestone-card__items {
+  .milestone-card__items,
+  .release-card__items {
     display: grid;
     gap: var(--space-3);
     margin-top: var(--space-6);
@@ -950,7 +952,8 @@
     list-style: none;
   }
 
-  .milestone-card__items li {
+  .milestone-card__items li,
+  .release-card__items li {
     position: relative;
     padding-left: var(--space-6);
     color: var(--ink-soft);
@@ -958,7 +961,8 @@
     line-height: 1.6;
   }
 
-  .milestone-card__items li::before {
+  .milestone-card__items li::before,
+  .release-card__items li::before {
     position: absolute;
     top: 0.6rem;
     left: 0;
@@ -1508,6 +1512,102 @@
     box-shadow: 0 0 0 0.2rem var(--coral-soft);
   }
 
+  .release-grid {
+    display: grid;
+    margin-top: var(--space-12);
+    border-top: 0.0625rem solid var(--ink);
+    border-left: 0.0625rem solid var(--ink);
+    grid-template-columns: 1.2fr 1fr 1fr;
+  }
+
+  .release-card {
+    display: grid;
+    align-content: start;
+    gap: var(--space-5);
+    min-height: 21rem;
+    padding: var(--space-8) var(--space-6);
+    border-right: 0.0625rem solid var(--ink);
+    border-bottom: 0.0625rem solid var(--ink);
+    background: rgb(255 255 255 / 62%);
+  }
+
+  .release-card--download {
+    background: var(--blue-pale);
+  }
+
+  .release-card--unsigned {
+    background: #fff0d5;
+  }
+
+  .release-card--verified {
+    background: var(--teal-soft);
+  }
+
+  .release-card__label {
+    justify-self: start;
+    padding: 0.3rem var(--space-2);
+    border: 0.0625rem solid currentColor;
+    border-radius: var(--radius-sm);
+    color: var(--blue-dark);
+    background: var(--blue-soft);
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.2;
+    text-align: center;
+  }
+
+  .release-card--unsigned .release-card__label {
+    color: #9a4d13;
+    background: #fff0d5;
+  }
+
+  .release-card--verified .release-card__label {
+    color: var(--teal);
+    background: var(--teal-soft);
+  }
+
+  .release-card h3 {
+    font-size: 1.35rem;
+  }
+
+  .release-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  .release-card__note {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-3);
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.6;
+  }
+
+  .release-card__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .hero-release-meta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.45rem 0.7rem;
+    border: 0.0625rem solid var(--line-strong);
+    border-radius: 999px;
+    color: var(--ink-soft);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+
   .site-footer {
     padding-block: var(--space-12);
     color: #fff;
@@ -1651,6 +1751,14 @@
     }
 
     .milestone-card {
+      min-height: auto;
+    }
+
+    .release-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .release-card {
       min-height: auto;
     }
 

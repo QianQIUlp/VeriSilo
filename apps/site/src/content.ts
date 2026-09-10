@@ -2,6 +2,9 @@ export type Locale = "en" | "zh";
 
 export const links = {
   repository: "https://github.com/QianQIUlp/VeriSilo",
+  release: "https://github.com/QianQIUlp/VeriSilo/releases/tag/v0.1.0-rc2",
+  releaseInstaller:
+    "https://github.com/QianQIUlp/VeriSilo/releases/download/v0.1.0-rc2/VeriSilo-Managed-Browser-v0.1.0-rc2-x64-setup.exe",
   architecture:
     "https://github.com/QianQIUlp/VeriSilo/blob/main/docs/architecture.md",
   capabilities:
@@ -28,6 +31,7 @@ export const copy = {
     languageLabel: "中文",
     navigation: {
       aria: "Primary navigation",
+      download: "Download",
       milestone: "Milestone",
       how: "How it works",
       evidence: "Evidence",
@@ -35,14 +39,49 @@ export const copy = {
       source: "Source",
     },
     hero: {
-      eyebrow: "WINDOWS-FIRST · OPEN SOURCE · 0.1 SOURCE MILESTONE",
+      eyebrow: "WINDOWS-FIRST · OPEN SOURCE · V0.1.0-RC2 PRE-RELEASE",
       titleLead: "Keep browser state",
       titleEmphasis: "in a Silo of its own.",
       body: "VeriSilo launches Chrome or Edge in a separate, managed environment for every Silo. Browser-owned state stays in its own data directory, while the desktop app manages the Silo lifecycle, runtime binding, and optional network profile without importing or modifying the default browser profile.",
-      primaryAction: "Inspect the source",
-      secondaryAction: "View the current milestone",
+      primaryAction: "Download v0.1.0-rc2",
+      secondaryAction: "Inspect the source",
+      releaseMeta: "Windows x64 · Pre-release",
       releaseNote:
-        "The 0.1 source milestone is complete. No signed Windows build is available yet.",
+        "The Windows installer is not code-signed yet, so Windows may show “Unknown publisher” or a SmartScreen prompt. This is a known v0.1.0-rc2 boundary.",
+    },
+    release: {
+      eyebrow: "PUBLIC PRE-RELEASE · V0.1.0-RC2",
+      title: "The first public Windows build is ready to try.",
+      intro:
+        "v0.1.0-rc2 is an early release candidate for evaluation and feedback, not a stable production release. VeriSilo stays local-first and fail-closed: Silos, Vault, and evidence live on your machine. Download and verification materials live on the GitHub Release page.",
+      cta: "Download v0.1.0-rc2",
+      secondaryCta: "Direct installer (.exe)",
+      metaBadge: "Windows x64 · Pre-release",
+      unsignedLabel: "UNSIGNED INSTALLER",
+      unsignedTitle: "What to expect on Windows",
+      unsignedItems: [
+        "The installer has no Windows Authenticode signature yet, so Windows may show “Unknown publisher” or a SmartScreen warning.",
+        "This is a known v0.1.0-rc2 boundary, not a change in how VeriSilo treats your data.",
+        "The Managed browser engine's internal CMS signature is a separate layer and does not replace Windows publisher signing.",
+      ],
+      verifiedLabel: "VERIFIED IN RC2 ACCEPTANCE",
+      verifiedTitle: "What rc2 has actually passed",
+      verifiedItems: [
+        "Installed lifecycle in a Windows 11 Sandbox",
+        "Standard and Managed silo launch",
+        "Persistence across restarts",
+        "Same-version reinstall",
+        "Uninstall with data preservation",
+      ],
+      releasePageLabel: "The GitHub Release page also carries:",
+      releasePageItems: [
+        "SHA256SUMS",
+        "Provenance",
+        "SBOM",
+        "License notices",
+        "Known limitations",
+      ],
+      releasePageAction: "Open the GitHub Release",
     },
     model: {
       aria: "Diagram showing the default browser profile separated from two VeriSilo data directories",
@@ -107,7 +146,7 @@ export const copy = {
           label: "NOT YET AVAILABLE",
           title: "Public distribution and stronger environments",
           items: [
-            "No signed Windows installer or browser-store version yet.",
+            "The v0.1.0-rc2 Windows x64 pre-release is available for evaluation; the installer is not signed yet.",
             "Fingerprint fields still come from the stock browser.",
             "Real-machine verification does not yet cover every Windows and virtualization setup.",
             "Evidence covers documented cases, not every real machine.",
@@ -238,11 +277,11 @@ export const copy = {
     source: {
       eyebrow: "0.1 SOURCE MILESTONE",
       title: "Inspect the claim before you trust it.",
-      body: "VeriSilo is being built in public under MPL-2.0. The 0.1 source milestone completes the first identity-isolation baseline, while the signed Windows build, controlled browser engine, and stronger environments remain unfinished.",
+      body: "VeriSilo is being built in public under MPL-2.0. The v0.1.0-rc2 Windows pre-release is available for evaluation on GitHub Releases, while the signed installer, controlled browser engine, and stronger environments remain unfinished.",
       primaryAction: "View VeriSilo on GitHub",
       secondaryAction: "Build from source",
       statusLabel: "STATUS",
-      statusValue: "0.1 source milestone · pre-release",
+      statusValue: "v0.1.0-rc2 pre-release · Windows x64",
       platformLabel: "TARGET",
       platformValue: "Windows · Chrome / Edge",
       licenseLabel: "SOURCE LICENSE",
@@ -266,6 +305,7 @@ export const copy = {
     languageLabel: "EN",
     navigation: {
       aria: "主导航",
+      download: "下载",
       milestone: "当前阶段",
       how: "工作原理",
       evidence: "证据模型",
@@ -273,13 +313,43 @@ export const copy = {
       source: "源代码",
     },
     hero: {
-      eyebrow: "WINDOWS 优先 · 开源 · 0.1 源码里程碑",
+      eyebrow: "WINDOWS 优先 · 开源 · V0.1.0-RC2 预发布",
       titleLead: "把浏览器状态",
       titleEmphasis: "放进各自的 Silo。",
       body: "VeriSilo 为每个 Silo 启动一套独立、受管理的 Chrome 或 Edge 环境。浏览器状态留在各自的数据目录中，桌面端负责 Silo 的生命周期、运行绑定与可选网络配置，不导入或修改默认浏览器 Profile。",
-      primaryAction: "查看源代码",
-      secondaryAction: "查看当前阶段",
-      releaseNote: "0.1 源码里程碑已经完成；签名 Windows 构建暂未提供。",
+      primaryAction: "下载 v0.1.0-rc2",
+      secondaryAction: "查看源代码",
+      releaseMeta: "Windows x64 · 预发布版",
+      releaseNote:
+        "Windows 安装包尚未进行 Authenticode 签名，Windows 可能显示“未知发布者”或 SmartScreen 提示。这是 v0.1.0-rc2 的已知边界。",
+    },
+    release: {
+      eyebrow: "公开预发布 · V0.1.0-RC2",
+      title: "第一个公开的 Windows 构建可以试用了。",
+      intro:
+        "v0.1.0-rc2 是用于评估与反馈的早期 Release Candidate，不是稳定的生产版本。VeriSilo 保持本地优先、fail-closed：Silo、Vault 与证据都留在你的机器上。下载与校验材料见 GitHub Release 页面。",
+      cta: "下载 v0.1.0-rc2",
+      secondaryCta: "直接下载安装包（.exe）",
+      metaBadge: "Windows x64 · 预发布版",
+      unsignedLabel: "未签名安装包",
+      unsignedTitle: "在 Windows 上你会看到什么",
+      unsignedItems: [
+        "安装包当前没有 Windows Authenticode 签名，Windows 可能显示“未知发布者”或 SmartScreen 警告。",
+        "这是 v0.1.0-rc2 的已知边界，不代表 VeriSilo 处理数据的方式发生变化。",
+        "Managed 浏览器引擎内部的 CMS 签名是另一层机制，不能替代 Windows 发布者签名。",
+      ],
+      verifiedLabel: "RC2 验收已覆盖",
+      verifiedTitle: "rc2 实际通过的内容",
+      verifiedItems: [
+        "Windows 11 Sandbox 中的安装生命周期",
+        "标准 Silo 与 Managed Silo 启动",
+        "跨重启的状态持久化",
+        "同版本覆盖安装",
+        "卸载并保留数据",
+      ],
+      releasePageLabel: "GitHub Release 页面同时提供：",
+      releasePageItems: ["SHA256SUMS", "Provenance", "SBOM", "许可声明", "已知限制"],
+      releasePageAction: "打开 GitHub Release",
     },
     model: {
       aria: "默认浏览器 Profile 与两个 VeriSilo 独立数据目录的隔离示意图",
@@ -343,7 +413,7 @@ export const copy = {
           label: "尚未提供",
           title: "公开分发与更强环境",
           items: [
-            "暂无签名 Windows 安装包或商店版本。",
+            "v0.1.0-rc2 Windows x64 预发布版已可下载评估；安装包尚未签名。",
             "指纹字段仍来自标准浏览器本身。",
             "真机验证尚未覆盖所有 Windows 与虚拟化组合。",
             "证据覆盖已记录的场景，而非每一台真实机器。",
@@ -473,11 +543,11 @@ export const copy = {
     source: {
       eyebrow: "0.1 源码里程碑",
       title: "先审查主张，再决定是否信任。",
-      body: "VeriSilo 以 MPL-2.0 在公开仓库中开发。0.1 源码里程碑完成了第一阶段身份隔离基线，而签名 Windows 构建、受控浏览器引擎与更强的环境仍未完成。",
+      body: "VeriSilo 以 MPL-2.0 在公开仓库中开发。v0.1.0-rc2 Windows 预发布版已在 GitHub Releases 提供评估，而签名安装包、受控浏览器引擎与更强的环境仍未完成。",
       primaryAction: "在 GitHub 查看 VeriSilo",
       secondaryAction: "从源码构建",
       statusLabel: "状态",
-      statusValue: "0.1 源码里程碑 · 发布前",
+      statusValue: "v0.1.0-rc2 预发布 · Windows x64",
       platformLabel: "目标平台",
       platformValue: "Windows · Chrome / Edge",
       licenseLabel: "源码许可",
