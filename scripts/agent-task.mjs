@@ -44,7 +44,7 @@ const PORT_SCAN_LIMIT = 64;
 export const LANES = {
   ui: {
     label: "UI / UX",
-    hint: "页面、表单、交互、预览与前端表现层",
+    hint: "页面、表单、交互、预览与前端表现层（含产品官网 apps/site）",
     allow: [
       "apps/desktop/src/features/**",
       "apps/desktop/src/shared/**",
@@ -58,13 +58,14 @@ export const LANES = {
       "apps/desktop/src/styles.css",
       "apps/desktop/preview.html",
       "apps/desktop/index.html",
+      "apps/site/**",
     ],
     verify: [
       "pnpm --filter @verisilo/desktop check",
       "pnpm --filter @verisilo/desktop test",
     ],
     verifyExtra:
-      "用 preview 场景核对受影响交互（node scripts/dev-desktop.mjs ui --port <port> --preview）；preview 是 UI 证据，不是桌面 runtime Gate。",
+      "用 preview 场景核对受影响交互（node scripts/dev-desktop.mjs ui --port <port> --preview）；preview 是 UI 证据，不是桌面 runtime Gate。改到 apps/site 时以 pnpm site:check + site:build 和本地 Preview 为准。",
   },
   core: {
     label: "Core application/business logic",

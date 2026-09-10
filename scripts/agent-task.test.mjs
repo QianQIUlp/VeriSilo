@@ -144,6 +144,10 @@ test("ui lane owns frontend surfaces but not the API seam or contracts", () => {
   OK("apps/desktop/src/formatters.test.ts", "ui");
   OK("apps/desktop/src/styles.css", "ui");
   OK("apps/desktop/preview.html", "ui");
+  OK("apps/site/src/content.ts", "ui");
+  OK("apps/site/src/components/SitePage.astro", "ui");
+  OK("apps/site/src/styles/global.css", "ui");
+  OK("apps/site/package.json", "ui");
   assert.equal(
     VIOLATION("apps/desktop/src/desktop-api.ts", "ui").kind,
     "restricted",
@@ -152,6 +156,8 @@ test("ui lane owns frontend surfaces but not the API seam or contracts", () => {
     VIOLATION("packages/contracts/src/models.ts", "ui").kind,
     "restricted",
   );
+  assert.equal(VIOLATION("package.json", "ui").kind, "restricted");
+  assert.equal(VIOLATION("pnpm-lock.yaml", "ui").kind, "restricted");
   assert.equal(
     VIOLATION("apps/desktop/src-tauri/src/application/silos.rs", "ui").kind,
     "out-of-scope",
