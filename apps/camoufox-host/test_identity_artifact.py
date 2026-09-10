@@ -84,11 +84,11 @@ from run_identity_spike import (
     wait_for_configured_media_devices,
     write_report,
 )
+from host_runtime import firefox_user_prefs_for_config
 from run_spike import (
     CANDIDATE_EXTRA_IDENTITY_FIELDS,
     UnclassifiedCandidateIdentityFieldError,
     classify_candidate_extra_identity_fields,
-    firefox_user_prefs_for_config,
     normalize_camou_config_env,
 )
 from generate_identity import (
@@ -765,6 +765,10 @@ def test_windows_media_device_policy_is_deterministic() -> None:
         prefs = firefox_user_prefs_for_config(config)
         assert prefs["media.navigator.streams.fake"] is True
         assert prefs["media.navigator.permission.disabled"] is True
+        assert prefs["media.devices.unfocused.enabled"] is True
+        assert "media.devices.unfocused.enabled" not in firefox_user_prefs_for_config(
+            {"mediaDevices:enabled": False}
+        )
 
 
 def test_shared_firefox_runtime_prefs_restore_session_history() -> None:
