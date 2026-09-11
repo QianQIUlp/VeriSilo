@@ -36,7 +36,7 @@ For the full feature set, additionally install the VeriSilo Desktop (Windows) so
 ## Test 5 — Network check
 
 1. In the panel, open the network check section and follow the prompt to grant the optional host permission, then confirm the check.
-2. Expected: the extension contacts `ipwho.is` and compares public DoH answers from Cloudflare 1.1.1.1 and Google Public DNS for a fixed `example.com` query. The result is labeled as an exit observation (not DNS leak detection) and can be cleared from the panel.
+2. Expected: the extension contacts `ipwho.is` (falling back to `api.ipify.org` or `api.ip.sb` only if `ipwho.is` is unavailable) and compares public DoH answers from Cloudflare 1.1.1.1 and Google Public DNS for a fixed `example.com` query. The result is labeled as an exit observation (not DNS leak detection) and can be cleared from the panel.
 3. Without the permission grant the check is refused with an explanatory notice and no request is sent.
 
 ## Test 6 — Native Messaging with VeriSilo Desktop (optional prerequisite)
@@ -64,6 +64,6 @@ No data leaves the device except the user-triggered network check requests descr
 - 安装扩展后固定在工具栏，在普通网页点击 VeriSilo 图标打开侧栏；面板显示 **Local only** 状态、扫描按钮和四个标签页。
 - 扫描只读当前页面可见的浏览器信号，结果只代表该页面；浏览器内部页面/商店页/PDF 会显示说明性提示而非失败。
 - 可选权限（站点访问、privacy 控制）只在用户调用相关功能时请求；拒绝后功能优雅降级。
-- 网络检查需用户确认后才请求 ipwho.is / Cloudflare / Google Public DNS，结果标注为出口观测并可清除。
+- 网络检查需用户确认后才请求 ipwho.is（不可用时 fallback 到 api.ipify.org / api.ip.sb）/ Cloudflare / Google Public DNS，结果标注为出口观测并可清除。
 - 桌面端 + Native Host 未安装时，扩展完全可用，仅桥接状态保持 `Local only`；这不是功能故障。
 - 除用户触发的网络检查与可选的本地桌面交接外，数据不出本机。

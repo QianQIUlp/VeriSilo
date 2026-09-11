@@ -20,7 +20,7 @@
 >
 > **Scan on demand.** Open the side panel on a page and scan the signals that page can read: user agent and platform, language, timezone, screen, and summary digests of Canvas, WebGL, WebGPU, audio, fonts, media devices, and WebRTC. Nothing runs automatically, and results describe only the page you scanned.
 >
-> **Check your network exit.** Run an optional network check that queries ipwho.is and compares public DoH answers from Cloudflare 1.1.1.1 and Google Public DNS. You grant site access first, and the result stays in session storage until you clear it. This is an exit observation, not DNS leak detection.
+> **Check your network exit.** Run an optional network check that queries ipwho.is (with fallback exit-IP services if unavailable) and compares public DoH answers from Cloudflare 1.1.1.1 and Google Public DNS. You grant site access first, and the result stays in session storage until you clear it. This is an exit observation, not DNS leak detection.
 >
 > **Temporary, reversible controls.** Optionally enable WebRTC and network-prediction restrictions for the current browser context. Controls apply to the whole browser context, report when they are verified, and can be restored at any time.
 >
@@ -44,7 +44,7 @@
 >
 > **按需扫描。** 在页面打开侧栏，扫描该页面可读取的信号：User-Agent 与平台、语言、时区、屏幕，以及 Canvas、WebGL、WebGPU、音频、字体、媒体设备、WebRTC 的摘要指纹。没有任何自动运行，结果只代表你扫描的页面。
 >
-> **检查网络出口。** 可选运行网络检查：请求 ipwho.is，并对比 Cloudflare 1.1.1.1 与 Google Public DNS 的公开 DoH 应答。先授权站点访问，结果保存在会话存储中，可随时清除。这是出口观测，不是 DNS 泄漏检测。
+> **检查网络出口。** 可选运行网络检查：请求 ipwho.is（不可用时使用备用出口 IP 服务），并对比 Cloudflare 1.1.1.1 与 Google Public DNS 的公开 DoH 应答。先授权站点访问，结果保存在会话存储中，可随时清除。这是出口观测，不是 DNS 泄漏检测。
 >
 > **临时、可恢复的控制。** 可选地对当前浏览器上下文启用 WebRTC 与网络预测限制。控制作用于整个浏览器上下文、生效后如实报告，并可随时恢复。
 >

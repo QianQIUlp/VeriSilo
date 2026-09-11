@@ -26,7 +26,7 @@
 
 - 收集的数据：用户触发扫描产生的浏览器可见信号摘要；用户触发的网络检查结果。
 - 用途：本地显示与解释；无服务器上传。
-- 是否出售/传输：否。网络检查会向 ipwho.is、Cloudflare 1.1.1.1、Google Public DNS 发出固定查询（对方看到请求 IP）。
+- 是否出售/传输：否。网络检查会向 ipwho.is、Cloudflare 1.1.1.1、Google Public DNS 发出固定查询；ipwho.is 不可用时改用 api.ipify.org 或 api.ip.sb 作为出口 IP fallback（对方看到请求 IP）。
 - 保留：session 报告随会话消失；本地历史最多 20 条 / 30 天；用户可清除。
 - Remote code：无（bundle gate 校验）。
 
@@ -52,5 +52,5 @@
 ## 提交前人工复核项
 
 - [ ] 表单文字与 `docs/store-disclosure.md` 逐条对照（该文档受 bundle gate 校验，是当前最完整披露）。
-- [ ] 确认 Network Check 端点仍是 ipwho.is / cloudflare-dns.com / dns.google 且无新增 URL（`scripts/verify-extension-bundle.mjs` 已校验，人工复核一次）。
+- [ ] 确认 Network Check 端点仍是 ipwho.is / api.ipify.org / api.ip.sb / cloudflare-dns.com / dns.google（ipify 与 ip.sb 仅为主服务不可用时的出口 IP fallback）且无新增 URL（`scripts/verify-extension-bundle.mjs` 已校验，人工复核一次）。
 - [ ] 隐私政策 URL 填写 `https://verisilo.qiu.works/privacy`（上线后验证 HTTPS 可访问）。

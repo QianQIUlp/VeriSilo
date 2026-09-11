@@ -243,6 +243,8 @@ if ((manifest.host_permissions ?? []).length > 0) {
 
 for (const pattern of [
   "https://ipwho.is/*",
+  "https://api.ipify.org/*",
+  "https://api.ip.sb/*",
   "https://cloudflare-dns.com/*",
   "https://dns.google/*",
 ]) {
@@ -319,6 +321,10 @@ for (const [zhSource, enTranslation] of [
 const allowedNetworkUrls = new Set([
   "https://ipwho.is/",
   "https://ipwho.is/*",
+  "https://api.ipify.org?format=json",
+  "https://api.ipify.org/*",
+  "https://api.ip.sb/geoip",
+  "https://api.ip.sb/*",
   "https://cloudflare-dns.com/dns-query?name=example.com&type=A&do=true",
   "https://cloudflare-dns.com/*",
   "https://dns.google/resolve?name=example.com&type=A&do=true&edns_client_subnet=0.0.0.0%2F0",

@@ -111,7 +111,7 @@ node scripts/package-extension-zip.mjs --input apps/extension/dist \
 ## 你的人工补验清单（有桌面端的机器或 P6 阶段）
 
 1. 在真实网页点击工具栏图标打开侧栏 → 执行扫描 → 确认报告生成（本机自动化无法模拟工具栏手势）。
-2. 授权 optional host permission 后运行 Network Check，确认 ipwho.is / DoH 结果与本地降级路径。
+2. 授权 optional host permission 后运行 Network Check，确认 ipwho.is / DoH 结果与本地降级路径（ipwho.is 不可用时 fallback 到 api.ipify.org / api.ip.sb）。
 3. 安装桌面端 + Native Host 后，确认 `Local only` 状态变为 Silo 绑定状态（P6 runbook）。
 
 ## 更新规则

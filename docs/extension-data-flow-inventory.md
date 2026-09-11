@@ -57,12 +57,14 @@
 | Endpoint                                                                                    | 请求                                              | 发送内容                        | 收到的内容                | 保留                           |
 | ------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------- | ------------------------- | ------------------------------ |
 | `https://ipwho.is/`                                                                         | GET，`credentials: omit`，`no-referrer`，10s 超时 | 无请求体；第三方看到请求来源 IP | 出口 IP/地理位置/ASN JSON | 存入 `storage.session`，可清除 |
+| `https://api.ipify.org?format=json`                                                         | GET，仅主服务不可用时作为出口 IP fallback         | 同上                            | 出口 IP JSON              | 同上                           |
+| `https://api.ip.sb/geoip`                                                                   | GET，仅主服务不可用时作为出口 IP fallback         | 同上                            | 出口 IP/地理位置 JSON     | 同上                           |
 | `https://cloudflare-dns.com/dns-query?name=example.com&type=A&do=true`                      | GET，`Accept: application/dns-json`               | 同上                            | 固定域名 A 记录           | 同上                           |
 | `https://dns.google/resolve?name=example.com&type=A&do=true&edns_client_subnet=0.0.0.0%2F0` | GET                                               | 同上                            | 固定域名 A 记录           | 同上                           |
 
 - 请求绝不自动发出；授权 optional host permission 之后仍需用户确认才发。
 - 响应限制 64 KiB，JSON 解析后构建结果。
-- 三个域名之外无任何网络调用（bundle gate 逐 URL 校验）。
+- 五个域名（ipwho.is / api.ipify.org / api.ip.sb / cloudflare-dns.com / dns.google）之外无任何网络调用（bundle gate 逐 URL 校验）。
 - 打开项目页导航到 `https://github.com/QianQIUlp/VeriSilo`（`packages/contracts/src/product.ts`）。
 
 ## 5. Native Messaging（`io.verisilo.host`）

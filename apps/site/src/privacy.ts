@@ -29,7 +29,7 @@ export const privacyCopy = {
       {
         heading: "Network checks",
         body: [
-          "A network check never runs automatically. After you grant the optional site access and confirm the action, the extension contacts ipwho.is (exit IP, geolocation, ASN), Cloudflare 1.1.1.1, and Google Public DNS with a fixed example.com DoH query for comparison. Those providers receive your request IP address. The result is stored in session storage and can be cleared from the panel. The comparison is not presented as DNS leak detection.",
+          "A network check never runs automatically. After you grant the optional site access and confirm the action, the extension contacts ipwho.is (exit IP, geolocation, ASN), Cloudflare 1.1.1.1, and Google Public DNS with a fixed example.com DoH query for comparison. If ipwho.is is unavailable, one of the fallback exit-IP services api.ipify.org or api.ip.sb is contacted instead. Those providers receive your request IP address. The result is stored in session storage and can be cleared from the panel. The comparison is not presented as DNS leak detection.",
         ],
       },
       {
@@ -89,7 +89,7 @@ export const privacyCopy = {
       {
         heading: "网络检查",
         body: [
-          "网络检查从不自动运行。只有在你授权可选网站访问权限并确认操作后，扩展才会请求 ipwho.is（出口 IP、地理位置、ASN）、Cloudflare 1.1.1.1 与 Google Public DNS（对固定 example.com 的 DoH 查询，用于对比）。这些服务方会看到你的请求来源 IP。结果保存在会话存储中，可从侧栏清除。该对比不会被描述为 DNS 泄漏检测。",
+          "网络检查从不自动运行。只有在你授权可选网站访问权限并确认操作后，扩展才会请求 ipwho.is（出口 IP、地理位置、ASN）、Cloudflare 1.1.1.1 与 Google Public DNS（对固定 example.com 的 DoH 查询，用于对比）；ipwho.is 不可用时，会改用 api.ipify.org 或 api.ip.sb 之一作为出口 IP fallback。这些服务方会看到你的请求来源 IP。结果保存在会话存储中，可从侧栏清除。该对比不会被描述为 DNS 泄漏检测。",
         ],
       },
       {
