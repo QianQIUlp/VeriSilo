@@ -254,21 +254,31 @@ function verifyAuthenticodeReport(report, files) {
 export function resolveSevenZip() {
   const custom = process.env.SEVENZIP_PATH || process.env.SEVEN_ZIP_PATH;
   if (custom && existsSync(custom)) return custom;
-  const whereResult = spawnSync("where.exe", ["7z.exe"], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (whereResult.status === 0 && whereResult.stdout?.trim()) {
-    const first = whereResult.stdout.trim().split(/\r?\n/)[0];
-    if (first && existsSync(first)) return first;
-  }
-  const programFiles = process.env.ProgramFiles || "C:\\Program Files";
-  const standard = path.join(programFiles, "7-Zip", "7z.exe");
-  if (existsSync(standard)) return standard;
-  const programFilesX86 = process.env["ProgramFiles(x86)"];
-  if (programFilesX86) {
-    const x86 = path.join(programFilesX86, "7-Zip", "7z.exe");
-    if (existsSync(x86)) return x86;
+  if (process.platform === "win32") {
+    const whereResult = spawnSync("where.exe", ["7z.exe"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    if (whereResult.status === 0 && whereResult.stdout?.trim()) {
+      const first = whereResult.stdout.trim().split(/\r?\n/)[0];
+      if (first && existsSync(first)) return first;
+    }
+    const programFiles = process.env.ProgramFiles || "C:\\Program Files";
+    const standard = path.join(programFiles, "7-Zip", "7z.exe");
+    if (existsSync(standard)) return standard;
+    const programFilesX86 = process.env["ProgramFiles(x86)"];
+    if (programFilesX86) {
+      const x86 = path.join(programFilesX86, "7-Zip", "7z.exe");
+      if (existsSync(x86)) return x86;
+    }
+  } else {
+    for (const bin of ["7z", "7za"]) {
+      const whichResult = spawnSync("which", [bin], { encoding: "utf8" });
+      if (whichResult.status === 0 && whichResult.stdout?.trim()) {
+        const first = whichResult.stdout.trim().split(/\r?\n/)[0];
+        if (first && existsSync(first)) return first;
+      }
+    }
   }
   return null;
 }
@@ -686,7 +696,7 @@ export async function verifyRelease(
 
 async function selfTest() {
   const sevenZip = resolveSevenZip();
-  if (!sevenZip) {
+  if (process.platform === "win32" && !sevenZip) {
     fail("Managed-browser verifier self-test could not locate 7z.exe.");
   }
   let consistencyMismatchRejected = false;
@@ -710,12 +720,13 @@ async function selfTest() {
     root,
     "artifacts/build/managed-browser/rc3-release-inconsistent-20260911",
   );
-  if (existsSync(inconsistentCandidate)) {
+  if (sevenZip && existsSync(inconsistentCandidate)) {
     let inconsistentRejected = false;
     try {
       await verifyDesktopBinaryConsistency(
         inconsistentCandidate,
         installerNameFor("v0.1.0-rc3"),
+        sevenZip,
       );
     } catch (err) {
       if (String(err).includes("Release desktop binary inconsistency")) {
