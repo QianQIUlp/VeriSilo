@@ -2617,7 +2617,16 @@ impl BrowserProfileLease {
         required_profile_root: Option<&Path>,
     ) -> Result<Self, VaultError> {
         #[cfg(not(target_os = "windows"))]
-        let _ = required_profile_root;
+        if let Some(required_profile_root) = required_profile_root {
+            match fs::symlink_metadata(required_profile_root) {
+                Ok(metadata) if metadata.is_dir() && !metadata_is_link_or_reparse(&metadata) => {}
+                Ok(_) => return Err(VaultError::UnmanagedProfile),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(VaultError::UnmanagedProfile)
+                }
+                Err(error) => return Err(VaultError::Filesystem(error)),
+            }
+        }
         for profile_directory in profile_directories {
             if chromium_profile_sentinel_exists(profile_directory)? {
                 return Err(VaultError::SiloProfileInUse);

@@ -8408,10 +8408,10 @@ for raw in sys.stdin.buffer:
 
         let activation = runtime.activation();
         assert_eq!(activation.state, RuntimeState::VerificationFailed);
-        assert!(activation
-            .message
-            .as_deref()
-            .is_some_and(|message| message.contains("Controller")));
+        let evidence = activation
+            .network_evidence
+            .expect("controller failure evidence");
+        assert_eq!(evidence.controller_binding, RuntimeEvidenceState::Failed);
         assert!(runtime.proxy_relay.is_none());
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
