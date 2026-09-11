@@ -6,20 +6,27 @@
 // here. Subcommands:
 //
 //   node scripts/agent-task.mjs start    --lane <lane> --task "<task>" [--name <slug>]
-//   node scripts/agent-task.mjs verify   [--lane <lane>]
+//   node scripts/agent-task.mjs verify   [--lane <lane>] [--full]
 //   node scripts/agent-task.mjs check    [--lane <lane>]
 //   node scripts/agent-task.mjs list
 //   node scripts/agent-task.mjs publish
+//   node scripts/agent-task.mjs promote
 //   node scripts/agent-task.mjs baseline [advance <sha|ref>|publish] [--force]
 //
 // `verify` and `check` read .agent-task.json in the current task worktree;
 // pass --lane to run them against the current checkout without metadata.
+// Verification tiers: the integration lane defaults to lightweight
+// merge-level guards (`verifyLight`) and runs the full matrix only with
+// `verify --full`; other lanes always run their own (already minimal) set.
+// A successful verify records `validated.verify` in .agent-task.json;
+// `promote` requires that record at the exact HEAD being promoted.
 // Exit codes: 0 ok · 1 verify failure · 2 lane scope violation ·
 // 3 WORKSPACE CONTAMINATION (new changes in the primary checkout).
 //
 // Tasks always fork from the synchronized canonical baseline
-// `origin/baseline/dev`; only an explicit integration action may move the
-// local `baseline/dev` ref.
+// `origin/baseline/dev`; the local `baseline/dev` ref moves only through
+// explicit actions: `promote` (eligible single task) or `baseline advance`
+// (integration).
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -113,6 +120,11 @@ export const LANES = {
     label: "Integration / cross-cutting",
     hint: "汇总任务分支、共享契约变更、跨层任务、RC 候选",
     allow: ["**"],
+    // verifyLight: what the integration lane runs by default — lightweight
+    // merge-level guards (built-in `git diff --check` over baseline..HEAD and
+    // the worktree) plus agent-selected focused tests. `verify --full` runs
+    // `verify`, the complete matrix below.
+    verifyLight: [],
     verify: [
       "pnpm check",
       "pnpm test",
@@ -125,7 +137,7 @@ export const LANES = {
       "node --test scripts/agent-task.test.mjs",
     ],
     verifyExtra:
-      "完整自动化通过后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行，不与开发实例混用。已知 flake：desktop lib 全测中 fake Host 握手超时偶发，单独串行重跑确认后记录。",
+      "默认轻量档：merge/冲突/ancestry/scope/diff 守卫 + 与本次 composition 新增不确定性直接相关的 focused tests，不默认重跑全矩阵；输入 task 已各自 verify/check PASS 且合并无新交叉影响时可直接 advance/publish。升级 --full 的条件：共享契约/DTO、依赖或 lockfile、workflow/config、多个 task 触同一 owning seam、冲突人工解决、只在组合后存在的跨层行为、formal QA/RC/release 候选、矛盾或失败的 evidence、用户显式要求完整回归。完整自动化通过后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行，不与开发实例混用。已知 flake：desktop lib 全测中 fake Host 握手超时偶发，单独串行重跑确认后记录。",
   },
 };
 
@@ -357,9 +369,17 @@ function remoteBranchRef(branch) {
 }
 
 function assertClean(root, subject) {
-  const dirty = git(["status", "--porcelain", "-uall"], root)
+  // Raw output on purpose: the git() helper trims stdout, which would strip
+  // the leading status column of unstaged entries (" M path" → "M path") and
+  // break the META_FILE exclusion below.
+  const { stdout } = spawnSync("git", ["status", "--porcelain", "-uall"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  const dirty = (stdout ?? "")
     .split("\n")
     .filter((line) => line.slice(3).trim() !== META_FILE)
+    .filter((line) => line.length > 0)
     .join("\n");
   if (dirty) {
     throw new Error(
@@ -380,6 +400,32 @@ function assertRemoteFastForward(root, branch, local) {
     );
   }
   return remote;
+}
+
+// The worktree directory that has `branch` checked out, if any. `git branch -f`
+// refuses a branch that is checked out in any worktree.
+function worktreeHoldingBranch(root, branch) {
+  const list = git(["worktree", "list", "--porcelain"], root);
+  let current = null;
+  for (const line of list.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      current = line.slice("worktree ".length);
+    } else if (line.startsWith("branch ")) {
+      const name = line.slice("branch ".length).replace("refs/heads/", "");
+      if (name === branch && current) return current;
+    }
+  }
+  return null;
+}
+
+// Move local `baseline/dev` to an already-verified fast-forward target. When a
+// worktree (typically the primary checkout) holds the baseline branch checked
+// out, fast-forward that worktree instead so the ref and its files stay in
+// sync; a conflicting dirty state there fails closed. Never creates a commit.
+function moveLocalBaseline(root, next) {
+  const holder = worktreeHoldingBranch(root, BASELINE_REF);
+  if (holder) git(["merge", "--ff-only", next], holder);
+  else git(["branch", "-f", BASELINE_REF, next], root);
 }
 
 function repoInfo(cwd) {
@@ -569,9 +615,10 @@ Next steps:
   cd ${worktreeAbs}
   pnpm install
 ${devHint(meta)}
-  node ${script} verify    # lane 最小充分验证（exit 1=失败）
+  node ${script} verify    # lane 最小充分验证（integration 默认轻量档，--full 完整矩阵；exit 1=失败）
   node ${script} check     # scope guard（exit 2=越界）+ 主检出污染守卫（exit 3=contamination）
-  # 完成后：verify + check → git add -A && git commit → node ${script} publish
+  # 完成后：git add -A && git commit → node ${script} verify → node ${script} check → node ${script} publish
+  # 单 lane task 且 baseline 未被推进时，可在 publish 后用 node ${script} promote 直接推进 canonical baseline
 `);
 }
 
@@ -621,6 +668,111 @@ function cmdPublish() {
     );
   }
   console.log(`Published ${meta.branch}: ${local} = origin/${meta.branch}. ✓`);
+}
+
+// promote: an eligible single task advances the canonical baseline without a
+// separate integration task. Every precondition fails closed; once the
+// baseline has moved on, the only answer is PROMOTION_REQUIRES_INTEGRATION.
+function cmdPromote() {
+  const { meta, root } = resolveTaskContext({});
+  if (!meta) {
+    throw new Error(
+      "promote 必须在带有 .agent-task.json 的 task worktree 内运行。",
+    );
+  }
+  if (meta.lane === "integration") {
+    throw new Error(
+      "integration 任务本身就是集成：请使用 baseline advance <sha> + baseline publish；promote 面向单 lane task。",
+    );
+  }
+  const info = repoInfo(root);
+  if (info.branch !== meta.branch) {
+    throw new Error(
+      `当前分支 ${info.branch} 与任务分支 ${meta.branch} 不一致，拒绝 promote。`,
+    );
+  }
+  assertClean(root, "task promote");
+  const head = info.head;
+
+  // 1) Fetch and fail closed unless the canonical baseline is still exactly
+  //    the one this task forked from (no automatic merge/rebase, ever).
+  fetchOrigin(root);
+  const localBaseline = readBaseline(root);
+  const remoteBaseline = readRef(root, REMOTE_BASELINE_REF);
+  if (localBaseline !== meta.baseline || remoteBaseline !== meta.baseline) {
+    throw new Error(
+      `PROMOTION_REQUIRES_INTEGRATION: canonical baseline 已离开任务起点 ` +
+        `${meta.baseline.slice(0, 12)}（local=${localBaseline?.slice(0, 12) ?? "missing"}，` +
+        `remote=${remoteBaseline?.slice(0, 12) ?? "missing"}）。不要自动 merge/rebase；` +
+        `把已发布的 task branch 交给 integration 轻量汇总。`,
+    );
+  }
+
+  // 2) The task branch must be a strict descendant of its start baseline.
+  if (
+    head === meta.baseline ||
+    !gitOk(["merge-base", "--is-ancestor", meta.baseline, head], root)
+  ) {
+    throw new Error("task HEAD 不是其起始 baseline 的严格后代，拒绝 promote。");
+  }
+
+  // 3) Lane verify must have succeeded at this exact HEAD (recorded by
+  //    `verify` in .agent-task.json). This is what lets promote reuse the
+  //    task's own validation instead of re-running it.
+  const verified = meta.validated?.verify;
+  if (verified?.head !== head) {
+    throw new Error(
+      `promote 要求本 task 已在当前 HEAD（${head.slice(0, 12)}）成功运行 lane verify` +
+        `（.agent-task.json 缺少匹配的 validated.verify 记录）。顺序：commit → verify → publish → promote。`,
+    );
+  }
+
+  // 4) Cheap guards re-run fresh in-process: scope (RESTRICTED / shared
+  //    contracts / out-of-scope) and primary-checkout contamination.
+  const violations = changedFiles(root, meta.baseline).filter(
+    (file) => classifyPath(file, meta.lane).status !== "ok",
+  );
+  if (violations.length > 0) {
+    throw new Error(
+      `promote 拒绝：task 含 ${violations.length} 个越界/受限修改（RESTRICTED / shared / 越界）：\n` +
+        `${violations.map((file) => `  ${file}`).join("\n")}\n` +
+        `跨层与共享契约改动必须走 integration。`,
+    );
+  }
+  const contamination = contaminationFindings(meta);
+  if (contamination && contamination.length > 0) {
+    throw new Error(
+      `WORKSPACE CONTAMINATION：主检出自任务启动以来出现新增修改，拒绝 promote。\n` +
+        `${contamination.join("\n")}`,
+    );
+  }
+
+  // 5) The task branch must already be published with remote == local so the
+  //    promoted baseline is fully auditable from origin.
+  const remoteTask = readRef(root, remoteBranchRef(meta.branch));
+  if (remoteTask !== head) {
+    throw new Error(
+      `promote 要求 task branch 已发布且远端 SHA 与本地一致（origin/${meta.branch}=${remoteTask?.slice(0, 12) ?? "missing"}，local=${head.slice(0, 12)}）；先运行 publish。`,
+    );
+  }
+
+  // 6) Fast-forward the local work ref (handles a primary checkout holding
+  //    baseline/dev), then publish it non-forced.
+  moveLocalBaseline(root, head);
+  cmdBaselinePublish({ root });
+
+  // 7) Three-way equality: local baseline, remote baseline, task branch.
+  fetchOrigin(root);
+  const published = readRef(root, REMOTE_BASELINE_REF);
+  const local = readBaseline(root);
+  if (published !== head || local !== head) {
+    throw new Error(
+      `promote 后三方 SHA 不一致：task=${head.slice(0, 12)}，local baseline=${local?.slice(0, 12) ?? "missing"}，${REMOTE_BASELINE_REF}=${published?.slice(0, 12) ?? "missing"}。`,
+    );
+  }
+  console.log(
+    `Promoted ${meta.branch} → ${BASELINE_REF}: ${head.slice(0, 12)} = ${REMOTE_BASELINE_REF}. ✓`,
+  );
 }
 
 function resolveTaskContext({ lane }) {
@@ -847,7 +999,7 @@ function cmdBaseline(args, { force }) {
       `目标 ${next.slice(0, 12)} 不是当前 baseline ${current.slice(0, 12)} 的后代（回退或分叉）。\n确需回退请加 --force 显式确认。`,
     );
   }
-  git(["branch", "-f", BASELINE_REF, next], info.root);
+  moveLocalBaseline(info.root, next);
   console.log(
     `${BASELINE_REF}: ${current.slice(0, 12)} → ${next.slice(0, 12)}${descendant ? "" : " (forced)"}`,
   );
@@ -873,32 +1025,88 @@ function runCommand(command, cwd, pnpmCmd) {
   return result.status === 0;
 }
 
-async function cmdVerify({ lane }) {
+// `git diff --check` exits non-zero when it finds problems (leftover conflict
+// markers, whitespace errors); the report goes to stdout.
+function gitDiffCheckIssues(root, range) {
+  const result = spawnSync("git", ["diff", "--check", range], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  if (result.status === 0) return null;
+  return (result.stdout || result.stderr).trim();
+}
+
+// A successful verify records the exact HEAD it validated, so `promote` can
+// reuse the task's own validation instead of re-running it. Cheap guards
+// (scope/contamination) are re-run fresh at promote time.
+function recordVerified(root, meta, laneId) {
+  if (!meta) return;
+  meta.validated = {
+    ...(meta.validated ?? {}),
+    verify: {
+      lane: laneId,
+      head: git(["rev-parse", "HEAD"], root),
+      at: new Date().toISOString(),
+    },
+  };
+  writeFileSync(join(root, META_FILE), `${JSON.stringify(meta, null, 2)}\n`);
+}
+
+async function cmdVerify({ lane, full }) {
   const { meta, root, lane: laneId } = resolveTaskContext({ lane });
   const config = LANES[laneId];
   if (config.verify.length === 0) {
     console.log(`Lane ${laneId} 没有自动化验证命令。${config.verifyExtra}`);
+    recordVerified(root, meta, laneId);
     return;
   }
-  const pnpmCmd = resolvePnpm();
-  if (!pnpmCmd) {
-    throw new Error(
-      "找不到 pnpm（尝试了 pnpm 与 corepack pnpm）。请在有 pnpm 的环境运行，或安装 corepack。",
+  // Integration defaults to the lightweight tier; --full opts into the whole
+  // matrix. Lanes without verifyLight always run their (already minimal) set.
+  const light = !full && Array.isArray(config.verifyLight);
+  const commands = light ? config.verifyLight : config.verify;
+  if (light) {
+    console.log(
+      `integration verify (lightweight): 仅 merge 级守卫；补跑与本次 composition ` +
+        `新增不确定性直接相关的 focused tests，不要默认重跑全矩阵；需要完整回归时运行 verify --full。`,
     );
+    const issues = [
+      gitDiffCheckIssues(
+        root,
+        meta?.baseline ? `${meta.baseline}..HEAD` : "HEAD",
+      ),
+      gitDiffCheckIssues(root, "HEAD"),
+    ].filter(Boolean);
+    if (issues.length > 0) {
+      console.error(
+        `\nverify FAILED (git diff --check):\n${issues.join("\n")}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+  }
+  let pnpmCmd = null;
+  if (commands.length > 0) {
+    pnpmCmd = resolvePnpm();
+    if (!pnpmCmd) {
+      throw new Error(
+        "找不到 pnpm（尝试了 pnpm 与 corepack pnpm）。请在有 pnpm 的环境运行，或安装 corepack。",
+      );
+    }
   }
   const failed = [];
-  for (const command of config.verify) {
+  for (const command of commands) {
     if (!runCommand(command, root, pnpmCmd)) failed.push(command);
   }
   if (failed.length > 0) {
-    console.error(
-      `\nverify FAILED (${failed.length}/${config.verify.length}):`,
-    );
+    console.error(`\nverify FAILED (${failed.length}/${commands.length}):`);
     for (const command of failed) console.error(`  ✘ ${command}`);
     process.exitCode = 1;
     return;
   }
-  console.log(`\nverify PASSED for lane ${laneId}. ✓`);
+  console.log(
+    `\nverify PASSED for lane ${laneId}${light ? " (lightweight)" : ""}. ✓`,
+  );
+  recordVerified(root, meta, laneId);
   console.log(`补充要求：${config.verifyExtra}`);
 }
 
@@ -935,6 +1143,7 @@ async function main() {
       task: { type: "string" },
       name: { type: "string" },
       force: { type: "boolean", default: false },
+      full: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
   });
@@ -943,10 +1152,11 @@ async function main() {
   if (values.help || !command) {
     console.log(`Usage:
   node scripts/agent-task.mjs start    --lane <${LANE_IDS.join("|")}> --task "<任务描述>" [--name <slug>]
-  node scripts/agent-task.mjs verify   [--lane <lane>]   # lane 最小充分验证（在任务 worktree 内运行）
+  node scripts/agent-task.mjs verify   [--lane <lane>] [--full]   # lane 验证；integration 默认轻量档，--full 完整矩阵
   node scripts/agent-task.mjs check    [--lane <lane>]   # scope guard + 污染守卫（在任务 worktree 内运行）
   node scripts/agent-task.mjs list                       # 列出活跃 agent 任务
   node scripts/agent-task.mjs publish                    # 发布当前已提交 task branch，并核对远端 SHA
+  node scripts/agent-task.mjs promote                    # 合格单 lane task 直接推进 canonical baseline（commit → verify → publish → promote）
   node scripts/agent-task.mjs baseline [advance <sha|ref>|publish] [--force]   # 查看/推进/发布 canonical baseline
 Exit codes: 0 ok · 1 verify 失败 · 2 lane scope 越界 · 3 workspace contamination`);
     process.exitCode = command ? 0 : 1;
@@ -956,10 +1166,13 @@ Exit codes: 0 ok · 1 verify 失败 · 2 lane scope 越界 · 3 workspace contam
     await cmdStart({ lane: values.lane, task: taskText, name: values.name });
     return;
   }
-  if (command === "verify") return cmdVerify({ lane: values.lane });
+  if (command === "verify") {
+    return cmdVerify({ lane: values.lane, full: values.full });
+  }
   if (command === "check") return cmdCheck({ lane: values.lane });
   if (command === "list") return cmdList();
   if (command === "publish") return cmdPublish();
+  if (command === "promote") return cmdPromote();
   if (command === "baseline") return cmdBaseline(positionals.slice(1), values);
   throw new Error(`Unknown command: ${command}`);
 }

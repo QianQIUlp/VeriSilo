@@ -11,10 +11,28 @@ WORKSPACE CONTAMINATION（主检出被污染，exit 3）。
 `origin/baseline/dev` 是 canonical development source；本地 `baseline/dev` 是其工作引用，
 正常状态必须精确相等。task/integration branch 完成 verify + check + commit 后按 exact refspec
 推送到 `origin`，fetch 后核对远端 SHA；禁止 force push、`git push --all` 和 `git push --mirror`。
+单 lane task 在「仍从当前 canonical baseline 分叉、baseline 未被推进、verify 已在当前 HEAD 通过、
+无 RESTRICTED/共享契约/越界改动、worktree clean 且 branch 已发布」时，可用
+`node scripts/agent-task.mjs promote` 直接 fast-forward 推进 canonical baseline；baseline 已被
+其他任务推进时返回 `PROMOTION_REQUIRES_INTEGRATION`，把 branch 交给 integration，不要自动
+merge/rebase。integration 合并多个已验证 task branch 时默认轻量验证（remote SHA/ancestry/merge/
+冲突/scope/`git diff --check` + 与本次 composition 直接相关的 focused tests），共享契约、
+lockfile、workflow/config、同 seam 多任务、冲突解决或 QA/RC 候选才用 `verify --full` 跑完整矩阵。
+baseline 只能由 integration `baseline advance`/`baseline publish`，或合格单 task 的 `promote`
+显式推进。
 `codex/camoufox-m3-engine-adapter` 保留为稳定主线，但不再是新 task 的 canonical development source。
-integration 通过 `baseline advance` 显式推进本地 baseline，再用 `baseline publish` 非强制发布
-`origin/baseline/dev` 并核对三方 SHA；baseline 只能由 integration 推进。
 Lane 范围、修改边界与验证命令的唯一事实源是 [scripts/agent-task.mjs](scripts/agent-task.mjs) 顶部配置。
+
+任务拆分默认原则：
+
+- **Implementation-authorized task**：用户已授权的修复按 `diagnose → minimal fix → focused
+  validation` 在 owning lane 单任务完成；不默认拆 `QA reproduction → fix task`。只有用户明确
+  要求独立 QA、ownership 仍未知且调查本身有价值、或需要独立 acceptance 时才用独立 QA task。
+- **Cross-layer feature**：天然横跨 Host/Core/UI/contracts 的 coherent product slice 用一个
+  integration task 实现并在完成后推进 baseline；不拆 `integration implementation → second
+  integration merge task`。
+- **Parallel batch**：并行 tasks 默认积累到一个自然 integration batch，不要求每个 task 完成
+  立刻推进 baseline。
 
 并行开发、工作树隔离或桌面结构调整的手工细节先读
 [模块边界与开发入口](docs/development-worktrees.md)，再读取实际 owning code/test。
@@ -63,6 +81,11 @@ checkpoint 不属于默认上下文；仅在调查对应事实时按状态页链
 不要因为历史阶段曾使用 one-shot、manifest、全量 hash 或完整回归，就把它们复制到不需要
 这些保证的新任务。稳定且相关状态未变化时复用既有证据；只有矛盾、新失败或关键输入变化
 才扩大检查。详细分级见 Agent 协作协议。
+
+**Evidence remains valid until a relevant input changes**：Host runtime evidence 不因无关
+site change 失效；site build evidence 不因无关 Rust change 失效；core lifecycle test 不因
+无关 Host source change 自动失效。integration 只验证 composition 新增的不确定性，不重新
+证明没有变化的事实。
 
 Immutable/one-shot 只约束已冻结的 attempt 及其 evidence。`failed` 或 `inconclusive`
 必须保留且不得重试未变输入或选样本，但它不自动结束所属工程 Gate，也不自动创建

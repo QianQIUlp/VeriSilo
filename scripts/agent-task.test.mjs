@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -33,14 +34,20 @@ const TASK = "fixture routing guard task";
 // checkout. `t.after` removes them even when assertions fail.
 function makeFixture(t) {
   const root = mkdtempSync(join(tmpdir(), "agent-task-fixture-"));
-  t.after(() =>
-    rmSync(root, {
-      recursive: true,
-      force: true,
-      maxRetries: 5,
-      retryDelay: 200,
-    }),
-  );
+  // The bare origin lives OUTSIDE the fixture checkout, like a real remote:
+  // pushes would otherwise create new objects inside the primary checkout and
+  // trip its contamination guard.
+  const remoteHome = mkdtempSync(join(tmpdir(), "agent-task-fixture-origin-"));
+  t.after(() => {
+    for (const dir of [root, remoteHome]) {
+      rmSync(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 200,
+      });
+    }
+  });
   const git = (args, cwd = root) => {
     const result = spawnSync("git", args, { cwd, encoding: "utf8" });
     if (result.status !== 0) {
@@ -64,7 +71,7 @@ function makeFixture(t) {
   };
   git(["init", "-q", "-b", "main"]);
   const c0 = commit("c0");
-  const remote = join(root, "remote.git");
+  const remote = join(remoteHome, "remote.git");
   git(["init", "--bare", "-q", remote]);
   git(["remote", "add", "origin", remote]);
   git(["push", "-q", "origin", "main"]);
@@ -600,4 +607,257 @@ test("new tasks fork from the advanced baseline (B0 → B1 model)", (t) => {
     ),
   );
   assert.equal(meta.baseline, c1);
+});
+
+// ---------------------------------------------------------------------------
+// Verification tiers: lightweight integration verify, verify --full, promote.
+// ---------------------------------------------------------------------------
+
+const wtDirFor = (fx, lane) =>
+  join(fx.root, WORKTREE_ROOT_NAME, taskNames(lane, TASK).dir);
+const wtMetaFor = (fx, lane) =>
+  JSON.parse(readFileSync(join(wtDirFor(fx, lane), META_FILE), "utf8"));
+
+// Commit helper inside a task worktree.
+const commitInWorktree = (fx, lane, message) => {
+  fx.git(["-C", wtDirFor(fx, lane), "add", "-A"]);
+  fx.git([
+    "-C",
+    wtDirFor(fx, lane),
+    "-c",
+    "user.name=fx",
+    "-c",
+    "user.email=fx@example.com",
+    "commit",
+    "-q",
+    "-m",
+    message,
+  ]);
+  return fx.git(["-C", wtDirFor(fx, lane), "rev-parse", "HEAD"]);
+};
+
+// Create a qa task (no automated verify commands), commit a change, run
+// verify (records validated.verify), and publish. Returns the task HEAD.
+function preparePromotableTask(t, fx, { verify = true } = {}) {
+  const started = runScript(["start", "--lane", "qa", "--task", TASK], fx.root);
+  assert.equal(started.status, 0, started.stderr || started.stdout);
+  mkdirSync(join(wtDirFor(fx, "qa"), "tests"), { recursive: true });
+  writeFileSync(join(wtDirFor(fx, "qa"), "tests", "promotable.txt"), "x\n");
+  const head = commitInWorktree(fx, "qa", "qa task change");
+  if (verify) {
+    const verified = runScript(["verify"], wtDirFor(fx, "qa"));
+    assert.equal(verified.status, 0, verified.stderr + verified.stdout);
+    assert.equal(wtMetaFor(fx, "qa").validated.verify.head, head);
+  }
+  const published = runScript(["publish"], wtDirFor(fx, "qa"));
+  assert.equal(published.status, 0, published.stderr + published.stdout);
+  return head;
+}
+
+test("integration lane defines a lightweight tier distinct from the full matrix", () => {
+  assert.deepEqual(LANES.integration.verifyLight, []);
+  assert.ok(LANES.integration.verify.length > 0);
+});
+
+test("integration verify defaults to lightweight guards and skips the heavy matrix", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const started = runScript(
+    ["start", "--lane", "integration", "--task", TASK],
+    fx.root,
+  );
+  assert.equal(started.status, 0, started.stderr || started.stdout);
+  mkdirSync(join(wtDirFor(fx, "integration"), "docs", "qa"), {
+    recursive: true,
+  });
+  writeFileSync(join(wtDirFor(fx, "integration"), "docs", "qa", "n.md"), "x\n");
+  commitInWorktree(fx, "integration", "integration change");
+
+  const light = runScript(["verify"], wtDirFor(fx, "integration"));
+  assert.equal(light.status, 0, light.stderr + light.stdout);
+  assert.match(light.stdout, /lightweight/i);
+  // The heavy matrix must not have been attempted (it would fail or run pnpm).
+  assert.doesNotMatch(`${light.stdout}${light.stderr}`, /pnpm check/);
+});
+
+test("lightweight integration verify catches leftover conflict markers", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const started = runScript(
+    ["start", "--lane", "integration", "--task", TASK],
+    fx.root,
+  );
+  assert.equal(started.status, 0, started.stderr || started.stdout);
+  writeFileSync(
+    join(wtDirFor(fx, "integration"), "conflicted.txt"),
+    "<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> other\n",
+  );
+  commitInWorktree(fx, "integration", "merged with markers");
+
+  const light = runScript(["verify"], wtDirFor(fx, "integration"));
+  assert.equal(light.status, 1);
+  assert.match(`${light.stdout}${light.stderr}`, /conflicted\.txt/);
+});
+
+test("verify --full keeps the complete integration matrix", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const started = runScript(
+    ["start", "--lane", "integration", "--task", TASK],
+    fx.root,
+  );
+  assert.equal(started.status, 0, started.stderr || started.stdout);
+  commitInWorktree(fx, "integration", "integration change");
+
+  // The fixture has no workspace/toolchain inputs, so attempting the full
+  // matrix must fail — proving --full did not silently degrade to light.
+  const full = runScript(["verify", "--full"], wtDirFor(fx, "integration"));
+  assert.notEqual(full.status, 0);
+  assert.match(`${full.stderr}${full.stdout}`, /verify FAILED|找不到 pnpm/);
+});
+
+test("promote advances the canonical baseline for an eligible single task", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const head = preparePromotableTask(t, fx);
+
+  const promoted = runScript(["promote"], wtDirFor(fx, "qa"));
+  assert.equal(promoted.status, 0, promoted.stderr + promoted.stdout);
+  assert.equal(fx.git(["rev-parse", BASELINE_REF]), head);
+  assert.equal(
+    fx.git(["rev-parse", `refs/remotes/origin/${BASELINE_REF}`]),
+    head,
+  );
+  assert.equal(
+    fx.git(["rev-parse", `refs/remotes/origin/agent/qa/${taskNames("qa", TASK).slug}-${taskNames("qa", TASK).hash}`]),
+    head,
+  );
+});
+
+test("promote fast-forwards a primary checkout that holds baseline/dev", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  fx.git(["checkout", "baseline/dev"]);
+  const head = preparePromotableTask(t, fx);
+
+  const promoted = runScript(["promote"], wtDirFor(fx, "qa"));
+  assert.equal(promoted.status, 0, promoted.stderr + promoted.stdout);
+  assert.equal(fx.git(["rev-parse", BASELINE_REF]), head);
+  assert.equal(
+    fx.git(["rev-parse", "HEAD"]),
+    head,
+    "the checkout holding baseline/dev must move with the ref",
+  );
+  assert.ok(existsSync(join(fx.root, "tests", "promotable.txt")));
+});
+
+test("baseline advance fast-forwards a primary checkout that holds baseline/dev", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  fx.git(["checkout", "baseline/dev"]);
+  fx.git(["checkout", "main"]);
+  const c1 = fx.commit("advance target");
+  fx.git(["checkout", "baseline/dev"]);
+
+  const advance = runScript(["baseline", "advance", c1], fx.root);
+  assert.equal(advance.status, 0, advance.stderr);
+  assert.equal(fx.git(["rev-parse", BASELINE_REF]), c1);
+  assert.equal(fx.git(["rev-parse", "HEAD"]), c1);
+});
+
+test("promote rejects a task without a verify record at the promoted HEAD", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  preparePromotableTask(t, fx, { verify: false });
+
+  const promoted = runScript(["promote"], wtDirFor(fx, "qa"));
+  assert.notEqual(promoted.status, 0);
+  assert.match(promoted.stderr, /validated\.verify/);
+});
+
+test("promote rejects when HEAD advanced past the verified commit", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  preparePromotableTask(t, fx);
+  writeFileSync(join(wtDirFor(fx, "qa"), "tests", "late.txt"), "y\n");
+  commitInWorktree(fx, "qa", "late change");
+  const republished = runScript(["publish"], wtDirFor(fx, "qa"));
+  assert.equal(republished.status, 0, republished.stderr);
+
+  const promoted = runScript(["promote"], wtDirFor(fx, "qa"));
+  assert.notEqual(promoted.status, 0);
+  assert.match(promoted.stderr, /validated\.verify/);
+});
+
+test("promote rejects restricted and shared-contract changes", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const started = runScript(["start", "--lane", "qa", "--task", TASK], fx.root);
+  assert.equal(started.status, 0, started.stderr);
+  mkdirSync(join(wtDirFor(fx, "qa"), "packages", "contracts", "src"), {
+    recursive: true,
+  });
+  writeFileSync(
+    join(wtDirFor(fx, "qa"), "packages", "contracts", "src", "thing.ts"),
+    "export {};\n",
+  );
+  commitInWorktree(fx, "qa", "contracts drive-by");
+  const verified = runScript(["verify"], wtDirFor(fx, "qa"));
+  assert.equal(verified.status, 0, verified.stderr);
+  const published = runScript(["publish"], wtDirFor(fx, "qa"));
+  assert.equal(published.status, 0, published.stderr);
+
+  const promoted = runScript(["promote"], wtDirFor(fx, "qa"));
+  assert.notEqual(promoted.status, 0);
+  assert.match(promoted.stderr, /越界|RESTRICTED/);
+  assert.equal(fx.git(["rev-parse", BASELINE_REF]), fx.c0);
+});
+
+test("promote returns PROMOTION_REQUIRES_INTEGRATION once the baseline moved on", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  preparePromotableTask(t, fx);
+
+  // Someone else advances the canonical baseline in the meantime.
+  const c1 = fx.commit("other integration round");
+  const advance = runScript(["baseline", "advance", c1], fx.root);
+  assert.equal(advance.status, 0, advance.stderr);
+  const publish = runScript(["baseline", "publish"], fx.root);
+  assert.equal(publish.status, 0, publish.stderr);
+
+  const promoted = runScript(["promote"], wtDirFor(fx, "qa"));
+  assert.notEqual(promoted.status, 0);
+  assert.match(promoted.stderr, /PROMOTION_REQUIRES_INTEGRATION/);
+  assert.equal(fx.git(["rev-parse", BASELINE_REF]), c1);
+});
+
+test("promote rejects an unpublished task branch", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const started = runScript(["start", "--lane", "qa", "--task", TASK], fx.root);
+  assert.equal(started.status, 0, started.stderr);
+  mkdirSync(join(wtDirFor(fx, "qa"), "tests"), { recursive: true });
+  writeFileSync(join(wtDirFor(fx, "qa"), "tests", "promotable.txt"), "x\n");
+  const head = commitInWorktree(fx, "qa", "qa task change");
+  const verified = runScript(["verify"], wtDirFor(fx, "qa"));
+  assert.equal(verified.status, 0, verified.stderr);
+
+  const promoted = runScript(["promote"], wtDirFor(fx, "qa"));
+  assert.notEqual(promoted.status, 0);
+  assert.match(promoted.stderr, /publish/);
+  assert.equal(fx.git(["rev-parse", BASELINE_REF]), fx.c0);
+  assert.notEqual(head, fx.c0);
+});
+
+test("promote refuses to run for integration-lane tasks", (t) => {
+  const fx = makeFixture(t);
+  fx.syncBaseline();
+  const started = runScript(
+    ["start", "--lane", "integration", "--task", TASK],
+    fx.root,
+  );
+  assert.equal(started.status, 0, started.stderr);
+  const promoted = runScript(["promote"], wtDirFor(fx, "integration"));
+  assert.notEqual(promoted.status, 0);
+  assert.match(promoted.stderr, /baseline advance/);
 });

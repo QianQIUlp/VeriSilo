@@ -24,14 +24,19 @@ pnpm install
 # 4) 工作、小步提交
 
 # 5) 结束前，两项都必须通过
-node scripts/agent-task.mjs verify   # lane 最小充分验证；exit 1=失败
+node scripts/agent-task.mjs verify   # lane 最小充分验证（integration 默认轻量档，--full 完整矩阵）；exit 1=失败
 node scripts/agent-task.mjs check    # exit 0=通过 · exit 2=scope violation · exit 3=WORKSPACE CONTAMINATION
 
-# 6) 提交并发布自己的 task branch；publish 只允许非强制 fast-forward
+# 6) 提交，并在最终 HEAD 上重新 verify + check，然后发布；publish 只允许非强制 fast-forward
 git add -A && git commit -m "..."
+node scripts/agent-task.mjs verify
+node scripts/agent-task.mjs check
 node scripts/agent-task.mjs publish
 
-# 7) integration 用 list 发现 task；远端 branch 是可审计输入
+# 7a) 单 lane task 且 canonical baseline 未被推进时，可直接晋升（见「验证三档」）
+node scripts/agent-task.mjs promote
+
+# 7b) 否则交给 integration：用 list 发现 task；远端 branch 是可审计输入
 node scripts/agent-task.mjs list
 ```
 
@@ -63,6 +68,10 @@ Lane = 责任与修改边界；Task（worktree）= 一次实际工作。**同一
 2. 预期改动会落在哪个 lane 的 allow 范围，就选哪个；明确跨层才选 `integration`。
 3. 不确定时：先做只读调查（不 `start`），定位主修改层后再 `start`；或按当前最佳判断 `start`，结束时 `check` 会告诉你是否越界——回退或升级，不硬塞。
 4. 不要为了"先跑起来"把任务塞进错误的 lane；换 lane = 回主检出重新 `start`，把已完成部分迁移过去。
+5. **任务拆分默认**（避免机械拆分）：
+   - 用户已授权的修复按 `diagnose → minimal fix → focused validation` 在 owning lane 单任务完成（implementation-authorized task）；不默认拆 `QA reproduction → fix task`。只有用户明确要求独立 QA、ownership 仍未知且调查本身有价值、或需要独立 acceptance 时才用独立 QA task。
+   - 天然横跨 Host/Core/UI/contracts 的 coherent product slice 直接用一个 integration task 实现并在完成后推进 baseline；不拆 `integration implementation → second integration merge task`。
+   - 并行 tasks 默认积累到一个自然 integration batch；不要求每个 task 完成立刻推进 baseline。
 
 ## Canonical baseline（B0 → B1）
 
@@ -83,7 +92,7 @@ baseline/dev = origin/baseline/dev = B1   之后的新任务统一从 B1 开始
 - canonical identity 是 remote ref `origin/baseline/dev`；本地 `baseline/dev` 是工作引用，正常状态必须精确相等。
 - 两者都可由 `git rev-parse` 解析并由 Git reflog/remote history 审计；没有数据库、daemon 或 registry。
 - 新任务只能在 fetch/prune 后从两者 exact-equal 的 baseline 创建；remote 缺失或 local/remote 不一致时 `start` fail closed，不从任意 shell HEAD 启动。
-- **baseline 只能由 integration 显式推进**：先 `baseline advance <sha|ref>`，再 `baseline publish`。发布只允许 fast-forward 或首次 bootstrap，禁止 force。
+- **baseline 只能显式推进**：integration 用 `baseline advance <sha|ref>` + `baseline publish`；合格单 lane task 用 `promote`（见「验证三档」）。发布只允许 fast-forward 或首次 bootstrap，禁止 force。
 - 普通 task 完成 verify + check + commit 后运行 `node scripts/agent-task.mjs publish`；脚本 fetch 后核对 `origin/agent/...` 与本地 SHA。远端不能 fast-forward 时报告 `REMOTE_DIVERGENCE`，不覆盖。
 - `codex/camoufox-m3-engine-adapter` 保留为稳定主线，但不再是新 task 的 canonical development source；`stable/checkpoint-*` 与历史 refs 不参与日常路由。不要执行 `git push --all` / `--mirror`。
 - 查看当前指向与同步状态：`node scripts/agent-task.mjs baseline`。
@@ -114,9 +123,59 @@ baseline/dev = origin/baseline/dev = B1   之后的新任务统一从 B1 开始
 | `core`        | desktop cargo check + harness `application::` tests                                 | 触到窗口/托盘/进程路径时补 owning module focused tests                                            |
 | `host`        | package contract + page command 测试                                                | `test_identity_artifact.py` 需 numpy（有条件则跑）；内核/包/指纹结论必须来自真实 runtime evidence |
 | `qa`          | （无自动化命令）                                                                    | 验证=证据：复现步骤 + 实际观察 + 针对的确切候选版本；修复回 owning lane                           |
-| `integration` | 递归 check/test、两个 crate 的 cargo check/test、Host 测试、脚本自测（Pre-RC 不含 desktop production build；排除依赖用户本机 provider inventory 的 live test） | 完整自动化之后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行 |
+| `integration` | 默认轻量档（merge/冲突/ancestry/scope/`git diff --check` + focused tests）；`verify --full` 时为递归 check/test、两个 crate 的 cargo check/test、Host 测试、脚本自测（Pre-RC 不含 desktop production build；排除依赖用户本机 provider inventory 的 live test） | 完整自动化之后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行 |
 
 不要把"配置声明/测试通过/编译成功"冒充尚未取得的 runtime/product Gate；lane 验证只覆盖其名称所指的范围。
+
+## 验证三档：direct promote / 轻量 integration / full integration
+
+**Evidence remains valid until a relevant input changes.** Host runtime evidence 不因无关
+site change 失效；site build evidence 不因无关 Rust change 失效；core lifecycle test 不因
+无关 Host source change 自动失效。验证只针对「真正新增的不确定性」，不重新证明没有变化的事实。
+
+### A. Direct promotion（合格单 task 免 integration）
+
+单 lane task 同时满足以下全部条件时，`node scripts/agent-task.mjs promote` 直接推进 canonical
+baseline，无需新建 integration task：
+
+1. task 从当前 canonical baseline 创建，且 fetch 后 local/remote baseline 仍与 task metadata
+   的起始 baseline 精确相等——否则返回 `PROMOTION_REQUIRES_INTEGRATION`，不要自动 merge/rebase；
+2. task branch 是起始 baseline 的严格后代；
+3. 已在当前 HEAD 成功运行该 lane 的 `verify`（记录在 `.agent-task.json` 的 `validated.verify`）；
+4. worktree clean；scope 守卫在 promote 时进程内重跑，RESTRICTED / SHARED / 越界修改一律拒绝；
+5. task branch 已 `publish` 且远端 SHA 与本地一致。
+
+顺序：commit → verify → check → publish → promote。promote 会 fast-forward 本地 `baseline/dev`
+（主检出正检出该 ref 时同步 fast-forward 该检出）、非强制发布 `origin/baseline/dev`，并核对
+local / remote / task 三方 SHA。integration lane 的 task 不走 promote——它本身就是集成，用
+`baseline advance` + `baseline publish`。
+
+### B. 轻量 integration（默认）
+
+多个已验证 task branch 合并时，integration 默认轻量验证：
+
+- remote input SHA 核对、ancestry / intended commits 检查、merge 与冲突检测；
+- scope / 最终 diff 检查（`check`）+ `git diff --check`（`verify` 内置）；
+- 与本次 composition 真正新增不确定性直接相关的 focused tests。
+
+`node scripts/agent-task.mjs verify` 在 integration lane 默认执行轻量档，**不要默认重跑完整矩阵**。
+merge 无冲突、输入 tasks 已各自 lane verify/check PASS、合并后文件/接口无新交叉影响时，直接
+`baseline advance` + `baseline publish`。已有 task validation 可以复用。
+
+### C. full integration（显式升级）
+
+`node scripts/agent-task.mjs verify --full` 保留完整矩阵（递归 check/test、双 crate cargo、
+Host、workflow tests）。触发条件：
+
+- shared protocol / DTO / contracts 变化；
+- 依赖或 lockfile 变化；
+- workflow / config 变化；
+- 多个 task 触同一 owning seam；
+- 合并冲突需人工解决；
+- 正确性只在组合后存在的跨层行为；
+- formal QA / RC / release 候选；
+- 矛盾或失败的 evidence；
+- 用户显式要求完整回归。
 
 ## 运行层级（Mode A / B / C）
 
@@ -150,13 +209,16 @@ lane 级 verify 之外，运行验证实例时用「足以验证当前修改的�
 
 ## Integration 工作流
 
+0. 合格单 lane task 优先走 direct promote（见「验证三档」），不进入本轮流程；只有多个 task、
+   共享契约或升级条件命中时才需要 integration task。
 1. 各任务 worktree 完成 verify + check 后提交，并用 `node scripts/agent-task.mjs publish` 发布自己的
    `agent/<lane>/...` branch；输入必须可从 origin fetch 到，不能以本地孤立 commit 代替。
 2. `start --lane integration --task "..."` 创建集成工作区；integration fetch 后只合并已核对的 remote task SHA。
 3. 逐个 `git merge --no-ff origin/agent/<lane>/<branch>`；冲突按任务归属 lane 的 owning code 原则解决，
    契约冲突退回显式契约任务。
-4. 运行迁移后的 integration verify（Pre-RC 不执行显式 desktop production build），再做组合 smoke、scope、
-   contamination 和最终 diff 检查。
+4. 默认**轻量验证**：remote input SHA / ancestry / 冲突 / scope / `git diff --check` + 与本次
+   composition 直接相关的 focused tests（`verify` 在 integration lane 默认轻量档）。只有命中
+   full integration 升级条件时才 `verify --full`。无论哪档，都不执行显式 desktop production build。
 5. 验证通过后由 integration 执行 `baseline advance <集成结果 SHA>`，再执行 `baseline publish`；fetch 后必须
    证明 `baseline/dev == origin/baseline/dev`。发布只允许 fast-forward/首次 bootstrap，禁止 force。
 6. 当前产品阶段、候选状态与下一任务以 [Camoufox 状态页](camoufox-program-status.md) 为准；当前
