@@ -5276,7 +5276,9 @@ process.stdin.on('end', () => {
     tokenId: bootstrap.token.tokenId,
     package: bootstrap.package,
     status: 'bootstrap_applied',
-    acceptedAt: new Date().toISOString()
+    // Keep the fixture ACK timestamp deterministic; production engines use
+    // their actual acceptance time.
+    acceptedAt: bootstrap.issuedAt
   };
   const writeFrame = value => {
     const payload = Buffer.from(JSON.stringify(value));
