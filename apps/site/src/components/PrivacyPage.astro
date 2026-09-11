@@ -1,0 +1,136 @@
+---
+import BrandMark from "./BrandMark.astro";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { links, type Locale } from "../content";
+import { privacyCopy } from "../privacy";
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const content = privacyCopy[locale];
+const homeHref = locale === "zh" ? "/zh/" : "/";
+const languageHref = locale === "zh" ? "/privacy" : "/zh/privacy";
+---
+
+<BaseLayout
+  locale={locale}
+  title={content.meta.title}
+  description={content.meta.description}
+>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="wordmark" href={homeHref} aria-label={content.homeLabel}>
+        <BrandMark />
+        <span>VeriSilo</span>
+      </a>
+      <a
+        class="language-link"
+        href={languageHref}
+        lang={locale === "zh" ? "en" : "zh-CN"}
+        hreflang={locale === "zh" ? "en" : "zh-CN"}
+      >
+        {content.languageLabel}
+      </a>
+    </div>
+  </header>
+
+  <main id="main" class="privacy-main">
+    <div class="privacy-shell">
+      <p class="privacy-updated">{content.updated}</p>
+      <h1 class="privacy-title">{content.title}</h1>
+      <p class="privacy-intro">{content.intro}</p>
+      {
+        content.sections.map((section) => (
+          <section class="privacy-section">
+            <h2>{section.heading}</h2>
+            {section.body.map((paragraph) => (
+              <p>{paragraph}</p>
+            ))}
+          </section>
+        ))
+      }
+      <p class="privacy-contact">
+        <a href={links.repository} target="_blank" rel="noreferrer">
+          {content.repositoryLabel}
+          <span aria-hidden="true">↗</span>
+        </a>
+      </p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="page-shell footer-inner">
+      <div class="footer-brand">
+        <a class="wordmark" href={homeHref}>
+          <BrandMark />
+          <span>VeriSilo</span>
+        </a>
+      </div>
+      <div class="footer-links">
+        <a href={links.repository} target="_blank" rel="noreferrer">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</BaseLayout>
+
+<style>
+  .privacy-main {
+    padding: 3rem 0 4rem;
+  }
+
+  .privacy-shell {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+
+  .privacy-updated {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .privacy-title {
+    font-family: var(--font-display);
+    font-size: clamp(1.9rem, 4vw, 2.6rem);
+    line-height: 1.1;
+    margin-bottom: 1rem;
+  }
+
+  .privacy-intro {
+    color: var(--ink-soft);
+    font-size: 1.05rem;
+    line-height: 1.6;
+    margin-bottom: 2rem;
+  }
+
+  .privacy-section {
+    margin-bottom: 1.75rem;
+  }
+
+  .privacy-section h2 {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .privacy-section p {
+    color: var(--ink-soft);
+    line-height: 1.65;
+    margin-bottom: 0.6rem;
+  }
+
+  .privacy-contact {
+    border-top: 1px solid var(--line);
+    padding-top: 1.5rem;
+  }
+
+  .privacy-contact a {
+    color: var(--blue-dark);
+    font-weight: 600;
+  }
+</style>

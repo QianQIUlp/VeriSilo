@@ -10,7 +10,7 @@ const extensionPackage = JSON.parse(
   await readFile(resolve(root, "apps/extension/package.json"), "utf8"),
 );
 if (
-  manifest.version !== "0.2.10" ||
+  manifest.version !== "0.2.11" ||
   extensionPackage.version !== manifest.version
 ) {
   throw new Error(
@@ -271,6 +271,49 @@ if (
   /\beval\(|new Function\(/u.test(background)
 ) {
   throw new Error("Extension bundle appears to execute dynamic remote code.");
+}
+for (const [zhSource, enTranslation] of [
+  [
+    "尚未获得当前页面的一次性访问权限。",
+    "has not granted one-time access to the current page",
+  ],
+  ["VeriSilo 只扫描普通 HTTP(S) 页面。", "only scans ordinary HTTP(S) pages"],
+  [
+    "浏览器内部页面、商店页面和 PDF 不支持扫描。",
+    "browser-internal pages, store pages, and PDFs are not supported",
+  ],
+  [
+    "只能为普通 HTTP(S) 页面请求站点访问权限。",
+    "Site access can only be requested for ordinary HTTP(S) pages",
+  ],
+  ["此浏览器版本不支持逐站点访问请求。", "per-site access requests"],
+  [
+    "无法识别当前普通 HTTP(S) 站点，或当前站点没有可撤销的长期权限。",
+    "no revocable persistent permission",
+  ],
+  [
+    "尚未授权网络检查服务。VeriSilo 没有发送任何出口或 DNS 检查请求。",
+    "The network check services have not been authorized",
+  ],
+  ["IP 出口", "IP egress"],
+]) {
+  const escapedZhSource = [...zhSource]
+    .map((character) =>
+      character.charCodeAt(0) > 0x7f
+        ? `\\u${character.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}`
+        : character,
+    )
+    .join("");
+  if (!background.includes(escapedZhSource)) {
+    throw new Error(
+      `Extension background is missing the audited error source string: ${zhSource}`,
+    );
+  }
+  if (!sidepanelJs.includes(enTranslation)) {
+    throw new Error(
+      `Extension side panel is missing the English translation for: ${zhSource}`,
+    );
+  }
 }
 
 const allowedNetworkUrls = new Set([

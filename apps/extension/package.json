@@ -1,6 +1,6 @@
 {
   "name": "@verisilo/extension",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +8,8 @@
     "dev": "node scripts/generate-icons.mjs --check && node scripts/build.mjs --watch",
     "icons:generate": "node scripts/generate-icons.mjs",
     "icons:check": "node scripts/generate-icons.mjs --check",
+    "store-assets:generate": "node scripts/generate-store-assets.mjs",
+    "store-assets:check": "node scripts/generate-store-assets.mjs --check",
     "check": "tsc --project tsconfig.json --noEmit",
     "test": "vitest run"
   },
