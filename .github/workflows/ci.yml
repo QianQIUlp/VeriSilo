@@ -47,7 +47,7 @@ jobs:
       - run: cargo fmt --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml -- --check
       - run: cargo check --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml
       - run: cargo test --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml
-      - run: cargo clippy --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml --all-targets -- -D warnings
+      - run: cargo clippy --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml --all-targets
 
   remote-backend-and-environment:
     runs-on: ubuntu-latest

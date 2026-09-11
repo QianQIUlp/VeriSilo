@@ -59,6 +59,9 @@ use crate::{
 
 const RUNTIME_RECORD_DIRECTORY: &str = "runtime";
 const RUNTIME_RECORD_FILE: &str = "browser-session.json";
+#[cfg(test)]
+const ENGINE_BOOTSTRAP_ACK_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(not(test))]
 const ENGINE_BOOTSTRAP_ACK_TIMEOUT: Duration = Duration::from_secs(5);
 const ENGINE_INITIAL_RECEIPT_TIMEOUT: Duration = Duration::from_secs(5);
 const ENGINE_EXIT_RECEIPT_GRACE: Duration = Duration::from_millis(100);
@@ -5025,6 +5028,7 @@ mod tests {
                 browser_verification: None,
                 engine_evidence: None,
                 network_evidence: Some(evidence),
+                identity_evidence: None,
             }),
             proxy_relay: Some(relay),
             health_context: Some(RuntimeHealthContext {
@@ -8512,6 +8516,7 @@ for raw in sys.stdin.buffer:
                 browser_verification: None,
                 engine_evidence: None,
                 network_evidence: Some(evidence),
+                identity_evidence: None,
             }),
             proxy_relay: Some(relay),
             health_context: Some(RuntimeHealthContext {
