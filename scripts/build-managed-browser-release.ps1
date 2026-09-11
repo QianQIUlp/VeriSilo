@@ -50,6 +50,28 @@ function Invoke-JsonChecked {
   }
 }
 
+function Resolve-SevenZip {
+  if ($env:SEVENZIP_PATH -and (Test-Path -LiteralPath $env:SEVENZIP_PATH -PathType Leaf)) {
+    return $env:SEVENZIP_PATH
+  }
+  if ($env:SEVEN_ZIP_PATH -and (Test-Path -LiteralPath $env:SEVEN_ZIP_PATH -PathType Leaf)) {
+    return $env:SEVEN_ZIP_PATH
+  }
+  $command = Get-Command '7z.exe' -ErrorAction SilentlyContinue
+  if ($command) { return $command.Source }
+  $command = Get-Command '7z' -ErrorAction SilentlyContinue
+  if ($command) { return $command.Source }
+  foreach ($candidate in @(
+    "$env:ProgramFiles\7-Zip\7z.exe",
+    "${env:ProgramFiles(x86)}\7-Zip\7z.exe"
+  )) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+      return $candidate
+    }
+  }
+  throw '7-Zip (7z.exe) is required to extract the exact desktop executable from the NSIS installer.'
+}
+
 function Write-Utf8NoBom {
   param(
     [Parameter(Mandatory = $true)] [string]$Path,
@@ -171,6 +193,7 @@ function Self-Test {
   } finally {
     $env:VERISILO_ENGINE_SIGNER_SHA256 = $previousSignerPins
   }
+  $null = Resolve-SevenZip
   Invoke-Checked $Python @($packageBuilder, '--self-test')
   Invoke-Checked 'node' @($verifier, '--self-test')
   Write-Output 'Managed-browser release orchestrator self-test passed.'
@@ -266,8 +289,12 @@ if ($installers.Count -ne 1) {
 }
 
 New-Item -ItemType Directory -Force -Path $releasePath | Out-Null
-Copy-Item -LiteralPath $desktopBinary -Destination (Join-Path $releasePath 'verisilo.exe')
 Copy-Item -LiteralPath $installers[0].FullName -Destination (Join-Path $releasePath $installerName)
+$sevenZip = Resolve-SevenZip
+Invoke-Checked $sevenZip @('e', $installers[0].FullName, "-o$releasePath", 'verisilo.exe', '-y')
+if (-not (Test-Path -LiteralPath (Join-Path $releasePath 'verisilo.exe') -PathType Leaf)) {
+  throw "Failed to extract verisilo.exe from $installerName"
+}
 Write-Utf8NoBom -Path (Join-Path $releasePath 'README.txt') -Content @"
 VeriSilo Managed Browser candidate $releaseVersion
 ==================================================

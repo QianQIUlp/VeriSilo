@@ -2639,6 +2639,54 @@ def test_font_universe_sync_with_probe() -> None:
     assert names == FONT_UNIVERSE, "probe.html FONT_UNIVERSE drifted from host_fonts.py"
 
 
+def test_interactive_launch_ordering_and_media_readiness() -> None:
+    source = inspect.getsource(host_v1.CamoufoxHost._launch_browser)
+    assert source.index('_active_launch_stage("observed.media")') < source.index(
+        '_active_launch_stage("observed.identity")'
+    ), "observed.media must precede observed.identity"
+    assert "wait_for_configured_media_devices" in source
+    assert "requires_media = any(expected_counts.values())" in source
+
+
+def test_interactive_launch_media_readiness_error_handling() -> None:
+    disk_config = {
+        "mediaDevices:enabled": True,
+        "mediaDevices:micros": 1,
+        "mediaDevices:webcams": 1,
+        "mediaDevices:speakers": 0,
+    }
+    expected_counts = host_v1.expected_media_device_counts(disk_config)
+    assert expected_counts == {"audioinput": 1, "videoinput": 1, "audiooutput": 0}
+    assert any(expected_counts.values()) is True
+
+    empty_config = {"mediaDevices:enabled": False}
+    empty_expected = host_v1.expected_media_device_counts(empty_config)
+    assert any(empty_expected.values()) is False
+    skipped = host_v1.skipped_media_readiness(empty_config)
+    assert skipped["reason"] == "success"
+    assert skipped["matched"] is False
+
+
+def test_interactive_media_stage_fail_closed_without_abort() -> None:
+    async def run_test() -> None:
+        disk_config = {
+            "mediaDevices:enabled": True,
+            "mediaDevices:micros": 1,
+            "mediaDevices:webcams": 1,
+            "mediaDevices:speakers": 0,
+        }
+        page = _FakeMediaPage(
+            _media_rpc_result("enumerate_timeout")
+        )
+        result = await wait_for_configured_media_devices(
+            page, disk_config, timeout_seconds=0.02, poll_interval_ms=1
+        )
+        assert result["matched"] is False
+        assert result["reason"] == "enumerate_timeout"
+
+    asyncio.run(run_test())
+
+
 def main() -> int:
     tests = [
         (name, fn)

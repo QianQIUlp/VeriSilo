@@ -87,6 +87,7 @@ from host_probe import (
     MEDIA_READINESS_REASONS,
     MediaDeviceReadinessError,
     MediaDeviceReadinessTimeout,
+    expected_media_device_counts,
     extract_observed_website_signals,
     install_probe_page_script,
     read_page_identity,
@@ -1438,7 +1439,9 @@ class CamoufoxHost:
                     raise
 
         with _active_launch_stage("observed.media") as media_stage:
-            if interactive:
+            expected_counts = expected_media_device_counts(disk_config)
+            requires_media = any(expected_counts.values())
+            if interactive and not requires_media:
                 media_readiness = skipped_media_readiness(disk_config)
                 if media_stage is not None:
                     media_stage.set_terminal_reason(media_readiness["reason"])
@@ -1450,7 +1453,15 @@ class CamoufoxHost:
                 except (MediaDeviceReadinessTimeout, MediaDeviceReadinessError) as exc:
                     if media_stage is not None:
                         media_stage.set_terminal_reason(exc.reason)
-                    raise
+                    if not interactive:
+                        raise
+                    media_readiness = {
+                        "expectedCounts": expected_counts,
+                        "attempts": [],
+                        "matched": False,
+                        "waitSeconds": 0.0,
+                        "reason": exc.reason,
+                    }
                 if media_stage is not None:
                     media_stage.set_terminal_reason(media_readiness["reason"])
 
