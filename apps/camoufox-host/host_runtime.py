@@ -458,6 +458,7 @@ def firefox_user_prefs_for_config(config: Optional[dict] = None) -> dict:
     if IS_WINDOWS and config and config.get("mediaDevices:enabled") is True:
         prefs["media.navigator.streams.fake"] = True
         prefs["media.navigator.permission.disabled"] = True
+        prefs["media.devices.unfocused.enabled"] = True
     return prefs
 
 
