@@ -515,6 +515,7 @@ PARAMS_FIELDS = {
     },
     "status": {"sessionId"},
     "page": {"sessionId", "action", "url", "selector", "value", "key", "script"},
+    "reobserve_identity": {"sessionId"},
     "close": {"sessionId"},
     "shutdown": set(),
 }
@@ -608,6 +609,10 @@ def validate_request(obj: dict) -> tuple[str, str, dict]:
     if command == "close" and not isinstance(params.get("sessionId"), str):
         raise ProtocolError("bad_type", "sessionId must be a string")
     if command == "status" and "sessionId" in params and not isinstance(
+        params.get("sessionId"), str
+    ):
+        raise ProtocolError("bad_type", "sessionId must be a string")
+    if command == "reobserve_identity" and not isinstance(
         params.get("sessionId"), str
     ):
         raise ProtocolError("bad_type", "sessionId must be a string")
@@ -1862,6 +1867,166 @@ class CamoufoxHost:
             result["browserProxyServer"] = session["browserProxyServer"]
         return result
 
+    async def reobserve_identity(self, session_id: str) -> dict:
+        """Fresh website-visible identity observation for the running session.
+
+        The launch-time observation stays untouched. The user's current pages
+        stay untouched too: the observation runs on a temporary page against
+        this Host's own loopback probe server, and that page is closed before
+        the response is sent. The exact Artifact bound at launch is re-read
+        and re-verified from disk, so a mutated Artifact file fails closed
+        instead of reconciling against new content.
+        """
+        session = self.session
+        if session is None or session["sessionId"] != session_id:
+            raise ProtocolError("session_not_found", f"no session {session_id}")
+        if (
+            session["state"] != "running"
+            or session.get("ctx") is None
+            or session.get("server") is None
+        ):
+            raise ProtocolError(
+                "session_not_running",
+                "identity re-observation requires the active running session",
+            )
+        artifact_path = self.artifact_root / f"{session['artifactId']}.json"
+        if not artifact_path.is_file():
+            raise ProtocolError(
+                "artifact_not_found",
+                f"artifact {session['artifactId']} not found",
+            )
+        try:
+            artifact, _file_sha = verify_artifact_raw(
+                artifact_path, expected_file_sha=session["artifactFileSha256"]
+            )
+        except ArtifactIntegrityError as exc:
+            raise ProtocolError(
+                "artifact_integrity", f"artifact re-verification failed: {exc}"
+            ) from exc
+        except UnsupportedSchemaVersionError as exc:
+            raise ProtocolError(
+                "artifact_integrity", f"artifact schema rejected: {exc}"
+            ) from exc
+
+        probe_url = f"http://127.0.0.1:{session['server'].server_address[1]}/probe.html"
+        interactive = interactive_desktop_launch()
+        font_mode = session.get("fontMode") or artifact["policy"].get(
+            "fontMode", "inherit"
+        )
+        disk_config = copy.deepcopy(artifact["resolvedConfig"])
+        fonts = artifact["stableSignalsDeclared"]["fonts"]
+        host_controls = host_negative_control_families(fonts)
+        expected_counts = expected_media_device_counts(disk_config)
+
+        page = await session["ctx"].new_page()
+        try:
+            await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
+            if interactive:
+                with contextlib.suppress(Exception):
+                    await page.evaluate(
+                        "(attrs) => { window.__probeWebGlAttrs = attrs; }",
+                        disk_config.get("webGl:contextAttributes") or {},
+                    )
+            try:
+                await page.evaluate(f"window.__probeFonts = {json.dumps(fonts)}")
+                await page.evaluate(
+                    f"window.__probeFontUniverse = {json.dumps(FONT_UNIVERSE)}"
+                )
+                await page.evaluate(
+                    f"window.__probeHostFonts = {json.dumps(host_controls)}"
+                )
+                await page.evaluate("document.fonts.ready")
+            except Exception:
+                if not interactive:
+                    raise
+            requires_media = any(expected_counts.values())
+            if interactive and not requires_media:
+                media_readiness = skipped_media_readiness(disk_config)
+            else:
+                try:
+                    media_readiness = await wait_for_configured_media_devices(
+                        page, disk_config
+                    )
+                except (
+                    MediaDeviceReadinessTimeout,
+                    MediaDeviceReadinessError,
+                ) as exc:
+                    if not interactive:
+                        raise
+                    media_readiness = {
+                        "expectedCounts": expected_counts,
+                        "attempts": [],
+                        "matched": False,
+                        "waitSeconds": 0.0,
+                        "reason": exc.reason,
+                    }
+            observed = await read_page_identity(page, interactive=interactive)
+            if interactive and not observed.get("webglAvailable"):
+                observed = await self._retry_webgl_observation(page, observed)
+        finally:
+            with contextlib.suppress(Exception):
+                await page.close()
+
+        signals = extract_observed_website_signals(observed, font_mode)
+        observed_at = utcnow()
+        identity_evidence = reconcile_website_identity(artifact, signals, observed_at)
+        session["observedSignals"] = signals
+        session["observedWebsiteDigest"] = observed_website_digest(signals)
+        session["identityEvidence"] = identity_evidence
+        host_font_controls = observed.get("hostFontNegativeControls") or {}
+        reobserved_payload = {
+            "generatedAtUtc": observed_at,
+            "projection": build_projection(
+                artifact["artifactId"],
+                session["sessionId"],
+                1,
+                session["configuredIdentityDigest"],
+                signals,
+            ),
+            "observedFull": observed,
+            "identityEvidence": identity_evidence,
+            "hostFontControls": host_controls,
+            "hostFontMasking": {
+                "controlsTested": len(host_font_controls),
+                "allUnavailable": all(
+                    available is False for available in host_font_controls.values()
+                ),
+                "failures": [
+                    family
+                    for family, available in host_font_controls.items()
+                    if available is not False
+                ],
+            },
+            "mediaDeviceReadiness": media_readiness,
+            "fontMode": font_mode,
+            "reobserved": True,
+            "verified": False,
+            "evidenceClass": "observed-on-this-host",
+        }
+        (session["sessionDir"] / "reobserved.json").write_text(
+            json.dumps(reobserved_payload, indent=2) + "\n"
+        )
+        _log(
+            f"session {session['sessionId']}: fresh identity re-observation "
+            f"recorded at {observed_at}"
+        )
+        result = {
+            "sessionId": session["sessionId"],
+            "state": session["state"],
+            "artifactId": session["artifactId"],
+            "profileId": session["profileId"],
+            "artifactFileSha256": session["artifactFileSha256"],
+            "configuredIdentityDigest": session["configuredIdentityDigest"],
+            "observedWebsiteDigest": session["observedWebsiteDigest"],
+            "reobservedAt": observed_at,
+            "identityEvidence": identity_evidence,
+            "verified": False,
+            "evidenceClass": "observed-on-this-host",
+        }
+        if session["browserProxyServer"] is not None:
+            result["browserProxyServer"] = session["browserProxyServer"]
+        return result
+
     async def close(self, session_id: str) -> dict:
         session = self.session
         if session is None or session["sessionId"] != session_id:
@@ -2830,6 +2995,8 @@ async def handle_frame(host: CamoufoxHost, raw: bytes) -> bool:
             result = host.status(params.get("sessionId"))
         elif command == "page":
             result = await host.page_action(params)
+        elif command == "reobserve_identity":
+            result = await host.reobserve_identity(params["sessionId"])
         elif command == "close":
             result = await host.close(params["sessionId"])
         elif command == "shutdown":

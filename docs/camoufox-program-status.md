@@ -1,14 +1,14 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**当前路由页**
-- 更新日期：2026-09-09
+- 更新日期：2026-09-12
 - 当前稳定产品分支：`codex/camoufox-m3-engine-adapter`
 - 当前 canonical development source：`origin/baseline/dev`（本地工作引用为 `baseline/dev`，正常时两者精确相等）
-- 本轮起始 documented checkpoint：`df971186beeb2a3ee806f9975cdd72b90d34bd5a`；固定 SHA 不作为持续 source ref
-- 当前 source-bound candidate：**v0.1.0-rc2**（`PUBLIC_GITHUB_PRERELEASE`；当前源码、已在 Windows Sandbox 安装验收）
-- `RC_SOURCE_SHA`：`c1688d5a392ffa69ae77c246bcb4bb78b083e26f`
-- rc2 installer SHA-256：`3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`
-- rc2 发布状态：`PUBLIC_GITHUB_PRERELEASE`；文档变化不改变其 source binding
+- 当前公开版本：**v0.1.0-rc3**（`PUBLIC_GITHUB_PRERELEASE`；tag `v0.1.0-rc3`，rc3 release gate 已关闭）
+- `RC3_SOURCE_SHA`：`407c501741c1be3444bfa607c7e693ecc7324409`
+- 当前工程阶段：**post-rc3 product development / roadmap reentry**；新任务从 `origin/baseline/dev` 分叉
+- 历史 rc2 candidate：source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256
+  `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；文档变化不改变其 source binding
 
 本文只保留当前事实、下一任务和关键证据索引。旧 checkpoint、失败 run、完整 hash 表与历史
 措辞由 Git、lock/result、evidence 和对应历史合同保存，不再永久追加到默认必读页。
@@ -31,25 +31,26 @@ Silo = Persistent Profile
 ```
 
 Standard Silo 长期保留。Camoufox Managed Engine 的 standalone、资格链、生产 package/
-adapter、Managed Silo 产品路径、current-user NSIS，以及 current-source rc2 的 packaged
-runtime 和 Windows Sandbox 安装验收，均已达到各自文档边界。Profile、Artifact、Engine、
-Network 与 Evidence 不合并，`configured`、`applied`、`observed`、`verified` 与 `unavailable`
-不混用。
+adapter、Managed Silo 产品路径、current-user NSIS、rc2 的 packaged runtime 和 Windows
+Sandbox 安装验收，以及 v0.1.0-rc3 公开 prerelease，均已达到各自文档边界。Profile、
+Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、`observed`、
+`verified` 与 `unavailable` 不混用。
 
-当前 source/package/installed acceptance 主线是：
+rc2→rc3 的 source/package/installed acceptance 主线已经完成：
 
 ```text
 source stabilization → rc2 build → package verification → packaged runtime
-→ pristine Windows Sandbox installed lifecycle
+→ pristine Windows Sandbox installed lifecycle → v0.1.0-rc3 public prerelease
+→ rc3 release gate closed
 ```
 
-当前 rc2 是 **PUBLIC_GITHUB_PRERELEASE**，并已在 Windows Sandbox 完成 current-source locally
-accepted installed candidate 验收。后续默认方向回到 accepted differentiated roadmap，优先增强
-identity/execution/network integrity、runtime evidence 与 attribution；只有真实回归、新产品
-代码、新 candidate 或新的 release Gate 才重新触发相应 QA/build/acceptance。当前不创建 FP5，
-也不重跑输入未变化的 FP1–FP4。
+当前阶段是 **post-rc3 product development**：canonical development source 是
+`origin/baseline/dev`，默认方向是 accepted differentiated roadmap，优先增强
+identity/execution/network integrity、runtime evidence 与 attribution；只有真实回归、
+新产品代码、新 candidate 或新的 release Gate 才重新触发相应 QA/build/acceptance。当前
+不创建 FP5，不重跑输入未变化的 FP1–FP4，也不自动开启 rc4。
 
-## v0.1.0-rc2 current-source installed acceptance
+## v0.1.0-rc2 current-source installed acceptance（历史记录）
 
 rc2 的固定身份仍为：
 
@@ -87,10 +88,10 @@ install/reinstall/uninstall semantics 仍为 **NOT_PROVEN**；这不是 installe
 也不是 rc2 acceptance pending，而是未来 public-release/promotion boundary。外层 Desktop/NSIS
 Authenticode 仍为 unsigned；内部 engine CMS signature 与外层 Authenticode 是不同边界。
 
-已知但不阻塞的观察项：`MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE`，分类为
-`LOW / NON_BLOCKING_UX_INCONSISTENCY`。首次 Managed close/Direct stop 时曾短暂显示
-proxy/network mismatch；随后 Managed second start 与 post-reinstall start 均通过。本轮不声称
-该 UX 已修复。
+rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE`
+（首次 Managed close/Direct stop 时短暂显示 proxy/network mismatch，分类
+`LOW / NON_BLOCKING_UX_INCONSISTENCY`）已在此后由 owning source 修复关闭，
+不再是当前未决观察。
 
 ## M3 研究结论
 
@@ -160,8 +161,9 @@ proxy/network mismatch；随后 Managed second start 与 post-reinstall start �
 | clean M3-WI | **Passed on this native Windows host** at Attempt 4；真实 Desktop RuntimeManager / test-only adapter / Host / Browser 两周期闭合，`verified:false` |
 | production package/signing/UI/S1 stabilization | **Implemented/build closed** in the current source；内部 CMS 签名 package、Desktop public pin、production adapter、Managed Silo UI/network/run path、outer-unsigned current-user NSIS，以及 S1 的 Create Silo UX、reconcile-stopped lifecycle、BUG-01 和 acceptance-driver 修复已进入当前源码 |
 | Historical local `v0.1.0-rc1` artifact | **Historical candidate / superseded / never runtime-accepted**；source `6497828aa0643f94fed3ae708734eef6b85f8305`, dirty `true`, verifier passed for 1403 files, acceptance `Pending`, `verified:false`, `runtimeAcceptance:null` |
-| v0.1.0-rc2 current-source candidate | **PUBLIC_GITHUB_PRERELEASE**；Current-source installed product accepted in pristine Windows Sandbox；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3` |
-| Current source release readiness | **Current-source locally accepted installed candidate**；rc2 已在 exact Windows Sandbox 完成安装后生命周期验收；strict standard-user install/reinstall/uninstall semantics 仍 `NOT_PROVEN`，外层 Authenticode 仍 unsigned |
+| v0.1.0-rc2 current-source candidate | **PUBLIC_GITHUB_PRERELEASE（已被 rc3 取代为公开版本）**；Current-source installed product accepted in pristine Windows Sandbox；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3` |
+| v0.1.0-rc3 public prerelease | **PUBLIC_GITHUB_PRERELEASE；release gate 已关闭**；tag `v0.1.0-rc3`，source `407c501741c1be3444bfa607c7e693ecc7324409` |
+| Current source release readiness | **post-rc3 product development**；rc2 已在 exact Windows Sandbox 完成安装后生命周期验收，rc3 公开 prerelease 已发布且 gate 关闭；strict standard-user install/reinstall/uninstall semantics 仍 `NOT_PROVEN`，外层 Authenticode 仍 unsigned |
 
 ## 当前未证明的边界
 
@@ -175,41 +177,40 @@ proxy/network mismatch；随后 Managed second start 与 post-reinstall start �
 - rc2 Sandbox 使用的 `WDAGUtilityAccount` 具有 `IsAdministrator = true`；strict unelevated
   standard-user install/reinstall/uninstall semantics 仍为 `NOT_PROVEN`，这是 future public-release /
   promotion boundary，而不是 installer lifecycle failure；
-- rc2 的 Desktop/NSIS 外层仍为 `authenticode=false` / unsigned；内部 engine detached CMS
-  signature、approved signer/public pin 与外层 Windows Authenticode 是不同边界；rc2 发布状态为
-  `PUBLIC_GITHUB_PRERELEASE`；
-- Formal-v3 runtime observation 只覆盖 current-source rc2 在本次 Sandbox 中绑定的 candidate/Artifacts；
+- rc2 与 rc3 的 Desktop/NSIS 外层均为 `authenticode=false` / unsigned；内部 engine detached CMS
+  signature、approved signer/public pin 与外层 Windows Authenticode 是不同边界；rc2 与 rc3 的
+  发布状态均为 `PUBLIC_GITHUB_PRERELEASE`；
+- Formal-v3 runtime observation 只覆盖 rc2 在本次 Sandbox 中绑定的 candidate/Artifacts；
   Voices 只覆盖 A1、A2、B1 各自三秒 top-window trace，不是 exhaustive exclusion；FP4 及现有安装验收
   仍不声明 universal site compatibility、undetectability、login/payment/CAPTCHA、完整 TLS ClientHello、
   完整 QUIC、exhaustive browser DNS-path 或字体隔离（`fontMode=inherit`）。
 
 ## 当前下一任务
 
-### Accepted differentiated roadmap
+### post-rc3 product development（roadmap reentry）
 
 当前 canonical development source 是 `origin/baseline/dev`（本地工作引用为 `baseline/dev`，
-正常时两者精确相等）。`c1688d5a392ffa69ae77c246bcb4bb78b083e26f` 是 rc2 的固定 source binding，
-不是会随开发继续推进的 canonical ref；当前候选版本是 `v0.1.0-rc2`，发布状态为
-`PUBLIC_GITHUB_PRERELEASE`。
+正常时两者精确相等），新任务从这里分叉。`c1688d5a392ffa69ae77c246bcb4bb78b083e26f` 是
+rc2 的固定 source binding，`407c501741c1be3444bfa607c7e693ecc7324409` 是 v0.1.0-rc3 的
+固定 source binding；两者都是历史锚点，不是会随开发继续推进的 canonical ref。
+
+**Fresh Identity Recheck 已进入 source**：运行中的 Managed Identity Silo 现在可以在用户
+主动触发「重新检查」时，通过 Host 的 `reobserve_identity` 命令在活动 session 上重新读取
+一次 website-visible identity observation，用当前 Resolved Identity Artifact 重新完成
+expected-vs-observed reconciliation，产生新的正式 Runtime Identity Evidence（新的
+`observedAt`），并保持用户当前页面不被 probe 导航破坏。该能力由 Host 协议测试、
+RuntimeManager 绑定/诚实失败测试与 UI 文案测试覆盖；不再作为未来任务书写。
+
+下一个 product slice **尚未由用户冻结**。不要自动开始 rc4、候选 B（Current Session
+Integrity Dashboard）或候选 C 的任何部分；它们都只是候选方向，未经用户批准不得写入
+路线或开始实施。也不要自动重跑输入未变化的 FP1–FP4、创建 FP5。
 
 历史 `artifacts/release/managed-browser/v0.1.0-rc1` 仍保留为 superseded、从未 runtime-accepted
 的候选记录；其原始 source、dirty 状态、installer hash、verifier 和 Pending acceptance 不变。
 
-当前 source/package/installed acceptance 主线已经完成到：
-
-```text
-source stabilization → rc2 build → package verification → packaged runtime
-→ pristine Windows Sandbox installed lifecycle
-```
-
-后续默认工程方向回到已接受的 differentiated roadmap，优先增强 Identity Integrity、Execution
-Integrity、Network Integrity、Runtime Evidence 与 Attribution，而不是追求更广的 workstation
-feature parity。只有真实回归、新产品代码、新 candidate 或新的 release Gate 才重新触发相应
-QA/build/acceptance；不要为了流程重跑输入未变化的 FP1–FP4，也不要创建 FP5。
-
-rc2 的 Sandbox 验收是 current-source locally accepted installed candidate 的直接证据；当前发布状态为
-`PUBLIC_GITHUB_PRERELEASE`，且不证明 strict non-admin、所有 Windows hardware、universal site
-compatibility 或未列明的浏览器/网络能力。
+rc2 的 Sandbox 验收与 rc3 公开 prerelease 是各自边界的直接证据；它们不证明 strict
+non-admin、所有 Windows hardware、universal site compatibility 或未列明的浏览器/网络能力。
+rc4 / release gate 必须由用户通过新指令显式打开。
 
 ## 历史资格链与后续发布路径
 
@@ -224,12 +225,13 @@ Formal-v3 build/provenance
 → v0.1.0-rc2 source-bound freeze
 → package verification + packaged runtime
 → pristine Windows Sandbox installed acceptance
-→ accepted differentiated roadmap
+→ v0.1.0-rc3 public prerelease（release gate closed）
+→ post-rc3 product development（canonical: origin/baseline/dev）
 ```
 
-前半段是已经闭合的资格链，后半段记录 rc2 的 source-bound candidate、package/runtime 与
-pristine Windows Sandbox 安装验收；rc2 的发布状态为 `PUBLIC_GITHUB_PRERELEASE`，且没有 strict
-standard-user 证明。
+前半段是已经闭合的资格链，中段记录 rc2 的 source-bound candidate、package/runtime 与
+pristine Windows Sandbox 安装验收，随后记录 rc3 公开 prerelease 与当前 post-rc3 开发阶段；
+rc2 与 rc3 的发布状态均为 `PUBLIC_GITHUB_PRERELEASE`，且都没有 strict standard-user 证明。
 这条记录不构成新的研究 Gate，也不把历史 RC1 变成当前候选。
 
 ## 关键证据索引
@@ -255,8 +257,9 @@ standard-user 证明。
 | clean M3-WI input contract | `docs/camoufox-m3-wi-clean-contract.md`；SHA-256 `acdc725dbbb1ccb0c39571cea43f6eb7ef3137429f4f8b256ec764f3be20af74`；Attempts 1–3 immutable Failed，Attempt 4 Passed |
 | clean M3-WI Attempt 4 | `artifacts/camoufox-m3-wi-clean-attempt-4/run-report.json`；SHA-256 `edd08b83497e09a73a0a0e29203475f1e9163b20366b2dd7c899aea8634262fe`；native evidence SHA-256 `2f292585a010dbdc3cad35bfcf26b14800bad402ed4a160c5123f41005c972ad`；revision `26ded609bf5bf52882c9ba37496f783ab2b01681`；**Passed on this native Windows host**，`verified:false` |
 | Historical RC1 release artifact | `artifacts/release/managed-browser/v0.1.0-rc1`；source revision `6497828aa0643f94fed3ae708734eef6b85f8305`；source dirty `true`；installer SHA-256 `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`；verifier `Managed-browser release verification passed for 1403 files.`；acceptance `Pending`、`verified:false`、`runtimeAcceptance:null`；historical candidate, superseded, never runtime-accepted |
-| v0.1.0-rc2 source-bound candidate | `PUBLIC_GITHUB_PRERELEASE`；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`；installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；current-source locally accepted installed candidate；外层 Authenticode unsigned，内部 engine CMS signature/public pin 分开 |
-| v0.1.0-rc2 Windows Sandbox installed acceptance | QA branch `origin/agent/qa/v0-1-0-rc2-installed-69d6d6`；evidence tip `df1b82fe3ca2f071a4b6676adc92db046558cdd3`；Windows 11 Enterprise `10.0.26100` / AMD64 / pristine disposable Sandbox；`CURRENT_SOURCE_INSTALLED_PRODUCT_ACCEPTED_IN_WINDOWS_SANDBOX`；strict standard-user semantics `NOT_PROVEN`；`MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE` 为 LOW/non-blocking |
+| v0.1.0-rc2 source-bound candidate | `PUBLIC_GITHUB_PRERELEASE`（已被 rc3 取代为公开版本）；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`；installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；current-source locally accepted installed candidate；外层 Authenticode unsigned，内部 engine CMS signature/public pin 分开 |
+| v0.1.0-rc2 Windows Sandbox installed acceptance | QA branch `origin/agent/qa/v0-1-0-rc2-installed-69d6d6`；evidence tip `df1b82fe3ca2f071a4b6676adc92db046558cdd3`；Windows 11 Enterprise `10.0.26100` / AMD64 / pristine disposable Sandbox；`CURRENT_SOURCE_INSTALLED_PRODUCT_ACCEPTED_IN_WINDOWS_SANDBOX`；strict standard-user semantics `NOT_PROVEN`；验收期间的 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE` 观察项已由后续 source 修复关闭 |
+| v0.1.0-rc3 public prerelease | tag `v0.1.0-rc3`（commit `407c501741c1be3444bfa607c7e693ecc7324409`）；`PUBLIC_GITHUB_PRERELEASE`；rc3 release gate 已关闭；strict standard-user 与外层 Authenticode 边界不变 |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |

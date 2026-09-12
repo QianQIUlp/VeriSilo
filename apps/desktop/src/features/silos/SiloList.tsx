@@ -277,7 +277,7 @@ export function SiloList({
                         ? "再检查一次"
                         : runtimeState === "verification_failed"
                           ? "查看原因"
-                          : "检查状态"}
+                          : "重新检查"}
                     </button>
                   ) : (
                     <button

@@ -46,6 +46,34 @@ export function describeActivation(activation: RuntimeActivation): string {
   return labels[activation.state];
 }
 
+const identityEvidenceStateLabels = {
+  matched: "Matched",
+  mismatched: "Mismatched",
+  unavailable: "Unavailable",
+  stale: "Stale",
+} as const;
+
+/** Describes an explicit recheck: the runtime result plus the fresh
+ * website-visible identity observation it just performed. */
+export function describeIdentityRecheck(activation: RuntimeActivation): string {
+  const evidence = activation.identityEvidence;
+  if (evidence === null || evidence.siloId !== activation.activeSiloId) {
+    return describeActivation(activation);
+  }
+  const label = identityEvidenceStateLabels[evidence.state];
+  let observedAt = evidence.observedAt;
+  try {
+    observedAt = new Intl.DateTimeFormat("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(new Date(evidence.observedAt));
+  } catch {
+    // Keep the raw timestamp when the browser cannot format it.
+  }
+  return `${describeActivation(activation)}；网站可见身份已重新读取：${label}（${observedAt}）`;
+}
+
 export function activationStatusLabel(
   state: RuntimeActivation["state"],
 ): string {

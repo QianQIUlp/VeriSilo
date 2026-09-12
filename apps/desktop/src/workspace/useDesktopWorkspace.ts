@@ -62,7 +62,7 @@ import {
   legacyEnvironmentLabel,
 } from "../shared/presentation.js";
 
-import { describeActivation } from "../formatters.js";
+import { describeActivation, describeIdentityRecheck } from "../formatters.js";
 
 import {
   buildLocalSiloReport,
@@ -926,7 +926,7 @@ export function useDesktopWorkspace() {
       }
       setNotice({
         tone: activation.state === "running" ? "success" : "error",
-        message: describeActivation(activation),
+        message: describeIdentityRecheck(activation),
       });
       await refresh(false);
     });

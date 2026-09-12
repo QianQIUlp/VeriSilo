@@ -405,6 +405,17 @@ const identityEvidenceLabels = {
   stale: ["Stale", "已过期"],
 } as const;
 
+const FRESH_OBSERVATION_WINDOW_MS = 120_000;
+
+function isFreshObservation(observedAt: string): boolean {
+  const observed = new Date(observedAt).getTime();
+  return (
+    Number.isFinite(observed) &&
+    observed > 0 &&
+    Date.now() - observed < FRESH_OBSERVATION_WINDOW_MS
+  );
+}
+
 const identitySignalLabels: Record<string, string> = {
   userAgent: "浏览器标识",
   language: "语言",
@@ -480,6 +491,8 @@ export function ManagedIdentityEvidence({
     evidence?.reason ??
     (evidence === null ? "启动这个 Managed Identity Silo 后，Host 才会取得网站观察。" : null);
   const signals = evidence?.state === "stale" ? [] : (evidence?.signals ?? []);
+  const freshlyReobserved =
+    evidence !== null && isFreshObservation(evidence.observedAt);
 
   return (
     <section className={`identity-evidence ${state}`}>
@@ -490,7 +503,10 @@ export function ManagedIdentityEvidence({
           <span>{stateDescription}</span>
         </div>
         {evidence !== null ? (
-          <small>Observed {formatDate(evidence.observedAt)} · Camoufox Host</small>
+          <small>
+            {freshlyReobserved ? "身份已重新读取 · " : "Observed "}
+            {formatDate(evidence.observedAt)} · Camoufox Host
+          </small>
         ) : null}
       </div>
       {reason !== null ? <p className="identity-evidence-reason">{reason}</p> : null}

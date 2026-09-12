@@ -23,7 +23,7 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::application::{
     create_managed_silo_with, create_silo, delete_silo_with, desktop_status_with,
     diagnose_silo_with, initialize_vault_with, launch_silo_with, list_silos_with, lock_vault_with,
-    page_action_with, stop_silo_with, unlock_vault_with, DesktopCore,
+    page_action_with, recheck_silo_runtime, stop_silo_with, unlock_vault_with, DesktopCore,
 };
 use crate::domain::{active_vault_name, app_data_root, CreateManagedSiloInput, CreateSiloInput};
 use crate::mihomo::diagnose_local_clash;
@@ -581,6 +581,10 @@ fn dispatch_silo(
         },
         ("POST", Some("start")) => match resolve_silo_id(state, spec) {
             Ok(id) => map_result(launch_silo_with(state, id)),
+            Err(error) => error_status(error),
+        },
+        ("POST", Some("recheck")) => match resolve_silo_id(state, spec) {
+            Ok(id) => map_result(recheck_silo_runtime(state, id)),
             Err(error) => error_status(error),
         },
         ("POST", Some("stop")) => match resolve_silo_id(state, spec) {

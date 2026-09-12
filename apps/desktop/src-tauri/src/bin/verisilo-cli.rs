@@ -65,6 +65,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
             let path = format!("/v1/silos/{}/start", url_encode(&spec));
             print_value(api("POST", &path, None)?, json_out, print_activation)
         }
+        "recheck" => {
+            let spec = require_spec(&args, "recheck")?;
+            let path = format!("/v1/silos/{}/recheck", url_encode(&spec));
+            print_value(api("POST", &path, None)?, json_out, print_activation)
+        }
         "stop" => {
             let spec = require_spec(&args, "stop")?;
             let path = format!("/v1/silos/{}/stop", url_encode(&spec));
@@ -307,6 +312,7 @@ VeriSilo 本机命令行（需要时自动在后台启动本机服务）
   verisilo-cli clash
   verisilo-cli diagnose [名称或id]
   verisilo-cli start <名称或id>
+  verisilo-cli recheck <名称或id>
   verisilo-cli stop <名称或id>
   verisilo-cli delete <名称或id> --yes
   verisilo-cli create --name <名称> [--network direct|clash] [--mixed-port 7897] [--group 组] [--node 节点] [--preset balanced-zh-cn]

@@ -138,7 +138,7 @@ Resolved Identity Artifact 是底层重放制品，不等同于最终用户配�
 
 VeriSilo 不提供“匿名分数”，不宣传“不可检测”，不把单一反检测网站结果当成总体验收，也不把 Profile 隔离、代理或虚拟机控制面回执夸大为完整设备身份验证。
 
-Durable evidence roadmap：**expected-vs-observed reconciliation** 是把 Resolved Identity Artifact 的期望身份与网站实际观测身份做自动调和、并给出 matched / mismatched / unavailable / stale 解释与呈现的长期产品方向；它是缩小 `observed → verified` 差距的主要产品路线，只有满足未来 capability-specific verification contract 时才升级为 `verified`，观测值相等不自动提升 verified。本页只记录方向，不固定具体实现。
+Durable evidence 现状与路线：**expected-vs-observed reconciliation 已经是产品事实**——Managed Identity Silo 在启动时会做一次 website-visible identity observation，用户也可以在运行中主动触发一次新的 fresh observation（re-observe），两者都用当前 Resolved Identity Artifact 自动调和，并以 matched / mismatched / unavailable / stale 语义呈现正式 Runtime Identity Evidence。它仍是缩小 `observed → verified` 差距的主要产品路线：只有满足未来 capability-specific verification contract 时证据才升级为 `verified`，观测值相等不自动提升 verified，能力级 `observed → verified` 的更强验证（如进程来源证明、跨主机重放）依然是 roadmap，不因 reconciliation 存在而声称已完成。
 
 ## 长期非目标
 
@@ -153,11 +153,13 @@ Durable evidence roadmap：**expected-vs-observed reconciliation** 是把 Resolv
 
 长期产品顺序仍然是 Standard、Managed、Isolated 三层并存。2026-08 的风险优先阶段完成了 Camoufox standalone、Artifact、原生 Windows Host 和 M3-0 contract 接缝；FP1–FP4 以及 clean M3-WI Attempt 4 随后完成了各自冻结边界内的资格链。这里的历史结果不改变三层产品模型，也不把任一层的证据扩大为整体产品或发布验收。
 
-当前 source/package/installed acceptance 主线已经完成到 `v0.1.0-rc2`：其 source 是
-`c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，并已在 pristine Windows Sandbox 完成安装后
-生命周期验收。它是 current-source locally accepted installed candidate，不是 GitHub Release、
-公开 shipped release 或 Windows Authenticode signed release；strict standard-user 语义仍未
-证明。后续默认方向是 accepted differentiated roadmap，优先推进五项 integrity/evidence
+当前 source/package/installed acceptance 主线已经完成到公开的 `v0.1.0-rc3` prerelease
+（tag `v0.1.0-rc3`，source `407c501741c1be3444bfa607c7e693ecc7324409`），rc3 release gate 已关闭；
+其前的 `v0.1.0-rc2`（source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`）已在 pristine Windows
+Sandbox 完成安装后生命周期验收。两者都是 `PUBLIC_GITHUB_PRERELEASE`，不是 Windows
+Authenticode signed release；strict standard-user 语义仍未
+证明。当前阶段是 post-rc3 product development，canonical development source 是
+`origin/baseline/dev`，默认方向是 accepted differentiated roadmap，优先推进五项 integrity/evidence
 能力；真实回归、新产品代码、新 candidate 或新的 release Gate 才重新触发对应 QA/build/
 acceptance。旧 RC1、FP1–FP4 和 M3-WI 合同只作为历史证据。
 

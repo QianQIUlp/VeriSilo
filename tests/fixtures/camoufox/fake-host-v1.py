@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROTOCOL = "verisilo-camoufox-host/v1"
@@ -20,6 +21,13 @@ MAX_FRAME_BYTES = 32768
 ASSET_SHA256 = "b" * 64
 BROWSER_RELEASE = "v152.0.4-beta.28"
 PLATFORM = "windows-x64" if sys.platform == "win32" else "linux-x64"
+IDENTITY_EVIDENCE_SCHEMA = "verisilo-camoufox-identity-evidence/v0"
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
 
 
 def args_map(argv: list[str]) -> dict[str, str]:
@@ -143,6 +151,37 @@ def main() -> int:
             result["browserProxyServer"] = browser_proxy_server
         return result
 
+    def reobserve_result() -> dict:
+        observed_at = utc_now_iso()
+        result = {
+            "sessionId": session_id,
+            "state": state,
+            "artifactId": artifact_id,
+            "profileId": profile_id,
+            "artifactFileSha256": artifact_sha,
+            "configuredIdentityDigest": "c" * 64,
+            "observedWebsiteDigest": "d" * 64,
+            "reobservedAt": observed_at,
+            "identityEvidence": {
+                "schema": IDENTITY_EVIDENCE_SCHEMA,
+                "observedAt": observed_at,
+                "state": "matched",
+                "signals": [
+                    {
+                        "signal": "timezone",
+                        "expected": "UTC",
+                        "observed": "UTC",
+                        "state": "matched",
+                    }
+                ],
+            },
+            "verified": False,
+            "evidenceClass": "observed-on-this-host",
+        }
+        if browser_proxy_server is not None:
+            result["browserProxyServer"] = browser_proxy_server
+        return result
+
     for raw in sys.stdin.buffer:
         if len(raw.rstrip(b"\n")) > MAX_FRAME_BYTES:
             raise SystemExit("fake Host request exceeded frame bound")
@@ -247,6 +286,35 @@ def main() -> int:
                 return 0
             if mode == "active-session-crash":
                 os._exit(17)
+        elif command == "reobserve_identity":
+            if state != "running" or params.get("sessionId") != session_id:
+                error_response(
+                    request_id,
+                    "session_not_running",
+                    "identity re-observation requires the active running session",
+                )
+                continue
+            if mode == "reobserve-error":
+                error_response(
+                    request_id,
+                    "observation_failed",
+                    "fake identity re-observation failed",
+                )
+                continue
+            reobserve = reobserve_result()
+            if mode == "reobserve-wrong-session":
+                reobserve["sessionId"] = "22222222-2222-4222-8222-222222222222"
+            elif mode == "reobserve-mismatched":
+                reobserve["identityEvidence"]["state"] = "mismatched"
+                reobserve["identityEvidence"]["signals"] = [
+                    {
+                        "signal": "timezone",
+                        "expected": "UTC",
+                        "observed": "Asia/Tokyo",
+                        "state": "mismatched",
+                    }
+                ]
+            response(request_id, reobserve)
         elif command == "page":
             if state != "running" or params.get("sessionId") != session_id:
                 error_response(request_id, "session_not_running", "page action requires active session")

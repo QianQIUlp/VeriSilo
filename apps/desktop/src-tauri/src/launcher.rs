@@ -83,6 +83,10 @@ const M3_WI_REAL_HOST_TIMEOUT: Duration = Duration::from_secs(120);
 /// status, close, and shutdown rather than letting each call pick a shorter
 /// ad-hoc timeout.
 pub(crate) const CAMOUFOX_PRODUCTION_HOST_TIMEOUT: Duration = Duration::from_secs(120);
+/// A fresh identity re-observation re-runs the launch-time website probe on a
+/// temporary page: page.goto is bounded at 60s and media readiness at 8s, so
+/// 90s covers the whole bounded observation.
+const CAMOUFOX_IDENTITY_REOBSERVE_TIMEOUT: Duration = Duration::from_secs(90);
 
 fn runtime_package_verification(
     verification: &crate::engine::EngineLaunchPackageVerification,
@@ -325,6 +329,32 @@ struct CamoufoxHostLaunchResult {
     cookie_evidence: Option<Value>,
     #[serde(default)]
     probe_port: Option<u16>,
+    #[serde(default)]
+    verified: Option<bool>,
+    #[serde(default)]
+    evidence_class: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CamoufoxHostReobserveResult {
+    session_id: String,
+    state: String,
+    artifact_id: String,
+    #[serde(default)]
+    profile_id: Option<String>,
+    artifact_file_sha256: String,
+    #[serde(default)]
+    browser_proxy_server: Option<String>,
+    #[serde(default)]
+    configured_identity_digest: Option<String>,
+    #[serde(default)]
+    observed_website_digest: Option<String>,
+    #[serde(default)]
+    reobserved_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    identity_evidence: Option<CamoufoxHostIdentityEvidence>,
     #[serde(default)]
     verified: Option<bool>,
     #[serde(default)]
@@ -2424,13 +2454,52 @@ impl RuntimeManager {
             failures.push(error.to_string());
         }
 
+        // The user explicitly re-checked the running Silo, so the identity
+        // evidence must come from a fresh website-visible observation of the
+        // active session, never from the cached launch-time probe. A failed
+        // re-observation is reported honestly; it must not fabricate fresh or
+        // matched evidence, and it must not tear down a healthy network path.
+        let mut identity_evidence = self
+            .activation
+            .as_ref()
+            .and_then(|activation| activation.identity_evidence.clone());
+        let mut identity_note = String::new();
+        if matches!(
+            self.engine_runtime.as_ref(),
+            Some(EngineRuntimeProtocol::CamoufoxHost(_))
+        ) {
+            match self.reobserve_active_camoufox_identity(silo.id, evidence.runtime_id) {
+                Ok(fresh) => {
+                    identity_note = format!(
+                        "网站可见身份已重新读取：{}。",
+                        identity_evidence_state_label(&fresh.state)
+                    );
+                    identity_evidence = Some(fresh);
+                }
+                Err(error) => {
+                    identity_note =
+                        "网站可见身份重新观察失败；本次没有取得新的身份证据。".to_owned();
+                    let reason: String =
+                        format!("本次身份复核未能重新观察网站身份：{error}")
+                            .chars()
+                            .take(480)
+                            .collect();
+                    identity_evidence = identity_evidence.map(|mut evidence| {
+                        evidence.state = IdentityEvidenceState::Unavailable;
+                        evidence.reason = Some(reason);
+                        evidence
+                    });
+                }
+            }
+        }
+
         let required_failure = silo.network_profile.requires_proxy() && !failures.is_empty();
         let state = if required_failure || hard_failure {
             RuntimeState::VerificationFailed
         } else {
             RuntimeState::Running
         };
-        let message = if failures.is_empty() {
+        let mut message = if failures.is_empty() {
             "用户触发的运行时重新检查已完成；浏览器路径、受管 relay 和外部绑定（如有）均保持可回读。未进行后台节点轮换。"
                 .to_owned()
         } else {
@@ -2439,6 +2508,10 @@ impl RuntimeManager {
                 failures.join("；")
             )
         };
+        if !identity_note.is_empty() {
+            message.push(' ');
+            message.push_str(&identity_note);
+        }
         self.activation = Some(RuntimeActivation {
             active_silo_id: Some(silo.id),
             state: state.clone(),
@@ -2447,13 +2520,81 @@ impl RuntimeManager {
             browser_verification,
             engine_evidence: Some(engine_evidence),
             network_evidence: Some(evidence),
-            identity_evidence: self
-                .activation
-                .as_ref()
-                .and_then(|activation| activation.identity_evidence.clone()),
+            identity_evidence,
         });
         self.persist_current_record(state);
         Ok(self.activation.clone().expect("activation was set"))
+    }
+
+    /// Re-observes the website-visible identity of the exact active Camoufox
+    /// session through the Host's fresh-observation command and binds the new
+    /// evidence to this Silo, runtime, session, and Artifact.
+    fn reobserve_active_camoufox_identity(
+        &mut self,
+        silo_id: Uuid,
+        runtime_id: Uuid,
+    ) -> Result<RuntimeIdentityEvidence, LauncherError> {
+        let (session_id, binding) = {
+            let Some(EngineRuntimeProtocol::CamoufoxHost(host)) = self.engine_runtime.as_ref()
+            else {
+                return Err(LauncherError::RuntimeReceipt(
+                    "identity re-observation requires the managed Camoufox session".to_owned(),
+                ));
+            };
+            (host.session_id.clone(), host.binding.clone())
+        };
+        let value = {
+            let Some(EngineRuntimeProtocol::CamoufoxHost(host)) = self.engine_runtime.as_mut()
+            else {
+                unreachable!("engine runtime was verified as the Camoufox Host above")
+            };
+            host.transport.request(
+                "reobserve_identity",
+                json!({ "sessionId": session_id }),
+                CAMOUFOX_IDENTITY_REOBSERVE_TIMEOUT,
+            )?
+        };
+        let reobserve: CamoufoxHostReobserveResult =
+            serde_json::from_value(value).map_err(|error| {
+                LauncherError::RuntimeReceipt(format!(
+                    "invalid Camoufox Host identity re-observation response: {error}"
+                ))
+            })?;
+        if reobserve.session_id != session_id
+            || reobserve.state != "running"
+            || reobserve.artifact_id != binding.artifact_id
+            || reobserve.artifact_file_sha256 != binding.artifact_file_sha256
+            || reobserve.profile_id.is_some_and(|id| id != binding.profile_id)
+        {
+            return Err(LauncherError::RuntimeReceipt(
+                "Camoufox Host identity re-observation did not bind to the exact active session"
+                    .to_owned(),
+            ));
+        }
+        let Some(host_evidence) = reobserve.identity_evidence.as_ref() else {
+            return Err(LauncherError::RuntimeReceipt(
+                "Camoufox Host identity re-observation returned no evidence".to_owned(),
+            ));
+        };
+        validate_camoufox_host_identity_evidence(host_evidence)?;
+        let evidence = bind_camoufox_identity_evidence(
+            Some(host_evidence),
+            silo_id,
+            runtime_id,
+            &session_id,
+            &binding,
+        );
+        if let Some(EngineRuntimeProtocol::CamoufoxHost(host)) = self.engine_runtime.as_mut() {
+            host.identity_evidence = Some(host_evidence.clone());
+            if reobserve.observed_website_digest.is_some() {
+                host.observed_website_digest = reobserve.observed_website_digest;
+            }
+        }
+        // The website-visible identity summary follows the newest observation
+        // of this exact session (reobserved.json, falling back to
+        // observed.json).
+        self.capture_website_identity(silo_id);
+        Ok(evidence)
     }
 
     pub fn rebind_active_mihomo(
@@ -3944,6 +4085,15 @@ fn bind_camoufox_identity_evidence(
             })
             .collect(),
         reason: host_evidence.reason.clone(),
+    }
+}
+
+fn identity_evidence_state_label(state: &IdentityEvidenceState) -> &'static str {
+    match state {
+        IdentityEvidenceState::Matched => "Matched",
+        IdentityEvidenceState::Mismatched => "Mismatched",
+        IdentityEvidenceState::Unavailable => "Unavailable",
+        IdentityEvidenceState::Stale => "Stale",
     }
 }
 
@@ -8675,5 +8825,157 @@ for raw in sys.stdin.buffer:
             .as_ref()
             .is_some_and(|context| context.mihomo_authentication.is_none()));
         assert!(runtime.child.is_none());
+    }
+
+    fn reobserve_fixture(
+        mode: &str,
+    ) -> (PathBuf, RuntimeManager, Silo, Uuid, chrono::DateTime<Utc>) {
+        let (root, mut runtime, silo_id) = fake_camoufox_runtime_manager(mode);
+        let mut silo = camoufox_test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        silo.id = silo_id;
+        let network_evidence = super::configured_network_evidence(
+            &silo.network_profile,
+            false,
+            EngineAdapterId::Camoufox,
+        );
+        let runtime_id = network_evidence.runtime_id;
+        let launch_observed_at = Utc::now() - chrono::Duration::minutes(5);
+        let launch_evidence = RuntimeIdentityEvidence {
+            silo_id,
+            runtime_id,
+            session_id: "11111111-1111-4111-8111-111111111111".to_owned(),
+            artifact_id: "identity-m3-fake".to_owned(),
+            artifact_file_sha256: "a".repeat(64),
+            engine_adapter: EngineAdapterId::Camoufox,
+            observed_at: launch_observed_at,
+            state: IdentityEvidenceState::Matched,
+            signals: Vec::new(),
+            reason: None,
+        };
+        runtime.activation = Some(RuntimeActivation {
+            active_silo_id: Some(silo_id),
+            state: RuntimeState::Running,
+            updated_at: Utc::now(),
+            message: None,
+            browser_verification: None,
+            engine_evidence: None,
+            network_evidence: Some(network_evidence),
+            identity_evidence: Some(launch_evidence),
+        });
+        (root, runtime, silo, runtime_id, launch_observed_at)
+    }
+
+    #[test]
+    fn reobserve_binds_fresh_identity_evidence_to_the_active_session() {
+        let (root, mut runtime, silo, runtime_id, launch_observed_at) =
+            reobserve_fixture("normal");
+        let before_recheck = Utc::now();
+        let fresh = runtime
+            .reobserve_active_camoufox_identity(silo.id, runtime_id)
+            .expect("fresh identity re-observation");
+        assert_eq!(fresh.silo_id, silo.id);
+        assert_eq!(fresh.runtime_id, runtime_id);
+        assert_eq!(
+            fresh.session_id,
+            "11111111-1111-4111-8111-111111111111".to_owned()
+        );
+        assert_eq!(fresh.artifact_id, "identity-m3-fake");
+        assert_eq!(fresh.artifact_file_sha256, "a".repeat(64));
+        assert_eq!(fresh.engine_adapter, EngineAdapterId::Camoufox);
+        assert_eq!(fresh.state, IdentityEvidenceState::Matched);
+        assert!(fresh.observed_at > launch_observed_at);
+        assert!(fresh.observed_at >= before_recheck);
+        let Some(super::EngineRuntimeProtocol::CamoufoxHost(host)) =
+            runtime.engine_runtime.as_ref()
+        else {
+            panic!("camoufox host runtime");
+        };
+        assert!(host.identity_evidence.is_some());
+        assert_eq!(
+            host.identity_evidence.as_ref().map(|evidence| evidence.observed_at),
+            Some(fresh.observed_at)
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reobserve_rejects_a_response_that_does_not_bind_to_the_active_session() {
+        let (root, mut runtime, silo, runtime_id, _launch_observed_at) =
+            reobserve_fixture("reobserve-wrong-session");
+        let error = runtime
+            .reobserve_active_camoufox_identity(silo.id, runtime_id)
+            .err()
+            .expect("a mismatched session binding must fail closed");
+        assert!(error
+            .to_string()
+            .contains("did not bind to the exact active session"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recheck_active_reobserves_fresh_identity_for_the_running_managed_silo() {
+        let (root, mut runtime, silo, runtime_id, launch_observed_at) =
+            reobserve_fixture("normal");
+        let before_recheck = Utc::now();
+        let activation = runtime
+            .recheck_active(&silo, None, None)
+            .expect("explicit recheck completes");
+        let evidence = activation
+            .identity_evidence
+            .expect("the recheck carries fresh identity evidence");
+        assert_eq!(evidence.state, IdentityEvidenceState::Matched);
+        assert_eq!(evidence.silo_id, silo.id);
+        assert_eq!(evidence.runtime_id, runtime_id);
+        assert!(evidence.observed_at > launch_observed_at);
+        assert!(evidence.observed_at >= before_recheck);
+        assert!(activation
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("网站可见身份已重新读取：Matched")));
+        assert!(activation.updated_at >= before_recheck);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recheck_active_reports_mismatched_fresh_identity_honestly() {
+        let (root, mut runtime, silo, _runtime_id, _launch_observed_at) =
+            reobserve_fixture("reobserve-mismatched");
+        let activation = runtime
+            .recheck_active(&silo, None, None)
+            .expect("explicit recheck completes");
+        let evidence = activation
+            .identity_evidence
+            .expect("the recheck carries fresh identity evidence");
+        assert_eq!(evidence.state, IdentityEvidenceState::Mismatched);
+        assert!(activation
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("网站可见身份已重新读取：Mismatched")));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recheck_active_reports_failed_reobservation_without_fabricating_fresh_evidence() {
+        let (root, mut runtime, silo, _runtime_id, launch_observed_at) =
+            reobserve_fixture("reobserve-error");
+        let activation = runtime
+            .recheck_active(&silo, None, None)
+            .expect("explicit recheck completes");
+        let evidence = activation
+            .identity_evidence
+            .expect("the previous evidence stays bound");
+        assert_eq!(evidence.state, IdentityEvidenceState::Unavailable);
+        assert_eq!(evidence.observed_at, launch_observed_at);
+        assert!(evidence
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("未能重新观察网站身份")));
+        assert!(activation
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("网站可见身份重新观察失败")));
+        let _ = fs::remove_dir_all(root);
     }
 }

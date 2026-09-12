@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   activationStatusLabel,
   describeActivation,
+  describeIdentityRecheck,
   describeNetwork,
 } from "./formatters.js";
+import type { RuntimeIdentityEvidence } from "@verisilo/contracts";
 
 describe("desktop formatters", () => {
   it("labels a terminal runtime failure as blocked instead of running", () => {
@@ -61,5 +63,82 @@ describe("desktop formatters", () => {
         },
       }),
     ).toBe("Silo 专属代理 · 本机 Clash「直连-美国04」");
+  });
+
+  it("describes an explicit recheck with the fresh identity result and time", () => {
+    const observedAt = new Date(Date.now() - 30_000).toISOString();
+    const evidence: RuntimeIdentityEvidence = {
+      siloId: "11111111-1111-4111-8111-111111111111",
+      runtimeId: "22222222-2222-4222-8222-222222222222",
+      sessionId: "s",
+      artifactId: "identity-a",
+      artifactFileSha256: "a".repeat(64),
+      engineAdapter: "camoufox",
+      observedAt,
+      state: "matched",
+      signals: [],
+    };
+    const message = describeIdentityRecheck({
+      activeSiloId: "11111111-1111-4111-8111-111111111111",
+      state: "running",
+      updatedAt: new Date().toISOString(),
+      message: null,
+      engineEvidence: null,
+      networkEvidence: null,
+      identityEvidence: evidence,
+    });
+    expect(message).toContain("网站可见身份已重新读取：Matched");
+    expect(message).toContain("浏览器正在运行");
+  });
+
+  it("reports a mismatched fresh observation as a fact, not a failure", () => {
+    const evidence: RuntimeIdentityEvidence = {
+      siloId: "11111111-1111-4111-8111-111111111111",
+      runtimeId: "22222222-2222-4222-8222-222222222222",
+      sessionId: "s",
+      artifactId: "identity-a",
+      artifactFileSha256: "a".repeat(64),
+      engineAdapter: "camoufox",
+      observedAt: new Date().toISOString(),
+      state: "mismatched",
+      signals: [],
+    };
+    const message = describeIdentityRecheck({
+      activeSiloId: "11111111-1111-4111-8111-111111111111",
+      state: "running",
+      updatedAt: new Date().toISOString(),
+      message: null,
+      engineEvidence: null,
+      networkEvidence: null,
+      identityEvidence: evidence,
+    });
+    expect(message).toContain("Mismatched");
+    expect(message).not.toContain("检测");
+    expect(message).not.toContain("风控");
+  });
+
+  it("keeps the plain activation description when no identity evidence belongs to the active Silo", () => {
+    const evidence: RuntimeIdentityEvidence = {
+      siloId: "33333333-3333-4333-8333-333333333333",
+      runtimeId: "22222222-2222-4222-8222-222222222222",
+      sessionId: "s",
+      artifactId: "identity-a",
+      artifactFileSha256: "a".repeat(64),
+      engineAdapter: "camoufox",
+      observedAt: new Date().toISOString(),
+      state: "matched",
+      signals: [],
+    };
+    expect(
+      describeIdentityRecheck({
+        activeSiloId: "11111111-1111-4111-8111-111111111111",
+        state: "running",
+        updatedAt: new Date().toISOString(),
+        message: null,
+        engineEvidence: null,
+        networkEvidence: null,
+        identityEvidence: evidence,
+      }),
+    ).toBe("浏览器正在运行");
   });
 });

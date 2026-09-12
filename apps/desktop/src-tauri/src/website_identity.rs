@@ -49,7 +49,21 @@ pub fn load_session_observation(
     if !valid_session_id(session_id) {
         return None;
     }
-    parse_observed_file(&state_root.join(session_id).join("observed.json"), silo_id)
+    let session_dir = state_root.join(session_id);
+    // A fresh identity re-observation writes reobserved.json next to the
+    // launch-time observed.json. The session's current website-visible
+    // identity is the newest of the two observations, never a mixture.
+    let launch = parse_observed_file(&session_dir.join("observed.json"), silo_id);
+    let reobserved = parse_observed_file(&session_dir.join("reobserved.json"), silo_id);
+    match (launch, reobserved) {
+        (Some(launch), Some(reobserved)) => Some(if reobserved.observed_at > launch.observed_at
+        {
+            reobserved
+        } else {
+            launch
+        }),
+        (launch, reobserved) => launch.or(reobserved),
+    }
 }
 
 pub fn load_latest_observation(

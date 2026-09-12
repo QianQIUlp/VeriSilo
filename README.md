@@ -4,7 +4,7 @@ VeriSilo is a local-first, open-source platform for managing persistent browser 
 
 It creates a new, managed browser data directory for every **Silo**. Browser-owned state—cookies, storage, cache, service workers, permissions, and history—stays in that directory. VeriSilo never imports, clones, or mutates the user's default browser profile.
 
-Current product state: **v0.1.0-rc2 is a current-source locally accepted installed candidate in a pristine Windows Sandbox**. It is not tagged, publicly released, or shipped; strict non-admin install/reinstall/uninstall semantics remain unproven. The [0.1 Identity Isolation Core milestone](docs/milestones/0.1-identity-isolation-core.md) is a historical source checkpoint, not the current product stage or a signed binary release.
+Current product state: **v0.1.0-rc3 is a public GitHub prerelease (`PUBLIC_GITHUB_PRERELEASE`, tag `v0.1.0-rc3`, source `407c501741c1be3444bfa607c7e693ecc7324409`); its release gate is closed**. The current engineering phase is post-rc3 product development on the canonical development source `origin/baseline/dev`, following the accepted differentiated roadmap. Strict non-admin install/reinstall/uninstall semantics remain unproven, and the outer Desktop/NSIS Authenticode remains unsigned. The [0.1 Identity Isolation Core milestone](docs/milestones/0.1-identity-isolation-core.md) is a historical source checkpoint, not the current product stage or a signed binary release.
 
 ## Architecture and roadmap
 
@@ -25,8 +25,9 @@ The desktop app owns the Silo lifecycle and runtime binding; Chrome or Edge owns
 | **Standard Silo Windows Profile Isolation**                                                            | closed |
 | **Camoufox M0–M2-W, M3-0, FP1–FP4, and clean M3-WI Attempt 4**                                        | closed at their documented evidence layers |
 | **Managed Engine production adapter, Formal-v3 package/signing, Managed Silo UX, and current-user NSIS** | implemented; release checks closed |
-| **Current product phase**                                                                               | rc2 current-source installed candidate accepted in an exact Windows Sandbox; next direction is the accepted differentiated roadmap |
-| **Current source-bound RC**                                                                              | v0.1.0-rc2, source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`; locally accepted, not public |
+| **Current product phase**                                                                               | post-rc3 product development on `origin/baseline/dev`; current direction is the accepted differentiated roadmap |
+| **Current public prerelease**                                                                           | v0.1.0-rc3, source `407c501741c1be3444bfa607c7e693ecc7324409`; `PUBLIC_GITHUB_PRERELEASE`, release gate closed |
+| **Historical rc2 candidate**                                                                            | v0.1.0-rc2, source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`; current-source installed candidate accepted in an exact Windows Sandbox |
 
 See [the historical 0.1 source milestone](docs/milestones/0.1-identity-isolation-core.md) for that checkpoint and [the environment roadmap](docs/environment-roadmap.md) for the stronger layers.
 
@@ -69,7 +70,7 @@ The durable product model, current engine choice, Agent workflow, and changing d
 - [Agent operating model](docs/agent-operating-model.md) defines how architecture, execution, evidence, and stage Gates are delegated and reviewed.
 - [Camoufox program status](docs/camoufox-program-status.md) is the only mutable checkpoint page for this workstream.
 
-The current source includes the accepted standalone Camoufox Host and v3 Identity Artifact lineage, the M3-0 contract, FP1–FP4 qualification, clean M3-WI Attempt 4 evidence, a production `ExternalPackageEngineAdapter`, an internally CMS-signed Formal-v3 package path with a public signer pin, Managed Silo product flow, current-user NSIS packaging, and the rc2 current-source installed acceptance record. That record covers the exact pristine Windows Sandbox environment and does not prove universal Windows, strict non-admin, public-release, site-compatibility, or undetectability claims. Current routing, rc2 provenance, the accepted differentiated product direction, and the remaining unverified boundaries live in the [Camoufox program status](docs/camoufox-program-status.md) and [Simprint source due diligence](docs/simprint-source-due-diligence-2026-09-09.md).
+The current source includes the accepted standalone Camoufox Host and v3 Identity Artifact lineage, the M3-0 contract, FP1–FP4 qualification, clean M3-WI Attempt 4 evidence, a production `ExternalPackageEngineAdapter`, an internally CMS-signed Formal-v3 package path with a public signer pin, Managed Silo product flow, current-user NSIS packaging, the rc2 current-source installed acceptance record, and the published v0.1.0-rc3 prerelease. Those records cover their exact environments and do not prove universal Windows, strict non-admin, broader site-compatibility, or undetectability claims. Current routing, rc2/rc3 provenance, the accepted differentiated product direction, and the remaining unverified boundaries live in the [Camoufox program status](docs/camoufox-program-status.md) and [Simprint source due diligence](docs/simprint-source-due-diligence-2026-09-09.md).
 
 ## Quick start
 
