@@ -31,6 +31,7 @@ export function SiloList({
   networkEvidence,
   onArchive,
   onCreate,
+  onCreateIdentity,
   onEdit,
   onLaunch,
   onRebindMihomo,
@@ -49,6 +50,7 @@ export function SiloList({
   networkEvidence: SiloNetworkEvidence[];
   onArchive: (silo: Silo) => Promise<void>;
   onCreate: () => void;
+  onCreateIdentity?: (silo: Silo) => void;
   onEdit: (silo: Silo) => void;
   onLaunch: (silo: Silo) => Promise<void>;
   onRebindMihomo: (silo: Silo) => Promise<void>;
@@ -258,6 +260,19 @@ export function SiloList({
                   >
                     编辑
                   </button>
+                  {managedCamoufox &&
+                  identityPreview !== undefined &&
+                  onCreateIdentity !== undefined ? (
+                    <button
+                      className="button-secondary"
+                      disabled={busy}
+                      onClick={() => onCreateIdentity(silo)}
+                      title="以此 Silo 的设备和网络设置为模板创建新的托管身份；原 Silo 保持不变"
+                      type="button"
+                    >
+                      创建新身份
+                    </button>
+                  ) : null}
                   <button
                     className="button-secondary"
                     disabled={busy || activation === silo.id}

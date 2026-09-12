@@ -1,9 +1,16 @@
 import {
   desktopApi,
+  type CreateManagedSiloInput,
   type CreateSiloInput,
   type DesktopStatus,
 } from "../desktop-api.js";
-import { previewSilo, previewStatus } from "./fixtures.js";
+import {
+  previewEngineStatuses,
+  previewManagedIdentity,
+  previewManagedSilo,
+  previewSilo,
+  previewStatus,
+} from "./fixtures.js";
 
 // Imported only by preview.html. Unsupported operations fail here instead of
 // reaching Tauri; all state is synthetic and lasts only until the page reloads.
@@ -15,7 +22,13 @@ export function installPreviewApi(scenario: string) {
         ? "uninitialized"
         : "unlocked",
   );
-  let silos = scenario === "empty" ? [] : [structuredClone(previewSilo)];
+  let silos =
+    scenario === "empty"
+      ? []
+      : [
+          structuredClone(previewSilo),
+          structuredClone(previewManagedSilo),
+        ];
   if (scenario === "running") {
     status.activation.activeSiloId = previewSilo.id;
     status.activation.state = "running";
@@ -57,8 +70,11 @@ export function installPreviewApi(scenario: string) {
         version: "preview",
       },
     ],
-    listEngineAdapters: async () => [],
-    listManagedIdentityPreviews: async () => ({}),
+    listEngineAdapters: async () => structuredClone(previewEngineStatuses),
+    listManagedIdentityPreviews: async () =>
+      structuredClone({
+        [previewManagedSilo.id]: previewManagedIdentity,
+      }),
     listLegacyEnvironmentArtifacts: async () => [],
     listNetworkEvidence: async () => [],
     listSilos: async () => {
@@ -87,6 +103,30 @@ export function installPreviewApi(scenario: string) {
         color: input.color,
         networkProfile: input.networkProfile,
       };
+      silos.push(silo);
+      return structuredClone(silo);
+    },
+    createManagedSilo: async (input: CreateManagedSiloInput) => {
+      unlocked();
+      // Mirrors the real create path: a fresh Silo with a new id, new
+      // profile, new Artifact binding, and no inherited runtime state.
+      const silo = {
+        ...structuredClone(previewManagedSilo),
+        id: crypto.randomUUID(),
+        name: input.name,
+        color: input.color,
+        networkProfile: input.networkProfile,
+        seedReference: crypto.randomUUID(),
+        identityLockedAt: null,
+        engine: {
+          adapter: "camoufox",
+          artifactBinding: {
+            artifactId: `identity-${crypto.randomUUID().slice(0, 8)}`,
+            artifactFileSha256: "c".repeat(64),
+            schema: "verisilo-camoufox-resolved-identity/v6",
+          },
+        },
+      } as const;
       silos.push(silo);
       return structuredClone(silo);
     },

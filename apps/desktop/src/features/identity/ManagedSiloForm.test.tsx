@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ManagedSiloForm } from "./ManagedSiloForm.js";
+import type { ManagedSiloTemplate } from "./managedTemplate.js";
 
 const formSource = readFileSync(
   new URL("./ManagedSiloForm.tsx", import.meta.url),
@@ -20,6 +21,44 @@ const renderForm = (name: string) =>
       color: "#5b5ce2",
       onColorChange: () => {},
       onSubmit: async () => {},
+    }),
+  );
+
+const remoteProxyTemplate: ManagedSiloTemplate = {
+  sourceSiloId: "11111111-1111-4111-8111-111111111111",
+  sourceSiloName: "工作空间",
+  name: "工作空间 - 新身份",
+  color: "#128f8b",
+  identityPreset: "balanced-en-us",
+  followNetworkExit: true,
+  screenWidth: 1920,
+  screenHeight: 1080,
+  hardwareConcurrency: 8,
+  gpuPreset: "nvidia-rtx-4060",
+  timezone: "America/New_York",
+  networkMode: "remote",
+  proxyScheme: "http",
+  proxyHost: "proxy.example.test",
+  proxyPort: "3128",
+  mixedPort: "7897",
+  controllerUrl: "",
+  selectorGroup: "",
+  nodeName: "",
+  proxyCredentialUsed: true,
+  mihomoSecretUsed: false,
+};
+
+const renderTemplatedForm = (template: ManagedSiloTemplate) =>
+  renderToStaticMarkup(
+    createElement(ManagedSiloForm, {
+      busy: false,
+      initialColor: "#5b5ce2",
+      name: template.name,
+      onNameChange: () => {},
+      color: template.color,
+      onColorChange: () => {},
+      onSubmit: async () => {},
+      template,
     }),
   );
 
@@ -78,8 +117,70 @@ describe("ManagedSiloForm progressive disclosure", () => {
     expect(formSource).toContain("hardwareConcurrency:");
     expect(formSource).toContain("gpuPreset:");
     expect(formSource).toContain("timezone: hasProxy && followNetworkExit");
-    expect(formSource).toContain('useState<ManagedIdentityPreset>("balanced-zh-cn")');
-    expect(formSource).toContain('useState("auto")');
+    expect(formSource).toContain(
+      'useState<ManagedIdentityPreset>(seed?.identityPreset ?? "balanced-zh-cn")',
+    );
+    expect(formSource).toContain('useState<string>(seed?.gpuPreset ?? "auto")');
     expect(formSource).toContain('useState<number | "">');
+  });
+});
+
+describe("ManagedSiloForm create-new-identity template", () => {
+  it("frames the form as creating a new identity from the source Silo", () => {
+    const markup = renderTemplatedForm(remoteProxyTemplate);
+    expect(markup).toContain("创建新身份");
+    expect(markup).toContain("以此配置创建新的托管身份浏览器");
+    expect(markup).toContain("原 Silo 不会被修改");
+  });
+
+  it("prefills network, identity, and advanced values from the template", () => {
+    const markup = renderTemplatedForm(remoteProxyTemplate);
+    expect(markup).toContain('id="managed-proxy-host"');
+    expect(markup).toContain('value="proxy.example.test"');
+    expect(markup).toContain('value="3128"');
+    expect(markup).toContain('value="balanced-en-us"');
+    expect(markup).toContain('value="America/New_York"');
+    expect(markup).toContain('value="nvidia-rtx-4060"');
+    expect(markup).toContain('value="8"');
+    // The advanced section opens so the inherited values are reviewable.
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain('id="managed-gpu"');
+  });
+
+  it("never prefills proxy credential fields", () => {
+    const markup = renderTemplatedForm(remoteProxyTemplate);
+    expect(markup).toContain('id="managed-proxy-username"');
+    expect(markup).toContain('id="managed-proxy-password"');
+    expect(markup).not.toContain('id="managed-proxy-username"\n                value=');
+    expect(markup).toContain("不会自动复制");
+  });
+
+  it("shows the Clash secret re-entry hint for bound templates", () => {
+    const markup = renderTemplatedForm({
+      ...remoteProxyTemplate,
+      networkMode: "clash",
+      proxyScheme: "socks5",
+      proxyHost: "127.0.0.1",
+      proxyPort: "7897",
+      mixedPort: "7897",
+      controllerUrl: "http://127.0.0.1:9097",
+      selectorGroup: "全局",
+      nodeName: "香港 01",
+      proxyCredentialUsed: false,
+      mihomoSecretUsed: true,
+    });
+    expect(markup).toContain('value="7897"');
+    // The controller URL is prefilled; the field displays its port portion.
+    expect(markup).toContain('value="9097"');
+    expect(markup).toContain("原 Clash 密钥不会自动复制");
+  });
+
+  it("keeps an inherited screen size selectable even when outside the standard list", () => {
+    const markup = renderTemplatedForm({
+      ...remoteProxyTemplate,
+      screenWidth: 1680,
+      screenHeight: 1050,
+    });
+    expect(markup).toContain('value="1680x1050"');
   });
 });

@@ -3,6 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CreateSiloPanel } from "../features/silos/CreateSiloPanel.js";
 import { useSiloDraft } from "../features/silos/useSiloDraft.js";
 
+import { managedCreateTemplateFromSilo } from "../features/identity/managedTemplate.js";
+import type { ManagedSiloTemplate } from "../features/identity/managedTemplate.js";
+
 import {
   type BrowserCandidate,
   type CreateManagedSiloInput,
@@ -33,6 +36,7 @@ import {
 } from "../shared/notice.js";
 
 import {
+  defaultColor,
   type WslCreationOption,
   emptyNetwork,
   requiredWslCreationOperations,
@@ -105,6 +109,8 @@ export function useDesktopWorkspace() {
     Record<string, number | null>
   >({});
   const [editingSilo, setEditingSilo] = useState<Silo | null>(null);
+  const [managedTemplate, setManagedTemplate] =
+    useState<ManagedSiloTemplate | null>(null);
   const [networkEvidenceHistory, setNetworkEvidenceHistory] = useState<
     SiloNetworkEvidence[]
   >([]);
@@ -239,6 +245,7 @@ export function useDesktopWorkspace() {
     setManagedStatusError(null);
     setPassphrase("");
     resetSiloDraft();
+    setManagedTemplate(null);
     setNetworkResult(null);
     setNetworkBusy(false);
     setBusy(false);
@@ -252,6 +259,34 @@ export function useDesktopWorkspace() {
         : currentView,
     );
   }, [resetSiloDraft]);
+
+  // "Create new identity from this Silo": map the source Silo's safe,
+  // user-visible configuration onto the normal managed creation form. Seeds,
+  // Artifacts, Profiles, and secrets are never part of the template.
+  const startIdentityFromSilo = useCallback(
+    (silo: Silo, preview: ManagedIdentityPreview | undefined): boolean => {
+      if (preview === undefined) {
+        return false;
+      }
+      const template = managedCreateTemplateFromSilo(silo, preview);
+      if (template === null) {
+        return false;
+      }
+      setManagedTemplate(template);
+      setName(template.name);
+      setColor(template.color);
+      return true;
+    },
+    [setColor, setName],
+  );
+
+  const clearManagedTemplate = useCallback(() => {
+    if (managedTemplate !== null) {
+      setName("");
+      setColor(defaultColor);
+    }
+    setManagedTemplate(null);
+  }, [managedTemplate, setColor, setName]);
 
   const applyVaultUiLock = useCallback(
     (invalidateSession: boolean) => {
@@ -1282,6 +1317,7 @@ export function useDesktopWorkspace() {
     ),
     managedStatusBusy: managedStatusBusy,
     managedStatusError: managedStatusError,
+    managedTemplate: managedTemplate,
     refreshManagedStatus: refreshManagedBrowserStatus,
     name: name,
     importProxy: importProxy,
@@ -1345,6 +1381,9 @@ export function useDesktopWorkspace() {
 
   return {
     creation,
+    managedTemplate,
+    startIdentityFromSilo,
+    clearManagedTemplate,
     status,
     uiVaultLocked,
     vaultTransition,
