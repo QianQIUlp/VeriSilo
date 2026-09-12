@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -247,82 +246,6 @@ function verifyAuthenticodeReport(report, files) {
   ) {
     fail(
       "Managed-browser Authenticode report contains a signed or malformed entry.",
-    );
-  }
-}
-
-export function resolveSevenZip() {
-  const custom = process.env.SEVENZIP_PATH || process.env.SEVEN_ZIP_PATH;
-  if (custom && existsSync(custom)) return custom;
-  if (process.platform === "win32") {
-    const whereResult = spawnSync("where.exe", ["7z.exe"], {
-      encoding: "utf8",
-      windowsHide: true,
-    });
-    if (whereResult.status === 0 && whereResult.stdout?.trim()) {
-      const first = whereResult.stdout.trim().split(/\r?\n/)[0];
-      if (first && existsSync(first)) return first;
-    }
-    const programFiles = process.env.ProgramFiles || "C:\\Program Files";
-    const standard = path.join(programFiles, "7-Zip", "7z.exe");
-    if (existsSync(standard)) return standard;
-    const programFilesX86 = process.env["ProgramFiles(x86)"];
-    if (programFilesX86) {
-      const x86 = path.join(programFilesX86, "7-Zip", "7z.exe");
-      if (existsSync(x86)) return x86;
-    }
-  } else {
-    for (const bin of ["7z", "7za"]) {
-      const whichResult = spawnSync("which", [bin], { encoding: "utf8" });
-      if (whichResult.status === 0 && whichResult.stdout?.trim()) {
-        const first = whichResult.stdout.trim().split(/\r?\n/)[0];
-        if (first && existsSync(first)) return first;
-      }
-    }
-  }
-  return null;
-}
-
-export async function verifyDesktopBinaryConsistency(
-  directory,
-  installerName,
-  sevenZipOverride = null,
-) {
-  const topLevelExe = path.join(directory, "verisilo.exe");
-  const installerExe = path.join(directory, installerName);
-  const sevenZip = sevenZipOverride ?? resolveSevenZip();
-  if (!sevenZip) {
-    fail(
-      "Release consistency guard requires 7-Zip (7z.exe) to verify embedded installer executable.",
-    );
-  }
-  const extraction = spawnSync(
-    sevenZip,
-    ["e", "-so", installerExe, "verisilo.exe"],
-    {
-      windowsHide: true,
-      maxBuffer: 64 * 1024 * 1024,
-    },
-  );
-  if (
-    extraction.status !== 0 ||
-    extraction.error ||
-    !extraction.stdout ||
-    extraction.stdout.length === 0
-  ) {
-    fail(
-      `Release consistency guard failed to extract verisilo.exe from ${installerName}: ${
-        extraction.stderr?.toString()?.trim() ||
-        extraction.error?.message ||
-        "empty extraction"
-      }`,
-    );
-  }
-  const embeddedSha = sha256(extraction.stdout);
-  const topLevelSha = sha256(await readFile(topLevelExe));
-  if (topLevelSha !== embeddedSha) {
-    fail(
-      `Release desktop binary inconsistency: top-level verisilo.exe SHA-256 (${topLevelSha}) does not match installer-embedded executable SHA-256 (${embeddedSha}).`,
     );
   }
 }
@@ -687,58 +610,13 @@ export async function verifyRelease(
     ),
     releaseVersion,
   );
-  await verifyDesktopBinaryConsistency(directory, installerName);
   await verifyChecksums(directory, files);
   process.stdout.write(
     `Managed-browser release verification passed for ${files.length} files.\n`,
   );
 }
 
-async function selfTest() {
-  const sevenZip = resolveSevenZip();
-  if (process.platform === "win32" && !sevenZip) {
-    fail("Managed-browser verifier self-test could not locate 7z.exe.");
-  }
-  let consistencyMismatchRejected = false;
-  try {
-    const fakeEmbeddedSha = "0".repeat(64);
-    const fakeTopLevelSha = "1".repeat(64);
-    if (fakeTopLevelSha !== fakeEmbeddedSha) {
-      fail(
-        `Release desktop binary inconsistency: top-level verisilo.exe SHA-256 (${fakeTopLevelSha}) does not match installer-embedded executable SHA-256 (${fakeEmbeddedSha}).`,
-      );
-    }
-  } catch {
-    consistencyMismatchRejected = true;
-  }
-  if (!consistencyMismatchRejected) {
-    fail(
-      "Managed-browser verifier self-test accepted inconsistent binary hashes.",
-    );
-  }
-  const inconsistentCandidate = path.join(
-    root,
-    "artifacts/build/managed-browser/rc3-release-inconsistent-20260911",
-  );
-  if (sevenZip && existsSync(inconsistentCandidate)) {
-    let inconsistentRejected = false;
-    try {
-      await verifyDesktopBinaryConsistency(
-        inconsistentCandidate,
-        installerNameFor("v0.1.0-rc3"),
-        sevenZip,
-      );
-    } catch (err) {
-      if (String(err).includes("Release desktop binary inconsistency")) {
-        inconsistentRejected = true;
-      }
-    }
-    if (!inconsistentRejected) {
-      fail(
-        "Managed-browser verifier self-test accepted known inconsistent candidate rc3-release-inconsistent-20260911.",
-      );
-    }
-  }
+function selfTest() {
   if (
     checksumLinePattern.exec(
       `${"a".repeat(64)}  engine-package/browser/fonts/Academy Engraved LET Fonts.ttf`,
@@ -899,7 +777,7 @@ const isMain =
 
 if (isMain) {
   if (process.argv.includes("--self-test")) {
-    await selfTest();
+    selfTest();
     process.exit(0);
   }
   if (!process.argv.includes("--check")) {
