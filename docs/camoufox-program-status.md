@@ -201,9 +201,18 @@ expected-vs-observed reconciliation，产生新的正式 Runtime Identity Eviden
 `observedAt`），并保持用户当前页面不被 probe 导航破坏。该能力由 Host 协议测试、
 RuntimeManager 绑定/诚实失败测试与 UI 文案测试覆盖；不再作为未来任务书写。
 
-下一个 product slice **尚未由用户冻结**。不要自动开始 rc4、候选 B（Current Session
-Integrity Dashboard）或候选 C 的任何部分；它们都只是候选方向，未经用户批准不得写入
-路线或开始实施。也不要自动重跑输入未变化的 FP1–FP4、创建 FP5。
+**Create New Identity From This Silo 已进入 source**：Managed Identity Silo 可以把当前
+安全可复用的 identity/network 配置作为新建模板，创建新的 Silo、Profile、seed 和
+Artifact；不会复制浏览器 session/state 或 Vault 明文凭据。
+
+**Current Session Integrity 已进入 source**：运行中的 Managed Identity Silo 卡片现在
+提供「当前会话完整性」结构化摘要，从既有 Runtime Identity / Engine / Network evidence
+与 attribution 派生身份、引擎、网络、运行归属四个状态，并如实利用 identity
+`observedAt` 与 network `expiresAt` 表达新鲜度。它是派生摘要，不新增证据等级或
+verification score；`Matched` 仍只是 expected-vs-observed reconciliation 结果。
+
+下一个 product slice **尚未由用户冻结**。不要自动开始 rc4 或其他未批准方向。也不要
+自动重跑输入未变化的 FP1–FP4、创建 FP5。
 
 历史 `artifacts/release/managed-browser/v0.1.0-rc1` 仍保留为 superseded、从未 runtime-accepted
 的候选记录；其原始 source、dirty 状态、installer hash、verifier 和 Pending acceptance 不变。

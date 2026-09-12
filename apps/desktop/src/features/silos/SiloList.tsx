@@ -20,6 +20,8 @@ import {
   ManagedStatusGroups,
 } from "../identity/IdentityDetails.js";
 
+import { CurrentSessionIntegrity } from "../identity/CurrentSessionIntegrity.js";
+
 import { CapabilityState } from "../../shared/components.js";
 
 import { describeNetwork } from "../../formatters.js";
@@ -128,6 +130,13 @@ export function SiloList({
                     </span>
                   ) : null}
                 </div>
+                {managedCamoufox && activation === silo.id ? (
+                  <CurrentSessionIntegrity
+                    activation={runtimeActivation}
+                    managedEngineReady={managedEngineReady}
+                    silo={silo}
+                  />
+                ) : null}
                 <dl className="silo-facts">
                   <div>
                     <dt>网站数据</dt>

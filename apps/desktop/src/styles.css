@@ -2030,6 +2030,95 @@ input::placeholder {
   line-height: 1.4;
 }
 
+.current-session {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+  border: 1px solid #dfe4f0;
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: #fbfcff;
+}
+
+.current-session-heading {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.current-session-heading .eyebrow {
+  margin: 0;
+}
+
+.current-session-heading strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.current-session-heading span {
+  color: var(--muted);
+  font-size: 0.67rem;
+  line-height: 1.45;
+}
+
+.current-session.no_anomaly .current-session-heading strong {
+  color: var(--good);
+}
+
+.current-session.attention .current-session-heading strong,
+.current-session.partial .current-session-heading strong,
+.current-session.stopped .current-session-heading strong {
+  color: var(--warn);
+}
+
+.current-session-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.current-session-grid > div {
+  display: grid;
+  gap: 0.2rem;
+  align-content: start;
+  min-width: 0;
+  border: 1px solid #e4e7f0;
+  border-radius: 8px;
+  padding: 0.55rem;
+  background: #fff;
+}
+
+.current-session-grid span {
+  color: var(--muted);
+  font-size: 0.63rem;
+  font-weight: 800;
+}
+
+.current-session-state {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 0.7rem;
+}
+
+.current-session-state.good {
+  color: var(--good);
+}
+
+.current-session-state.warn {
+  color: var(--warn);
+}
+
+.current-session-state.danger {
+  color: var(--danger);
+}
+
+.current-session-grid small {
+  color: var(--muted);
+  font-size: 0.61rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .form-panel {
   padding: clamp(1.2rem, 3vw, 2rem);
 }
@@ -4088,6 +4177,10 @@ footer {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .current-session-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .network-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4211,7 +4304,8 @@ footer {
   }
 
   .browser-mode-grid,
-  .managed-status-grid {
+  .managed-status-grid,
+  .current-session-grid {
     grid-template-columns: 1fr;
   }
 
