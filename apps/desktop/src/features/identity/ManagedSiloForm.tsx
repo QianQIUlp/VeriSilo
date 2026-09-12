@@ -38,6 +38,8 @@ import { parseProxyInput } from "../../proxy-input.js";
 
 import { GPU_PRESETS } from "../../gpu-presets.js";
 
+import type { ManagedSiloTemplate } from "./managedTemplate.js";
+
 export function ManagedSiloForm({
   busy,
   initialColor,
@@ -46,6 +48,7 @@ export function ManagedSiloForm({
   onNameChange,
   color: controlledColor,
   onColorChange,
+  template,
 }: {
   busy: boolean;
   initialColor: string;
@@ -54,7 +57,9 @@ export function ManagedSiloForm({
   onNameChange?: (value: string) => void;
   color?: string;
   onColorChange?: (value: string) => void;
+  template?: ManagedSiloTemplate | null;
 }) {
+  const seed = template ?? null;
   const [fallbackName, setFallbackName] = useState("");
   const [fallbackColor, setFallbackColor] = useState(initialColor);
   const name = controlledName ?? fallbackName;
@@ -74,32 +79,42 @@ export function ManagedSiloForm({
     }
   };
   const [identityPreset, setIdentityPreset] =
-    useState<ManagedIdentityPreset>("balanced-zh-cn");
-  const [followNetworkExit, setFollowNetworkExit] = useState(true);
+    useState<ManagedIdentityPreset>(seed?.identityPreset ?? "balanced-zh-cn");
+  const [followNetworkExit, setFollowNetworkExit] = useState(
+    seed?.followNetworkExit ?? true,
+  );
   const [screenWidth, setScreenWidth] = useState<number>(
-    () => screenChoiceForThisDisplay()[0],
+    () => seed?.screenWidth ?? screenChoiceForThisDisplay()[0],
   );
   const [screenHeight, setScreenHeight] = useState<number>(
-    () => screenChoiceForThisDisplay()[1],
+    () => seed?.screenHeight ?? screenChoiceForThisDisplay()[1],
   );
   const [hardwareConcurrency, setHardwareConcurrency] = useState<number | "">(
-    "",
+    () =>
+      seed !== null &&
+      managedCoreChoices.some((choice) => choice === seed.hardwareConcurrency)
+        ? seed.hardwareConcurrency
+        : "",
   );
-  const [gpuPreset, setGpuPreset] = useState("auto");
+  const [gpuPreset, setGpuPreset] = useState<string>(seed?.gpuPreset ?? "auto");
   const [timezone, setTimezone] = useState<string>(
-    defaultTimezoneForPreset("balanced-zh-cn"),
+    () => seed?.timezone ?? defaultTimezoneForPreset(seed?.identityPreset ?? "balanced-zh-cn"),
   );
   const [networkMode, setNetworkMode] = useState<"direct" | "clash" | "remote">(
-    "direct",
+    seed?.networkMode ?? "direct",
   );
-  const [proxyScheme, setProxyScheme] = useState<"http" | "socks5">("socks5");
-  const [proxyHost, setProxyHost] = useState("");
-  const [proxyPort, setProxyPort] = useState("8080");
+  const [proxyScheme, setProxyScheme] = useState<"http" | "socks5">(
+    seed?.proxyScheme ?? "socks5",
+  );
+  const [proxyHost, setProxyHost] = useState(seed?.proxyHost ?? "");
+  const [proxyPort, setProxyPort] = useState(seed?.proxyPort ?? "8080");
   const [proxyUsername, setProxyUsername] = useState("");
   const [proxyPassword, setProxyPassword] = useState("");
   const [proxyImport, setProxyImport] = useState("");
-  const [mixedPort, setMixedPort] = useState(String(MIHOMO_DEFAULT_MIXED_PORT));
-  const [controllerUrl, setControllerUrl] = useState("");
+  const [mixedPort, setMixedPort] = useState(
+    seed?.mixedPort ?? String(MIHOMO_DEFAULT_MIXED_PORT),
+  );
+  const [controllerUrl, setControllerUrl] = useState(seed?.controllerUrl ?? "");
   const [mihomoControllerSecret, setMihomoControllerSecret] = useState("");
   const [mihomoSnapshot, setMihomoSnapshot] = useState<MihomoSnapshot | null>(
     null,
@@ -107,15 +122,21 @@ export function ManagedSiloForm({
   const [findingClash, setFindingClash] = useState(false);
   const [readingGroups, setReadingGroups] = useState(false);
   const [clashStatus, setClashStatus] = useState<string | null>(null);
-  const [selectorGroup, setSelectorGroup] = useState("");
-  const [nodeName, setNodeName] = useState("");
+  const [selectorGroup, setSelectorGroup] = useState(seed?.selectorGroup ?? "");
+  const [nodeName, setNodeName] = useState(seed?.nodeName ?? "");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(seed !== null);
   const formRef = useRef<HTMLFormElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const hasProxy = networkMode !== "direct";
   const mihomoControllerUrl = controllerUrl;
+  const screenChoiceOptions: readonly (readonly [number, number])[] =
+    managedScreenChoices.some(
+      ([width, height]) => width === screenWidth && height === screenHeight,
+    )
+      ? managedScreenChoices
+      : [...managedScreenChoices, [screenWidth, screenHeight]];
 
   const applyClashSnapshot = (snapshot: MihomoSnapshot) => {
     const group = snapshot.groups[0];
@@ -286,11 +307,16 @@ export function ManagedSiloForm({
     <section className="panel managed-create-panel">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">托管身份浏览器</p>
-          <h2>创建托管身份浏览器</h2>
+          <p className="eyebrow">
+            {seed !== null ? "创建新身份" : "托管身份浏览器"}
+          </p>
+          <h2>
+            {seed !== null ? "以此配置创建新的托管身份浏览器" : "创建托管身份浏览器"}
+          </h2>
           <p>
-            选择网络出口和网站可见身份。第一次启动前还可以在 Silo
-            的编辑页微调或换一套指纹。
+            {seed !== null
+              ? `复用「${seed.sourceSiloName}」的设备和网络设置，创建新的独立 Profile 与身份。原 Silo 不会被修改。`
+              : "选择网络出口和网站可见身份。第一次启动前还可以在 Silo 的编辑页微调或换一套指纹。"}
           </p>
         </div>
         <span className="provider-health healthy">独立浏览器已就绪</span>
@@ -427,6 +453,12 @@ export function ManagedSiloForm({
           </div>
           {networkMode === "clash" ? (
             <div className="managed-proxy-fields">
+              {seed?.mihomoSecretUsed ? (
+                <p className="field-warning" role="note">
+                  本机 Clash 绑定已带入；原 Clash 密钥不会自动复制，如果原来的
+                  Clash 设置了密钥，请重新填写。
+                </p>
+              ) : null}
               <p className="form-hint">
                 浏览器走 Clash 已经开着的本机代理端口，常见是 7897 或 7890。
                 Clash Verge 默认关闭 9097，读取代理组会自动走内核管道。
@@ -657,6 +689,11 @@ export function ManagedSiloForm({
                   />
                 </label>
               </div>
+              {seed?.proxyCredentialUsed ? (
+                <p className="field-warning" role="note">
+                  代理地址已带入；原代理的登录信息保存在加密保险库中，不会自动复制。需要认证时请在上方重新输入用户名和密码。
+                </p>
+              ) : null}
               <p className="form-hint">
                 代理凭据只会进入加密保险库；托管浏览器不会看到原始凭据。
               </p>
@@ -750,7 +787,7 @@ export function ManagedSiloForm({
                   }}
                   value={`${screenWidth}x${screenHeight}`}
                 >
-                  {managedScreenChoices.map(([width, height]) => (
+                  {screenChoiceOptions.map(([width, height]) => (
                     <option
                       key={`${width}x${height}`}
                       value={`${width}x${height}`}

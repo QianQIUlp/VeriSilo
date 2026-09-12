@@ -1,8 +1,26 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import type { ManagedIdentityPreview } from "../../desktop-api.js";
 import { previewSilo, previewStatus } from "../../preview/fixtures.js";
 import { SiloList } from "./SiloList.js";
+
+const identityPreview: ManagedIdentityPreview = {
+  userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+  language: "zh-CN",
+  timezone: "Asia/Shanghai",
+  screenWidth: 1920,
+  screenHeight: 1080,
+  hardwareConcurrency: 8,
+  webglVendor: "NVIDIA Corporation",
+  webglRenderer: "NVIDIA GeForce RTX 3060, or similar",
+  platform: "Win32",
+  countryCode: null,
+  publicAddress: null,
+  latitude: null,
+  longitude: null,
+  networkBound: false,
+};
 
 describe("Silo list presentation", () => {
   it("renders empty and occupied workspaces without a desktop runtime", () => {
@@ -143,5 +161,108 @@ describe("Silo list presentation", () => {
     expect(rendered).toContain("Identity Matched");
     expect(rendered).toContain("时区");
     expect(rendered).not.toContain("Identity verified");
+  });
+
+  it("offers create-new-identity on managed silos only", () => {
+    const noAction = async () => {};
+    const managedSilo = {
+      ...previewSilo,
+      name: "托管空间",
+      engine: {
+        adapter: "camoufox" as const,
+        artifactBinding: {
+          artifactId: "identity-preview",
+          artifactFileSha256: "0".repeat(64),
+          schema: "verisilo-camoufox-resolved-identity/v6" as const,
+        },
+      },
+    };
+    const onCreateIdentity = () => {};
+    const managed = renderToStaticMarkup(
+      createElement(SiloList, {
+        activation: null,
+        busy: false,
+        managedEngineReady: true,
+        networkEvidence: [],
+        identityPreviews: { [managedSilo.id]: identityPreview },
+        storageUsage: {},
+        onArchive: noAction,
+        onCreate: noAction,
+        onCreateIdentity,
+        onEdit: noAction,
+        onLaunch: noAction,
+        onRebindMihomo: noAction,
+        onRecheckBrowser: noAction,
+        onRecheckRuntime: noAction,
+        onStop: noAction,
+        runtimeActivation: previewStatus().activation,
+        runtimeState: "idle" as const,
+        silos: [managedSilo],
+      }),
+    );
+    expect(managed).toContain("创建新身份");
+
+    const standard = renderToStaticMarkup(
+      createElement(SiloList, {
+        activation: null,
+        busy: false,
+        managedEngineReady: true,
+        networkEvidence: [],
+        identityPreviews: {},
+        storageUsage: {},
+        onArchive: noAction,
+        onCreate: noAction,
+        onCreateIdentity,
+        onEdit: noAction,
+        onLaunch: noAction,
+        onRebindMihomo: noAction,
+        onRecheckBrowser: noAction,
+        onRecheckRuntime: noAction,
+        onStop: noAction,
+        runtimeActivation: previewStatus().activation,
+        runtimeState: "idle" as const,
+        silos: [previewSilo],
+      }),
+    );
+    expect(standard).not.toContain("创建新身份");
+  });
+
+  it("keeps create-new-identity available while the managed silo is running", () => {
+    const noAction = async () => {};
+    const managedSilo = {
+      ...previewSilo,
+      name: "托管空间",
+      engine: {
+        adapter: "camoufox" as const,
+        artifactBinding: {
+          artifactId: "identity-preview",
+          artifactFileSha256: "0".repeat(64),
+          schema: "verisilo-camoufox-resolved-identity/v6" as const,
+        },
+      },
+    };
+    const rendered = renderToStaticMarkup(
+      createElement(SiloList, {
+        activation: managedSilo.id,
+        busy: false,
+        managedEngineReady: true,
+        networkEvidence: [],
+        identityPreviews: { [managedSilo.id]: identityPreview },
+        storageUsage: {},
+        onArchive: noAction,
+        onCreate: noAction,
+        onCreateIdentity: () => {},
+        onEdit: noAction,
+        onLaunch: noAction,
+        onRebindMihomo: noAction,
+        onRecheckBrowser: noAction,
+        onRecheckRuntime: noAction,
+        onStop: noAction,
+        runtimeActivation: previewStatus().activation,
+        runtimeState: "running" as const,
+        silos: [managedSilo],
+      }),
+    );
+    expect(rendered).toContain("创建新身份");
   });
 });

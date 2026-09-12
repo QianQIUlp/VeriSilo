@@ -45,6 +45,8 @@ import { EnvironmentWorkspace } from "./features/environments/EnvironmentWorkspa
 export function App() {
   const {
     creation,
+    startIdentityFromSilo,
+    clearManagedTemplate,
     status,
     uiVaultLocked,
     vaultTransition,
@@ -168,7 +170,10 @@ export function App() {
           <TabButton
             active={view === "create"}
             label="创建 Silo"
-            onClick={() => setView("create")}
+            onClick={() => {
+              clearManagedTemplate();
+              setView("create");
+            }}
           />
           <TabButton
             active={view === "settings"}
@@ -281,7 +286,13 @@ export function App() {
                 </p>
               </div>
               <div className="hero-actions">
-                <button onClick={() => setView("create")} type="button">
+                <button
+                  onClick={() => {
+                    clearManagedTemplate();
+                    setView("create");
+                  }}
+                  type="button"
+                >
                   新建 Silo
                 </button>
                 <button
@@ -308,7 +319,15 @@ export function App() {
               activation={status.activation.activeSiloId}
               busy={busy}
               onArchive={archiveSilo}
-              onCreate={() => setView("create")}
+              onCreate={() => {
+                clearManagedTemplate();
+                setView("create");
+              }}
+              onCreateIdentity={(silo) => {
+                if (startIdentityFromSilo(silo, identityPreviews[silo.id])) {
+                  setView("create");
+                }
+              }}
               onEdit={(silo) => {
                 setEditingSilo(silo);
                 setView("edit");

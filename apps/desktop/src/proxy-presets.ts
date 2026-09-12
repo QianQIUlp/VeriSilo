@@ -68,13 +68,12 @@ export function isCommonClashMixedPort(port: number): boolean {
   return (COMMON_CLASH_MIXED_PORTS as readonly number[]).includes(port);
 }
 
+export function isLoopbackProxyHost(host: string): boolean {
+  return ["127.0.0.1", "localhost", "::1"].includes(host.trim().toLowerCase());
+}
+
 export function isLoopbackProxyProfile(
   profile: NetworkProfile,
 ): profile is Extract<NetworkProfile, { mode: "fixed_proxy" }> {
-  return (
-    profile.mode === "fixed_proxy" &&
-    ["127.0.0.1", "localhost", "::1"].includes(
-      profile.host.trim().toLowerCase(),
-    )
-  );
+  return profile.mode === "fixed_proxy" && isLoopbackProxyHost(profile.host);
 }

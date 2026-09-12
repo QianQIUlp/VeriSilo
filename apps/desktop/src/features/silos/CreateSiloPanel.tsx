@@ -26,6 +26,8 @@ import {
 
 import { ManagedSiloForm } from "../identity/ManagedSiloForm.js";
 
+import type { ManagedSiloTemplate } from "../identity/managedTemplate.js";
+
 import { describeNetwork } from "../../formatters.js";
 
 import { CapabilityState, NetworkOption } from "../../shared/components.js";
@@ -44,6 +46,7 @@ export function CreateSiloPanel({
   executionTarget,
   importProxy,
   inspectMihomoController,
+  managedTemplate,
   mihomoBusy,
   mihomoControllerSecret,
   mihomoControllerUrl,
@@ -87,6 +90,7 @@ export function CreateSiloPanel({
   executionTarget: SiloExecutionTarget;
   importProxy: () => void;
   inspectMihomoController: () => Promise<void>;
+  managedTemplate?: ManagedSiloTemplate | null;
   mihomoBusy: boolean;
   mihomoControllerSecret: string;
   mihomoControllerUrl: string;
@@ -121,7 +125,9 @@ export function CreateSiloPanel({
 }) {
   const [websiteBoundaryConfirmed, setWebsiteBoundaryConfirmed] =
     useState(false);
-  const [creationMode, setCreationMode] = useState<CreateMode>("standard");
+  const [creationMode, setCreationMode] = useState<CreateMode>(
+    managedTemplate ? "managed" : "standard",
+  );
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const localProxySelected = isLoopbackProxyProfile(networkProfile);
   const mihomoBinding =
@@ -260,6 +266,7 @@ export function CreateSiloPanel({
           onColorChange={setColor}
           onNameChange={setName}
           onSubmit={createManagedSilo}
+          template={managedTemplate ?? null}
         />
       ) : (
         <form
