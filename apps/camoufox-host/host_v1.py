@@ -89,7 +89,6 @@ from host_probe import (
     MediaDeviceReadinessTimeout,
     expected_media_device_counts,
     extract_observed_website_signals,
-    install_probe_page_script,
     read_page_identity,
     skipped_media_readiness,
     wait_for_configured_media_devices,
@@ -1412,15 +1411,13 @@ class CamoufoxHost:
             session["page"] = page
 
         with _active_launch_stage("goto"):
+            await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
             if interactive:
                 with contextlib.suppress(Exception):
-                    await install_probe_page_script(page, self.probe_file)
                     await page.evaluate(
                         "(attrs) => { window.__probeWebGlAttrs = attrs; }",
                         disk_config.get("webGl:contextAttributes") or {},
                     )
-            else:
-                await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
 
         with _active_launch_stage("observed.fonts"):
             fonts = artifact["stableSignalsDeclared"]["fonts"]

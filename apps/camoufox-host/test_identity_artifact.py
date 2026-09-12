@@ -2641,6 +2641,10 @@ def test_font_universe_sync_with_probe() -> None:
 
 def test_interactive_launch_ordering_and_media_readiness() -> None:
     source = inspect.getsource(host_v1.CamoufoxHost._launch_browser)
+    assert source.index('_active_launch_stage("goto")') < source.index(
+        '_active_launch_stage("observed.media")'
+    ), "goto must precede observed.media"
+    assert "await page.goto(probe_url" in source
     assert source.index('_active_launch_stage("observed.media")') < source.index(
         '_active_launch_stage("observed.identity")'
     ), "observed.media must precede observed.identity"
