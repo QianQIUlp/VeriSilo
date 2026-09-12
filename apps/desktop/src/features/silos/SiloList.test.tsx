@@ -53,6 +53,15 @@ describe("Silo list presentation", () => {
     expect(populated).toContain(previewSilo.name);
     expect(populated).toContain("打开浏览器");
     expect(populated).not.toContain("还没有 Silo");
+    const missingActive = renderToStaticMarkup(
+      createElement(SiloList, {
+        ...props,
+        activation: "removed-silo",
+        silos: [previewSilo],
+      }),
+    );
+    expect(missingActive).toContain(`id="silo-${previewSilo.id}" aria-label=`);
+    expect(missingActive).not.toContain('hidden=""');
   });
 
   it("explains why other Silos cannot launch while one is running", () => {

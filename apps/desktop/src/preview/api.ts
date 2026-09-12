@@ -1,3 +1,4 @@
+import type { Silo } from "@verisilo/contracts";
 import {
   desktopApi,
   type CreateManagedSiloInput,
@@ -6,6 +7,7 @@ import {
 } from "../desktop-api.js";
 import {
   previewEngineStatuses,
+  previewIdentityEvidence,
   previewManagedIdentity,
   previewManagedSilo,
   previewSilo,
@@ -25,10 +27,27 @@ export function installPreviewApi(scenario: string) {
   let silos =
     scenario === "empty"
       ? []
-      : [
-          structuredClone(previewSilo),
-          structuredClone(previewManagedSilo),
-        ];
+      : [structuredClone(previewSilo), structuredClone(previewManagedSilo)];
+  if (scenario === "long-name") {
+    silos[1]!.name =
+      "北美业务 · 长期协作与研究专用身份空间 / Research & Operations";
+  }
+  if (
+    ["matched", "mismatched", "unavailable", "stale", "long-name"].includes(
+      scenario,
+    )
+  ) {
+    status.activation.activeSiloId = previewManagedSilo.id;
+    status.activation.state = "running";
+    status.activation.identityEvidence = previewIdentityEvidence(
+      previewManagedSilo,
+      scenario === "mismatched" ||
+        scenario === "unavailable" ||
+        scenario === "stale"
+        ? scenario
+        : "matched",
+    );
+  }
   if (scenario === "running") {
     status.activation.activeSiloId = previewSilo.id;
     status.activation.state = "running";
@@ -72,9 +91,11 @@ export function installPreviewApi(scenario: string) {
     ],
     listEngineAdapters: async () => structuredClone(previewEngineStatuses),
     listManagedIdentityPreviews: async () =>
-      structuredClone({
-        [previewManagedSilo.id]: previewManagedIdentity,
-      }),
+      Object.fromEntries(
+        silos
+          .filter((s) => s.engine.adapter === "camoufox")
+          .map((s) => [s.id, structuredClone(previewManagedIdentity)]),
+      ),
     listLegacyEnvironmentArtifacts: async () => [],
     listNetworkEvidence: async () => [],
     listSilos: async () => {
@@ -96,13 +117,14 @@ export function installPreviewApi(scenario: string) {
     }),
     createSilo: async (input: CreateSiloInput) => {
       unlocked();
-      const silo = {
+      const silo: Silo = {
         ...structuredClone(previewSilo),
         id: crypto.randomUUID(),
         name: input.name,
         color: input.color,
         networkProfile: input.networkProfile,
       };
+      silo.profileDirectory = `C:\\Preview\\profiles\\${silo.id}`;
       silos.push(silo);
       return structuredClone(silo);
     },
@@ -110,7 +132,7 @@ export function installPreviewApi(scenario: string) {
       unlocked();
       // Mirrors the real create path: a fresh Silo with a new id, new
       // profile, new Artifact binding, and no inherited runtime state.
-      const silo = {
+      const silo: Silo = {
         ...structuredClone(previewManagedSilo),
         id: crypto.randomUUID(),
         name: input.name,
@@ -126,7 +148,8 @@ export function installPreviewApi(scenario: string) {
             schema: "verisilo-camoufox-resolved-identity/v6",
           },
         },
-      } as const;
+      };
+      silo.profileDirectory = `C:\\Preview\\profiles\\${silo.id}`;
       silos.push(silo);
       return structuredClone(silo);
     },
@@ -136,12 +159,27 @@ export function installPreviewApi(scenario: string) {
         throw new Error("模拟启动失败：浏览器当前不可用。");
       status.activation.activeSiloId = siloId;
       status.activation.state = "running";
+      const silo = silos.find((s) => s.id === siloId)!;
+      status.activation.identityEvidence =
+        silo.engine.adapter === "camoufox"
+          ? previewIdentityEvidence(silo)
+          : null;
       return structuredClone(status.activation);
+    },
+    restoreArchivedSilo: async (id: string) => {
+      unlocked();
+      silos = silos.map((s) => (s.id === id ? { ...s, archivedAt: null } : s));
+      return structuredClone(silos.find((s) => s.id === id)!);
+    },
+    deleteSilo: async (id: string) => {
+      unlocked();
+      silos = silos.filter((s) => s.id !== id);
     },
     stopSilo: async () => {
       unlocked();
       status.activation.activeSiloId = null;
       status.activation.state = "stopped";
+      status.activation.identityEvidence = null;
       return structuredClone(status.activation);
     },
     archiveSilo: async (id: string) => {
@@ -150,6 +188,12 @@ export function installPreviewApi(scenario: string) {
         s.id === id ? { ...s, archivedAt: new Date().toISOString() } : s,
       );
     },
-    recheckSiloRuntime: async () => structuredClone(status.activation),
+    recheckSiloRuntime: async () => {
+      if (status.activation.identityEvidence) {
+        status.activation.identityEvidence.observedAt =
+          new Date().toISOString();
+      }
+      return structuredClone(status.activation);
+    },
   } satisfies Partial<typeof desktopApi>);
 }

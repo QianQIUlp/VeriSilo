@@ -489,7 +489,9 @@ export function ManagedIdentityEvidence({
   const [stateLabel, stateDescription] = identityEvidenceLabels[state];
   const reason =
     evidence?.reason ??
-    (evidence === null ? "启动这个 Managed Identity Silo 后，Host 才会取得网站观察。" : null);
+    (evidence === null
+      ? "启动这个 Managed Identity Silo 后，Host 才会取得网站观察。"
+      : null);
   const signals = evidence?.state === "stale" ? [] : (evidence?.signals ?? []);
   const freshlyReobserved =
     evidence !== null && isFreshObservation(evidence.observedAt);
@@ -499,32 +501,80 @@ export function ManagedIdentityEvidence({
       <div className="identity-evidence-heading">
         <div>
           <p className="eyebrow">Identity evidence</p>
-          <strong>Identity {stateLabel}</strong>
+          <strong>
+            <span className="identity-evidence-symbol" aria-hidden="true">
+              {
+                { matched: "≍", mismatched: "≠", unavailable: "∅", stale: "◷" }[
+                  state
+                ]
+              }
+            </span>
+            Identity {stateLabel}
+          </strong>
           <span>{stateDescription}</span>
         </div>
         {evidence !== null ? (
           <small>
             {freshlyReobserved ? "身份已重新读取 · " : "Observed "}
-            {formatDate(evidence.observedAt)} · Camoufox Host
+            <time dateTime={evidence.observedAt} title={evidence.observedAt}>
+              {formatDate(evidence.observedAt)}
+            </time>{" "}
+            · Camoufox Host
           </small>
         ) : null}
       </div>
-      {reason !== null ? <p className="identity-evidence-reason">{reason}</p> : null}
+      {signals.length > 0 ? (
+        <div className="evidence-signal-strip">
+          {signals.map((signal) => (
+            <span
+              key={signal.signal}
+              className={signal.state}
+              title={identityEvidenceLabels[signal.state][1]}
+            >
+              <b aria-hidden="true">
+                {
+                  {
+                    matched: "≍",
+                    mismatched: "≠",
+                    unavailable: "∅",
+                    stale: "◷",
+                  }[signal.state]
+                }
+              </b>
+              {identitySignalLabels[signal.signal] ?? signal.signal}
+              <span className="sr-only">
+                {identityEvidenceLabels[signal.state][1]}
+              </span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {reason !== null ? (
+        <p className="identity-evidence-reason">{reason}</p>
+      ) : null}
       {signals.length > 0 ? (
         <details className="identity-evidence-details">
           <summary>查看网站可见字段</summary>
           <dl className="identity-evidence-table">
             {signals.map((signal) => {
-              const label = identitySignalLabels[signal.signal] ?? signal.signal;
+              const label =
+                identitySignalLabels[signal.signal] ?? signal.signal;
               return (
-                <div className={`identity-evidence-row ${signal.state}`} key={signal.signal}>
+                <div
+                  className={`identity-evidence-row ${signal.state}`}
+                  key={signal.signal}
+                >
                   <dt>{label}</dt>
                   <dd>
-                    <span>{identityEvidenceValue(signal.signal, signal.expected)}</span>
+                    <span>
+                      {identityEvidenceValue(signal.signal, signal.expected)}
+                    </span>
                     <small>期望</small>
                   </dd>
                   <dd>
-                    <span>{identityEvidenceValue(signal.signal, signal.observed)}</span>
+                    <span>
+                      {identityEvidenceValue(signal.signal, signal.observed)}
+                    </span>
                     <small>观察</small>
                   </dd>
                   {signal.reason ? <p>{signal.reason}</p> : null}

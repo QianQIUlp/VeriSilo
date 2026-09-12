@@ -9,7 +9,7 @@ export function Brand() {
       />
       <div>
         <strong>VeriSilo</strong>
-        <span>让不同用途的浏览数据各自分开</span>
+        <span>你的本地身份工作室</span>
       </div>
     </div>
   );
@@ -17,10 +17,12 @@ export function Brand() {
 
 export function TabButton({
   active,
+  icon,
   label,
   onClick,
 }: {
   active: boolean;
+  icon?: "atlas" | "create" | "vault" | "location" | "terminal";
   label: string;
   onClick: () => void;
 }) {
@@ -31,7 +33,32 @@ export function TabButton({
       onClick={onClick}
       type="button"
     >
-      {label}
+      {icon && (
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          width="20"
+          height="20"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path
+            d={
+              {
+                atlas: "M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M17 13v8m-4-4h8",
+                create: "M12 5v14M5 12h14",
+                vault: "M5 3h14v18H5z M8 12h8 M12 8v8 M10 10l4 4m0-4-4 4",
+                location: "M4 5h16v12H4z M8 21h8m-4-4v4",
+                terminal: "m5 6 5 6-5 6m8 0h6",
+              }[icon]
+            }
+          />
+        </svg>
+      )}
+      <span>{label}</span>
     </button>
   );
 }

@@ -1,3 +1,4 @@
+import { IdentityMark } from "../../shared/IdentityMark.js";
 import {
   type BrowserKind,
   type NetworkProfile,
@@ -169,14 +170,20 @@ export function CreateSiloPanel({
           ? "silo-browser-path-input"
           : "silo-boundary-confirm";
     const target = document.getElementById(targetId);
-    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    target?.scrollIntoView({
+      block: "center",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
     target?.focus({ preventScroll: true });
   };
   return (
     <>
       <section className="create-hero panel">
-        <p className="eyebrow">新环境</p>
-        <h1>创建一个独立的浏览器空间</h1>
+        <IdentityMark id="new-identity" color="#176c68" />
+        <p className="eyebrow">A NEW LANDSCAPE / 创建 Silo</p>
+        <h1>为下一种可能，留一个空间。</h1>
         <p>
           VeriSilo 会为每个 Silo 保存独立的网站数据，并关闭浏览器同步；
           不会读取或修改默认浏览器的数据。
@@ -184,7 +191,7 @@ export function CreateSiloPanel({
         <div className="assurance-row">
           <span>Cookie 与站点数据独立</span>
           <span>浏览器同步已关闭</span>
-          <span>看起来像这台电脑</span>
+          <span>身份边界由浏览器方式决定</span>
         </div>
       </section>
 
@@ -204,20 +211,58 @@ export function CreateSiloPanel({
           className="browser-mode-grid"
           role="radiogroup"
           aria-label="浏览器方式"
+          onKeyDown={(event) => {
+            if (
+              ![
+                "ArrowLeft",
+                "ArrowRight",
+                "ArrowUp",
+                "ArrowDown",
+                "Home",
+                "End",
+              ].includes(event.key)
+            )
+              return;
+            event.preventDefault();
+            const options = [
+              ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                '[role="radio"]:not(:disabled)',
+              ),
+            ];
+            const index = options.indexOf(
+              document.activeElement as HTMLButtonElement,
+            );
+            const next =
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? options.length - 1
+                  : (index +
+                      (event.key === "ArrowLeft" || event.key === "ArrowUp"
+                        ? -1
+                        : 1) +
+                      options.length) %
+                    options.length;
+            options[next]?.click();
+            requestAnimationFrame(() => options[next]?.focus());
+          }}
         >
           <button
             aria-checked={creationMode === "standard"}
+            tabIndex={creationMode === "standard" ? 0 : -1}
             className={`browser-mode-card${creationMode === "standard" ? " selected" : ""}`}
             onClick={() => setCreationMode("standard")}
             role="radio"
             type="button"
           >
+            <IdentityMark id="standard-mode" color="#164e63" />
             <strong>系统浏览器</strong>
             <span>使用这台电脑上已安装的 Chrome 或 Edge。</span>
             <small>登录数据单独保存，看起来仍像这台电脑。</small>
           </button>
           <button
             aria-checked={creationMode === "managed"}
+            tabIndex={creationMode === "managed" ? 0 : -1}
             aria-describedby="managed-browser-availability"
             className={`browser-mode-card${creationMode === "managed" ? " selected" : ""}`}
             disabled={!managedEngineReady || managedStatusBusy}
@@ -225,8 +270,9 @@ export function CreateSiloPanel({
             role="radio"
             type="button"
           >
+            <IdentityMark id="managed-mode" color="#b66049" />
             <strong>托管身份浏览器</strong>
-            <span>用 VeriSilo 自带的独立浏览器，指纹可以设置。</span>
+            <span>独立 Profile、受控身份，配合运行中的身份观察。</span>
             <small>
               {managedStatusBusy
                 ? "正在检查…"

@@ -118,3 +118,78 @@ export function previewStatus(
     },
   };
 }
+
+// Synthetic observations for visual QA. These never reach the production entry.
+export function previewIdentityEvidence(
+  silo: Silo,
+  state: "matched" | "mismatched" | "unavailable" | "stale" = "matched",
+): NonNullable<DesktopStatus["activation"]["identityEvidence"]> {
+  return {
+    siloId: silo.id,
+    runtimeId: "22222222-2222-4222-8222-222222222222",
+    sessionId: "preview-session",
+    artifactId:
+      silo.engine.adapter === "camoufox"
+        ? silo.engine.artifactBinding!.artifactId
+        : "preview-artifact",
+    artifactFileSha256: "b".repeat(64),
+    engineAdapter: "camoufox",
+    observedAt: new Date(
+      Date.now() - (state === "stale" ? 3600000 : 10000),
+    ).toISOString(),
+    state,
+    ...(state === "unavailable"
+      ? { reason: "模拟：此次没有取得页面观察。可重新检查，不能视为通过。" }
+      : state === "stale"
+        ? { reason: "模拟：证据来自上一次运行，请重新检查。" }
+        : state === "mismatched"
+          ? {
+              reason:
+                "模拟：观察到的时区与声明不一致。请检查身份配置后重新检查。",
+            }
+          : {}),
+    signals:
+      state === "unavailable" || state === "stale"
+        ? []
+        : [
+            {
+              signal: "language",
+              expected: "en-US",
+              observed: "en-US",
+              state: "matched",
+            },
+            {
+              signal: "timezone",
+              expected: "America/New_York",
+              observed:
+                state === "mismatched" ? "Asia/Singapore" : "America/New_York",
+              state: state === "mismatched" ? "mismatched" : "matched",
+            },
+            {
+              signal: "screen",
+              expected: { width: 1920, height: 1080 },
+              observed: { width: 1920, height: 1080 },
+              state: "matched",
+            },
+            {
+              signal: "hardwareConcurrency",
+              expected: 8,
+              observed: 8,
+              state: "matched",
+            },
+            {
+              signal: "webglVendor",
+              expected: "NVIDIA Corporation",
+              observed: "NVIDIA Corporation",
+              state: "matched",
+            },
+            {
+              signal: "fonts",
+              expected: null,
+              observed: null,
+              state: "unavailable",
+              reason: "字体跟随本机，不参与匹配判断。",
+            },
+          ],
+  };
+}

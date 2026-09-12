@@ -13,7 +13,7 @@ function Preview() {
   const [message, setMessage] = useState("");
   return (
     <>
-      <aside className="notice info" aria-label="UI 预览">
+      <aside className="preview-toolbar" aria-label="UI 预览">
         <strong>UI 预览 · 模拟数据 · 不启动浏览器或读取 Vault</strong>
         <nav aria-label="预览场景">
           {Object.entries({
@@ -24,6 +24,11 @@ function Preview() {
             uninitialized: "首次使用",
             running: "运行中",
             error: "启动失败",
+            matched: "身份匹配",
+            mismatched: "不匹配",
+            unavailable: "无法观测",
+            stale: "过期",
+            "long-name": "长名称",
             managed: "托管创建表单",
           }).map(([value, label]) => (
             <a
@@ -37,7 +42,7 @@ function Preview() {
         </nav>
       </aside>
       {scenario === "managed" ? (
-        <main className="shell">
+        <main className="preview-standalone">
           {message && <p role="status">{message}</p>}
           <ManagedSiloForm
             busy={false}

@@ -1,3 +1,4 @@
+import { IdentityMark } from "../../shared/IdentityMark.js";
 import { type DesktopStatus } from "../../desktop-api.js";
 
 import { useEffect, useState } from "react";
@@ -32,8 +33,9 @@ export function VaultAccess({
   return (
     <section className="vault-layout">
       <article className="panel vault-intro">
+        <IdentityMark id="local-vault" color="#176c68" />
         <p className="eyebrow">本地保险库</p>
-        <h1>{initialize ? "先保护你的 Silo 配置" : "欢迎回来"}</h1>
+        <h1>{initialize ? "先保护你的 Silo 配置" : "你的世界，留在这里。"}</h1>
         <p>
           保险库会加密保存 Silo 配置、身份和可选网络设置。每个 Silo
           的登录和网站数据放在这台电脑的独立文件夹里，不会写进保险库。

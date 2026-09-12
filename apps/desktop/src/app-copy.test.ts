@@ -41,7 +41,7 @@ describe("desktop product copy", () => {
     expect(appSource).not.toMatch(/浏览器\s+浏览器数据/u);
   });
 
-  it("uses the shared website mark and extension primary color", () => {
+  it("keeps the shared brand mark and distinguishes desktop presentation tokens", () => {
     expect(appSource).toContain('const defaultColor = "#5b5ce2";');
     expect(appSource).toContain('src="/verisilo-mark.svg"');
     expect(appSource).toContain('className="brand-mark"');
@@ -51,10 +51,10 @@ describe("desktop product copy", () => {
       /<div className="brand-mark"[^>]*>\s*VS\s*<\/div>/u,
     );
     expect(appSource).not.toContain('const defaultColor = "#0f766e";');
-    expect(stylesSource).toContain("--primary: #5b5ce2;");
-    expect(stylesSource).toContain("--primary-dark: #4344c5;");
-    expect(stylesSource).toContain("--primary-soft: #eeeeff;");
-    expect(stylesSource).toContain("--good: #067647;");
+    expect(stylesSource).toContain("--primary: #164e63;");
+    expect(stylesSource).toContain("--primary-dark: #0f394a;");
+    expect(stylesSource).toContain("--primary-soft: #e0efef;");
+    expect(stylesSource).toContain("--good: #176c68;");
     expect(stylesSource).not.toContain("--primary: #0f766e;");
   });
 
@@ -136,7 +136,7 @@ describe("desktop product copy", () => {
     expect(createPanelSource).toContain("silo-boundary-confirm");
     expect(createPanelSource).toContain("focusFirstMissing");
     expect(stylesSource).toMatch(
-      /\.shell > \.notice\s*\{[^}]*position:\s*sticky;/u,
+      /\.workspace-content > \.notice\s*\{[^}]*position:\s*sticky;/u,
     );
     expect(stylesSource).toContain(".submit-row .submit-missing");
   });
