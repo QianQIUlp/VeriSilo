@@ -172,7 +172,7 @@ export function LocalReportExportCard({
         <div className="report-selection-summary" aria-live="polite">
           {selectedSilo === undefined
             ? "先选择 Silo，报告不会默认包含任何 Silo。"
-            : `报告将包含 ${selectedEvidenceCount} 条该 Silo 的网络检查记录和当前设置。`}
+            : `报告将包含该 Silo 当前可归属的身份、运行时与引擎证据，以及 ${selectedEvidenceCount} 条网络检查记录和当前设置。`}
         </div>
         <label className="report-confirmation">
           <input
@@ -215,13 +215,15 @@ export function LocalReportExportCard({
       <div className="report-boundary">
         <strong>报告说明</strong>
         <p>
-          报告包含浏览器类型、版本和网络检查结果。DNS 信息只反映检查当时的结果。
+          报告包含身份证据结论、引擎与运行时状态、浏览器类型、版本和网络检查结果，
+          全部反映导出当时的状态；导出不会触发新的检查。DNS 信息只反映检查当时的结果。
         </p>
       </div>
       <details className="report-developer-details">
         <summary>报告中不包含的内容</summary>
         <p>
-          报告不会包含浏览器数据位置、代理地址、完整 IP、城市、访问密钥、凭据
+          报告不会包含浏览器数据位置、代理地址、完整 IP、城市、访问密钥、凭据、
+          身份信号的原始期望值与观察值、身份 Artifact 与会话标识符，
           或其他可以直接识别本机配置的信息。
         </p>
       </details>

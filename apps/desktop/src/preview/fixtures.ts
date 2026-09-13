@@ -106,7 +106,15 @@ export function previewStatus(
   state: DesktopStatus["vault"]["state"] = "unlocked",
 ): DesktopStatus {
   return {
-    vault: { state, autoLockAt: null },
+    // An unlocked preview vault carries a future auto-lock deadline so that
+    // user-gated flows (e.g. local report export) are exercisable in preview.
+    vault: {
+      state,
+      autoLockAt:
+        state === "unlocked"
+          ? new Date(Date.now() + 10 * 60_000).toISOString()
+          : null,
+    },
     activation: {
       activeSiloId: null,
       state: "idle",
