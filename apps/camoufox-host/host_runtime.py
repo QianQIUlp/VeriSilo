@@ -25,7 +25,7 @@ from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.metadata import version as dist_version
 from pathlib import Path
-from threading import Thread
+from threading import Lock, Thread
 from typing import Any, Optional
 
 from browser_asset import (
@@ -550,14 +550,47 @@ def verify_pins(versions: dict) -> list[str]:
     ]
 
 
+class ProbeServer(ThreadingHTTPServer):
+    def __init__(self, server_address: Any, RequestHandlerClass: Any) -> None:
+        super().__init__(server_address, RequestHandlerClass)
+        self._lock = Lock()
+        self.last_observed_request_headers: dict[str, str] = {}
+
+    def record_request_headers(self, headers: Any) -> None:
+        with self._lock:
+            ae = headers.get("Accept-Encoding")
+            if ae is not None:
+                self.last_observed_request_headers["accept-encoding"] = str(ae)
+
+    def get_observed_accept_encoding(self) -> str | None:
+        with self._lock:
+            return self.last_observed_request_headers.get("accept-encoding")
+
+
 class _ProbeHandler(BaseHTTPRequestHandler):
     probe_file: Path = LEGACY_PROBE_FILE
 
     def do_GET(self) -> None:  # noqa: N802
-        if urllib.parse.urlparse(self.path).path != "/probe.html":
+        if hasattr(self.server, "record_request_headers"):
+            self.server.record_request_headers(self.headers)
+
+        parsed_path = urllib.parse.urlparse(self.path).path
+        if parsed_path == "/header-observation":
+            ae = self.headers.get("Accept-Encoding")
+            body = json.dumps({"acceptEncoding": ae}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed_path != "/probe.html":
             self.send_response(404)
             self.end_headers()
             return
+
         try:
             body = self.probe_file.read_bytes()
         except OSError:
@@ -577,12 +610,12 @@ class _ProbeHandler(BaseHTTPRequestHandler):
 
 def start_probe_server(
     port: int = 0, probe_file: Path | str | None = None
-) -> tuple[ThreadingHTTPServer, str]:
+) -> tuple[ProbeServer, str]:
     selected = Path(probe_file or LEGACY_PROBE_FILE).resolve(strict=True)
     if not selected.is_file() or selected.is_symlink():
         raise SystemExit("probe asset must be a regular file")
     handler = type("PackageProbeHandler", (_ProbeHandler,), {"probe_file": selected})
-    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    server = ProbeServer(("127.0.0.1", port), handler)
     Thread(target=server.serve_forever, daemon=True).start()
     return server, f"http://127.0.0.1:{server.server_address[1]}/probe.html"
 

@@ -785,8 +785,13 @@ def configured_identity_digest(config: dict) -> str:
 
 
 def observed_website_digest(signals: dict) -> str:
+    v2_signals = {
+        k: v
+        for k, v in signals.items()
+        if k in STABLE_WEBSITE_SIGNAL_KEYS or k in MANAGED_FONT_SIGNAL_KEYS
+    }
     return canonical_digest(
-        {"schema": OBSERVED_DIGEST_SCHEMA, "signals": signals}
+        {"schema": OBSERVED_DIGEST_SCHEMA, "signals": v2_signals}
     )
 
 
@@ -974,6 +979,51 @@ def reconcile_website_identity(
                 observed_signals.get("webglRenderer"),
                 "Artifact 只声明了渲染器系列，当前 contract 不支持精确比较。",
             )
+
+    # WebGL2 Vendor & Renderer
+    # Reuses the expected GPU identity (webglVendor / webglRenderer).
+    webgl2_available = observed_signals.get("webgl2Available", True)
+    expected_gl2_vendor = declared.get("webglVendor") or config.get("webGl:vendor")
+    observed_gl2_vendor = (
+        observed_signals.get("webgl2Vendor") if webgl2_available else None
+    )
+    if expected_gl2_vendor is not None:
+        add_signal("webgl2Vendor", expected_gl2_vendor, observed_gl2_vendor)
+    else:
+        add_signal(
+            "webgl2Vendor",
+            _UNAVAILABLE,
+            observed_gl2_vendor,
+            "Artifact 没有声明 GPU vendor。",
+        )
+
+    observed_gl2_renderer = (
+        observed_signals.get("webgl2Renderer") if webgl2_available else None
+    )
+    if type(renderer) is str and ", or similar" not in renderer.lower():
+        add_signal("webgl2Renderer", renderer, observed_gl2_renderer)
+    else:
+        add_signal(
+            "webgl2Renderer",
+            _UNAVAILABLE,
+            observed_gl2_renderer,
+            "Artifact 只声明了渲染器系列，当前 contract 不支持精确比较。",
+        )
+
+    # Request Header: Accept-Encoding
+    # Expected value from resolvedConfig["headers.Accept-Encoding"].
+    # Observed value from real browser HTTP request headers.
+    expected_ae = config.get("headers.Accept-Encoding")
+    observed_ae = observed_signals.get("acceptEncoding")
+    if expected_ae is not None:
+        add_signal("acceptEncoding", expected_ae, observed_ae)
+    else:
+        add_signal(
+            "acceptEncoding",
+            _UNAVAILABLE,
+            observed_ae,
+            "Artifact 没有声明 headers.Accept-Encoding。",
+        )
 
     if policy.get("fontMode") == "inherit":
         add_signal(

@@ -1491,6 +1491,11 @@ class CamoufoxHost:
             observed = await read_page_identity(page, interactive=interactive)
             if interactive and not observed.get("webglAvailable"):
                 observed = await self._retry_webgl_observation(page, observed)
+            if not observed.get("acceptEncoding") and session.get("server") is not None:
+                if hasattr(session["server"], "get_observed_accept_encoding"):
+                    server_ae = session["server"].get_observed_accept_encoding()
+                    if server_ae:
+                        observed["acceptEncoding"] = server_ae
             session["probeSeconds"] = round(time.perf_counter() - probe_start, 3)
             session["spawnSeconds"] = round(spawn_seconds, 3)
 
@@ -1990,6 +1995,11 @@ class CamoufoxHost:
             observed = await read_page_identity(page, interactive=interactive)
             if interactive and not observed.get("webglAvailable"):
                 observed = await self._retry_webgl_observation(page, observed)
+            if not observed.get("acceptEncoding") and session.get("server") is not None:
+                if hasattr(session["server"], "get_observed_accept_encoding"):
+                    server_ae = session["server"].get_observed_accept_encoding()
+                    if server_ae:
+                        observed["acceptEncoding"] = server_ae
         finally:
             with contextlib.suppress(Exception):
                 await page.close()

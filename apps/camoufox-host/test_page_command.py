@@ -348,6 +348,11 @@ def observed_from_artifact(artifact: dict) -> dict:
         "webglVendor": declared["webglVendor"],
         "webglRenderer": declared["webglRenderer"],
         "webglSummary": declared["webglVendor"],
+        "webgl2Vendor": declared["webglVendor"],
+        "webgl2Renderer": declared["webglRenderer"],
+        "webgl2Summary": declared["webglVendor"],
+        "webgl2Available": True,
+        "acceptEncoding": config.get("headers.Accept-Encoding"),
         "voices": [
             {
                 "name": voice["name"],
@@ -367,6 +372,9 @@ def observed_from_artifact(artifact: dict) -> dict:
 class FakeProbeServer:
     def __init__(self, port: int):
         self.server_address = ("127.0.0.1", port)
+
+    def get_observed_accept_encoding(self) -> str | None:
+        return None
 
 
 def reobserve_host(roots: Path, observed: dict, context: ReobserveContext):

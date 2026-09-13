@@ -543,6 +543,13 @@
           ]);
           const webgl = identityWebGL("webgl");
           const webgl2 = identityWebGL("webgl2");
+          let headerObservation = null;
+          try {
+            const resp = await withTimeout(fetch("/header-observation"), 2000, null);
+            if (resp && resp.ok) {
+              headerObservation = await resp.json();
+            }
+          } catch (_) {}
           return {
             userAgent: navigator.userAgent,
             appCodeName: navigator.appCodeName,
@@ -599,6 +606,10 @@
             webgl2Renderer: webgl2.renderer,
             webgl2Summary: webgl2.summary,
             webgl2Available: webgl2.available,
+            acceptEncoding:
+              headerObservation && typeof headerObservation.acceptEncoding === "string"
+                ? headerObservation.acceptEncoding
+                : null,
             fonts: identityFonts(fonts),
             voices,
             webdriver: navigator.webdriver,

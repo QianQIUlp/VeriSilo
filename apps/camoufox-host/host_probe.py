@@ -86,6 +86,7 @@ SAFE_IDENTITY_SCRIPT = """() => {
     webgl2Renderer: null,
     webgl2Summary: null,
     webgl2Available: false,
+    acceptEncoding: null,
     fonts: [],
     voices: [],
     webdriver: navigator.webdriver,
@@ -122,31 +123,36 @@ def skipped_media_readiness(config: dict) -> dict:
 def extract_observed_website_signals(observed: dict, font_mode: str = "inherit") -> dict:
     voices = [
         {key: voice.get(key) for key in ("name", "lang", "localService", "voiceURI")}
-        for voice in observed["voices"]
+        for voice in observed.get("voices", [])
     ]
     signals = {
-        "userAgent": observed["userAgent"],
-        "language": observed["language"],
-        "languages": observed["languages"],
-        "platform": observed["platform"],
-        "oscpu": observed["oscpu"],
-        "doNotTrack": observed["doNotTrack"],
-        "globalPrivacyControl": observed["globalPrivacyControl"],
-        "screen": observed["screen"],
-        "devicePixelRatio": observed["devicePixelRatio"],
-        "hardwareConcurrency": observed["hardwareConcurrency"],
-        "historyLength": observed["historyLength"],
-        "mediaDevices": observed["mediaDevices"],
-        "timezone": observed["session"]["timezone"],
-        "utcOffsetMinutes": observed["session"]["utcOffsetMinutes"],
-        "fontNegativeControls": observed["fontNegativeControls"],
-        "webglVendor": observed["webglVendor"],
-        "webglRenderer": observed["webglRenderer"],
-        "webglSummary": observed["webglSummary"],
+        "userAgent": observed.get("userAgent"),
+        "language": observed.get("language"),
+        "languages": observed.get("languages"),
+        "platform": observed.get("platform"),
+        "oscpu": observed.get("oscpu"),
+        "doNotTrack": observed.get("doNotTrack"),
+        "globalPrivacyControl": observed.get("globalPrivacyControl"),
+        "screen": observed.get("screen"),
+        "devicePixelRatio": observed.get("devicePixelRatio"),
+        "hardwareConcurrency": observed.get("hardwareConcurrency"),
+        "historyLength": observed.get("historyLength"),
+        "mediaDevices": observed.get("mediaDevices"),
+        "timezone": (observed.get("session") or {}).get("timezone"),
+        "utcOffsetMinutes": (observed.get("session") or {}).get("utcOffsetMinutes"),
+        "fontNegativeControls": observed.get("fontNegativeControls"),
+        "webglVendor": observed.get("webglVendor"),
+        "webglRenderer": observed.get("webglRenderer"),
+        "webglSummary": observed.get("webglSummary"),
+        "webgl2Vendor": observed.get("webgl2Vendor"),
+        "webgl2Renderer": observed.get("webgl2Renderer"),
+        "webgl2Summary": observed.get("webgl2Summary"),
+        "webgl2Available": observed.get("webgl2Available", False),
+        "acceptEncoding": observed.get("acceptEncoding"),
         "voices": voices,
-        "audioHash": observed["audioHash"],
+        "audioHash": observed.get("audioHash"),
     }
-    if font_mode == "managed":
+    if font_mode == "managed" and "fontUniverseWidths" in observed:
         signals["fontUniverseWidths"] = observed["fontUniverseWidths"]
     return signals
 
