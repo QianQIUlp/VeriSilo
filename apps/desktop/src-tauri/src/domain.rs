@@ -1285,7 +1285,7 @@ pub struct RuntimeActivation {
 /// Separates configuration, process launch, package authenticity, bootstrap
 /// delivery, and runtime identity verification. A verified package never sets
 /// `verified_adapter`; that field requires direct runtime protocol evidence.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimePackageVerification {
     pub verifier_id: String,

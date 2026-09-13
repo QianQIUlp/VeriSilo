@@ -146,6 +146,8 @@ pub struct RuntimeManager {
     website_identity: Option<WebsiteIdentityObservation>,
     #[cfg(test)]
     test_engine_adapter: Option<Box<dyn EngineAdapter>>,
+    #[cfg(test)]
+    test_recheck_engine_adapter: Option<Box<dyn EngineAdapter>>,
 }
 
 pub(crate) struct VaultRestoreRuntimePreparation {
@@ -716,6 +718,25 @@ impl RuntimeManager {
         self.test_engine_adapter = Some(adapter);
     }
 
+    #[cfg(test)]
+    fn set_test_recheck_engine_adapter(&mut self, adapter: Box<dyn EngineAdapter>) {
+        self.test_recheck_engine_adapter = Some(adapter);
+    }
+
+    /// Externally packaged re-validation runs through the production adapter.
+    /// Tests inject a controllable adapter so evidence semantics do not
+    /// depend on this machine's installed engine state.
+    #[cfg(test)]
+    fn revalidation_engine_adapter(
+        &mut self,
+        silo: &Silo,
+    ) -> Result<Box<dyn EngineAdapter>, crate::engine::EngineError> {
+        self.test_recheck_engine_adapter.take().map_or_else(
+            || production_engine_adapter_for_silo(&silo.engine, silo.browser.clone()),
+            Ok,
+        )
+    }
+
     fn camoufox_session_is_live(&self) -> bool {
         matches!(
             self.activation.as_ref().map(|activation| &activation.state),
@@ -1123,9 +1144,16 @@ impl RuntimeManager {
             }
         }
         if externally_packaged {
-            match production_engine_adapter_for_silo(&silo.engine, silo.browser.clone()) {
+            #[cfg(test)]
+            let revalidation = self.revalidation_engine_adapter(silo);
+            #[cfg(not(test))]
+            let revalidation =
+                production_engine_adapter_for_silo(&silo.engine, silo.browser.clone());
+            match revalidation {
                 Ok(adapter) if adapter.health().state == EngineHealthState::Healthy => {
-                    engine_evidence.package_verification = RuntimeEvidenceState::Verified;
+                    // Availability-only probe: the freshly configured
+                    // NotRequested evidence stays honest; a healthy adapter
+                    // never proves package authenticity on its own.
                 }
                 Ok(adapter) => {
                     engine_evidence.package_verification = RuntimeEvidenceState::Failed;
@@ -2407,11 +2435,20 @@ impl RuntimeManager {
                 RuntimeEngineEvidence::configured(configured_adapter, externally_packaged)
             });
         if externally_packaged {
-            match production_engine_adapter_for_silo(&silo.engine, silo.browser.clone()) {
+            #[cfg(test)]
+            let revalidation = self.revalidation_engine_adapter(silo);
+            #[cfg(not(test))]
+            let revalidation =
+                production_engine_adapter_for_silo(&silo.engine, silo.browser.clone());
+            match revalidation {
                 Ok(adapter) => {
                     let health = adapter.health();
                     if health.state == EngineHealthState::Healthy {
-                        engine_evidence.package_verification = RuntimeEvidenceState::Verified;
+                        // The health probe only proves the installed package
+                        // is present and loadable. It performs no fresh digest
+                        // or signature verification, so the held launch-time
+                        // classification and details stay authoritative and
+                        // must not be raised to Verified here.
                     } else {
                         hard_failure = true;
                         engine_evidence.package_verification = RuntimeEvidenceState::Failed;
@@ -4847,20 +4884,20 @@ mod tests {
     use crate::domain::{
         BrowserDescriptor, BrowserKind, IdentityEvidenceState, NetworkProfile, RuntimeActivation,
         RuntimeEngineEvidence, RuntimeEvidenceState, RuntimeIdentityEvidence,
-        RuntimeNetworkEvidence, RuntimeNetworkEvidenceProvenance, RuntimeState, Silo,
-        SiloExecutionTarget, SCHEMA_VERSION,
+        RuntimeNetworkEvidence, RuntimeNetworkEvidenceProvenance, RuntimePackageVerification,
+        RuntimeState, Silo, SiloExecutionTarget, SCHEMA_VERSION,
     };
     use crate::engine::{
         BrowserFamily, CamoufoxArtifactBindingV1, CamoufoxHostLaunch, DerivedIdentityToken,
         EngineAdapter, EngineAdapterId, EngineBootstrapEnvelope, EngineCapabilityAvailability,
         EngineCapabilityId, EngineCapabilityOperation, EngineCapabilityState, EngineChannel,
         EngineControlPhase, EngineControlPlan, EngineDescriptor, EngineError, EngineHealth,
-        EngineLaunchPackageVerification, EngineLaunchPlan, EngineLaunchRequest,
+        EngineHealthState, EngineLaunchPackageVerification, EngineLaunchPlan, EngineLaunchRequest,
         EngineMaintenanceReceipt, EngineNegotiation, EnginePackageRequest, EngineTransport,
         IdentityDelivery, IdentityDeliveryRequirement, IdentityDerivationContext, IdentityTemplate,
         IdentityTokenDeriver, SiloEngineConfig, SiteFallbackAction, SiteFallbackPolicy,
         SiteFallbackRule, CAMOUFOX_ARTIFACT_SCHEMA, CAMOUFOX_ARTIFACT_SCHEMA_V6,
-        ENGINE_CONTRACT_VERSION,
+        CAMOUFOX_FORMAL_V3_ENGINE_REVISION, ENGINE_CONTRACT_VERSION,
     };
     use crate::native_host::{
         NativeDnsObservation, NativeDnsState, NativeDnssecState, NativeIpExitObservation,
@@ -8977,5 +9014,350 @@ for raw in sys.stdin.buffer:
             .as_deref()
             .is_some_and(|message| message.contains("网站可见身份重新观察失败")));
         let _ = fs::remove_dir_all(root);
+    }
+
+    /// A health-only adapter for the recheck seam: recheck evidence semantics
+    /// must follow whatever this probe reports, independent of this machine's
+    /// installed engine state.
+    struct RecheckHealthAdapter {
+        health: EngineHealth,
+    }
+
+    impl RecheckHealthAdapter {
+        fn test_descriptor(&self) -> EngineDescriptor {
+            EngineDescriptor {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                id: EngineAdapterId::Camoufox,
+                adapter_version: "m3-test-only".to_owned(),
+                engine_version: "152.0.4-beta.28".to_owned(),
+                channel: EngineChannel::Experimental,
+                browser_family: BrowserFamily::Firefox,
+                platform: if cfg!(target_os = "windows") {
+                    "windows-x64".to_owned()
+                } else {
+                    "linux-x64".to_owned()
+                },
+                externally_packaged: true,
+                emergency_disabled: false,
+            }
+        }
+    }
+
+    impl EngineAdapter for RecheckHealthAdapter {
+        fn descriptor(&self) -> EngineDescriptor {
+            self.test_descriptor()
+        }
+
+        fn negotiate(&self, _requested: &[EngineCapabilityId]) -> EngineNegotiation {
+            panic!("recheck health adapter negotiation is not part of the recheck seam")
+        }
+
+        fn install(
+            &mut self,
+            _request: &EnginePackageRequest,
+        ) -> Result<EngineMaintenanceReceipt, EngineError> {
+            Err(EngineError::CapabilityUnavailable(
+                "recheck health adapter install is not part of the recheck seam".to_owned(),
+            ))
+        }
+
+        fn update(
+            &mut self,
+            _request: &EnginePackageRequest,
+        ) -> Result<EngineMaintenanceReceipt, EngineError> {
+            Err(EngineError::CapabilityUnavailable(
+                "recheck health adapter update is not part of the recheck seam".to_owned(),
+            ))
+        }
+
+        fn launch_plan(
+            &self,
+            _request: &EngineLaunchRequest,
+        ) -> Result<EngineLaunchPlan, EngineError> {
+            Err(EngineError::CapabilityUnavailable(
+                "recheck health adapter launch is not part of the recheck seam".to_owned(),
+            ))
+        }
+
+        fn health(&self) -> EngineHealth {
+            self.health.clone()
+        }
+
+        fn rollback(&mut self) -> Result<EngineMaintenanceReceipt, EngineError> {
+            Err(EngineError::CapabilityUnavailable(
+                "recheck health adapter rollback is not part of the recheck seam".to_owned(),
+            ))
+        }
+
+        fn set_emergency_disabled(
+            &mut self,
+            _disabled: bool,
+            _reason: Option<String>,
+        ) -> Result<(), EngineError> {
+            Err(EngineError::CapabilityUnavailable(
+                "recheck health adapter emergency state is not part of the recheck seam".to_owned(),
+            ))
+        }
+
+        fn validate_identity_template(
+            &self,
+            _template: &IdentityTemplate,
+        ) -> Result<(), EngineError> {
+            Ok(())
+        }
+
+        fn derive_identity_token(
+            &self,
+            _context: &IdentityDerivationContext,
+            _deriver: &dyn IdentityTokenDeriver,
+        ) -> Result<DerivedIdentityToken, EngineError> {
+            Err(EngineError::CapabilityUnavailable(
+                "recheck health adapter does not derive tokens".to_owned(),
+            ))
+        }
+
+        fn control_plan(
+            &self,
+            _session_id: Uuid,
+            _template: &IdentityTemplate,
+            _rules: &[SiteFallbackRule],
+        ) -> Result<EngineControlPlan, EngineError> {
+            Err(EngineError::CapabilityUnavailable(
+                "recheck health adapter control plan is not part of the recheck seam".to_owned(),
+            ))
+        }
+    }
+
+    fn test_engine_health(state: EngineHealthState) -> EngineHealth {
+        EngineHealth {
+            state,
+            checked_at: Utc::now(),
+            message: "test health probe".to_owned(),
+        }
+    }
+
+    /// The launch-time record the recheck inherits: whatever verification the
+    /// launch actually held, the recheck may only keep or fail it honestly.
+    fn held_package_verification_details(
+        digest_and_signature_verified: bool,
+    ) -> RuntimePackageVerification {
+        RuntimePackageVerification {
+            verifier_id: "held-launch-verifier".to_owned(),
+            artifact_sha256: "c".repeat(64),
+            digest_verified: digest_and_signature_verified,
+            signature_verified: digest_and_signature_verified,
+            package_manifest_sha256: "d".repeat(64),
+            package_tree_sha256: Some("e".repeat(64)),
+            host_sha256: "c".repeat(64),
+            signer_certificate_sha256: "f".repeat(64),
+            engine_revision: Some(CAMOUFOX_FORMAL_V3_ENGINE_REVISION.to_owned()),
+            verified_at: Utc::now() - ChronoDuration::minutes(30),
+        }
+    }
+
+    fn held_package_evidence_fixture(
+        held_state: RuntimeEvidenceState,
+        health: EngineHealth,
+    ) -> (PathBuf, RuntimeManager, Silo, RuntimePackageVerification) {
+        let silo = camoufox_test_silo(NetworkProfile::Direct {
+            proxy_required: false,
+        });
+        let root = PathBuf::from(&silo.profile_directory);
+        let details =
+            held_package_verification_details(held_state == RuntimeEvidenceState::Verified);
+        let mut engine_evidence =
+            RuntimeEngineEvidence::configured(EngineAdapterId::Camoufox, true);
+        engine_evidence.launched_adapter = Some(EngineAdapterId::Camoufox);
+        engine_evidence.package_verification = held_state;
+        engine_evidence.package_verification_details = Some(details.clone());
+        let mut runtime = RuntimeManager::open(&root);
+        runtime.activation = Some(RuntimeActivation {
+            active_silo_id: Some(silo.id),
+            state: RuntimeState::Running,
+            updated_at: Utc::now(),
+            message: None,
+            browser_verification: None,
+            engine_evidence: Some(engine_evidence),
+            network_evidence: Some(super::configured_network_evidence(
+                &silo.network_profile,
+                false,
+                EngineAdapterId::Camoufox,
+            )),
+            identity_evidence: None,
+        });
+        runtime.set_test_recheck_engine_adapter(Box::new(RecheckHealthAdapter { health }));
+        (root, runtime, silo, details)
+    }
+
+    #[test]
+    fn recheck_active_keeps_unverified_package_evidence_honest() {
+        let (root, mut runtime, silo, held_details) = held_package_evidence_fixture(
+            RuntimeEvidenceState::NotRequested,
+            test_engine_health(EngineHealthState::Healthy),
+        );
+        assert!(!held_details.digest_verified && !held_details.signature_verified);
+
+        let rechecked = runtime
+            .recheck_active(&silo, None, None)
+            .expect("explicit recheck completes");
+        assert_eq!(rechecked.state, RuntimeState::Running);
+        let evidence = rechecked
+            .engine_evidence
+            .expect("rechecked engine evidence");
+        // A healthy probe is availability evidence only: the launch-time
+        // not-requested classification must not be raised to verified.
+        assert_eq!(
+            evidence.package_verification,
+            RuntimeEvidenceState::NotRequested
+        );
+        // The recheck must not fabricate digest, signature, or verifiedAt.
+        assert_eq!(
+            evidence.package_verification_details,
+            Some(held_details),
+            "held verification details must survive a recheck unchanged"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recheck_active_preserves_genuinely_verified_package_evidence() {
+        let (root, mut runtime, silo, held_details) = held_package_evidence_fixture(
+            RuntimeEvidenceState::Verified,
+            test_engine_health(EngineHealthState::Healthy),
+        );
+        assert!(held_details.digest_verified && held_details.signature_verified);
+
+        let rechecked = runtime
+            .recheck_active(&silo, None, None)
+            .expect("explicit recheck completes");
+        assert_eq!(rechecked.state, RuntimeState::Running);
+        let evidence = rechecked
+            .engine_evidence
+            .expect("rechecked engine evidence");
+        // A healthy probe must not downgrade a genuinely verified record.
+        assert_eq!(
+            evidence.package_verification,
+            RuntimeEvidenceState::Verified
+        );
+        assert_eq!(evidence.package_verification_details, Some(held_details));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recheck_active_fails_closed_when_package_revalidation_is_unhealthy() {
+        let (root, mut runtime, silo, held_details) = held_package_evidence_fixture(
+            RuntimeEvidenceState::Verified,
+            test_engine_health(EngineHealthState::Unavailable),
+        );
+
+        let rechecked = runtime
+            .recheck_active(&silo, None, None)
+            .expect("explicit recheck completes");
+        assert_eq!(rechecked.state, RuntimeState::VerificationFailed);
+        let evidence = rechecked
+            .engine_evidence
+            .expect("rechecked engine evidence");
+        assert_eq!(evidence.package_verification, RuntimeEvidenceState::Failed);
+        assert_eq!(
+            evidence.package_verification_details,
+            Some(held_details),
+            "a failed revalidation must not rewrite the held verification record"
+        );
+        assert!(rechecked
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("外部引擎包重新验证失败")));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recheck_package_evidence_is_independent_of_fresh_identity_outcome() {
+        for (mode, expected_identity) in [
+            ("normal", IdentityEvidenceState::Matched),
+            ("reobserve-error", IdentityEvidenceState::Unavailable),
+        ] {
+            let (root, mut runtime, silo, _runtime_id, _launch_observed_at) =
+                reobserve_fixture(mode);
+            let details = held_package_verification_details(false);
+            let mut engine_evidence =
+                RuntimeEngineEvidence::configured(EngineAdapterId::Camoufox, true);
+            engine_evidence.launched_adapter = Some(EngineAdapterId::Camoufox);
+            engine_evidence.package_verification = RuntimeEvidenceState::NotRequested;
+            engine_evidence.package_verification_details = Some(details.clone());
+            runtime
+                .activation
+                .as_mut()
+                .expect("active fixture activation")
+                .engine_evidence = Some(engine_evidence);
+            runtime.set_test_recheck_engine_adapter(Box::new(RecheckHealthAdapter {
+                health: test_engine_health(EngineHealthState::Healthy),
+            }));
+
+            let rechecked = runtime
+                .recheck_active(&silo, None, None)
+                .expect("explicit recheck completes");
+            let identity = rechecked
+                .identity_evidence
+                .expect("the recheck carries identity evidence");
+            assert_eq!(identity.state, expected_identity);
+            let evidence = rechecked
+                .engine_evidence
+                .expect("rechecked engine evidence");
+            // Fresh identity evidence never reclassifies package evidence.
+            assert_eq!(
+                evidence.package_verification,
+                RuntimeEvidenceState::NotRequested
+            );
+            assert_eq!(
+                evidence.package_verification_details.as_ref(),
+                Some(&details)
+            );
+            if mode == "normal" {
+                runtime
+                    .stop_managed_camoufox(silo.id)
+                    .expect("close live fake Host after recheck");
+            }
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn reconcile_keeps_package_evidence_honest_on_availability_only_health() {
+        for (health_state, expected) in [
+            (
+                EngineHealthState::Healthy,
+                RuntimeEvidenceState::NotRequested,
+            ),
+            (EngineHealthState::Unavailable, RuntimeEvidenceState::Failed),
+        ] {
+            let silo = camoufox_test_silo(NetworkProfile::Direct {
+                proxy_required: false,
+            });
+            let root = PathBuf::from(&silo.profile_directory);
+            let mut runtime = RuntimeManager::open(&root);
+            // A PID that can never exist on any supported platform keeps the
+            // reconciliation fixture deterministic and process-free.
+            runtime.record = Some(RuntimeRecord {
+                silo_id: silo.id,
+                pid: 0xFFFF_FFFE,
+                started_at: Utc::now() - ChronoDuration::hours(1),
+                last_seen_at: Utc::now() - ChronoDuration::hours(1),
+                state: RuntimeState::Running,
+                identity_evidence: None,
+            });
+            runtime.set_test_recheck_engine_adapter(Box::new(RecheckHealthAdapter {
+                health: test_engine_health(health_state),
+            }));
+
+            let activation = runtime.reconcile_persisted(&silo, None);
+            let evidence = activation
+                .engine_evidence
+                .expect("reconciled engine evidence");
+            assert_eq!(
+                evidence.package_verification, expected,
+                "reconcile must not claim package verification from a healthy probe"
+            );
+            let _ = fs::remove_dir_all(root);
+        }
     }
 }
