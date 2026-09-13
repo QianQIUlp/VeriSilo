@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-13T06:16:51.331Z",
+  "product": "VeriSilo",
+  "summary": [
+    "托管身份浏览器 Silo 配置已脱敏，不包含本机路径或代理端点。",
+    "网站可见身份与当前声明一致（matched），观察于 2026-09-13T06:12:48.201601Z；证据属于当前正在运行的所选 Silo。",
+    "运行时证据属于当前正在运行的所选 Silo。",
+    "执行证据：引擎适配器配置为 camoufox、启动为 camoufox，尚未取得适配器验证；包验证 verified、Host 启动 observed。",
+    "报告包含 0 条由用户主动触发、保存在本地 Vault 的 Companion 扩展观测声明；Native inbox 未做本机进程级认证。",
+    "已配置、已应用和已验证是不同状态；缺少观测时不会按验证成功处理。",
+    "本次未确认：身份未确认项：fonts。"
+  ],
+  "evidenceBoundary": {
+    "reportScope": "selected_silo_only",
+    "trigger": "user_confirmed_local_export",
+    "publicDoh": "answer_comparison_only",
+    "actualDnsPath": "not_observed",
+    "webRtc": "not_observed",
+    "quic": "not_observed",
+    "contains": [
+      "所选 Silo 的脱敏配置与生命周期状态",
+      "可归属到所选 Silo 的运行时身份证据结论（仅信号名称与对账状态）",
+      "当前运行时的引擎适配器、引擎阶段与浏览器验证状态",
+      "运行时网络证据与所选 Silo 的 Companion 观测声明"
+    ],
+    "doesNotProve": [
+      "身份不可检测或能绕过反欺诈系统",
+      "与所有网站兼容",
+      "TLS ClientHello 已验证",
+      "QUIC 已完整验证",
+      "公共 DoH 答案对比等于实际 DNS 路径",
+      "出口 IP 观察等于本机浏览器进程级验证",
+      "WebRTC 与 QUIC 不可用等于不存在泄露（仅代表未观测）",
+      "fontMode=inherit 时字体隔离已对账"
+    ],
+    "excluded": [
+      "本机 Profile 路径",
+      "浏览器可执行文件路径",
+      "请求标识符",
+      "代理主机和端口",
+      "完整 IP 地址",
+      "城市和区域位置",
+      "原始错误",
+      "秘密、凭据、种子和引用标识符",
+      "身份信号期望值与观察值",
+      "身份 Artifact 标识、Artifact 摘要、运行时与会话标识符",
+      "引擎能力诊断文本与站点回退记录"
+    ]
+  },
+  "silo": {
+    "name": "QA-Managed-Recheck",
+    "browser": {
+      "kind": "managed",
+      "version": null
+    },
+    "lifecycle": "active",
+    "networkConfiguration": {
+      "mode": "direct",
+      "proxyRequired": false,
+      "externalControllerBindingConfigured": false
+    }
+  },
+  "runtime": {
+    "state": "running",
+    "observedAt": "2026-09-13T06:12:41.490264900Z",
+    "observationSource": "runtime_evidence_observed_at",
+    "networkEvidence": {
+      "provider": "direct",
+      "observedAt": "2026-09-13T06:12:41.490264900Z",
+      "expiresAt": null,
+      "provenance": "desktop_control_plane",
+      "authenticationProvenance": "desktop_control_plane",
+      "stages": {
+        "configuration": {
+          "configuration": "configured",
+          "controllerBinding": "not_applicable",
+          "endpoint": "not_applicable",
+          "authentication": "not_applicable"
+        },
+        "application": {
+          "browserRouting": "not_requested"
+        },
+        "verification": {
+          "exit": "not_requested",
+          "dns": "not_requested",
+          "webRtc": "not_requested"
+        }
+      }
+    }
+  },
+  "identity": {
+    "attribution": "current_for_selected_silo",
+    "state": "matched",
+    "observedAt": "2026-09-13T06:12:48.201601Z",
+    "engineAdapter": "camoufox",
+    "binding": {
+      "present": true,
+      "current": true,
+      "selectedSiloAttributionValid": true
+    },
+    "signals": [
+      {
+        "signal": "userAgent",
+        "state": "matched"
+      },
+      {
+        "signal": "language",
+        "state": "matched"
+      },
+      {
+        "signal": "platform",
+        "state": "matched"
+      },
+      {
+        "signal": "oscpu",
+        "state": "matched"
+      },
+      {
+        "signal": "screen",
+        "state": "matched"
+      },
+      {
+        "signal": "hardwareConcurrency",
+        "state": "matched"
+      },
+      {
+        "signal": "historyLength",
+        "state": "matched"
+      },
+      {
+        "signal": "timezone",
+        "state": "matched"
+      },
+      {
+        "signal": "globalPrivacyControl",
+        "state": "matched"
+      },
+      {
+        "signal": "webglVendor",
+        "state": "matched"
+      },
+      {
+        "signal": "mediaDevices",
+        "state": "matched"
+      },
+      {
+        "signal": "voices",
+        "state": "matched"
+      },
+      {
+        "signal": "utcOffsetMinutes",
+        "state": "matched"
+      },
+      {
+        "signal": "webglRenderer",
+        "state": "matched"
+      },
+      {
+        "signal": "fonts",
+        "state": "unavailable"
+      }
+    ],
+    "signalTotals": {
+      "matched": 14,
+      "mismatched": 0,
+      "unavailable": 1,
+      "total": 15
+    }
+  },
+  "execution": {
+    "attribution": "current_for_selected_silo",
+    "engineAdapter": {
+      "configured": "camoufox",
+      "launched": "camoufox",
+      "verified": null
+    },
+    "engineStages": {
+      "packageVerification": "verified",
+      "bootstrapDelivery": "not_applicable",
+      "hostLaunch": "observed",
+      "runtimeReceipts": "not_applicable",
+      "restoreReceipt": "not_applicable"
+    },
+    "browserVerification": null
+  },
+  "companionEvidence": []
+}
