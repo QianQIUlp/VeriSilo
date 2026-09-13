@@ -3,7 +3,13 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const websiteFaviconPath = resolve(root, "apps/site/public/favicon.svg");
+// Canonical VeriSilo brand symbol (the kinetic asymmetric V used by the
+// desktop UI); the Windows icon family and the desktop mark are derived from
+// it via the extension-rendered PNG frames.
+const brandSymbolPath = resolve(
+  root,
+  "apps/desktop/src/shared/verisilo-symbol.svg",
+);
 const extensionIconDirectory = resolve(root, "apps/extension/icons");
 const desktopPublicDirectory = resolve(root, "apps/desktop/public");
 const desktopMarkPath = resolve(desktopPublicDirectory, "verisilo-mark.svg");
@@ -12,7 +18,7 @@ const icoPath = resolve(tauriIconDirectory, "icon.ico");
 const pngPath = resolve(tauriIconDirectory, "icon.png");
 const iconSizes = [16, 32, 48, 128, 256];
 
-const websiteFavicon = await readFile(websiteFaviconPath);
+const brandSymbol = await readFile(brandSymbolPath);
 const extensionIcons = await Promise.all(
   iconSizes.map(async (size) => ({
     bytes: await readFile(
@@ -69,7 +75,7 @@ if (process.argv.includes("--check")) {
     actualDesktopMark === null ||
     !actualIco.equals(ico) ||
     !actualPng.equals(png) ||
-    !actualDesktopMark.equals(websiteFavicon)
+    !actualDesktopMark.equals(brandSymbol)
   ) {
     throw new Error(
       "Desktop icon assets are missing or stale; run pnpm assets:generate.",
@@ -77,7 +83,7 @@ if (process.argv.includes("--check")) {
   }
 
   console.log(
-    "Verified desktop SVG, PNG, and multi-size ICO assets match the website favicon.",
+    "Verified desktop SVG, PNG, and multi-size ICO assets match the desktop brand symbol.",
   );
 } else {
   await Promise.all([
@@ -87,9 +93,9 @@ if (process.argv.includes("--check")) {
   await Promise.all([
     writeFile(icoPath, ico),
     writeFile(pngPath, png),
-    writeFile(desktopMarkPath, websiteFavicon),
+    writeFile(desktopMarkPath, brandSymbol),
   ]);
   console.log(
-    "Generated desktop SVG, PNG, and multi-size ICO assets from apps/site/public/favicon.svg.",
+    "Generated desktop SVG, PNG, and multi-size ICO assets from apps/desktop/src/shared/verisilo-symbol.svg.",
   );
 }
