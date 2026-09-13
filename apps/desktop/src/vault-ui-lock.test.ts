@@ -118,7 +118,10 @@ describe("authoritative Vault lock UI cleanup", () => {
     const appSource = environmentSource;
     const start = appSource.indexOf("function EnvironmentWorkspace");
     const effectStart = appSource.indexOf("useEffect(() => {", start);
-    const effectEnd = appSource.indexOf("}, [vaultLocked]);", effectStart);
+    const effectEnd = appSource.indexOf(
+      "}, [vaultLocked, inventoryRetry]);",
+      effectStart,
+    );
     const effectBlock = appSource.slice(effectStart, effectEnd);
 
     expect(start).toBeGreaterThan(-1);

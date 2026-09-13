@@ -40,6 +40,8 @@ import {
   unboundEnvironmentControlsAvailable,
 } from "../../shared/presentation.js";
 
+import { InstrumentObject } from "../../shared/LivingWorkspace.js";
+
 import { UserFacingError } from "../../user-errors.js";
 
 export function EnvironmentWorkspace({
@@ -49,6 +51,9 @@ export function EnvironmentWorkspace({
   silos: Silo[];
   vaultLocked: boolean;
 }) {
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [inventoryLoading, setInventoryLoading] = useState(!vaultLocked);
+  const [inventoryRetry, setInventoryRetry] = useState(0);
   const [environmentSection, setEnvironmentSection] =
     useState<EnvironmentSection>("browser");
   const [wslStatus, setWslStatus] = useState<WslStatus | null>(null);
@@ -131,24 +136,39 @@ export function EnvironmentWorkspace({
       setTechnologyError(null);
       return;
     }
-    void Promise.all([
+    let current = true;
+    setInventoryLoading(true);
+    void Promise.allSettled([
       desktopApi.listEngineAdapters(),
       desktopApi.environmentBackendStatuses(),
       desktopApi.remoteEnvironmentStatus(),
-    ])
-      .then(([engines, environments, remote]) => {
-        setEngineStatuses(engines);
-        setEnvironmentStatuses(environments);
-        setRemoteStatus(remote);
-        if (remote.endpoint !== null) {
-          setRemoteOrigin(remote.endpoint.origin);
-          setRemotePinKind(remote.endpoint.pin.kind);
-          setRemotePinSha256(remote.endpoint.pin.sha256);
+    ]).then(([engines, environments, remote]) => {
+      if (!current) return;
+      setEngineStatuses(engines.status === "fulfilled" ? engines.value : []);
+      setEnvironmentStatuses(
+        environments.status === "fulfilled" ? environments.value : [],
+      );
+      if (remote.status === "fulfilled") {
+        setRemoteStatus(remote.value);
+        if (remote.value.endpoint !== null) {
+          setRemoteOrigin(remote.value.endpoint.origin);
+          setRemotePinKind(remote.value.endpoint.pin.kind);
+          setRemotePinSha256(remote.value.endpoint.pin.sha256);
         }
-        setTechnologyError(null);
-      })
-      .catch((error: unknown) => setTechnologyError(errorMessage(error)));
-  }, [vaultLocked]);
+      }
+      setTechnologyError(
+        [engines, environments, remote].some(
+          (result) => result.status === "rejected",
+        )
+          ? "部分运行环境的状态暂时无法读取，请稍后重试。"
+          : null,
+      );
+      setInventoryLoading(false);
+    });
+    return () => {
+      current = false;
+    };
+  }, [vaultLocked, inventoryRetry]);
 
   useEffect(() => {
     const interval = window.setInterval(
@@ -1066,1157 +1086,1482 @@ export function EnvironmentWorkspace({
     /^[0-9a-f-]{36}$/iu.test(remoteRotationTokenId.trim());
 
   return (
-    <>
-      <section className="workspace-intro">
-        <div>
-          <p className="eyebrow">运行位置设置</p>
-          <h1>准备或修复可选运行位置</h1>
-          <p>
-            创建 Silo 时直接选择运行位置。这里只用于准备已安装浏览器，
-            以及检查可用于新 Silo 的 Linux 环境。
-          </p>
+    <section
+      className={`location-observatory living-page${locationOpen ? " location-open" : ""}`}
+    >
+      <header className="living-heading">
+        <p className="eyebrow">04 / EXECUTION MAP</p>
+        <h1>每个身份，都有落点。</h1>
+        <p>在地图里查看浏览器与可选运行位置，进入后准备或修复。</p>
+      </header>
+      {technologyError !== null && (
+        <div className="location-read-error" role="alert">
+          {technologyError}
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={inventoryLoading}
+            onClick={() => setInventoryRetry((value) => value + 1)}
+          >
+            重新读取状态
+          </button>
         </div>
-        <nav className="environment-switcher" aria-label="运行位置设置类别">
+      )}
+      <nav className="location-map" aria-label="运行位置设置类别">
+        <div className="map-connection" aria-hidden="true" />
+        <button
+          className="map-place place-browser"
+          aria-pressed={environmentSection === "browser" && locationOpen}
+          aria-expanded={environmentSection === "browser" && locationOpen}
+          aria-controls="location-console"
+          onClick={() => {
+            setEnvironmentSection("browser");
+            setLocationOpen(true);
+          }}
+          type="button"
+        >
+          <InstrumentObject
+            kind="browser"
+            active={environmentSection === "browser" && locationOpen}
+          />
+          <span className="place-index">01 / WINDOWS</span>
+          <strong>浏览器准备</strong>
+          <small>
+            {vaultLocked
+              ? "解锁后读取浏览器状态"
+              : inventoryLoading
+                ? "正在读取…"
+                : `${visibleEngineStatuses.length} 个引擎状态`}
+          </small>
+          <i aria-hidden="true">进入 ↗</i>
+        </button>
+        <button
+          className="map-place place-linux"
+          aria-pressed={environmentSection === "local" && locationOpen}
+          aria-expanded={environmentSection === "local" && locationOpen}
+          aria-controls="location-console"
+          onClick={() => {
+            setEnvironmentSection("local");
+            setLocationOpen(true);
+          }}
+          type="button"
+        >
+          <InstrumentObject
+            kind="linux"
+            active={environmentSection === "local" && locationOpen}
+          />
+          <span className="place-index">02 / LOCAL LINUX</span>
+          <strong>Linux 环境</strong>
+          <small>
+            {wslStatus === null
+              ? "进入后检查本机 WSL"
+              : wslStatus.available
+                ? `${wslStatus.distributions.length} 个发行版`
+                : "尚不可用"}
+          </small>
+          <i aria-hidden="true">进入 ↗</i>
+        </button>
+        {(remoteStatus?.bindings.length ?? 0) > 0 && (
           <button
-            aria-pressed={environmentSection === "browser"}
-            className="environment-switch"
-            onClick={() => setEnvironmentSection("browser")}
+            className="map-place place-remote"
+            aria-pressed={environmentSection === "remote" && locationOpen}
+            aria-expanded={environmentSection === "remote" && locationOpen}
+            aria-controls="location-console"
+            onClick={() => {
+              setEnvironmentSection("remote");
+              setLocationOpen(true);
+            }}
             type="button"
           >
-            浏览器准备
+            <InstrumentObject
+              kind="remote"
+              active={environmentSection === "remote" && locationOpen}
+            />
+            <span className="place-index">03 / EXISTING REMOTE</span>
+            <strong>旧远程环境</strong>
+            <small>{remoteStatus?.bindings.length} 个已有连接</small>
+            <i aria-hidden="true">进入 ↗</i>
           </button>
+        )}
+      </nav>
+      {!locationOpen && (
+        <p className="map-boundary">
+          选择一个落点进入查看。Silo 的运行位置仍在创建时选择。
+        </p>
+      )}
+      <div
+        id="location-console"
+        className="location-console"
+        hidden={!locationOpen}
+      >
+        <div className="location-console-bar">
+          <span>
+            {environmentSection === "browser"
+              ? "WINDOWS / 浏览器准备"
+              : environmentSection === "local"
+                ? "LOCAL / Linux 环境"
+                : "REMOTE / 已有远程环境"}
+          </span>
           <button
-            aria-pressed={environmentSection === "local"}
-            className="environment-switch"
-            onClick={() => setEnvironmentSection("local")}
             type="button"
+            className="button-secondary"
+            onClick={() => setLocationOpen(false)}
           >
-            Linux 环境
+            返回地图 ↗
           </button>
-          {(remoteStatus?.bindings.length ?? 0) > 0 ? (
-            <button
-              aria-pressed={environmentSection === "remote"}
-              className="environment-switch"
-              onClick={() => setEnvironmentSection("remote")}
-              type="button"
-            >
-              旧远程环境
-            </button>
-          ) : null}
-        </nav>
-      </section>
-
-      {environmentSection === "browser" ? (
-        <section className="panel provider-catalog">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">浏览器</p>
-              <h2>管理 Silo 可以使用的浏览器</h2>
-              <p>
-                已安装的 Chrome 和 Edge 可以直接使用。已有 Silo
-                使用独立浏览器时，也可以在这里查看并维护对应组件。
-              </p>
-            </div>
-          </div>
-          <div className="provider-status-grid">
-            {visibleEngineStatuses.map((engine) => (
-              <article
-                className="provider-status-card"
-                key={engine.descriptor.id}
-              >
+        </div>
+        <div className="location-console-body" key={environmentSection}>
+          {environmentSection === "browser" ? (
+            <section className="panel provider-catalog">
+              <div className="panel-heading">
                 <div>
-                  <strong>{engineAdapterLabel(engine.descriptor.id)}</strong>
-                  <span className={`provider-health ${engine.health.state}`}>
-                    {engineHealthLabel(engine.health.state)}
-                  </span>
-                </div>
-                <p>{engineHealthDescription(engine.health.state)}</p>
-                <small>
-                  {engine.descriptor.externallyPackaged
-                    ? "通过完整性检查后才会用于新的浏览会话。"
-                    : "由浏览器供应商更新；VeriSilo 使用这台电脑上已安装的版本。"}
-                </small>
-              </article>
-            ))}
-            {visibleEngineStatuses.length === 0 ? (
-              <p className="empty-provider-copy">尚未发现可用浏览器。</p>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-
-      {unboundEnvironmentControlsAvailable() &&
-      environmentSection === "local" ? (
-        <section className="panel provider-catalog">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">本机位置</p>
-              <h2>检查可选运行位置所需的 Windows 功能</h2>
-              <p>
-                这里保留已有位置的检查和修复入口。新的 Silo 请回到创建页选择
-                Windows 本机或已发现的 Linux 环境。
-              </p>
-            </div>
-          </div>
-          <div className="provider-status-grid">
-            {environmentStatuses.map((environment) => {
-              const available = environment.capabilities.filter(
-                (capability) =>
-                  capability.availability.availability === "available" &&
-                  isUserEnvironmentOperation(capability.operation),
-              ).length;
-              const missing = environment.prerequisites.filter(
-                (prerequisite) => prerequisite.state !== "verified",
-              );
-              return (
-                <article
-                  className="provider-status-card"
-                  key={environment.backend}
-                >
-                  <div>
-                    <strong>
-                      {environmentBackendLabel(environment.backend)}
-                    </strong>
-                    <span
-                      className={`provider-health ${available > 0 ? "degraded" : "unavailable"}`}
-                    >
-                      {available > 0 ? "可以使用" : "需要设置"}
-                    </span>
-                  </div>
+                  <p className="eyebrow">浏览器</p>
+                  <h2>管理 Silo 可以使用的浏览器</h2>
                   <p>
-                    {available > 0
-                      ? "可以为现有 Silo 创建并管理此类环境。"
-                      : "这台电脑尚未满足使用条件。"}
+                    已安装的 Chrome 和 Edge 可以直接使用。已有 Silo
+                    使用独立浏览器时，也可以在这里查看并维护对应组件。
                   </p>
-                  <small>
-                    {missing.length === 0
-                      ? "本机检查已完成。"
-                      : "完成所需的 Windows 设置后即可重试。"}
-                  </small>
-                </article>
-              );
-            })}
-          </div>
-          {technologyError !== null ? (
-            <p className="field-error" role="alert">
-              部分运行环境的状态暂时无法读取，请稍后重试。
-            </p>
-          ) : null}
-          <div className="environment-console">
-            <div className="environment-console-heading">
-              <div>
-                <strong>管理现有 Silo</strong>
-                <span>选择运行位置和 Silo 后，可用操作会自动启用。</span>
+                </div>
               </div>
-            </div>
-            <div className="form-grid environment-console-selects">
-              <label>
-                运行位置
-                <select
-                  disabled={environmentActionBusy}
-                  onChange={(event) => {
-                    setSelectedEnvironmentBackend(
-                      event.target.value as EnvironmentBackendStatus["backend"],
-                    );
-                    setEnvironmentActionMessage(null);
-                  }}
-                  value={selectedEnvironmentBackend}
-                >
-                  {environmentStatuses.map((environment) => (
-                    <option
-                      key={environment.backend}
-                      value={environment.backend}
-                    >
-                      {environmentBackendLabel(environment.backend)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                选择 Silo
-                <select
-                  disabled={environmentActionBusy || vaultLocked}
-                  onChange={(event) => {
-                    setSelectedEnvironmentSilo(event.target.value);
-                    setEnvironmentActionMessage(null);
-                  }}
-                  value={selectedEnvironmentSilo}
-                >
-                  <option value="">
-                    {vaultLocked ? "先解锁保险库" : "请选择 Silo"}
-                  </option>
-                  {silos.map((silo) => (
-                    <option key={silo.id} value={silo.id}>
-                      {silo.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="environment-operation-grid">
-              {selectedBackendStatus?.capabilities
-                .filter(
-                  (capability) =>
-                    capability.availability.availability === "available" &&
-                    isUserEnvironmentOperation(capability.operation),
-                )
-                .map((capability) => {
-                  return (
-                    <button
-                      className={
-                        capability.operation === "destroy"
-                          ? "button-danger"
-                          : "button-secondary"
-                      }
-                      disabled={
-                        environmentActionBusy ||
-                        vaultLocked ||
-                        selectedEnvironmentSilo === ""
-                      }
-                      key={capability.operation}
-                      onClick={() =>
-                        void runEnvironmentOperation(capability.operation)
-                      }
-                      type="button"
-                    >
-                      {environmentOperationLabel(capability.operation)}
-                    </button>
-                  );
-                })}
-              {selectedBackendStatus !== undefined &&
-              selectedBackendStatus.capabilities.every(
-                (capability) =>
-                  capability.availability.availability !== "available" ||
-                  !isUserEnvironmentOperation(capability.operation),
-              ) ? (
-                <p className="empty-provider-copy">
-                  完成下方使用条件后，这里会显示可用操作。
-                </p>
-              ) : null}
-            </div>
-            {selectedBackendStatus !== undefined ? (
-              <div className="environment-evidence-boundary">
-                <strong>使用条件</strong>
-                <p>
-                  VeriSilo
-                  会在执行前再次检查这些条件。尚未就绪的环境不会显示操作按钮。
-                </p>
-                <ul>
-                  {selectedBackendStatus.prerequisites.map((prerequisite) => (
-                    <li key={prerequisite.id}>
+              <div className="provider-status-grid">
+                {visibleEngineStatuses.map((engine) => (
+                  <article
+                    className="provider-status-card"
+                    key={engine.descriptor.id}
+                  >
+                    <div>
+                      <strong>
+                        {engineAdapterLabel(engine.descriptor.id)}
+                      </strong>
                       <span
-                        className={`environment-state ${prerequisite.state}`}
+                        className={`provider-health ${engine.health.state}`}
                       >
-                        {environmentPrerequisiteStateLabel(prerequisite.state)}
+                        {engineHealthLabel(engine.health.state)}
                       </span>
-                      <span>
-                        {environmentPrerequisiteLabel(prerequisite.id)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {environmentActionMessage !== null ? (
-              <p
-                className={`environment-action-message ${environmentActionMessage.tone}`}
-                role={
-                  environmentActionMessage.tone === "error" ? "alert" : "status"
-                }
-              >
-                {environmentActionMessage.text}
-              </p>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-
-      {unboundEnvironmentControlsAvailable() &&
-      environmentSection === "remote" &&
-      (remoteStatus?.bindings.length ?? 0) === 0 ? (
-        <section className="panel provider-catalog remote-provider-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">远程环境</p>
-              <h2>连接你自己的远程服务</h2>
-              <p>
-                VeriSilo 不会自动连接公共云。填写你信任的服务地址和安全指纹，
-                再使用一次性配对码连接。仅在你确认操作时才会联网。
-              </p>
-            </div>
-            <span
-              className={`provider-health ${remoteStatus?.state === "paired" ? "healthy" : "unavailable"}`}
-            >
-              {remoteStatus === null
-                ? "状态未知"
-                : remoteStateLabel(remoteStatus.state)}
-            </span>
-          </div>
-          {remoteStatus !== null ? (
-            <>
-              {remoteStatus.endpoint !== null ? (
-                <div className="remote-endpoint-proof">
-                  <div>
-                    <span>已保存的服务地址</span>
-                    <strong>{remoteStatus.endpoint.origin}</strong>
-                  </div>
-                  <div>
-                    <span>安全指纹</span>
-                    <code>{remoteStatus.endpoint.pin.sha256}</code>
-                  </div>
-                  {remoteStatus.pairing !== null ? (
-                    <div>
-                      <span>连接有效期</span>
-                      <strong>
-                        {new Date(
-                          remoteStatus.pairing.credentialExpiresAtUnixMs,
-                        ).toLocaleString("zh-CN")}
-                        {remoteStatus.pairing.expired ? "（已过期）" : ""}
-                      </strong>
                     </div>
-                  ) : null}
-                  {remoteStatus.pairing !== null ? (
-                    <div>
-                      <span>远程服务</span>
-                      <strong>
-                        {remoteStatus.pairing.node.operatorLabel} ·{" "}
-                        {remoteStatus.pairing.node.dataRegion}
-                      </strong>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </>
-          ) : null}
-          {remoteStatus === null || remoteStatus.pairing === null ? (
-            <>
-              <div className="form-grid remote-endpoint-form">
-                <label>
-                  远程服务地址
-                  <input
-                    autoComplete="off"
-                    disabled={remoteBusy || vaultLocked}
-                    onChange={(event) => {
-                      setRemoteOrigin(event.target.value);
-                      setRemoteValidation(null);
-                      setRemotePairingApproved(false);
-                    }}
-                    placeholder="https://browser.example.com/"
-                    spellCheck={false}
-                    value={remoteOrigin}
-                  />
-                </label>
-                <label>
-                  验证方式
-                  <select
-                    disabled={remoteBusy || vaultLocked}
-                    onChange={(event) => {
-                      setRemotePinKind(
-                        event.target.value as RemoteEndpoint["pin"]["kind"],
-                      );
-                      setRemoteValidation(null);
-                      setRemotePairingApproved(false);
-                    }}
-                    value={remotePinKind}
-                  >
-                    <option value="spki_sha256">服务公钥指纹（推荐）</option>
-                    <option value="certificate_sha256">服务证书指纹</option>
-                  </select>
-                </label>
-                <label>
-                  安全指纹（64 位小写十六进制）
-                  <input
-                    autoComplete="off"
-                    disabled={remoteBusy || vaultLocked}
-                    maxLength={64}
-                    onChange={(event) => {
-                      setRemotePinSha256(event.target.value);
-                      setRemoteValidation(null);
-                      setRemotePairingApproved(false);
-                    }}
-                    spellCheck={false}
-                    value={remotePinSha256}
-                  />
-                </label>
-              </div>
-              <div className="card-actions">
-                <button
-                  className="button-secondary"
-                  disabled={
-                    vaultLocked ||
-                    remoteOrigin.trim() === "" ||
-                    remoteBusy ||
-                    !/^[a-f0-9]{64}$/u.test(
-                      remotePinSha256.trim().toLowerCase(),
-                    )
-                  }
-                  onClick={() => void validateRemoteEndpoint()}
-                  type="button"
-                >
-                  检查填写内容
-                </button>
-              </div>
-              {remoteValidation !== null ? (
-                <p
-                  className={`environment-action-message ${remoteValidation.tone}`}
-                  role={remoteValidation.tone === "error" ? "alert" : "status"}
-                >
-                  {remoteValidation.text}
-                </p>
-              ) : null}
-
-              <div className="remote-pairing-panel">
-                <div className="environment-console-heading">
-                  <div>
-                    <strong>使用一次性配对码连接</strong>
-                    <span>
-                      配对码最长有效五分钟。尝试连接后会立即清空，不能再次使用。
-                    </span>
-                  </div>
-                </div>
-                <div className="form-grid remote-pairing-form">
-                  <label>
-                    配对编号
-                    <input
-                      autoComplete="off"
-                      disabled={
-                        remoteBusy ||
-                        vaultLocked ||
-                        remoteStatus?.pairing !== null
-                      }
-                      onChange={(event) => {
-                        setRemotePairingTokenId(event.target.value);
-                        setRemotePairingApproved(false);
-                      }}
-                      spellCheck={false}
-                      value={remotePairingTokenId}
-                    />
-                  </label>
-                  <label>
-                    一次性配对码
-                    <input
-                      autoComplete="off"
-                      disabled={
-                        remoteBusy ||
-                        vaultLocked ||
-                        remoteStatus?.pairing !== null
-                      }
-                      onChange={(event) => {
-                        setRemotePairingToken(event.target.value);
-                        setRemotePairingApproved(false);
-                      }}
-                      spellCheck={false}
-                      type="password"
-                      value={remotePairingToken}
-                    />
-                  </label>
-                  <label>
-                    配对码到期时间
-                    <input
-                      disabled={
-                        remoteBusy ||
-                        vaultLocked ||
-                        remoteStatus?.pairing !== null
-                      }
-                      onChange={(event) => {
-                        setRemotePairingExpiresAt(event.target.value);
-                        setRemotePairingApproved(false);
-                      }}
-                      type="datetime-local"
-                      value={remotePairingExpiresAt}
-                    />
-                  </label>
-                </div>
-                {remotePairingExpiresAt !== "" ? (
-                  <p
-                    className={`remote-token-expiry ${remotePairingExpiryValid ? "valid" : "invalid"}`}
-                    role={remotePairingExpiryValid ? "status" : "alert"}
-                  >
-                    配对码到期：
-                    {Number.isFinite(remotePairingExpiryMs)
-                      ? new Date(remotePairingExpiryMs).toLocaleString("zh-CN")
-                      : "格式无效"}
-                    。
-                    {remotePairingExpiryValid
-                      ? "当前仍可使用。"
-                      : "配对码必须尚未过期，且最多有效五分钟。"}
-                  </p>
+                    <p>{engineHealthDescription(engine.health.state)}</p>
+                    <small>
+                      {engine.descriptor.externallyPackaged
+                        ? "通过完整性检查后才会用于新的浏览会话。"
+                        : "由浏览器供应商更新；VeriSilo 使用这台电脑上已安装的版本。"}
+                    </small>
+                  </article>
+                ))}
+                {visibleEngineStatuses.length === 0 ? (
+                  <p className="empty-provider-copy">尚未发现可用浏览器。</p>
                 ) : null}
-                <label className="remote-confirmation">
-                  <input
-                    checked={remotePairingApproved}
-                    disabled={
-                      remoteBusy ||
-                      vaultLocked ||
-                      remoteStatus?.pairing !== null ||
-                      !remotePairingFieldsValid
-                    }
-                    onChange={(event) =>
-                      setRemotePairingApproved(event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  <span>
-                    我确认只将这枚配对码发送到上方服务地址，并核对安全指纹。
-                    此确认不代表接受后续创建费用。
-                  </span>
-                </label>
-                <div className="card-actions">
-                  <button
-                    className="button-primary"
-                    disabled={
-                      remoteBusy ||
-                      vaultLocked ||
-                      remoteStatus?.pairing !== null ||
-                      !remotePairingApproved ||
-                      !remotePairingFieldsValid
-                    }
-                    onClick={() => void pairRemoteEndpoint()}
-                    type="button"
-                  >
-                    {remoteBusy ? "正在连接…" : "确认并连接"}
-                  </button>
-                </div>
               </div>
-            </>
-          ) : (
-            <div className="card-actions remote-connection-actions">
-              <button
-                className="button-danger"
-                disabled={remoteBusy || vaultLocked}
-                onClick={() => void revokeRemotePairing()}
-                type="button"
-              >
-                断开此远程服务
-              </button>
-            </div>
-          )}
-
-          {remoteStatus?.pairing !== null &&
-          remoteStatus?.pairing !== undefined ? (
-            <details className="remote-advanced">
-              <summary>更换安全指纹</summary>
-              <div className="remote-rotation-panel">
-                <div className="environment-console-heading">
-                  <div>
-                    <strong>更新当前服务的安全指纹</strong>
-                    <span>
-                      远程服务必须同时确认旧连接和新指纹。更新失败时会继续使用原连接信息。
-                    </span>
-                  </div>
-                </div>
-                <p className="remote-rotation-boundary">
-                  更新需要当前连接仍然可用，并使用远程服务生成的新一次性配对码。
-                  无论成功与否，这枚配对码都不能再次使用。
-                </p>
-                <div className="form-grid remote-rotation-form">
-                  <label>
-                    当前服务地址（不可更改）
-                    <input
-                      disabled
-                      value={
-                        remoteStatus?.endpoint?.origin ?? "尚未连接远程服务"
-                      }
-                    />
-                  </label>
-                  <label>
-                    新的验证方式
-                    <select
-                      disabled={remoteBusy || remoteStatus?.state !== "paired"}
-                      onChange={(event) => {
-                        setRemoteRotationPinKind(
-                          event.target.value as RemoteEndpoint["pin"]["kind"],
-                        );
-                        setRemoteRotationApproved(false);
-                      }}
-                      value={remoteRotationPinKind}
-                    >
-                      <option value="spki_sha256">服务公钥指纹（推荐）</option>
-                      <option value="certificate_sha256">服务证书指纹</option>
-                    </select>
-                  </label>
-                  <label>
-                    新的安全指纹
-                    <input
-                      autoComplete="off"
-                      disabled={remoteBusy || remoteStatus?.state !== "paired"}
-                      maxLength={64}
-                      onChange={(event) => {
-                        setRemoteRotationPinSha256(event.target.value);
-                        setRemoteRotationApproved(false);
-                      }}
-                      spellCheck={false}
-                      value={remoteRotationPinSha256}
-                    />
-                  </label>
-                  <label>
-                    新配对编号
-                    <input
-                      autoComplete="off"
-                      disabled={remoteBusy || remoteStatus?.state !== "paired"}
-                      onChange={(event) => {
-                        setRemoteRotationTokenId(event.target.value);
-                        setRemoteRotationApproved(false);
-                      }}
-                      spellCheck={false}
-                      value={remoteRotationTokenId}
-                    />
-                  </label>
-                  <label>
-                    新一次性配对码
-                    <input
-                      autoComplete="off"
-                      disabled={remoteBusy || remoteStatus?.state !== "paired"}
-                      onInput={(event) => {
-                        setRemoteRotationTokenReady(
-                          event.currentTarget.value.length >= 32,
-                        );
-                        setRemoteRotationApproved(false);
-                      }}
-                      ref={remoteRotationTokenRef}
-                      spellCheck={false}
-                      type="password"
-                    />
-                  </label>
-                  <label>
-                    新配对码到期时间
-                    <input
-                      disabled={remoteBusy || remoteStatus?.state !== "paired"}
-                      onChange={(event) => {
-                        setRemoteRotationExpiresAt(event.target.value);
-                        setRemoteRotationApproved(false);
-                      }}
-                      type="datetime-local"
-                      value={remoteRotationExpiresAt}
-                    />
-                  </label>
-                </div>
-                {remoteRotationExpiresAt !== "" ? (
-                  <p
-                    className={`remote-token-expiry ${remoteRotationExpiryValid ? "valid" : "invalid"}`}
-                    role={remoteRotationExpiryValid ? "status" : "alert"}
-                  >
-                    新配对码到期：
-                    {Number.isFinite(remoteRotationExpiryMs)
-                      ? new Date(remoteRotationExpiryMs).toLocaleString("zh-CN")
-                      : "格式无效"}
-                    。
-                    {remoteRotationExpiryValid
-                      ? "当前仍可使用。"
-                      : "新配对码必须尚未过期，且最多有效五分钟。"}
-                  </p>
-                ) : null}
-                <label className="remote-confirmation remote-rotation-confirmation">
-                  <input
-                    checked={remoteRotationApproved}
-                    disabled={
-                      remoteBusy ||
-                      remoteStatus?.state !== "paired" ||
-                      !remoteRotationFieldsValid
-                    }
-                    onChange={(event) =>
-                      setRemoteRotationApproved(event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  <span>
-                    我确认只将新配对码发送到当前服务地址，并使用上方新指纹核对服务。
-                    我知道这枚配对码尝试后不能重用。
-                  </span>
-                </label>
-                <div className="card-actions">
-                  <button
-                    className="button-primary"
-                    disabled={
-                      remoteBusy ||
-                      vaultLocked ||
-                      remoteStatus?.state !== "paired" ||
-                      !remoteRotationApproved ||
-                      !remoteRotationFieldsValid
-                    }
-                    onClick={() => void rotateRemoteTlsPin()}
-                    type="button"
-                  >
-                    {remoteBusy ? "正在更新…" : "确认更新安全指纹"}
-                  </button>
-                </div>
-              </div>
-            </details>
+            </section>
           ) : null}
 
-          {remoteStatus?.pairing !== null &&
-          remoteStatus?.pairing !== undefined ? (
-            <div className="remote-lifecycle-console">
-              <div className="environment-console-heading">
+          {unboundEnvironmentControlsAvailable() &&
+          environmentSection === "local" ? (
+            <section className="panel provider-catalog">
+              <div className="panel-heading">
                 <div>
-                  <strong>管理 Silo 的远程环境</strong>
-                  <span>选择一个 Silo 后，这里只显示当前可以执行的操作。</span>
+                  <p className="eyebrow">本机位置</p>
+                  <h2>检查可选运行位置所需的 Windows 功能</h2>
+                  <p>
+                    这里保留已有位置的检查和修复入口。新的 Silo 请回到创建页选择
+                    Windows 本机或已发现的 Linux 环境。
+                  </p>
                 </div>
               </div>
-              <div className="form-grid remote-operation-form">
-                <label>
-                  Silo
-                  <select
-                    disabled={remoteBusy || vaultLocked}
-                    onChange={(event) => {
-                      setSelectedRemoteSilo(event.target.value);
-                      setRemoteActionMessage(null);
-                    }}
-                    value={selectedRemoteSilo}
-                  >
-                    <option value="">
-                      {vaultLocked ? "先解锁保险库" : "请选择 Silo"}
-                    </option>
-                    {silos.map((silo) => (
-                      <option key={silo.id} value={silo.id}>
-                        {silo.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  网络方式
-                  <select
-                    disabled={remoteBusy}
-                    onChange={(event) =>
-                      setRemoteNetworkMode(
-                        event.target.value as RemoteNetworkPolicy["mode"],
-                      )
-                    }
-                    value={remoteNetworkMode}
-                  >
-                    <option value="direct">直连</option>
-                    <option value="fixed_proxy">使用远程服务的代理</option>
-                  </select>
-                </label>
-                {remoteNetworkMode === "fixed_proxy" ? (
-                  <label>
-                    代理配置编号
-                    <input
-                      disabled={remoteBusy}
-                      onChange={(event) =>
-                        setRemoteProxyPolicyId(event.target.value)
-                      }
-                      spellCheck={false}
-                      value={remoteProxyPolicyId}
-                    />
-                  </label>
-                ) : null}
-                <label>
-                  最长保留时间（秒）
-                  <input
-                    disabled={remoteBusy}
-                    inputMode="numeric"
-                    max={2_592_000}
-                    min={60}
-                    onChange={(event) =>
-                      setRemoteTtlSeconds(event.target.value)
-                    }
-                    placeholder="60–2592000"
-                    type="number"
-                    value={remoteTtlSeconds}
-                  />
-                </label>
-              </div>
-              {remoteNetworkMode === "fixed_proxy" ? (
-                <label className="remote-confirmation compact">
-                  <input
-                    checked={remoteProxyRequired}
-                    disabled={remoteBusy}
-                    onChange={(event) =>
-                      setRemoteProxyRequired(event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  <span>始终使用此代理；代理不可用时阻止环境直接联网。</span>
-                </label>
-              ) : null}
-              <div className="remote-cost-disclosure">
-                <strong>创建前确认费用</strong>
-                {remoteStatus?.pairing !== null &&
-                remoteStatus?.pairing !== undefined ? (
-                  <>
-                    <dl className="remote-cost-facts">
-                      <div>
-                        <dt>运营者</dt>
-                        <dd>{remoteStatus.pairing.node.operatorLabel}</dd>
-                      </div>
-                      <div>
-                        <dt>数据区域</dt>
-                        <dd>{remoteStatus.pairing.node.dataRegion}</dd>
-                      </div>
-                      <div>
-                        <dt>密钥保管</dt>
-                        <dd>由你控制</dd>
-                      </div>
-                      <div>
-                        <dt>估算每小时费用</dt>
-                        <dd>
-                          {formatMicrosCurrency(
-                            remoteStatus.pairing.node.cost
-                              .estimatedMicrosPerHour,
-                            remoteStatus.pairing.node.cost.currency,
-                          )}
-                        </dd>
-                      </div>
-                    </dl>
-                    <p>费用由远程服务运营者计算，实际金额以对方账单为准。</p>
-                  </>
-                ) : (
-                  <p>
-                    连接远程服务后，这里会显示运营者、区域、密钥保管方式和预计费用。
-                  </p>
-                )}
-                <label className="remote-confirmation compact">
-                  <input
-                    checked={remoteCostAcknowledged}
-                    disabled={remoteBusy || remoteStatus?.pairing === null}
-                    onChange={(event) =>
-                      setRemoteCostAcknowledged(event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  <span>
-                    我已查看上方费用，并确认下一次创建操作。连接确认不会自动接受费用。
-                  </span>
-                </label>
-              </div>
-              <div className="environment-operation-grid remote-operation-grid">
-                {remoteStatus?.capabilities
-                  .filter(
+              <div className="provider-status-grid">
+                {environmentStatuses.map((environment) => {
+                  const available = environment.capabilities.filter(
                     (capability) =>
                       capability.availability.availability === "available" &&
                       isUserEnvironmentOperation(capability.operation),
-                  )
-                  .filter((capability) =>
-                    selectedRemoteBinding === undefined
-                      ? capability.operation === "create"
-                      : capability.operation !== "create",
-                  )
-                  .map((capability) => {
-                    return (
-                      <button
-                        className={
-                          capability.operation === "destroy"
-                            ? "button-danger"
-                            : "button-secondary"
-                        }
+                  ).length;
+                  const missing = environment.prerequisites.filter(
+                    (prerequisite) => prerequisite.state !== "verified",
+                  );
+                  return (
+                    <article
+                      className="provider-status-card"
+                      key={environment.backend}
+                    >
+                      <div>
+                        <strong>
+                          {environmentBackendLabel(environment.backend)}
+                        </strong>
+                        <span
+                          className={`provider-health ${available > 0 ? "degraded" : "unavailable"}`}
+                        >
+                          {available > 0 ? "可以使用" : "需要设置"}
+                        </span>
+                      </div>
+                      <p>
+                        {available > 0
+                          ? "可以为现有 Silo 创建并管理此类环境。"
+                          : "这台电脑尚未满足使用条件。"}
+                      </p>
+                      <small>
+                        {missing.length === 0
+                          ? "本机检查已完成。"
+                          : "完成所需的 Windows 设置后即可重试。"}
+                      </small>
+                    </article>
+                  );
+                })}
+              </div>
+              {technologyError !== null ? (
+                <p className="field-error" role="alert">
+                  部分运行环境的状态暂时无法读取，请稍后重试。
+                </p>
+              ) : null}
+              <div className="environment-console">
+                <div className="environment-console-heading">
+                  <div>
+                    <strong>管理现有 Silo</strong>
+                    <span>选择运行位置和 Silo 后，可用操作会自动启用。</span>
+                  </div>
+                </div>
+                <div className="form-grid environment-console-selects">
+                  <label>
+                    运行位置
+                    <select
+                      disabled={environmentActionBusy}
+                      onChange={(event) => {
+                        setSelectedEnvironmentBackend(
+                          event.target
+                            .value as EnvironmentBackendStatus["backend"],
+                        );
+                        setEnvironmentActionMessage(null);
+                      }}
+                      value={selectedEnvironmentBackend}
+                    >
+                      {environmentStatuses.map((environment) => (
+                        <option
+                          key={environment.backend}
+                          value={environment.backend}
+                        >
+                          {environmentBackendLabel(environment.backend)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    选择 Silo
+                    <select
+                      disabled={environmentActionBusy || vaultLocked}
+                      onChange={(event) => {
+                        setSelectedEnvironmentSilo(event.target.value);
+                        setEnvironmentActionMessage(null);
+                      }}
+                      value={selectedEnvironmentSilo}
+                    >
+                      <option value="">
+                        {vaultLocked ? "先解锁保险库" : "请选择 Silo"}
+                      </option>
+                      {silos.map((silo) => (
+                        <option key={silo.id} value={silo.id}>
+                          {silo.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="environment-operation-grid">
+                  {selectedBackendStatus?.capabilities
+                    .filter(
+                      (capability) =>
+                        capability.availability.availability === "available" &&
+                        isUserEnvironmentOperation(capability.operation),
+                    )
+                    .map((capability) => {
+                      return (
+                        <button
+                          className={
+                            capability.operation === "destroy"
+                              ? "button-danger"
+                              : "button-secondary"
+                          }
+                          disabled={
+                            environmentActionBusy ||
+                            vaultLocked ||
+                            selectedEnvironmentSilo === ""
+                          }
+                          key={capability.operation}
+                          onClick={() =>
+                            void runEnvironmentOperation(capability.operation)
+                          }
+                          type="button"
+                        >
+                          {environmentOperationLabel(capability.operation)}
+                        </button>
+                      );
+                    })}
+                  {selectedBackendStatus !== undefined &&
+                  selectedBackendStatus.capabilities.every(
+                    (capability) =>
+                      capability.availability.availability !== "available" ||
+                      !isUserEnvironmentOperation(capability.operation),
+                  ) ? (
+                    <p className="empty-provider-copy">
+                      完成下方使用条件后，这里会显示可用操作。
+                    </p>
+                  ) : null}
+                </div>
+                {selectedBackendStatus !== undefined ? (
+                  <div className="environment-evidence-boundary">
+                    <strong>使用条件</strong>
+                    <p>
+                      VeriSilo
+                      会在执行前再次检查这些条件。尚未就绪的环境不会显示操作按钮。
+                    </p>
+                    <ul>
+                      {selectedBackendStatus.prerequisites.map(
+                        (prerequisite) => (
+                          <li key={prerequisite.id}>
+                            <span
+                              className={`environment-state ${prerequisite.state}`}
+                            >
+                              {environmentPrerequisiteStateLabel(
+                                prerequisite.state,
+                              )}
+                            </span>
+                            <span>
+                              {environmentPrerequisiteLabel(prerequisite.id)}
+                            </span>
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                  </div>
+                ) : null}
+                {environmentActionMessage !== null ? (
+                  <p
+                    className={`environment-action-message ${environmentActionMessage.tone}`}
+                    role={
+                      environmentActionMessage.tone === "error"
+                        ? "alert"
+                        : "status"
+                    }
+                  >
+                    {environmentActionMessage.text}
+                  </p>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+
+          {unboundEnvironmentControlsAvailable() &&
+          environmentSection === "remote" &&
+          (remoteStatus?.bindings.length ?? 0) === 0 ? (
+            <section className="panel provider-catalog remote-provider-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">远程环境</p>
+                  <h2>连接你自己的远程服务</h2>
+                  <p>
+                    VeriSilo
+                    不会自动连接公共云。填写你信任的服务地址和安全指纹，
+                    再使用一次性配对码连接。仅在你确认操作时才会联网。
+                  </p>
+                </div>
+                <span
+                  className={`provider-health ${remoteStatus?.state === "paired" ? "healthy" : "unavailable"}`}
+                >
+                  {remoteStatus === null
+                    ? "状态未知"
+                    : remoteStateLabel(remoteStatus.state)}
+                </span>
+              </div>
+              {remoteStatus !== null ? (
+                <>
+                  {remoteStatus.endpoint !== null ? (
+                    <div className="remote-endpoint-proof">
+                      <div>
+                        <span>已保存的服务地址</span>
+                        <strong>{remoteStatus.endpoint.origin}</strong>
+                      </div>
+                      <div>
+                        <span>安全指纹</span>
+                        <code>{remoteStatus.endpoint.pin.sha256}</code>
+                      </div>
+                      {remoteStatus.pairing !== null ? (
+                        <div>
+                          <span>连接有效期</span>
+                          <strong>
+                            {new Date(
+                              remoteStatus.pairing.credentialExpiresAtUnixMs,
+                            ).toLocaleString("zh-CN")}
+                            {remoteStatus.pairing.expired ? "（已过期）" : ""}
+                          </strong>
+                        </div>
+                      ) : null}
+                      {remoteStatus.pairing !== null ? (
+                        <div>
+                          <span>远程服务</span>
+                          <strong>
+                            {remoteStatus.pairing.node.operatorLabel} ·{" "}
+                            {remoteStatus.pairing.node.dataRegion}
+                          </strong>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+              {remoteStatus === null || remoteStatus.pairing === null ? (
+                <>
+                  <div className="form-grid remote-endpoint-form">
+                    <label>
+                      远程服务地址
+                      <input
+                        autoComplete="off"
+                        disabled={remoteBusy || vaultLocked}
+                        onChange={(event) => {
+                          setRemoteOrigin(event.target.value);
+                          setRemoteValidation(null);
+                          setRemotePairingApproved(false);
+                        }}
+                        placeholder="https://browser.example.com/"
+                        spellCheck={false}
+                        value={remoteOrigin}
+                      />
+                    </label>
+                    <label>
+                      验证方式
+                      <select
+                        disabled={remoteBusy || vaultLocked}
+                        onChange={(event) => {
+                          setRemotePinKind(
+                            event.target.value as RemoteEndpoint["pin"]["kind"],
+                          );
+                          setRemoteValidation(null);
+                          setRemotePairingApproved(false);
+                        }}
+                        value={remotePinKind}
+                      >
+                        <option value="spki_sha256">
+                          服务公钥指纹（推荐）
+                        </option>
+                        <option value="certificate_sha256">服务证书指纹</option>
+                      </select>
+                    </label>
+                    <label>
+                      安全指纹（64 位小写十六进制）
+                      <input
+                        autoComplete="off"
+                        disabled={remoteBusy || vaultLocked}
+                        maxLength={64}
+                        onChange={(event) => {
+                          setRemotePinSha256(event.target.value);
+                          setRemoteValidation(null);
+                          setRemotePairingApproved(false);
+                        }}
+                        spellCheck={false}
+                        value={remotePinSha256}
+                      />
+                    </label>
+                  </div>
+                  <div className="card-actions">
+                    <button
+                      className="button-secondary"
+                      disabled={
+                        vaultLocked ||
+                        remoteOrigin.trim() === "" ||
+                        remoteBusy ||
+                        !/^[a-f0-9]{64}$/u.test(
+                          remotePinSha256.trim().toLowerCase(),
+                        )
+                      }
+                      onClick={() => void validateRemoteEndpoint()}
+                      type="button"
+                    >
+                      检查填写内容
+                    </button>
+                  </div>
+                  {remoteValidation !== null ? (
+                    <p
+                      className={`environment-action-message ${remoteValidation.tone}`}
+                      role={
+                        remoteValidation.tone === "error" ? "alert" : "status"
+                      }
+                    >
+                      {remoteValidation.text}
+                    </p>
+                  ) : null}
+
+                  <div className="remote-pairing-panel">
+                    <div className="environment-console-heading">
+                      <div>
+                        <strong>使用一次性配对码连接</strong>
+                        <span>
+                          配对码最长有效五分钟。尝试连接后会立即清空，不能再次使用。
+                        </span>
+                      </div>
+                    </div>
+                    <div className="form-grid remote-pairing-form">
+                      <label>
+                        配对编号
+                        <input
+                          autoComplete="off"
+                          disabled={
+                            remoteBusy ||
+                            vaultLocked ||
+                            remoteStatus?.pairing !== null
+                          }
+                          onChange={(event) => {
+                            setRemotePairingTokenId(event.target.value);
+                            setRemotePairingApproved(false);
+                          }}
+                          spellCheck={false}
+                          value={remotePairingTokenId}
+                        />
+                      </label>
+                      <label>
+                        一次性配对码
+                        <input
+                          autoComplete="off"
+                          disabled={
+                            remoteBusy ||
+                            vaultLocked ||
+                            remoteStatus?.pairing !== null
+                          }
+                          onChange={(event) => {
+                            setRemotePairingToken(event.target.value);
+                            setRemotePairingApproved(false);
+                          }}
+                          spellCheck={false}
+                          type="password"
+                          value={remotePairingToken}
+                        />
+                      </label>
+                      <label>
+                        配对码到期时间
+                        <input
+                          disabled={
+                            remoteBusy ||
+                            vaultLocked ||
+                            remoteStatus?.pairing !== null
+                          }
+                          onChange={(event) => {
+                            setRemotePairingExpiresAt(event.target.value);
+                            setRemotePairingApproved(false);
+                          }}
+                          type="datetime-local"
+                          value={remotePairingExpiresAt}
+                        />
+                      </label>
+                    </div>
+                    {remotePairingExpiresAt !== "" ? (
+                      <p
+                        className={`remote-token-expiry ${remotePairingExpiryValid ? "valid" : "invalid"}`}
+                        role={remotePairingExpiryValid ? "status" : "alert"}
+                      >
+                        配对码到期：
+                        {Number.isFinite(remotePairingExpiryMs)
+                          ? new Date(remotePairingExpiryMs).toLocaleString(
+                              "zh-CN",
+                            )
+                          : "格式无效"}
+                        。
+                        {remotePairingExpiryValid
+                          ? "当前仍可使用。"
+                          : "配对码必须尚未过期，且最多有效五分钟。"}
+                      </p>
+                    ) : null}
+                    <label className="remote-confirmation">
+                      <input
+                        checked={remotePairingApproved}
                         disabled={
-                          remoteBusy || vaultLocked || selectedRemoteSilo === ""
+                          remoteBusy ||
+                          vaultLocked ||
+                          remoteStatus?.pairing !== null ||
+                          !remotePairingFieldsValid
                         }
-                        key={capability.operation}
-                        onClick={() =>
-                          void runRemoteOperation(capability.operation)
+                        onChange={(event) =>
+                          setRemotePairingApproved(event.target.checked)
                         }
+                        type="checkbox"
+                      />
+                      <span>
+                        我确认只将这枚配对码发送到上方服务地址，并核对安全指纹。
+                        此确认不代表接受后续创建费用。
+                      </span>
+                    </label>
+                    <div className="card-actions">
+                      <button
+                        className="button-primary"
+                        disabled={
+                          remoteBusy ||
+                          vaultLocked ||
+                          remoteStatus?.pairing !== null ||
+                          !remotePairingApproved ||
+                          !remotePairingFieldsValid
+                        }
+                        onClick={() => void pairRemoteEndpoint()}
                         type="button"
                       >
-                        {environmentOperationLabel(capability.operation)}
+                        {remoteBusy ? "正在连接…" : "确认并连接"}
                       </button>
-                    );
-                  })}
-              </div>
-              {selectedRemoteSiloRecord !== undefined ? (
-                <div className="remote-selected-state">
-                  <div className="remote-selected-heading">
-                    <div>
-                      <span>当前 Silo</span>
-                      <strong>{selectedRemoteSiloRecord.name}</strong>
                     </div>
-                    <span
-                      className={`provider-health ${selectedRemoteBinding === undefined ? "unavailable" : "healthy"}`}
-                    >
-                      {selectedRemoteBinding === undefined
-                        ? selectedRemoteResult?.state === "destroyed"
-                          ? "已删除"
-                          : "尚未创建"
-                        : "已连接"}
-                    </span>
                   </div>
-                  {selectedRemoteBinding !== undefined ? (
-                    <>
-                      <dl className="remote-binding-facts">
-                        <div>
-                          <dt>服务地址</dt>
-                          <dd>{selectedRemoteBinding.endpoint.origin}</dd>
-                        </div>
-                        <div>
-                          <dt>网络</dt>
-                          <dd>
-                            {selectedRemoteBinding.network.mode === "direct"
-                              ? "直连"
-                              : "使用远程代理"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>存储</dt>
-                          <dd>
-                            {selectedRemoteBinding.volume.encrypted
-                              ? "已加密"
-                              : "未加密"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>最近活动</dt>
-                          <dd>
-                            {new Date(
-                              selectedRemoteBinding.lastActivityAtUnixMs,
-                            ).toLocaleString("zh-CN")}
-                          </dd>
-                        </div>
-                      </dl>
-                      <div className="remote-interaction-section">
-                        <div className="environment-console-heading">
+                </>
+              ) : (
+                <div className="card-actions remote-connection-actions">
+                  <button
+                    className="button-danger"
+                    disabled={remoteBusy || vaultLocked}
+                    onClick={() => void revokeRemotePairing()}
+                    type="button"
+                  >
+                    断开此远程服务
+                  </button>
+                </div>
+              )}
+
+              {remoteStatus?.pairing !== null &&
+              remoteStatus?.pairing !== undefined ? (
+                <details className="remote-advanced">
+                  <summary>更换安全指纹</summary>
+                  <div className="remote-rotation-panel">
+                    <div className="environment-console-heading">
+                      <div>
+                        <strong>更新当前服务的安全指纹</strong>
+                        <span>
+                          远程服务必须同时确认旧连接和新指纹。更新失败时会继续使用原连接信息。
+                        </span>
+                      </div>
+                    </div>
+                    <p className="remote-rotation-boundary">
+                      更新需要当前连接仍然可用，并使用远程服务生成的新一次性配对码。
+                      无论成功与否，这枚配对码都不能再次使用。
+                    </p>
+                    <div className="form-grid remote-rotation-form">
+                      <label>
+                        当前服务地址（不可更改）
+                        <input
+                          disabled
+                          value={
+                            remoteStatus?.endpoint?.origin ?? "尚未连接远程服务"
+                          }
+                        />
+                      </label>
+                      <label>
+                        新的验证方式
+                        <select
+                          disabled={
+                            remoteBusy || remoteStatus?.state !== "paired"
+                          }
+                          onChange={(event) => {
+                            setRemoteRotationPinKind(
+                              event.target
+                                .value as RemoteEndpoint["pin"]["kind"],
+                            );
+                            setRemoteRotationApproved(false);
+                          }}
+                          value={remoteRotationPinKind}
+                        >
+                          <option value="spki_sha256">
+                            服务公钥指纹（推荐）
+                          </option>
+                          <option value="certificate_sha256">
+                            服务证书指纹
+                          </option>
+                        </select>
+                      </label>
+                      <label>
+                        新的安全指纹
+                        <input
+                          autoComplete="off"
+                          disabled={
+                            remoteBusy || remoteStatus?.state !== "paired"
+                          }
+                          maxLength={64}
+                          onChange={(event) => {
+                            setRemoteRotationPinSha256(event.target.value);
+                            setRemoteRotationApproved(false);
+                          }}
+                          spellCheck={false}
+                          value={remoteRotationPinSha256}
+                        />
+                      </label>
+                      <label>
+                        新配对编号
+                        <input
+                          autoComplete="off"
+                          disabled={
+                            remoteBusy || remoteStatus?.state !== "paired"
+                          }
+                          onChange={(event) => {
+                            setRemoteRotationTokenId(event.target.value);
+                            setRemoteRotationApproved(false);
+                          }}
+                          spellCheck={false}
+                          value={remoteRotationTokenId}
+                        />
+                      </label>
+                      <label>
+                        新一次性配对码
+                        <input
+                          autoComplete="off"
+                          disabled={
+                            remoteBusy || remoteStatus?.state !== "paired"
+                          }
+                          onInput={(event) => {
+                            setRemoteRotationTokenReady(
+                              event.currentTarget.value.length >= 32,
+                            );
+                            setRemoteRotationApproved(false);
+                          }}
+                          ref={remoteRotationTokenRef}
+                          spellCheck={false}
+                          type="password"
+                        />
+                      </label>
+                      <label>
+                        新配对码到期时间
+                        <input
+                          disabled={
+                            remoteBusy || remoteStatus?.state !== "paired"
+                          }
+                          onChange={(event) => {
+                            setRemoteRotationExpiresAt(event.target.value);
+                            setRemoteRotationApproved(false);
+                          }}
+                          type="datetime-local"
+                          value={remoteRotationExpiresAt}
+                        />
+                      </label>
+                    </div>
+                    {remoteRotationExpiresAt !== "" ? (
+                      <p
+                        className={`remote-token-expiry ${remoteRotationExpiryValid ? "valid" : "invalid"}`}
+                        role={remoteRotationExpiryValid ? "status" : "alert"}
+                      >
+                        新配对码到期：
+                        {Number.isFinite(remoteRotationExpiryMs)
+                          ? new Date(remoteRotationExpiryMs).toLocaleString(
+                              "zh-CN",
+                            )
+                          : "格式无效"}
+                        。
+                        {remoteRotationExpiryValid
+                          ? "当前仍可使用。"
+                          : "新配对码必须尚未过期，且最多有效五分钟。"}
+                      </p>
+                    ) : null}
+                    <label className="remote-confirmation remote-rotation-confirmation">
+                      <input
+                        checked={remoteRotationApproved}
+                        disabled={
+                          remoteBusy ||
+                          remoteStatus?.state !== "paired" ||
+                          !remoteRotationFieldsValid
+                        }
+                        onChange={(event) =>
+                          setRemoteRotationApproved(event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      <span>
+                        我确认只将新配对码发送到当前服务地址，并使用上方新指纹核对服务。
+                        我知道这枚配对码尝试后不能重用。
+                      </span>
+                    </label>
+                    <div className="card-actions">
+                      <button
+                        className="button-primary"
+                        disabled={
+                          remoteBusy ||
+                          vaultLocked ||
+                          remoteStatus?.state !== "paired" ||
+                          !remoteRotationApproved ||
+                          !remoteRotationFieldsValid
+                        }
+                        onClick={() => void rotateRemoteTlsPin()}
+                        type="button"
+                      >
+                        {remoteBusy ? "正在更新…" : "确认更新安全指纹"}
+                      </button>
+                    </div>
+                  </div>
+                </details>
+              ) : null}
+
+              {remoteStatus?.pairing !== null &&
+              remoteStatus?.pairing !== undefined ? (
+                <div className="remote-lifecycle-console">
+                  <div className="environment-console-heading">
+                    <div>
+                      <strong>管理 Silo 的远程环境</strong>
+                      <span>
+                        选择一个 Silo 后，这里只显示当前可以执行的操作。
+                      </span>
+                    </div>
+                  </div>
+                  <div className="form-grid remote-operation-form">
+                    <label>
+                      Silo
+                      <select
+                        disabled={remoteBusy || vaultLocked}
+                        onChange={(event) => {
+                          setSelectedRemoteSilo(event.target.value);
+                          setRemoteActionMessage(null);
+                        }}
+                        value={selectedRemoteSilo}
+                      >
+                        <option value="">
+                          {vaultLocked ? "先解锁保险库" : "请选择 Silo"}
+                        </option>
+                        {silos.map((silo) => (
+                          <option key={silo.id} value={silo.id}>
+                            {silo.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      网络方式
+                      <select
+                        disabled={remoteBusy}
+                        onChange={(event) =>
+                          setRemoteNetworkMode(
+                            event.target.value as RemoteNetworkPolicy["mode"],
+                          )
+                        }
+                        value={remoteNetworkMode}
+                      >
+                        <option value="direct">直连</option>
+                        <option value="fixed_proxy">使用远程服务的代理</option>
+                      </select>
+                    </label>
+                    {remoteNetworkMode === "fixed_proxy" ? (
+                      <label>
+                        代理配置编号
+                        <input
+                          disabled={remoteBusy}
+                          onChange={(event) =>
+                            setRemoteProxyPolicyId(event.target.value)
+                          }
+                          spellCheck={false}
+                          value={remoteProxyPolicyId}
+                        />
+                      </label>
+                    ) : null}
+                    <label>
+                      最长保留时间（秒）
+                      <input
+                        disabled={remoteBusy}
+                        inputMode="numeric"
+                        max={2_592_000}
+                        min={60}
+                        onChange={(event) =>
+                          setRemoteTtlSeconds(event.target.value)
+                        }
+                        placeholder="60–2592000"
+                        type="number"
+                        value={remoteTtlSeconds}
+                      />
+                    </label>
+                  </div>
+                  {remoteNetworkMode === "fixed_proxy" ? (
+                    <label className="remote-confirmation compact">
+                      <input
+                        checked={remoteProxyRequired}
+                        disabled={remoteBusy}
+                        onChange={(event) =>
+                          setRemoteProxyRequired(event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      <span>
+                        始终使用此代理；代理不可用时阻止环境直接联网。
+                      </span>
+                    </label>
+                  ) : null}
+                  <div className="remote-cost-disclosure">
+                    <strong>创建前确认费用</strong>
+                    {remoteStatus?.pairing !== null &&
+                    remoteStatus?.pairing !== undefined ? (
+                      <>
+                        <dl className="remote-cost-facts">
                           <div>
-                            <strong>远程操作</strong>
-                            <span>
-                              临时控制和自动操作都会到期，可随时在这里结束。
-                            </span>
+                            <dt>运营者</dt>
+                            <dd>{remoteStatus.pairing.node.operatorLabel}</dd>
                           </div>
-                        </div>
-                        <div className="remote-inline-actions">
-                          {activeRemoteHumanSession === undefined ? (
-                            <>
-                              <label>
-                                临时控制时长
-                                <select
-                                  disabled={!remoteInteractionReady}
-                                  onChange={(event) =>
-                                    setRemoteHumanLifetime(event.target.value)
-                                  }
-                                  value={remoteHumanLifetime}
-                                >
-                                  <option value="900">15 分钟</option>
-                                  <option value="1800">30 分钟</option>
-                                  <option value="3600">1 小时</option>
-                                  <option value="14400">4 小时</option>
-                                  <option value="28800">8 小时</option>
-                                </select>
-                              </label>
-                              <button
-                                className="button-secondary"
-                                disabled={!remoteInteractionReady}
-                                onClick={() =>
-                                  void runRemoteInteraction("open_human")
-                                }
-                                type="button"
-                              >
-                                开始临时控制
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <p className="remote-session-status">
-                                临时控制已开启，至
-                                {new Date(
-                                  activeRemoteHumanSession.expiresAtUnixMs,
-                                ).toLocaleTimeString("zh-CN", {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </p>
-                              <button
-                                className="button-danger"
-                                disabled={!remoteInteractionReady}
-                                onClick={() =>
-                                  void runRemoteInteraction("close_human")
-                                }
-                                type="button"
-                              >
-                                结束控制
-                              </button>
-                            </>
-                          )}
-                          <button
-                            className="button-secondary"
-                            disabled={
-                              !remoteInteractionReady || !canCheckRemoteScreen
-                            }
-                            onClick={() =>
-                              void runRemoteInteraction("check_screen")
-                            }
-                            type="button"
-                          >
-                            检查画面连接
-                          </button>
-                        </div>
-                        <div className="remote-input-row">
-                          <label>
-                            文本输入
-                            <input
-                              autoComplete="off"
-                              disabled={
-                                !remoteInteractionReady || !canSendRemoteInput
-                              }
-                              maxLength={512}
-                              onChange={(event) =>
-                                setRemoteInputText(event.target.value)
-                              }
-                              value={remoteInputText}
-                            />
-                          </label>
-                          <button
-                            className="button-secondary"
-                            disabled={
-                              !remoteInteractionReady ||
-                              !canSendRemoteInput ||
-                              remoteInputText.length === 0
-                            }
-                            onClick={() =>
-                              void runRemoteInteraction("send_input")
-                            }
-                            type="button"
-                          >
-                            发送到远程环境
-                          </button>
-                        </div>
-                        <p className="remote-interaction-note">
-                          文本会输入到远程环境当前焦点；本窗口无法预览目标位置或远程画面。
+                          <div>
+                            <dt>数据区域</dt>
+                            <dd>{remoteStatus.pairing.node.dataRegion}</dd>
+                          </div>
+                          <div>
+                            <dt>密钥保管</dt>
+                            <dd>由你控制</dd>
+                          </div>
+                          <div>
+                            <dt>估算每小时费用</dt>
+                            <dd>
+                              {formatMicrosCurrency(
+                                remoteStatus.pairing.node.cost
+                                  .estimatedMicrosPerHour,
+                                remoteStatus.pairing.node.cost.currency,
+                              )}
+                            </dd>
+                          </div>
+                        </dl>
+                        <p>
+                          费用由远程服务运营者计算，实际金额以对方账单为准。
                         </p>
-                        <details className="remote-advanced remote-automation-panel">
-                          <summary>允许自动操作</summary>
-                          <div className="form-grid remote-interaction-form automation">
-                            <label>
-                              允许时长
-                              <select
-                                disabled={!remoteInteractionReady}
-                                onChange={(event) => {
-                                  setRemoteAutomationLifetime(
-                                    event.target.value,
-                                  );
-                                  setRemoteAutomationApproved(false);
-                                }}
-                                value={remoteAutomationLifetime}
-                              >
-                                <option value="300">5 分钟</option>
-                                <option value="900">15 分钟</option>
-                                <option value="1800">30 分钟</option>
-                                <option value="3600">1 小时</option>
-                              </select>
-                            </label>
-                            <label className="remote-confirmation compact">
-                              <input
-                                checked={remoteAutomationReadScreen}
-                                disabled={!remoteInteractionReady}
-                                onChange={(event) => {
-                                  setRemoteAutomationReadScreen(
-                                    event.target.checked,
-                                  );
-                                  setRemoteAutomationApproved(false);
-                                }}
-                                type="checkbox"
-                              />
-                              <span>读取远程画面状态</span>
-                            </label>
-                            <label className="remote-confirmation compact">
-                              <input
-                                checked={remoteAutomationSendInput}
-                                disabled={!remoteInteractionReady}
-                                onChange={(event) => {
-                                  setRemoteAutomationSendInput(
-                                    event.target.checked,
-                                  );
-                                  setRemoteAutomationApproved(false);
-                                }}
-                                type="checkbox"
-                              />
-                              <span>向远程环境发送输入</span>
-                            </label>
-                          </div>
-                          <label className="remote-confirmation">
-                            <input
-                              checked={remoteAutomationApproved}
-                              disabled={
-                                !remoteInteractionReady ||
-                                (!remoteAutomationReadScreen &&
-                                  !remoteAutomationSendInput)
-                              }
-                              onChange={(event) =>
-                                setRemoteAutomationApproved(
-                                  event.target.checked,
-                                )
-                              }
-                              type="checkbox"
-                            />
-                            <span>
-                              我确认在上方时长内允许所选自动操作；到期后需要重新确认。
-                            </span>
-                          </label>
-                          <div className="card-actions">
-                            <button
-                              className="button-secondary"
-                              disabled={
-                                !remoteInteractionReady ||
-                                !remoteAutomationApproved ||
-                                (!remoteAutomationReadScreen &&
-                                  !remoteAutomationSendInput)
-                              }
-                              onClick={() =>
-                                void runRemoteInteraction("grant_automation")
-                              }
-                              type="button"
-                            >
-                              允许自动操作
-                            </button>
-                          </div>
-                          {activeRemoteAutomations.length > 0 ? (
-                            <ul className="remote-authorization-list">
-                              {activeRemoteAutomations.map((authorization) => (
-                                <li key={authorization.authorizationId}>
-                                  <span>
-                                    {authorization.scopes
-                                      .map((scope) =>
-                                        scope === "read_screen"
-                                          ? "可检查画面连接"
-                                          : "可发送输入",
-                                      )
-                                      .join("、")}
-                                  </span>
-                                  <strong>
-                                    至
+                      </>
+                    ) : (
+                      <p>
+                        连接远程服务后，这里会显示运营者、区域、密钥保管方式和预计费用。
+                      </p>
+                    )}
+                    <label className="remote-confirmation compact">
+                      <input
+                        checked={remoteCostAcknowledged}
+                        disabled={remoteBusy || remoteStatus?.pairing === null}
+                        onChange={(event) =>
+                          setRemoteCostAcknowledged(event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      <span>
+                        我已查看上方费用，并确认下一次创建操作。连接确认不会自动接受费用。
+                      </span>
+                    </label>
+                  </div>
+                  <div className="environment-operation-grid remote-operation-grid">
+                    {remoteStatus?.capabilities
+                      .filter(
+                        (capability) =>
+                          capability.availability.availability ===
+                            "available" &&
+                          isUserEnvironmentOperation(capability.operation),
+                      )
+                      .filter((capability) =>
+                        selectedRemoteBinding === undefined
+                          ? capability.operation === "create"
+                          : capability.operation !== "create",
+                      )
+                      .map((capability) => {
+                        return (
+                          <button
+                            className={
+                              capability.operation === "destroy"
+                                ? "button-danger"
+                                : "button-secondary"
+                            }
+                            disabled={
+                              remoteBusy ||
+                              vaultLocked ||
+                              selectedRemoteSilo === ""
+                            }
+                            key={capability.operation}
+                            onClick={() =>
+                              void runRemoteOperation(capability.operation)
+                            }
+                            type="button"
+                          >
+                            {environmentOperationLabel(capability.operation)}
+                          </button>
+                        );
+                      })}
+                  </div>
+                  {selectedRemoteSiloRecord !== undefined ? (
+                    <div className="remote-selected-state">
+                      <div className="remote-selected-heading">
+                        <div>
+                          <span>当前 Silo</span>
+                          <strong>{selectedRemoteSiloRecord.name}</strong>
+                        </div>
+                        <span
+                          className={`provider-health ${selectedRemoteBinding === undefined ? "unavailable" : "healthy"}`}
+                        >
+                          {selectedRemoteBinding === undefined
+                            ? selectedRemoteResult?.state === "destroyed"
+                              ? "已删除"
+                              : "尚未创建"
+                            : "已连接"}
+                        </span>
+                      </div>
+                      {selectedRemoteBinding !== undefined ? (
+                        <>
+                          <dl className="remote-binding-facts">
+                            <div>
+                              <dt>服务地址</dt>
+                              <dd>{selectedRemoteBinding.endpoint.origin}</dd>
+                            </div>
+                            <div>
+                              <dt>网络</dt>
+                              <dd>
+                                {selectedRemoteBinding.network.mode === "direct"
+                                  ? "直连"
+                                  : "使用远程代理"}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>存储</dt>
+                              <dd>
+                                {selectedRemoteBinding.volume.encrypted
+                                  ? "已加密"
+                                  : "未加密"}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>最近活动</dt>
+                              <dd>
+                                {new Date(
+                                  selectedRemoteBinding.lastActivityAtUnixMs,
+                                ).toLocaleString("zh-CN")}
+                              </dd>
+                            </div>
+                          </dl>
+                          <div className="remote-interaction-section">
+                            <div className="environment-console-heading">
+                              <div>
+                                <strong>远程操作</strong>
+                                <span>
+                                  临时控制和自动操作都会到期，可随时在这里结束。
+                                </span>
+                              </div>
+                            </div>
+                            <div className="remote-inline-actions">
+                              {activeRemoteHumanSession === undefined ? (
+                                <>
+                                  <label>
+                                    临时控制时长
+                                    <select
+                                      disabled={!remoteInteractionReady}
+                                      onChange={(event) =>
+                                        setRemoteHumanLifetime(
+                                          event.target.value,
+                                        )
+                                      }
+                                      value={remoteHumanLifetime}
+                                    >
+                                      <option value="900">15 分钟</option>
+                                      <option value="1800">30 分钟</option>
+                                      <option value="3600">1 小时</option>
+                                      <option value="14400">4 小时</option>
+                                      <option value="28800">8 小时</option>
+                                    </select>
+                                  </label>
+                                  <button
+                                    className="button-secondary"
+                                    disabled={!remoteInteractionReady}
+                                    onClick={() =>
+                                      void runRemoteInteraction("open_human")
+                                    }
+                                    type="button"
+                                  >
+                                    开始临时控制
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="remote-session-status">
+                                    临时控制已开启，至
                                     {new Date(
-                                      authorization.expiresAtUnixMs,
+                                      activeRemoteHumanSession.expiresAtUnixMs,
                                     ).toLocaleTimeString("zh-CN", {
                                       hour: "2-digit",
                                       minute: "2-digit",
                                     })}
-                                  </strong>
+                                  </p>
                                   <button
                                     className="button-danger"
                                     disabled={!remoteInteractionReady}
                                     onClick={() =>
-                                      void runRemoteInteraction(
-                                        "revoke_automation",
-                                        authorization.authorizationId,
-                                      )
+                                      void runRemoteInteraction("close_human")
                                     }
                                     type="button"
                                   >
-                                    取消
+                                    结束控制
                                   </button>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </details>
-                        {remoteInteractionMessage !== null ? (
-                          <p
-                            className={`environment-action-message ${remoteInteractionMessage.tone}`}
-                            role={
-                              remoteInteractionMessage.tone === "error"
-                                ? "alert"
-                                : "status"
-                            }
-                          >
-                            {remoteInteractionMessage.text}
-                          </p>
-                        ) : null}
-                      </div>
-                    </>
-                  ) : (
-                    <p className="remote-interaction-note">
-                      选择“创建”后，这里会显示远程环境状态。
+                                </>
+                              )}
+                              <button
+                                className="button-secondary"
+                                disabled={
+                                  !remoteInteractionReady ||
+                                  !canCheckRemoteScreen
+                                }
+                                onClick={() =>
+                                  void runRemoteInteraction("check_screen")
+                                }
+                                type="button"
+                              >
+                                检查画面连接
+                              </button>
+                            </div>
+                            <div className="remote-input-row">
+                              <label>
+                                文本输入
+                                <input
+                                  autoComplete="off"
+                                  disabled={
+                                    !remoteInteractionReady ||
+                                    !canSendRemoteInput
+                                  }
+                                  maxLength={512}
+                                  onChange={(event) =>
+                                    setRemoteInputText(event.target.value)
+                                  }
+                                  value={remoteInputText}
+                                />
+                              </label>
+                              <button
+                                className="button-secondary"
+                                disabled={
+                                  !remoteInteractionReady ||
+                                  !canSendRemoteInput ||
+                                  remoteInputText.length === 0
+                                }
+                                onClick={() =>
+                                  void runRemoteInteraction("send_input")
+                                }
+                                type="button"
+                              >
+                                发送到远程环境
+                              </button>
+                            </div>
+                            <p className="remote-interaction-note">
+                              文本会输入到远程环境当前焦点；本窗口无法预览目标位置或远程画面。
+                            </p>
+                            <details className="remote-advanced remote-automation-panel">
+                              <summary>允许自动操作</summary>
+                              <div className="form-grid remote-interaction-form automation">
+                                <label>
+                                  允许时长
+                                  <select
+                                    disabled={!remoteInteractionReady}
+                                    onChange={(event) => {
+                                      setRemoteAutomationLifetime(
+                                        event.target.value,
+                                      );
+                                      setRemoteAutomationApproved(false);
+                                    }}
+                                    value={remoteAutomationLifetime}
+                                  >
+                                    <option value="300">5 分钟</option>
+                                    <option value="900">15 分钟</option>
+                                    <option value="1800">30 分钟</option>
+                                    <option value="3600">1 小时</option>
+                                  </select>
+                                </label>
+                                <label className="remote-confirmation compact">
+                                  <input
+                                    checked={remoteAutomationReadScreen}
+                                    disabled={!remoteInteractionReady}
+                                    onChange={(event) => {
+                                      setRemoteAutomationReadScreen(
+                                        event.target.checked,
+                                      );
+                                      setRemoteAutomationApproved(false);
+                                    }}
+                                    type="checkbox"
+                                  />
+                                  <span>读取远程画面状态</span>
+                                </label>
+                                <label className="remote-confirmation compact">
+                                  <input
+                                    checked={remoteAutomationSendInput}
+                                    disabled={!remoteInteractionReady}
+                                    onChange={(event) => {
+                                      setRemoteAutomationSendInput(
+                                        event.target.checked,
+                                      );
+                                      setRemoteAutomationApproved(false);
+                                    }}
+                                    type="checkbox"
+                                  />
+                                  <span>向远程环境发送输入</span>
+                                </label>
+                              </div>
+                              <label className="remote-confirmation">
+                                <input
+                                  checked={remoteAutomationApproved}
+                                  disabled={
+                                    !remoteInteractionReady ||
+                                    (!remoteAutomationReadScreen &&
+                                      !remoteAutomationSendInput)
+                                  }
+                                  onChange={(event) =>
+                                    setRemoteAutomationApproved(
+                                      event.target.checked,
+                                    )
+                                  }
+                                  type="checkbox"
+                                />
+                                <span>
+                                  我确认在上方时长内允许所选自动操作；到期后需要重新确认。
+                                </span>
+                              </label>
+                              <div className="card-actions">
+                                <button
+                                  className="button-secondary"
+                                  disabled={
+                                    !remoteInteractionReady ||
+                                    !remoteAutomationApproved ||
+                                    (!remoteAutomationReadScreen &&
+                                      !remoteAutomationSendInput)
+                                  }
+                                  onClick={() =>
+                                    void runRemoteInteraction(
+                                      "grant_automation",
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  允许自动操作
+                                </button>
+                              </div>
+                              {activeRemoteAutomations.length > 0 ? (
+                                <ul className="remote-authorization-list">
+                                  {activeRemoteAutomations.map(
+                                    (authorization) => (
+                                      <li key={authorization.authorizationId}>
+                                        <span>
+                                          {authorization.scopes
+                                            .map((scope) =>
+                                              scope === "read_screen"
+                                                ? "可检查画面连接"
+                                                : "可发送输入",
+                                            )
+                                            .join("、")}
+                                        </span>
+                                        <strong>
+                                          至
+                                          {new Date(
+                                            authorization.expiresAtUnixMs,
+                                          ).toLocaleTimeString("zh-CN", {
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                          })}
+                                        </strong>
+                                        <button
+                                          className="button-danger"
+                                          disabled={!remoteInteractionReady}
+                                          onClick={() =>
+                                            void runRemoteInteraction(
+                                              "revoke_automation",
+                                              authorization.authorizationId,
+                                            )
+                                          }
+                                          type="button"
+                                        >
+                                          取消
+                                        </button>
+                                      </li>
+                                    ),
+                                  )}
+                                </ul>
+                              ) : null}
+                            </details>
+                            {remoteInteractionMessage !== null ? (
+                              <p
+                                className={`environment-action-message ${remoteInteractionMessage.tone}`}
+                                role={
+                                  remoteInteractionMessage.tone === "error"
+                                    ? "alert"
+                                    : "status"
+                                }
+                              >
+                                {remoteInteractionMessage.text}
+                              </p>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="remote-interaction-note">
+                          选择“创建”后，这里会显示远程环境状态。
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+                  {remoteActionMessage !== null ? (
+                    <p
+                      className={`environment-action-message ${remoteActionMessage.tone}`}
+                      role={
+                        remoteActionMessage.tone === "error"
+                          ? "alert"
+                          : "status"
+                      }
+                    >
+                      {remoteActionMessage.text}
                     </p>
-                  )}
+                  ) : null}
+                </div>
+              ) : (
+                <div className="remote-selected-state remote-connection-empty">
+                  <strong>连接后即可管理远程环境</strong>
+                  <p>
+                    完成上方配对后，你可以为现有 Silo
+                    创建、启动、停止或删除远程环境。
+                  </p>
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          {environmentSection === "remote" &&
+          (remoteStatus?.bindings.length ?? 0) > 0 ? (
+            <section className="panel provider-catalog remote-provider-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">旧远程环境</p>
+                  <h2>只处理已经存在的远程环境</h2>
+                  <p>
+                    这台电脑仍保留远程环境连接记录。此处只提供停止、检查、日志和删除，
+                    不会创建新环境，也不会打开远程浏览器控制。
+                  </p>
+                </div>
+                <span
+                  className={`provider-health ${remoteStatus?.state === "paired" ? "healthy" : "unavailable"}`}
+                >
+                  {remoteStatus === null
+                    ? "状态未知"
+                    : remoteStateLabel(remoteStatus.state)}
+                </span>
+              </div>
+              <p className="remote-recovery-warning">
+                连接状态不会改变这个界面的权限。配对有效、过期或已取消时，都只能清理旧环境；
+                不能在这里重新配对、启动或交互。
+              </p>
+              <label>
+                Silo
+                <select
+                  disabled={remoteBusy || vaultLocked}
+                  onChange={(event) => {
+                    setSelectedRemoteSilo(event.target.value);
+                    setRemoteActionMessage(null);
+                  }}
+                  value={selectedRemoteSilo}
+                >
+                  {remoteStatus?.bindings.map((binding) => {
+                    const silo = silos.find(
+                      (candidate) => candidate.id === binding.siloId,
+                    );
+                    return (
+                      <option key={binding.siloId} value={binding.siloId}>
+                        {silo?.name ?? "已移除的本地 Silo"}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              {selectedRemoteBinding !== undefined ? (
+                <div className="remote-selected-state">
+                  <dl className="remote-binding-facts">
+                    <div>
+                      <dt>服务地址</dt>
+                      <dd>{selectedRemoteBinding.endpoint.origin}</dd>
+                    </div>
+                    <div>
+                      <dt>网络</dt>
+                      <dd>
+                        {selectedRemoteBinding.network.mode === "direct"
+                          ? "直连"
+                          : "使用远程代理"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>存储</dt>
+                      <dd>已加密</dd>
+                    </div>
+                    <div>
+                      <dt>最近活动</dt>
+                      <dd>
+                        {new Date(
+                          selectedRemoteBinding.lastActivityAtUnixMs,
+                        ).toLocaleString("zh-CN")}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="environment-operation-grid remote-operation-grid">
+                    <button
+                      className="button-secondary"
+                      disabled={remoteBusy || vaultLocked}
+                      onClick={() => void runRemoteCleanupOperation("stop")}
+                      type="button"
+                    >
+                      停止远程环境
+                    </button>
+                    <button
+                      className="button-secondary"
+                      disabled={remoteBusy || vaultLocked}
+                      onClick={() => void runRemoteCleanupOperation("health")}
+                      type="button"
+                    >
+                      检查状态
+                    </button>
+                    <button
+                      className="button-secondary"
+                      disabled={remoteBusy || vaultLocked}
+                      onClick={() => void runRemoteCleanupOperation("logs")}
+                      type="button"
+                    >
+                      查看日志
+                    </button>
+                    <button
+                      className="button-danger"
+                      disabled={remoteBusy || vaultLocked}
+                      onClick={() => void runRemoteCleanupOperation("destroy")}
+                      type="button"
+                    >
+                      删除远程环境
+                    </button>
+                  </div>
+                  {selectedRemoteResult !== undefined ? (
+                    <div className="remote-result-card">
+                      <div>
+                        <span>最近一次清理结果</span>
+                        <strong>
+                          {environmentOperationLabel(
+                            selectedRemoteResult.operation,
+                          )}
+                          ：{remoteResultStateLabel(selectedRemoteResult.state)}
+                        </strong>
+                      </div>
+                      {selectedRemoteResult.logs !== undefined ? (
+                        <ul className="remote-log-list">
+                          {selectedRemoteResult.logs.map((log) => (
+                            <li key={log.sequence}>
+                              <span>{log.level}</span>
+                              <code>{log.message}</code>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="remote-proof-recovery">
+                    <strong>远程服务已确认删除时</strong>
+                    <p>
+                      只验证远程服务提供的删除证明，并移除本机连接记录；不会重新创建或启动环境。
+                    </p>
+                    <button
+                      className="button-secondary"
+                      disabled={remoteBusy || vaultLocked}
+                      onClick={() => void checkRemoteDeletionStatus()}
+                      type="button"
+                    >
+                      验证远程删除证明
+                    </button>
+                  </div>
+                  <div className="remote-force-detach">
+                    <strong>无法连接时的最后手段</strong>
+                    <p>
+                      Force Detach
+                      只移除这台电脑上的连接记录，不会删除远程环境。
+                      远程环境可能继续运行并产生费用，请先联系远程服务运营者。
+                    </p>
+                    <button
+                      className="button-danger"
+                      disabled={remoteBusy || vaultLocked}
+                      onClick={() => void removeLocalRemoteConnection()}
+                      type="button"
+                    >
+                      Force Detach：仅移除本机记录
+                    </button>
+                  </div>
                 </div>
               ) : null}
               {remoteActionMessage !== null ? (
@@ -2229,253 +2574,84 @@ export function EnvironmentWorkspace({
                   {remoteActionMessage.text}
                 </p>
               ) : null}
-            </div>
-          ) : (
-            <div className="remote-selected-state remote-connection-empty">
-              <strong>连接后即可管理远程环境</strong>
-              <p>
-                完成上方配对后，你可以为现有 Silo
-                创建、启动、停止或删除远程环境。
-              </p>
-            </div>
-          )}
-        </section>
-      ) : null}
+            </section>
+          ) : null}
 
-      {environmentSection === "remote" &&
-      (remoteStatus?.bindings.length ?? 0) > 0 ? (
-        <section className="panel provider-catalog remote-provider-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">旧远程环境</p>
-              <h2>只处理已经存在的远程环境</h2>
-              <p>
-                这台电脑仍保留远程环境连接记录。此处只提供停止、检查、日志和删除，
-                不会创建新环境，也不会打开远程浏览器控制。
-              </p>
-            </div>
-            <span
-              className={`provider-health ${remoteStatus?.state === "paired" ? "healthy" : "unavailable"}`}
-            >
-              {remoteStatus === null
-                ? "状态未知"
-                : remoteStateLabel(remoteStatus.state)}
-            </span>
-          </div>
-          <p className="remote-recovery-warning">
-            连接状态不会改变这个界面的权限。配对有效、过期或已取消时，都只能清理旧环境；
-            不能在这里重新配对、启动或交互。
-          </p>
-          <label>
-            Silo
-            <select
-              disabled={remoteBusy || vaultLocked}
-              onChange={(event) => {
-                setSelectedRemoteSilo(event.target.value);
-                setRemoteActionMessage(null);
-              }}
-              value={selectedRemoteSilo}
-            >
-              {remoteStatus?.bindings.map((binding) => {
-                const silo = silos.find(
-                  (candidate) => candidate.id === binding.siloId,
-                );
-                return (
-                  <option key={binding.siloId} value={binding.siloId}>
-                    {silo?.name ?? "已移除的本地 Silo"}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-          {selectedRemoteBinding !== undefined ? (
-            <div className="remote-selected-state">
-              <dl className="remote-binding-facts">
-                <div>
-                  <dt>服务地址</dt>
-                  <dd>{selectedRemoteBinding.endpoint.origin}</dd>
-                </div>
-                <div>
-                  <dt>网络</dt>
-                  <dd>
-                    {selectedRemoteBinding.network.mode === "direct"
-                      ? "直连"
-                      : "使用远程代理"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>存储</dt>
-                  <dd>已加密</dd>
-                </div>
-                <div>
-                  <dt>最近活动</dt>
-                  <dd>
-                    {new Date(
-                      selectedRemoteBinding.lastActivityAtUnixMs,
-                    ).toLocaleString("zh-CN")}
-                  </dd>
-                </div>
-              </dl>
-              <div className="environment-operation-grid remote-operation-grid">
-                <button
-                  className="button-secondary"
-                  disabled={remoteBusy || vaultLocked}
-                  onClick={() => void runRemoteCleanupOperation("stop")}
-                  type="button"
-                >
-                  停止远程环境
-                </button>
-                <button
-                  className="button-secondary"
-                  disabled={remoteBusy || vaultLocked}
-                  onClick={() => void runRemoteCleanupOperation("health")}
-                  type="button"
-                >
-                  检查状态
-                </button>
-                <button
-                  className="button-secondary"
-                  disabled={remoteBusy || vaultLocked}
-                  onClick={() => void runRemoteCleanupOperation("logs")}
-                  type="button"
-                >
-                  查看日志
-                </button>
-                <button
-                  className="button-danger"
-                  disabled={remoteBusy || vaultLocked}
-                  onClick={() => void runRemoteCleanupOperation("destroy")}
-                  type="button"
-                >
-                  删除远程环境
-                </button>
-              </div>
-              {selectedRemoteResult !== undefined ? (
-                <div className="remote-result-card">
-                  <div>
-                    <span>最近一次清理结果</span>
+          {environmentSection === "local" ? (
+            <section className="panel provider-readiness">
+              <div>
+                <p className="eyebrow">WSL 设置</p>
+                <h2>选择要用于 Silo 的 Linux 环境</h2>
+                <p>检查这台电脑已安装的 WSL 发行版，然后选择一个供本次使用。</p>
+                {wslStatus !== null ? (
+                  <div className="provider-result">
                     <strong>
-                      {environmentOperationLabel(
-                        selectedRemoteResult.operation,
-                      )}
-                      ：{remoteResultStateLabel(selectedRemoteResult.state)}
+                      {wslStatus.available ? "发现 WSL" : "尚不可用"}
                     </strong>
-                  </div>
-                  {selectedRemoteResult.logs !== undefined ? (
-                    <ul className="remote-log-list">
-                      {selectedRemoteResult.logs.map((log) => (
-                        <li key={log.sequence}>
-                          <span>{log.level}</span>
-                          <code>{log.message}</code>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ) : null}
-              <div className="remote-proof-recovery">
-                <strong>远程服务已确认删除时</strong>
-                <p>
-                  只验证远程服务提供的删除证明，并移除本机连接记录；不会重新创建或启动环境。
-                </p>
-                <button
-                  className="button-secondary"
-                  disabled={remoteBusy || vaultLocked}
-                  onClick={() => void checkRemoteDeletionStatus()}
-                  type="button"
-                >
-                  验证远程删除证明
-                </button>
-              </div>
-              <div className="remote-force-detach">
-                <strong>无法连接时的最后手段</strong>
-                <p>
-                  Force Detach 只移除这台电脑上的连接记录，不会删除远程环境。
-                  远程环境可能继续运行并产生费用，请先联系远程服务运营者。
-                </p>
-                <button
-                  className="button-danger"
-                  disabled={remoteBusy || vaultLocked}
-                  onClick={() => void removeLocalRemoteConnection()}
-                  type="button"
-                >
-                  Force Detach：仅移除本机记录
-                </button>
-              </div>
-            </div>
-          ) : null}
-          {remoteActionMessage !== null ? (
-            <p
-              className={`environment-action-message ${remoteActionMessage.tone}`}
-              role={remoteActionMessage.tone === "error" ? "alert" : "status"}
-            >
-              {remoteActionMessage.text}
-            </p>
-          ) : null}
-        </section>
-      ) : null}
-
-      {environmentSection === "local" ? (
-        <section className="panel provider-readiness">
-          <div>
-            <p className="eyebrow">WSL 设置</p>
-            <h2>选择要用于 Silo 的 Linux 环境</h2>
-            <p>检查这台电脑已安装的 WSL 发行版，然后选择一个供本次使用。</p>
-            {wslStatus !== null ? (
-              <div className="provider-result">
-                <strong>{wslStatus.available ? "发现 WSL" : "尚不可用"}</strong>
-                <span>
-                  {wslStatus.available
-                    ? `发现 ${wslStatus.distributions.length} 个可选发行版。`
-                    : "请先在 Windows 中安装并启用 WSL。"}
-                </span>
-                {wslStatus.distributions.length > 0 ? (
-                  <label>
-                    Linux 发行版
-                    <select
-                      disabled={wslBusy}
-                      onChange={(event) =>
-                        setSelectedWslDistribution(event.target.value)
+                    <span>
+                      {wslStatus.available
+                        ? `发现 ${wslStatus.distributions.length} 个可选发行版。`
+                        : "请先在 Windows 中安装并启用 WSL。"}
+                    </span>
+                    {wslStatus.distributions.length > 0 ? (
+                      <fieldset className="distribution-picker">
+                        <legend>Linux 发行版</legend>
+                        {wslStatus.distributions.map((distribution) => (
+                          <label
+                            className="distribution-option"
+                            key={distribution}
+                          >
+                            <input
+                              type="radio"
+                              name="workspace-wsl-distribution"
+                              disabled={wslBusy}
+                              checked={selectedWslDistribution === distribution}
+                              onChange={() =>
+                                setSelectedWslDistribution(distribution)
+                              }
+                              value={distribution}
+                            />
+                            <span aria-hidden="true">◇</span>
+                            <strong>{distribution}</strong>
+                            <small>
+                              {selectedWslDistribution === distribution
+                                ? "已选择 · 等待应用"
+                                : "选择此落点"}
+                            </small>
+                          </label>
+                        ))}
+                      </fieldset>
+                    ) : null}
+                    <button
+                      className="button-secondary"
+                      disabled={
+                        wslBusy ||
+                        !canConfigureWslDistribution(
+                          wslStatus.distributions,
+                          selectedWslDistribution,
+                        )
                       }
-                      value={selectedWslDistribution}
+                      onClick={() => void configureWslDistribution()}
+                      type="button"
                     >
-                      <option value="">请选择</option>
-                      {wslStatus.distributions.map((distribution) => (
-                        <option key={distribution} value={distribution}>
-                          {distribution}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                      使用此发行版
+                    </button>
+                  </div>
                 ) : null}
-                <button
-                  className="button-secondary"
-                  disabled={
-                    wslBusy ||
-                    !canConfigureWslDistribution(
-                      wslStatus.distributions,
-                      selectedWslDistribution,
-                    )
-                  }
-                  onClick={() => void configureWslDistribution()}
-                  type="button"
-                >
-                  使用此发行版
-                </button>
               </div>
-            ) : null}
-          </div>
-          <button
-            className="button-secondary"
-            disabled={wslBusy}
-            onClick={() => void checkWsl()}
-            type="button"
-          >
-            {wslBusy ? "正在检查…" : "检查本机 WSL"}
-          </button>
-        </section>
-      ) : null}
-    </>
+              <button
+                className="button-secondary"
+                disabled={wslBusy}
+                onClick={() => void checkWsl()}
+                type="button"
+              >
+                {wslBusy ? "正在检查…" : "检查本机 WSL"}
+              </button>
+            </section>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 

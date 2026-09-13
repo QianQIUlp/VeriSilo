@@ -1056,9 +1056,9 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .identity-stage *,
-  .creation-space *,
-  .workspace-sheet * {
+  :root:not([data-motion="full"]) .identity-stage *,
+  :root:not([data-motion="full"]) .creation-space *,
+  :root:not([data-motion="full"]) .workspace-sheet * {
     animation: none !important;
     transition: none !important;
   }

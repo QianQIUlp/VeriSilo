@@ -4,10 +4,12 @@ export function WorkspaceSheet({
   title,
   onClose,
   children,
+  variant = "side",
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  variant?: "side" | "console";
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
@@ -18,7 +20,7 @@ export function WorkspaceSheet({
   return (
     <dialog
       ref={dialog}
-      className="workspace-sheet"
+      className={`workspace-sheet sheet-${variant}`}
       aria-label={title}
       onCancel={(event) => {
         event.preventDefault();

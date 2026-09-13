@@ -5,6 +5,7 @@ import { ManagedSiloForm } from "../features/identity/ManagedSiloForm.js";
 import { installPreviewApi } from "./api.js";
 import "../styles.css";
 import "../shared/spatial.css";
+import "../shared/living.css";
 
 const scenario =
   new URLSearchParams(window.location.search).get("scenario") ?? "overview";
