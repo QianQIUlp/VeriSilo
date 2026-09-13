@@ -16,7 +16,10 @@ const desktopMarkPath = resolve(desktopPublicDirectory, "verisilo-mark.svg");
 const tauriIconDirectory = resolve(root, "apps/desktop/src-tauri/icons");
 const icoPath = resolve(tauriIconDirectory, "icon.ico");
 const pngPath = resolve(tauriIconDirectory, "icon.png");
-const iconSizes = [16, 32, 48, 128, 256];
+// The complete Windows system icon ladder; every DPI shell surface (title
+// bar, taskbar, Explorer views, installer) then finds an exact-size frame
+// instead of rescaling a neighboring one.
+const iconSizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256];
 
 const brandSymbol = await readFile(brandSymbolPath);
 const extensionIcons = await Promise.all(

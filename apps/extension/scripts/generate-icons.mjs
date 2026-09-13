@@ -13,10 +13,10 @@ const sourcePath = resolve(
   "../desktop/src/shared/verisilo-symbol.svg",
 );
 const outputDirectory = resolve(extensionRoot, "icons");
-// Keep a 256px source available for Windows' high-DPI executable and taskbar
-// icon selection. The extension manifest can continue to reference its
-// browser-specific sizes while the desktop generator consumes this frame.
-const sizes = [16, 32, 48, 128, 256];
+// The manifest references the browser-specific sizes it needs, while the full
+// Windows system family (title bar, taskbar, Explorer, installer) ships so the
+// desktop generator can pack every size Windows asks for without rescaling.
+const sizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256];
 const source = await readFile(sourcePath);
 
 // The symbol art keeps generous margins in its 96-unit canvas for page
