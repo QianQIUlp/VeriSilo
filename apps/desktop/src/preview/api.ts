@@ -90,6 +90,46 @@ export function installPreviewApi(scenario: string) {
       },
     ],
     listEngineAdapters: async () => structuredClone(previewEngineStatuses),
+    localApiInfo: async () => {
+      if (scenario === "error") throw new Error("模拟：命令文件暂不可用。");
+      return {
+        url: "http://127.0.0.1:0",
+        pid: 0,
+        discoveryPath: "C:\\Preview\\discovery.json",
+        cliPath: "C:\\Preview\\verisilo-cli.exe",
+        vaultName: "preview-only",
+      };
+    },
+    environmentBackendStatuses: async () => {
+      if (scenario === "error") throw new Error("模拟：部分位置状态不可用。");
+      return [];
+    },
+    remoteEnvironmentStatus: async () => ({
+      protocolVersion: 1,
+      state: "not_configured",
+      transportAvailable: false,
+      durableBindingStoreAvailable: false,
+      selfHostedAgentAvailable: false,
+      capabilities: [],
+      message: "UI Preview：未配置远程服务。",
+      endpoint: null,
+      pairing: null,
+      bindings: [],
+      lastResults: [],
+      pairingRevokedAt: null,
+      orphanReceipts: [],
+    }),
+    detectWsl: async () => ({
+      supportedPlatform: true,
+      available: true,
+      distributions: ["Ubuntu-Preview", "Debian-Preview"],
+      message: "UI Preview 模拟发行版，不读取本机 WSL。",
+    }),
+    backupVault: async (destinationPath: string) => {
+      unlocked();
+      if (scenario === "error") throw new Error("模拟：备份无法写入。");
+      return { destinationPath, bytes: 4096 };
+    },
     listManagedIdentityPreviews: async () =>
       Object.fromEntries(
         silos

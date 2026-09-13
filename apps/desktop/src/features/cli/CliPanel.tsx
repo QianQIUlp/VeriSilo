@@ -1,6 +1,8 @@
 import { type Notice } from "../../shared/notice.js";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
+
+import { InstrumentObject } from "../../shared/LivingWorkspace.js";
 
 import { desktopApi } from "../../desktop-api.js";
 
@@ -16,16 +18,31 @@ export function CliPanel({
     vaultName: string;
   } | null>(null);
 
+  const [group, setGroup] = useState(0);
+  const [selected, setSelected] = useState(0);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
+    let current = true;
+    setLoading(true);
     void desktopApi
       .localApiInfo()
       .then((info) => {
+        if (!current) return;
         setCliInfo({ cliPath: info.cliPath, vaultName: info.vaultName });
       })
       .catch(() => {
-        setCliInfo(null);
+        if (current) setCliInfo(null);
+      })
+      .finally(() => {
+        if (current) setLoading(false);
       });
-  }, []);
+    return () => {
+      current = false;
+    };
+  }, [retry]);
 
   const quoted = cliInfo === null ? "" : `"${cliInfo.cliPath}"`;
   const shortName =
@@ -93,76 +110,176 @@ export function CliPanel({
     },
   ];
 
+  const groups = [
+    { label: "打开与准备", code: "PREPARE", indices: [0, 1, 2] },
+    { label: "创建与控制", code: "OPERATE", indices: [3, 4, 5, 8, 10] },
+    { label: "观察与记录", code: "OBSERVE", indices: [6, 7, 9, 11] },
+  ];
+  const currentGroup = groups[group]!;
+  const command = commands[selected]!;
+  const position = currentGroup.indices.indexOf(selected);
   return (
-    <div className="settings-stack">
-      <section className="panel settings-panel">
-        <div className="panel-heading">
-          <div>
-            <p className="eyebrow">命令行</p>
-            <h1>用命令完成浏览器工作</h1>
+    <section className="command-studio living-page">
+      <header className="living-heading">
+        <p className="eyebrow">05 / COMMAND STUDIO</p>
+        <h1>把意图，变成指令。</h1>
+        <p>选择要做的事，指令就在这里成形。</p>
+      </header>
+      <nav className="command-phases" aria-label="命令类别">
+        {groups.map((item, index) => (
+          <button
+            key={item.code}
+            type="button"
+            aria-pressed={group === index}
+            onClick={() => {
+              setGroup(index);
+              setSelected(item.indices[0]!);
+            }}
+          >
+            <span>0{index + 1}</span>
+            {item.label}
+            <small>{item.code}</small>
+          </button>
+        ))}
+      </nav>
+      <div className="command-cockpit">
+        <button
+          className="command-emitter"
+          type="button"
+          aria-label="转动指令核心，选择下一条命令"
+          style={
+            { "--command-turn": `${position * 18 - 34}deg` } as CSSProperties
+          }
+          onClick={() =>
+            setSelected(
+              currentGroup.indices[
+                (position + 1) % currentGroup.indices.length
+              ]!,
+            )
+          }
+        >
+          <InstrumentObject kind="command" active={copied === command.label} />
+          <span>点击转动 · 切换指令</span>
+        </button>
+        <div className="command-deck">
+          <div className="command-deck-heading">
+            <span>
+              {String(position + 1).padStart(2, "0")} /{" "}
+              {String(currentGroup.indices.length).padStart(2, "0")}
+            </span>
+            <div>
+              <button
+                type="button"
+                className="button-secondary"
+                aria-label="上一条命令"
+                disabled={position === 0}
+                onClick={() => setSelected(currentGroup.indices[position - 1]!)}
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                className="button-secondary"
+                aria-label="下一条命令"
+                disabled={position === currentGroup.indices.length - 1}
+                onClick={() => setSelected(currentGroup.indices[position + 1]!)}
+              >
+                →
+              </button>
+            </div>
+          </div>
+          <div className="command-output" key={command.label}>
+            <h2>{command.label}</h2>
+            <pre tabIndex={0} aria-label="命令预览">
+              <code>{command.preview}</code>
+            </pre>
             <p>
-              CLI 会按需启动后台服务。不同 Vault
-              可以同时运行；口令只在终端隐藏输入，不会写进命令参数。
+              {selected === 10
+                ? "永久删除命令含 --yes。执行前请核对 Vault 与 Silo 名称。"
+                : "把 agent 换成 Vault 名称，把「名称」换成 Silo 名字。"}
             </p>
-            {cliInfo !== null ? <p>当前界面使用：{cliInfo.vaultName}</p> : null}
+            <button
+              className="command-copy"
+              disabled={busy || cliInfo === null}
+              type="button"
+              onClick={() =>
+                void copyToClipboard(
+                  command.value,
+                  "已复制这条命令。",
+                  onNotice,
+                ).then((ok) => {
+                  if (ok) setCopied(command.label);
+                })
+              }
+            >
+              {copied === command.label
+                ? "已复制 · 可以带到终端"
+                : "复制完整命令"}
+              <span aria-hidden="true">
+                {copied === command.label ? "✓" : "↗"}
+              </span>
+            </button>
+            <small>这里只生成与复制文本，不会执行命令。</small>
           </div>
         </div>
-        {cliInfo !== null ? (
-          <div className="cli-path-row">
+      </div>
+      <nav className="command-picks" aria-label="选择命令">
+        {currentGroup.indices.map((index) => (
+          <button
+            type="button"
+            key={commands[index]!.label}
+            aria-pressed={selected === index}
+            onClick={() => setSelected(index)}
+          >
+            {commands[index]!.label}
+          </button>
+        ))}
+      </nav>
+      <div className="command-connection">
+        <div>
+          <span className="connection-dot" aria-hidden="true" />
+          <strong>
+            {loading
+              ? "正在读取命令文件…"
+              : cliInfo
+                ? `当前界面使用：${cliInfo.vaultName}`
+                : "还不能用命令"}
+          </strong>
+          <p>
+            CLI 会按需启动后台服务。不同 Vault
+            可以同时运行；口令只在终端隐藏输入，不会写进命令参数。
+          </p>
+        </div>
+        {cliInfo ? (
+          <details>
+            <summary>命令文件与路径</summary>
             <label>
               命令文件
               <input readOnly spellCheck={false} value={cliInfo.cliPath} />
             </label>
             <button
+              type="button"
               className="button-secondary"
               disabled={busy}
               onClick={() =>
-                copyToClipboard(quoted, "已复制命令文件位置。", onNotice)
+                void copyToClipboard(quoted, "已复制命令文件位置。", onNotice)
               }
-              type="button"
             >
               复制位置
             </button>
-          </div>
+          </details>
         ) : (
-          <div className="empty-inline">
-            <strong>还不能用命令</strong>
-            <span>确认 VeriSilo 正在运行，然后回到这一页。</span>
-          </div>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={loading}
+            onClick={() => setRetry((value) => value + 1)}
+          >
+            重新读取
+          </button>
         )}
-      </section>
-      {cliInfo !== null ? (
-        <section className="panel settings-panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">常用命令</p>
-              <h2>先看懂要做什么，再复制</h2>
-              <p>把 agent 换成 Vault 名称，把「名称」换成 Silo 名字。</p>
-            </div>
-          </div>
-          <ul className="command-list">
-            {commands.map((command) => (
-              <li className="command-row" key={command.label}>
-                <div>
-                  <strong>{command.label}</strong>
-                  <code>{command.preview}</code>
-                </div>
-                <button
-                  className="button-secondary"
-                  disabled={busy}
-                  onClick={() =>
-                    copyToClipboard(command.value, "已复制这条命令。", onNotice)
-                  }
-                  type="button"
-                >
-                  复制
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-    </div>
+      </div>
+    </section>
   );
 }
 
@@ -171,13 +288,15 @@ function copyToClipboard(
   ok: string,
   onNotice: (notice: Notice) => void,
 ) {
-  void navigator.clipboard.writeText(text).then(
-    () => onNotice({ tone: "success", message: ok }),
-    () =>
-      onNotice({
-        tone: "error",
-        message: "复制没有成功，请手动选中文字。",
-      }),
+  return navigator.clipboard.writeText(text).then(
+    () => {
+      onNotice({ tone: "success", message: ok });
+      return true;
+    },
+    () => {
+      onNotice({ tone: "error", message: "复制没有成功，请手动选中文字。" });
+      return false;
+    },
   );
 }
 

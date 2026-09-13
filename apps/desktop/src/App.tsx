@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { useDesktopWorkspace } from "./workspace/useDesktopWorkspace.js";
 
@@ -10,6 +10,12 @@ import {
 } from "./shared/components.js";
 
 import { WorkspaceSheet } from "./shared/WorkspaceSheet.js";
+import {
+  RouteStage,
+  WorldBackdrop,
+  ToolStudio,
+  useWorkspaceMotion,
+} from "./shared/LivingWorkspace.js";
 import { IdentityMark } from "./shared/IdentityMark.js";
 
 import { VaultAccess } from "./features/vault/VaultAccess.js";
@@ -102,6 +108,11 @@ export function App() {
     vaultUiGeneration,
   } = useDesktopWorkspace();
   const [toolsOpen, setToolsOpen] = useState(false);
+  const motion = useWorkspaceMotion();
+  const navigate = (next: typeof view) => {
+    setToolsOpen(false);
+    setView(next);
+  };
   const [focusedSiloId, setFocusedSiloId] = useState<string>();
   const previousSilos = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -149,6 +160,16 @@ export function App() {
     !toolsVisible &&
     !closeHintVisible &&
     vaultTransition === "idle";
+  const screen = toolsVisible
+    ? "tools"
+    : vaultLocked && view === "overview"
+      ? "locked"
+      : view;
+  const dockIndex = toolsVisible
+    ? 5
+    : { overview: 0, edit: 0, create: 1, settings: 2, environments: 3, cli: 4 }[
+        view
+      ];
   const workspaceNotice =
     notice !== null ? (
       <div
@@ -172,6 +193,7 @@ export function App() {
     <main
       className={`shell spatial-shell view-${view}${vaultLocked ? " is-locked" : ""}`}
     >
+      <WorldBackdrop screen={screen} />
       <a className="skip-link" href="#workspace-content">
         跳到工作区
       </a>
@@ -179,6 +201,24 @@ export function App() {
         <Brand />
         <span className="shell-caption">A SPACE FOR EVERY YOU.</span>
         <div className="topbar-status">
+          <label className="motion-control">
+            <span>动态效果</span>
+            <select
+              aria-label="动态效果"
+              value={motion.preference}
+              onChange={(event) =>
+                motion.setPreference(
+                  event.target.value as "system" | "full" | "reduce",
+                )
+              }
+            >
+              <option value="system">
+                随系统{motion.systemReduced ? " · 减少" : " · 完整"}
+              </option>
+              <option value="full">完整动态</option>
+              <option value="reduce">减少动态</option>
+            </select>
+          </label>
           <span className="local-pill">本地控制</span>
           <span className={`vault-pill${vaultLocked ? " locked" : ""}`}>
             {vaultTransition === "restoring"
@@ -226,39 +266,49 @@ export function App() {
       </header>
 
       {vaultTransition === "idle" ? (
-        <nav className="tabbar" aria-label="VeriSilo 桌面端功能">
+        <nav
+          className="tabbar"
+          aria-label="VeriSilo 桌面端功能"
+          style={
+            {
+              "--dock-index": dockIndex,
+              "--dock-count": vaultLocked ? 5 : 6,
+            } as CSSProperties
+          }
+        >
+          <span className="dock-traveler" aria-hidden="true" />
           <TabButton
-            active={view === "overview" || view === "edit"}
+            active={!toolsVisible && (view === "overview" || view === "edit")}
             label="环境概览"
             icon="atlas"
-            onClick={() => setView("overview")}
+            onClick={() => navigate("overview")}
           />
           <TabButton
-            active={view === "create"}
+            active={!toolsVisible && view === "create"}
             label="创建 Silo"
             icon="create"
             onClick={() => {
               clearManagedTemplate();
-              setView("create");
+              navigate("create");
             }}
           />
           <TabButton
-            active={view === "settings"}
+            active={!toolsVisible && view === "settings"}
             label="保险库与数据"
             icon="vault"
-            onClick={() => setView("settings")}
+            onClick={() => navigate("settings")}
           />
           <TabButton
-            active={view === "environments"}
+            active={!toolsVisible && view === "environments"}
             label="运行位置"
             icon="location"
-            onClick={() => setView("environments")}
+            onClick={() => navigate("environments")}
           />
           <TabButton
-            active={view === "cli"}
+            active={!toolsVisible && view === "cli"}
             label="命令行"
             icon="terminal"
-            onClick={() => setView("cli")}
+            onClick={() => navigate("cli")}
           />
           {!vaultLocked && (
             <TabButton
@@ -272,11 +322,11 @@ export function App() {
       ) : null}
 
       <div
-        className={`workspace-content${view === "overview" && !vaultLocked ? " workspace-field" : ""}`}
+        className={`workspace-content living-workspace${view === "overview" && !vaultLocked && !toolsVisible ? " workspace-field" : ""}`}
         id="workspace-content"
         tabIndex={-1}
       >
-        {toolsVisible || inspectionVisible ? null : workspaceNotice}
+        {inspectionVisible ? null : workspaceNotice}
 
         {closeHintVisible ? (
           <div className="close-hint-backdrop">
@@ -307,253 +357,288 @@ export function App() {
           </div>
         ) : null}
 
-        {view === "overview" ? (
-          vaultTransition === "restoring" ? (
-            <section
-              aria-busy="true"
-              aria-live="polite"
-              className="panel loading-state"
-            >
-              <p className="eyebrow">保险库恢复</p>
-              <h1>{vaultBusy ? "正在恢复安全状态…" : "恢复尚未完成"}</h1>
-              <p>
-                VeriSilo
-                已清除旧会话中的表单和授权信息。完成保险库与运行状态核对前，
-                相关操作会保持锁定。
-              </p>
-              <button
-                disabled={vaultBusy}
-                onClick={() => void retryRestoredVaultState()}
-                type="button"
-              >
-                {vaultBusy ? "正在重新载入…" : "重新载入"}
-              </button>
-            </section>
-          ) : vaultLocked ? (
-            <VaultAccess
-              busy={vaultBusy}
-              passphrase={passphrase}
-              setPassphrase={setPassphrase}
-              status={status}
-              submitVault={submitVault}
-            />
-          ) : (
-            <>
-              <SiloList
-                focusedSiloId={focusedSiloId}
-                onFocusSilo={setFocusedSiloId}
-                activation={status.activation.activeSiloId}
-                busy={busy}
-                onArchive={archiveSilo}
-                onCreate={() => {
-                  clearManagedTemplate();
-                  setView("create");
-                }}
-                onCreateIdentity={(silo) => {
-                  if (startIdentityFromSilo(silo, identityPreviews[silo.id])) {
-                    setView("create");
-                  }
-                }}
-                onEdit={(silo) => {
-                  setEditingSilo(silo);
-                  setView("edit");
-                }}
-                onLaunch={launchSilo}
-                onRebindMihomo={rebindSiloMihomo}
-                onRecheckBrowser={recheckSiloBrowser}
-                onRecheckRuntime={recheckSiloRuntime}
-                onStop={stopSilo}
-                runtimeActivation={status.activation}
-                runtimeState={status.activation.state}
-                silos={activeSilos}
-                identityPreviews={identityPreviews}
-                networkEvidence={networkEvidenceHistory}
-                managedEngineReady={engineStatuses.some(
-                  (engine) =>
-                    engine.descriptor.id === "camoufox" &&
-                    engine.health.state === "healthy",
-                )}
-                storageUsage={storageUsage}
-              />
-            </>
-          )
-        ) : null}
-
-        {view === "create" ? (
-          vaultLocked ? (
-            <LockedRoute onUnlock={() => setView("overview")} />
-          ) : (
-            <div className="creation-space">
-              <aside className="creation-preview">
-                <button
-                  type="button"
-                  className="scene-config-link"
-                  onClick={() => setView("overview")}
+        <RouteStage screen={screen} reduced={motion.reduced}>
+          <div className="route-content" hidden={toolsVisible}>
+            {view === "overview" ? (
+              vaultTransition === "restoring" ? (
+                <section
+                  aria-busy="true"
+                  aria-live="polite"
+                  className="panel loading-state"
                 >
-                  ← 回到身份场
-                </button>
-                <span className="eyebrow">TAKING SHAPE / 一个空间正在成形</span>
-                <IdentityMark id="new-identity" color={creation.color} />
-                <h2>{creation.name || "下一种可能。"}</h2>
-                <p>
-                  先定义它的样子，
-                  <br />
-                  再给它一个独立的空间。
-                </p>
-                <small>外观预览 · 完成创建后才会生成 Silo</small>
-              </aside>
-              <div className="creation-form">
-                <CreateSiloPanel {...creation} />
-              </div>
-            </div>
-          )
-        ) : null}
-
-        {view === "edit" ? (
-          vaultLocked || editingSilo === null ? (
-            <LockedRoute onUnlock={() => setView("overview")} />
-          ) : (
-            <>
-              {inspectIdentity && editingSilo.engine.adapter !== "stock" ? (
-                <IdentityInspectPanel
-                  activeSiloId={status.activation.activeSiloId}
-                  identityPreviews={identityPreviews}
-                  observation={status.websiteIdentity ?? null}
-                  silos={[editingSilo]}
+                  <p className="eyebrow">保险库恢复</p>
+                  <h1>{vaultBusy ? "正在恢复安全状态…" : "恢复尚未完成"}</h1>
+                  <p>
+                    VeriSilo
+                    已清除旧会话中的表单和授权信息。完成保险库与运行状态核对前，
+                    相关操作会保持锁定。
+                  </p>
+                  <button
+                    disabled={vaultBusy}
+                    onClick={() => void retryRestoredVaultState()}
+                    type="button"
+                  >
+                    {vaultBusy ? "正在重新载入…" : "重新载入"}
+                  </button>
+                </section>
+              ) : vaultLocked ? (
+                <VaultAccess
+                  busy={vaultBusy}
+                  passphrase={passphrase}
+                  setPassphrase={setPassphrase}
+                  status={status}
+                  submitVault={submitVault}
                 />
-              ) : null}
-              <EditSiloPanel
-                browsers={browsers}
-                busy={busy}
-                identityPreview={identityPreviews[editingSilo.id]}
-                onCancel={() => {
-                  setEditingSilo(null);
-                  setView("overview");
-                }}
-                onSave={(input, networkInput, engineInput) =>
-                  updateSilo(editingSilo, input, networkInput, engineInput)
-                }
-                onUpdateIdentity={(input) =>
-                  updateManagedIdentity(editingSilo, input)
-                }
-                silo={editingSilo}
+              ) : (
+                <>
+                  <SiloList
+                    focusedSiloId={focusedSiloId}
+                    onFocusSilo={setFocusedSiloId}
+                    activation={status.activation.activeSiloId}
+                    busy={busy}
+                    onArchive={archiveSilo}
+                    onCreate={() => {
+                      clearManagedTemplate();
+                      navigate("create");
+                    }}
+                    onCreateIdentity={(silo) => {
+                      if (
+                        startIdentityFromSilo(silo, identityPreviews[silo.id])
+                      ) {
+                        navigate("create");
+                      }
+                    }}
+                    onEdit={(silo) => {
+                      setEditingSilo(silo);
+                      navigate("edit");
+                    }}
+                    onLaunch={launchSilo}
+                    onRebindMihomo={rebindSiloMihomo}
+                    onRecheckBrowser={recheckSiloBrowser}
+                    onRecheckRuntime={recheckSiloRuntime}
+                    onStop={stopSilo}
+                    runtimeActivation={status.activation}
+                    runtimeState={status.activation.state}
+                    silos={activeSilos}
+                    identityPreviews={identityPreviews}
+                    networkEvidence={networkEvidenceHistory}
+                    managedEngineReady={engineStatuses.some(
+                      (engine) =>
+                        engine.descriptor.id === "camoufox" &&
+                        engine.health.state === "healthy",
+                    )}
+                    storageUsage={storageUsage}
+                  />
+                </>
+              )
+            ) : null}
+
+            {view === "create" ? (
+              vaultLocked ? (
+                <LockedRoute onUnlock={() => navigate("overview")} />
+              ) : (
+                <div className="creation-space">
+                  <aside className="creation-preview">
+                    <button
+                      type="button"
+                      className="scene-config-link"
+                      onClick={() => navigate("overview")}
+                    >
+                      ← 回到身份场
+                    </button>
+                    <span className="eyebrow">
+                      TAKING SHAPE / 一个空间正在成形
+                    </span>
+                    <div className="creation-orbit">
+                      <IdentityMark id="new-identity" color={creation.color} />
+                      <i aria-hidden="true" />
+                      <i aria-hidden="true" />
+                    </div>
+                    <h2>{creation.name || "下一种可能。"}</h2>
+                    <p>
+                      先定义它的样子，
+                      <br />
+                      再给它一个独立的空间。
+                    </p>
+                    <small>外观预览 · 完成创建后才会生成 Silo</small>
+                  </aside>
+                  <div className="creation-form">
+                    <CreateSiloPanel {...creation} />
+                  </div>
+                </div>
+              )
+            ) : null}
+
+            {view === "edit" ? (
+              vaultLocked || editingSilo === null ? (
+                <LockedRoute onUnlock={() => navigate("overview")} />
+              ) : (
+                <>
+                  {inspectIdentity && editingSilo.engine.adapter !== "stock" ? (
+                    <IdentityInspectPanel
+                      activeSiloId={status.activation.activeSiloId}
+                      identityPreviews={identityPreviews}
+                      observation={status.websiteIdentity ?? null}
+                      silos={[editingSilo]}
+                    />
+                  ) : null}
+                  <EditSiloPanel
+                    browsers={browsers}
+                    busy={busy}
+                    identityPreview={identityPreviews[editingSilo.id]}
+                    onCancel={() => {
+                      setEditingSilo(null);
+                      navigate("overview");
+                    }}
+                    onSave={(input, networkInput, engineInput) =>
+                      updateSilo(editingSilo, input, networkInput, engineInput)
+                    }
+                    onUpdateIdentity={(input) =>
+                      updateManagedIdentity(editingSilo, input)
+                    }
+                    silo={editingSilo}
+                  />
+                </>
+              )
+            ) : null}
+
+            {view === "settings" ? (
+              vaultLocked ? (
+                <LockedRoute onUnlock={() => navigate("overview")} />
+              ) : (
+                <VaultAndDataPanel
+                  feedback={workspaceNotice}
+                  busy={busy}
+                  onNotice={setNotice}
+                  onRefresh={refresh}
+                  onVaultRestored={finishVaultRestore}
+                  runBusy={withBusy}
+                />
+              )
+            ) : null}
+
+            {view === "cli" ? (
+              vaultLocked ? (
+                <LockedRoute onUnlock={() => navigate("overview")} />
+              ) : (
+                <CliPanel busy={busy} onNotice={setNotice} />
+              )
+            ) : null}
+
+            {view === "environments" ? (
+              <EnvironmentWorkspace
+                key={`${vaultUiGeneration}:${vaultLocked ? "locked" : "unlocked"}`}
+                silos={activeSilos}
+                vaultLocked={vaultLocked}
               />
-            </>
-          )
-        ) : null}
+            ) : null}
+          </div>
+          {toolsVisible ? (
+            <ToolStudio
+              archive={
+                <>
+                  <LegacyEnvironmentRecoveryPanel
+                    artifacts={legacyEnvironmentArtifacts}
+                    busy={busy}
+                    onCleanup={cleanupLegacyEnvironment}
+                    silos={[...activeSilos, ...archivedSilos]}
+                  />
 
-        {view === "settings" ? (
-          vaultLocked ? (
-            <LockedRoute onUnlock={() => setView("overview")} />
-          ) : (
-            <VaultAndDataPanel
-              busy={busy}
-              onNotice={setNotice}
-              onRefresh={refresh}
-              onVaultRestored={finishVaultRestore}
-              runBusy={withBusy}
+                  <ArchivedSiloList
+                    busy={busy}
+                    onDelete={deleteSilo}
+                    onRestore={restoreArchivedSilo}
+                    silos={archivedSilos}
+                    storageUsage={storageUsage}
+                  />
+
+                  {archivedSilos.length === 0 &&
+                  legacyEnvironmentArtifacts.length === 0 ? (
+                    <div className="workbench-empty">
+                      <span aria-hidden="true">↺</span>
+                      <h2>这里为以后留着位置。</h2>
+                      <p>归档的 Silo 会出现在这里，随时可以恢复。</p>
+                    </div>
+                  ) : null}
+                </>
+              }
+              status={
+                <>
+                  <section className="status-grid" aria-label="当前状态">
+                    <StatusCard
+                      detail={describeVault(status.vault)}
+                      eyebrow="本地保险库"
+                      tone="good"
+                      value="已解锁"
+                    />
+                    <StatusCard
+                      detail={describeActivation(status.activation)}
+                      eyebrow="浏览器"
+                      tone={activationStatusTone(status.activation)}
+                      value={activationStatusLabel(status.activation.state)}
+                    />
+                    <StatusCard
+                      detail={
+                        browsers.length === 0
+                          ? "创建系统浏览器时可以手动填写文件位置"
+                          : browsers
+                              .map((browser) => browser.displayName)
+                              .join("、")
+                      }
+                      eyebrow="系统里的 Chrome / Edge"
+                      tone={browsers.length > 0 ? "good" : "warn"}
+                      value={`${browsers.length} 个安装`}
+                    />
+                    <StatusCard
+                      detail={
+                        networkResult === null
+                          ? "不会自动去查"
+                          : `检查于 ${formatDate(networkResult.checkedAt)}`
+                      }
+                      eyebrow="这台电脑的出口"
+                      tone={
+                        networkResult !== null && networkResult.ip !== null
+                          ? "good"
+                          : "neutral"
+                      }
+                      value={
+                        networkResult?.ip?.address ??
+                        (networkResult === null ? "还没检查" : "没有查到")
+                      }
+                    />
+                  </section>
+                </>
+              }
+              network={
+                <>
+                  <NetworkCheckCard
+                    busy={networkBusy}
+                    onCheck={() => void checkNetwork()}
+                    onClear={() => setNetworkResult(null)}
+                    result={networkResult}
+                  />
+
+                  <SiloNetworkEvidenceHistory
+                    busy={busy}
+                    evidence={networkEvidenceHistory}
+                    onClear={clearNetworkEvidence}
+                    silos={[...activeSilos, ...archivedSilos]}
+                  />
+                </>
+              }
+              reports={
+                <>
+                  <LocalReportExportCard
+                    busy={busy}
+                    evidence={networkEvidenceHistory}
+                    onDownload={downloadLocalReport}
+                    silos={[...activeSilos, ...archivedSilos]}
+                  />
+                </>
+              }
             />
-          )
-        ) : null}
-
-        {view === "cli" ? (
-          vaultLocked ? (
-            <LockedRoute onUnlock={() => setView("overview")} />
-          ) : (
-            <CliPanel busy={busy} onNotice={setNotice} />
-          )
-        ) : null}
-
-        {view === "environments" ? (
-          <EnvironmentWorkspace
-            key={`${vaultUiGeneration}:${vaultLocked ? "locked" : "unlocked"}`}
-            silos={activeSilos}
-            vaultLocked={vaultLocked}
-          />
-        ) : null}
-
-        {toolsVisible ? (
-          <WorkspaceSheet title="本机工具" onClose={() => setToolsOpen(false)}>
-            {workspaceNotice}
-            <LegacyEnvironmentRecoveryPanel
-              artifacts={legacyEnvironmentArtifacts}
-              busy={busy}
-              onCleanup={cleanupLegacyEnvironment}
-              silos={[...activeSilos, ...archivedSilos]}
-            />
-
-            <ArchivedSiloList
-              busy={busy}
-              onDelete={deleteSilo}
-              onRestore={restoreArchivedSilo}
-              silos={archivedSilos}
-              storageUsage={storageUsage}
-            />
-
-            <section className="status-grid" aria-label="当前状态">
-              <StatusCard
-                detail={describeVault(status.vault)}
-                eyebrow="本地保险库"
-                tone="good"
-                value="已解锁"
-              />
-              <StatusCard
-                detail={describeActivation(status.activation)}
-                eyebrow="浏览器"
-                tone={activationStatusTone(status.activation)}
-                value={activationStatusLabel(status.activation.state)}
-              />
-              <StatusCard
-                detail={
-                  browsers.length === 0
-                    ? "创建系统浏览器时可以手动填写文件位置"
-                    : browsers.map((browser) => browser.displayName).join("、")
-                }
-                eyebrow="系统里的 Chrome / Edge"
-                tone={browsers.length > 0 ? "good" : "warn"}
-                value={`${browsers.length} 个安装`}
-              />
-              <StatusCard
-                detail={
-                  networkResult === null
-                    ? "不会自动去查"
-                    : `检查于 ${formatDate(networkResult.checkedAt)}`
-                }
-                eyebrow="这台电脑的出口"
-                tone={
-                  networkResult !== null && networkResult.ip !== null
-                    ? "good"
-                    : "neutral"
-                }
-                value={
-                  networkResult?.ip?.address ??
-                  (networkResult === null ? "还没检查" : "没有查到")
-                }
-              />
-            </section>
-
-            <NetworkCheckCard
-              busy={networkBusy}
-              onCheck={() => void checkNetwork()}
-              onClear={() => setNetworkResult(null)}
-              result={networkResult}
-            />
-
-            <SiloNetworkEvidenceHistory
-              busy={busy}
-              evidence={networkEvidenceHistory}
-              onClear={clearNetworkEvidence}
-              silos={[...activeSilos, ...archivedSilos]}
-            />
-
-            <LocalReportExportCard
-              busy={busy}
-              evidence={networkEvidenceHistory}
-              onDownload={downloadLocalReport}
-              silos={[...activeSilos, ...archivedSilos]}
-            />
-          </WorkspaceSheet>
-        ) : null}
+          ) : null}
+        </RouteStage>
         {inspectionVisible ? (
           <WorkspaceSheet
             title="网站可见身份"
