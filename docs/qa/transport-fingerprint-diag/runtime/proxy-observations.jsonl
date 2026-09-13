@@ -1,0 +1,74 @@
+{"ts": "2026-09-13T09:09:31Z", "event": "listening", "port": 8888}
+{"ts": "2026-09-13T09:49:49Z", "event": "request", "peer_port": 49797, "request_line": "CONNECT ipwho.is:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:49:49Z", "event": "upstream_resolution", "host": "ipwho.is", "resolved": "198.18.0.77"}
+{"ts": "2026-09-13T09:49:49Z", "event": "tunnel_established", "host": "ipwho.is", "port": 443, "resolved": "198.18.0.77"}
+{"ts": "2026-09-13T09:50:01Z", "event": "request", "peer_port": 49844, "request_line": "CONNECT api.ipify.org:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:01Z", "event": "upstream_resolution", "host": "api.ipify.org", "resolved": "198.18.1.241"}
+{"ts": "2026-09-13T09:50:01Z", "event": "tunnel_established", "host": "api.ipify.org", "port": 443, "resolved": "198.18.1.241"}
+{"ts": "2026-09-13T09:50:03Z", "event": "request", "peer_port": 49857, "request_line": "CONNECT www.google.com:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:03Z", "event": "upstream_resolution", "host": "www.google.com", "resolved": "198.18.0.137"}
+{"ts": "2026-09-13T09:50:03Z", "event": "tunnel_established", "host": "www.google.com", "port": 443, "resolved": "198.18.0.137"}
+{"ts": "2026-09-13T09:50:04Z", "event": "request", "peer_port": 49861, "request_line": "CONNECT www.google.com.hk:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:04Z", "event": "upstream_resolution", "host": "www.google.com.hk", "resolved": "198.18.2.5"}
+{"ts": "2026-09-13T09:50:04Z", "event": "tunnel_established", "host": "www.google.com.hk", "port": 443, "resolved": "198.18.2.5"}
+{"ts": "2026-09-13T09:50:06Z", "event": "request", "peer_port": 49872, "request_line": "CONNECT csp.withgoogle.com:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:06Z", "event": "upstream_resolution", "host": "csp.withgoogle.com", "resolved": "198.18.0.182"}
+{"ts": "2026-09-13T09:50:06Z", "event": "tunnel_established", "host": "csp.withgoogle.com", "port": 443, "resolved": "198.18.0.182"}
+{"ts": "2026-09-13T09:50:07Z", "event": "request", "peer_port": 49876, "request_line": "CONNECT www.gstatic.com:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:07Z", "event": "upstream_resolution", "host": "www.gstatic.com", "resolved": "198.18.0.183"}
+{"ts": "2026-09-13T09:50:07Z", "event": "tunnel_established", "host": "www.gstatic.com", "port": 443, "resolved": "198.18.0.183"}
+{"ts": "2026-09-13T09:50:07Z", "event": "request", "peer_port": 49880, "request_line": "CONNECT www.gstatic.com:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:07Z", "event": "upstream_resolution", "host": "www.gstatic.com", "resolved": "198.18.0.183"}
+{"ts": "2026-09-13T09:50:07Z", "event": "tunnel_established", "host": "www.gstatic.com", "port": 443, "resolved": "198.18.0.183"}
+{"ts": "2026-09-13T09:50:09Z", "event": "request", "peer_port": 55233, "request_line": "CONNECT www.gstatic.com:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:09Z", "event": "upstream_resolution", "host": "www.gstatic.com", "resolved": "198.18.0.183"}
+{"ts": "2026-09-13T09:50:09Z", "event": "tunnel_established", "host": "www.gstatic.com", "port": 443, "resolved": "198.18.0.183"}
+{"ts": "2026-09-13T09:50:12Z", "event": "request", "peer_port": 55247, "request_line": "CONNECT ogads-pa.clients6.google.com:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:12Z", "event": "upstream_resolution", "host": "ogads-pa.clients6.google.com", "resolved": "198.18.1.84"}
+{"ts": "2026-09-13T09:50:12Z", "event": "tunnel_established", "host": "ogads-pa.clients6.google.com", "port": 443, "resolved": "198.18.1.84"}
+{"ts": "2026-09-13T09:50:13Z", "event": "request", "peer_port": 55251, "request_line": "CONNECT play.google.com:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:13Z", "event": "upstream_resolution", "host": "play.google.com", "resolved": "198.18.1.116"}
+{"ts": "2026-09-13T09:50:13Z", "event": "tunnel_established", "host": "play.google.com", "port": 443, "resolved": "198.18.1.116"}
+{"ts": "2026-09-13T09:50:14Z", "event": "request", "peer_port": 55257, "request_line": "CONNECT ogads-pa.clients6.google.com:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:14Z", "event": "upstream_resolution", "host": "ogads-pa.clients6.google.com", "resolved": "198.18.1.84"}
+{"ts": "2026-09-13T09:50:14Z", "event": "tunnel_established", "host": "ogads-pa.clients6.google.com", "port": 443, "resolved": "198.18.1.84"}
+{"ts": "2026-09-13T09:50:17Z", "event": "request", "peer_port": 55269, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:17Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:17Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:18Z", "event": "request", "peer_port": 55273, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:18Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:18Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:19Z", "event": "request", "peer_port": 55278, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:19Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:19Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:20Z", "event": "request", "peer_port": 55282, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:20Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:20Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:21Z", "event": "request", "peer_port": 60898, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:21Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:21Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:22Z", "event": "request", "peer_port": 60902, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:22Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:22Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:23Z", "event": "request", "peer_port": 60906, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:23Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:23Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:24Z", "event": "request", "peer_port": 60910, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:24Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:24Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:25Z", "event": "request", "peer_port": 60914, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:25Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:25Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:26Z", "event": "request", "peer_port": 60923, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:26Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:26Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "198.18.1.70"}
+{"ts": "2026-09-13T09:50:28Z", "event": "request", "peer_port": 60929, "request_line": "CONNECT www.google.com.hk:443 HTTP/1.1"}
+{"ts": "2026-09-13T09:50:28Z", "event": "upstream_resolution", "host": "www.google.com.hk", "resolved": "198.18.2.5"}
+{"ts": "2026-09-13T09:50:28Z", "event": "tunnel_established", "host": "www.google.com.hk", "port": 443, "resolved": "198.18.2.5"}
+{"ts": "2026-09-13T09:51:58Z", "event": "listening", "port": 8888}
+{"ts": "2026-09-13T09:52:15Z", "event": "request", "peer_port": 62340, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:52:15Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "127.0.0.1"}
+{"ts": "2026-09-13T09:52:15Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "127.0.0.1"}
+{"ts": "2026-09-13T09:52:17Z", "event": "request", "peer_port": 58010, "request_line": "CONNECT localtest.me:8443 HTTP/1.1"}
+{"ts": "2026-09-13T09:52:17Z", "event": "upstream_resolution", "host": "localtest.me", "resolved": "127.0.0.1"}
+{"ts": "2026-09-13T09:52:17Z", "event": "tunnel_established", "host": "localtest.me", "port": 8443, "resolved": "127.0.0.1"}
