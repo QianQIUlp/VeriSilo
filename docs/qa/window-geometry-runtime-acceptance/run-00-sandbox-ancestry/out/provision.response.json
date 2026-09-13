@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "result": {
+    "artifactId": "identity-8df28a98b8194d260dcb6584",
+    "artifactFileSha256": "6b62b0f916ebc3d1bc0c90db21dd09858854fff7584f04908491bf2c3bc56e34",
+    "schema": "verisilo-camoufox-resolved-identity/v5",
+    "configuredIdentityDigest": "sha256:0b1fe1affb39e613ba8d8abc95db7d1c9154f2f26a837c3a75201c1dccf93630"
+  }
+}
