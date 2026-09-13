@@ -389,18 +389,28 @@ def apply_interactive_window_override(config: dict) -> None:
     if type(outer_w) is not int or type(outer_h) is not int:
         return
     new_w, new_h = clamp_launch_window((outer_w, outer_h))
-    if (new_w, new_h) == (outer_w, outer_h):
-        return
-    inner_w = config.get("window.innerWidth")
-    inner_h = config.get("window.innerHeight")
-    chrome_w = max(0, outer_w - inner_w) if type(inner_w) is int else 0
-    chrome_h = max(0, outer_h - inner_h) if type(inner_h) is int else 0
-    config["window.outerWidth"] = new_w
-    config["window.outerHeight"] = new_h
-    if type(inner_w) is int:
-        config["window.innerWidth"] = max(1, new_w - chrome_w)
-    if type(inner_h) is int:
-        config["window.innerHeight"] = max(1, new_h - chrome_h)
+    if (new_w, new_h) != (outer_w, outer_h):
+        inner_w = config.get("window.innerWidth")
+        inner_h = config.get("window.innerHeight")
+        chrome_w = max(0, outer_w - inner_w) if type(inner_w) is int else 0
+        chrome_h = max(0, outer_h - inner_h) if type(inner_h) is int else 0
+        config["window.outerWidth"] = new_w
+        config["window.outerHeight"] = new_h
+        if type(inner_w) is int:
+            config["window.innerWidth"] = max(1, new_w - chrome_w)
+        if type(inner_h) is int:
+            config["window.innerHeight"] = max(1, new_h - chrome_h)
+
+    eff_w = config["window.outerWidth"]
+    eff_h = config["window.outerHeight"]
+    avail_left = int(config.get("screen.availLeft", 0))
+    avail_top = int(config.get("screen.availTop", 0))
+    avail_w = int(config.get("screen.availWidth", config.get("screen.width", eff_w)))
+    avail_h = int(config.get("screen.availHeight", config.get("screen.height", eff_h)))
+    max_x = max(0, avail_w - eff_w)
+    max_y = max(0, avail_h - eff_h)
+    config["window.screenX"] = max(avail_left, min(int(config.get("window.screenX", 0)), avail_left + max_x))
+    config["window.screenY"] = max(avail_top, min(int(config.get("window.screenY", 0)), avail_top + max_y))
 
 
 def _work_area_size() -> tuple[Optional[int], Optional[int]]:

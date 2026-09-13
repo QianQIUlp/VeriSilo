@@ -5,7 +5,7 @@ Protocol: JSON Lines on stdin/stdout, one object per line, LF-terminated.
 Maximum frame size: 32 KiB (requests and responses). stdout carries ONLY
 protocol frames; all logs go to stderr.
 
-Commands: hello, launch, status, page, close, shutdown.
+Commands: hello, launch, status, page, reobserve_identity, close, shutdown.
 
 Launch requests carry artifactId/profileId/expectedArtifactFileSha256 and an
 optional canonical loopback SOCKS5 browserProxyServer; the caller can never

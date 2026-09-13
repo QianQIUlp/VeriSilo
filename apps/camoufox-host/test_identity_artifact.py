@@ -2615,6 +2615,80 @@ def test_interactive_window_override_keeps_screen_spoof() -> None:
         os.environ.pop("VERISILO_INTERACTIVE", None)
 
 
+def test_interactive_window_override_clamps_stale_screen_coordinates_when_size_unchanged() -> None:
+    from host_runtime import apply_interactive_window_override
+
+    # Stale artifact scenario: outer dimensions fit host so size is unchanged,
+    # but screenX=2232, screenY=140 are out of bounds.
+    config = {
+        "screen.width": 1280,
+        "screen.height": 800,
+        "screen.availWidth": 1280,
+        "screen.availHeight": 800,
+        "screen.availLeft": 0,
+        "screen.availTop": 0,
+        "window.outerWidth": 1280,
+        "window.outerHeight": 800,
+        "window.innerWidth": 1280,
+        "window.innerHeight": 760,
+        "window.screenX": 2232,
+        "window.screenY": 140,
+    }
+    os.environ["VERISILO_INTERACTIVE"] = "1"
+    try:
+        apply_interactive_window_override(config)
+        # Size unchanged
+        assert config["window.outerWidth"] == 1280
+        assert config["window.outerHeight"] == 800
+        # Stale out-of-bounds screenX / screenY clamped to coherent virtual screen origin
+        assert config["window.screenX"] == 0
+        assert config["window.screenY"] == 0
+        assert config["window.screenX"] + config["window.outerWidth"] <= config["screen.availLeft"] + config["screen.availWidth"]
+        assert config["window.screenY"] + config["window.outerHeight"] <= config["screen.availTop"] + config["screen.availHeight"]
+    finally:
+        os.environ.pop("VERISILO_INTERACTIVE", None)
+
+
+def test_window_geometry_coherence_under_identity_overrides() -> None:
+    from provision_artifact import apply_identity_overrides
+
+    # 1. Preset 1280x800 override with out-of-bounds BrowserForge coordinates
+    config = {
+        "screen.width": 3840,
+        "screen.height": 2160,
+        "screen.availWidth": 3840,
+        "screen.availHeight": 2120,
+        "screen.availLeft": 0,
+        "screen.availTop": 0,
+        "window.outerWidth": 1280,
+        "window.outerHeight": 800,
+        "window.screenX": 2232,
+        "window.screenY": 140,
+    }
+    apply_identity_overrides(config, window=(1280, 800), hardware_concurrency=None)
+    assert config["screen.width"] == 1280
+    assert config["screen.height"] == 800
+    assert config["window.screenX"] == 0
+    assert config["window.screenY"] == 0
+    assert config["window.screenX"] >= config["screen.availLeft"]
+    assert config["window.screenY"] >= config["screen.availTop"]
+    assert config["window.screenX"] + config["window.outerWidth"] <= config["screen.availLeft"] + config["screen.availWidth"]
+    assert config["window.screenY"] + config["window.outerHeight"] <= config["screen.availTop"] + config["screen.availHeight"]
+
+    # 2. Custom supported size e.g. (1024, 768)
+    config2 = {
+        "screen.availLeft": 0,
+        "screen.availTop": 0,
+        "window.screenX": 9999,
+        "window.screenY": 8888,
+    }
+    apply_identity_overrides(config2, window=(1024, 768), hardware_concurrency=None)
+    assert config2["screen.width"] == 1024
+    assert config2["screen.height"] == 768
+    assert config2["window.screenX"] == 0
+    assert config2["window.screenY"] == 0
+
+
 def test_probe_script_can_install_without_status_node() -> None:
     from host_probe import probe_page_script
 

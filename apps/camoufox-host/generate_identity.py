@@ -198,6 +198,16 @@ def complete_resolved_config(
     # validation (policy.window == outer dims) would reject.
     config["window.outerWidth"] = width
     config["window.outerHeight"] = height
+    avail_left = int(config.get("screen.availLeft", 0))
+    avail_top = int(config.get("screen.availTop", 0))
+    avail_width = int(config.get("screen.availWidth", width))
+    avail_height = int(config.get("screen.availHeight", height))
+    max_x = max(0, avail_width - width)
+    max_y = max(0, avail_height - height)
+    if "window.screenX" in config:
+        config["window.screenX"] = max(avail_left, min(int(config.get("window.screenX", 0)), avail_left + max_x))
+    if "window.screenY" in config:
+        config["window.screenY"] = max(avail_top, min(int(config.get("window.screenY", 0)), avail_top + max_y))
     return config
 
 

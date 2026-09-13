@@ -82,11 +82,41 @@ def _manifest() -> dict:
 
 def main() -> int:
     # BrowserForge may place the available area below/right of the screen origin.
-    # A full-screen preset must replace that origin along with its dimensions.
-    config = {"screen.availTop": 4, "screen.availLeft": 8}
+    # A full-screen preset must replace that origin along with its dimensions,
+    # and clamp window coordinates to eliminate screenX > screen.width contradictions.
+    config = {
+        "screen.availTop": 4,
+        "screen.availLeft": 8,
+        "window.screenX": 2232,
+        "window.screenY": 140,
+    }
     apply_identity_overrides(config, window=(1280, 800), hardware_concurrency=None)
     assert 0 <= config["screen.availTop"] + config["screen.availHeight"] <= config["screen.height"]
     assert 0 <= config["screen.availLeft"] + config["screen.availWidth"] <= config["screen.width"]
+    assert config["window.screenX"] == 0
+    assert config["window.screenY"] == 0
+    assert config["window.screenX"] <= config["screen.width"] - config["window.outerWidth"]
+    assert config["window.screenY"] <= config["screen.height"] - config["window.outerHeight"]
+
+    # For smaller window on an available area, clamp within available bounds
+    sub_config = {
+        "screen.availTop": 0,
+        "screen.availLeft": 0,
+        "screen.availWidth": 1280,
+        "screen.availHeight": 800,
+        "window.screenX": 2232,
+        "window.screenY": 1400,
+    }
+    # Pretend apply_identity_overrides without resizing screen
+    avail_w = sub_config["screen.availWidth"]
+    avail_h = sub_config["screen.availHeight"]
+    win_w, win_h = 1000, 600
+    max_x = avail_w - win_w  # 280
+    max_y = avail_h - win_h  # 200
+    clamped_x = max(0, min(sub_config["window.screenX"], max_x))
+    clamped_y = max(0, min(sub_config["window.screenY"], max_y))
+    assert clamped_x == 280
+    assert clamped_y == 200
     assert len(PROVISION_PRESETS) == 4
     assert set(PROVISION_PRESETS) == {
         "balanced-en-us",

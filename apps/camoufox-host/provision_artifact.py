@@ -213,6 +213,16 @@ def apply_identity_overrides(
     config["screen.availTop"] = 0
     config["window.outerWidth"] = width
     config["window.outerHeight"] = height
+    avail_left = int(config.get("screen.availLeft", 0))
+    avail_top = int(config.get("screen.availTop", 0))
+    avail_width = int(config.get("screen.availWidth", width))
+    avail_height = int(config.get("screen.availHeight", height))
+    max_x = max(0, avail_width - width)
+    max_y = max(0, avail_height - height)
+    if "window.screenX" in config:
+        config["window.screenX"] = max(avail_left, min(int(config.get("window.screenX", 0)), avail_left + max_x))
+    if "window.screenY" in config:
+        config["window.screenY"] = max(avail_top, min(int(config.get("window.screenY", 0)), avail_top + max_y))
     if hardware_concurrency is not None:
         config["navigator.hardwareConcurrency"] = hardware_concurrency
     if gpu is not None:
@@ -362,6 +372,16 @@ def complete_resolved_config(
             max(0, config["screen.width"] - config["screen.availWidth"]),
         )
     config["window.outerWidth"], config["window.outerHeight"] = window
+    avail_left = int(config.get("screen.availLeft", 0))
+    avail_top = int(config.get("screen.availTop", 0))
+    avail_width = int(config.get("screen.availWidth", window[0]))
+    avail_height = int(config.get("screen.availHeight", window[1]))
+    max_x = max(0, avail_width - window[0])
+    max_y = max(0, avail_height - window[1])
+    if "window.screenX" in config:
+        config["window.screenX"] = max(avail_left, min(int(config.get("window.screenX", 0)), avail_left + max_x))
+    if "window.screenY" in config:
+        config["window.screenY"] = max(avail_top, min(int(config.get("window.screenY", 0)), avail_top + max_y))
     language, region, script = _canonical_locale_parts(locale)
     config["locale:language"] = language
     config["locale:region"] = region
