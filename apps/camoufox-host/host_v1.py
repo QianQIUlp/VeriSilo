@@ -81,6 +81,10 @@ from host_platform import (
 )
 from host_fonts import (
     FONT_UNIVERSE,
+    MANAGED_FONT_CONTROLS_LIMIT,
+    bundle_font_families,
+    evaluate_host_font_masking,
+    host_font_families,
     host_negative_control_families,
 )
 from host_probe import (
@@ -940,6 +944,16 @@ class CamoufoxHost:
     def set_playwright(self, playwright: Any) -> None:
         self.playwright = playwright
 
+    def _bundle_font_families(self) -> set[str]:
+        """Families shipped in the browser tree's bundled fonts directory."""
+        cached = getattr(self, "_bundle_families", None)
+        if cached is not None:
+            return cached
+        executable = getattr(self, "executable", None)
+        families = bundle_font_families(executable.parent) if executable else set()
+        self._bundle_families = families
+        return families
+
     def _state(self) -> str:
         if self.session is None:
             return "idle"
@@ -1426,7 +1440,12 @@ class CamoufoxHost:
 
         with _active_launch_stage("observed.fonts"):
             fonts = artifact["stableSignalsDeclared"]["fonts"]
-            host_controls = host_negative_control_families(fonts)
+            host_controls = host_negative_control_families(
+                fonts,
+                limit=MANAGED_FONT_CONTROLS_LIMIT,
+                host_families=host_font_families(),
+                bundled_families=self._bundle_font_families(),
+            )
             try:
                 await page.evaluate(f"window.__probeFonts = {json.dumps(fonts)}")
                 await page.evaluate(
@@ -1478,24 +1497,27 @@ class CamoufoxHost:
         font_mode = policy.get("fontMode", "inherit")
         session["fontMode"] = font_mode
         host_font_controls = observed.get("hostFontNegativeControls") or {}
-        host_controls_result = {
-            "controlsTested": len(host_font_controls),
-            "allUnavailable": all(
-                available is False for available in host_font_controls.values()
-            ),
-            "failures": [
-                family
-                for family, available in host_font_controls.items()
-                if available is not False
-            ],
-        }
-        if font_mode == "managed" and not host_controls_result["allUnavailable"]:
-            raise ProtocolError(
-                "host_font_masking_failed",
-                "managed font mode requires all host negative controls "
-                "unavailable; masking failed: "
-                + ", ".join(host_controls_result["failures"]),
-            )
+        host_controls_result = evaluate_host_font_masking(
+            font_mode, host_font_controls
+        )
+        if font_mode == "managed" and not (
+            host_controls_result["allUnavailable"]
+            and host_controls_result["sufficient"]
+        ):
+            if not host_controls_result["sufficient"]:
+                detail = (
+                    "managed font mode requires a non-trivial host "
+                    "negative-control set; only "
+                    f"{host_controls_result['controlsTested']} controls "
+                    "were testable on this host"
+                )
+            else:
+                detail = (
+                    "managed font mode requires all host negative controls "
+                    "unavailable; host fonts render in the page: "
+                    + ", ".join(host_controls_result["failures"])
+                )
+            raise ProtocolError("host_font_masking_failed", detail)
 
         with _active_launch_stage("cookie"):
             boot_before = int(observed.get("bootCount") or 0)
@@ -1915,7 +1937,12 @@ class CamoufoxHost:
         )
         disk_config = copy.deepcopy(artifact["resolvedConfig"])
         fonts = artifact["stableSignalsDeclared"]["fonts"]
-        host_controls = host_negative_control_families(fonts)
+        host_controls = host_negative_control_families(
+            fonts,
+            limit=MANAGED_FONT_CONTROLS_LIMIT,
+            host_families=host_font_families(),
+            bundled_families=self._bundle_font_families(),
+        )
         expected_counts = expected_media_device_counts(disk_config)
 
         page = await session["ctx"].new_page()
@@ -1986,17 +2013,9 @@ class CamoufoxHost:
             "observedFull": observed,
             "identityEvidence": identity_evidence,
             "hostFontControls": host_controls,
-            "hostFontMasking": {
-                "controlsTested": len(host_font_controls),
-                "allUnavailable": all(
-                    available is False for available in host_font_controls.values()
-                ),
-                "failures": [
-                    family
-                    for family, available in host_font_controls.items()
-                    if available is not False
-                ],
-            },
+            "hostFontMasking": evaluate_host_font_masking(
+                font_mode, host_font_controls
+            ),
             "mediaDeviceReadiness": media_readiness,
             "fontMode": font_mode,
             "reobserved": True,

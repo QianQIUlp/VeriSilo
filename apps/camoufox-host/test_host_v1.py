@@ -536,6 +536,18 @@ def test_managed_font_failure_never_running() -> None:
     artifact = json.loads(source.read_text())
     artifact["artifactId"] = "identity-managed"
     artifact["policy"]["fontMode"] = "managed"
+    # Every host family is declared, so no host negative control remains
+    # testable on any machine and the managed gate fails closed
+    # deterministically (an unprovable masking claim is a rejection).
+    from host_fonts import FONT_UNIVERSE, host_font_families
+
+    all_known = sorted(
+        set(artifact["resolvedConfig"]["fonts"])
+        | set(FONT_UNIVERSE)
+        | set(host_font_families())
+    )
+    artifact["resolvedConfig"]["fonts"] = all_known
+    artifact["stableSignalsDeclared"]["fonts"] = all_known
     artifact["configuredIdentityDigest"] = configured_identity_digest(
         artifact["resolvedConfig"]
     )

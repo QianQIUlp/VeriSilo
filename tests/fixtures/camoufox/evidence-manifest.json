@@ -103,16 +103,20 @@
       "exportEncodingSessionVariableAcrossRestarts": true
     },
     "fontEvidence": {
-      "fontMode": "inherit",
-      "fontUniverseWidthsInDigest": false,
+      "productionProvisionFontMode": "managed",
+      "fontUniverseWidthsInDigest": "managed mode only; excluded in inherit",
       "managedRequiresAllControlsUnavailable": true,
+      "managedRequiresMinimumControls": 8,
+      "managedControlLimitPerLaunch": 32,
       "managedSemantics": "browser is temporarily launched and probed; launch fails before running (host_font_masking_failed), not before browser start",
       "fixedUniverse": true,
       "fixedUniverseSize": 25,
       "bogusNegativeControls": true,
-      "hostFontNegativeControls": true,
-      "hostFontMaskingConfirmed": false,
-      "finding": "inherit mode: fontUniverseWidths excluded from ObservedWebsiteDigest; host font masking still fails on this host; font isolation is NOT claimed"
+      "hostFontNegativeControls": "rendering-layer oracle (canvas metrics vs bogus reference); document.fonts.check cannot observe system fonts in Firefox",
+      "hostControlsExcludeBrowserBundleFonts": true,
+      "hostControlsExcludeNameVariantsOfDeclaredFamilies": true,
+      "hostFontMaskingConfirmed": "on the native Windows host: managed launches ran with host extra fonts installed (per-user test font), all controls unavailable, ObservedWebsiteDigest identical across host variation and replay",
+      "boundary": "declared fonts missing from the browser bundle render from the host when present; universe fonts absent from both bundle and host measure as deterministic fallback widths"
     },
     "timezoneMode": "fixed",
     "fixedFields": [

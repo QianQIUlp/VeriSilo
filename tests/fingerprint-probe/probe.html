@@ -299,6 +299,33 @@
         return result;
       }
 
+      // Rendering-layer font availability. document.fonts.check cannot
+      // observe system fonts in Firefox (it reports every well-formed
+      // family as available), so host-font masking is judged by whether
+      // the family actually renders: an unavailable family falls back to
+      // the default font and measures identically to a bogus reference.
+      function identityFontRenderAvailability(fonts) {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        function width(font, text) {
+          ctx.font = font;
+          return ctx.measureText(text).width;
+        }
+        const result = {};
+        for (const family of fonts) {
+          let renders = false;
+          for (const text of FONT_STRINGS) {
+            const reference = width(`16px "${BOGUS_FONTS[0]}"`, text);
+            if (Math.abs(width(`16px "${family}"`, text) - reference) > 0.01) {
+              renders = true;
+              break;
+            }
+          }
+          result[family] = renders;
+        }
+        return result;
+      }
+
       function readBootCount() {
         try {
           return Number(localStorage.getItem(BOOT_KEY) || "0");
@@ -559,7 +586,7 @@
             fontUniverseWidths: identityFontUniverseWidths(),
             fontNegativeControls: identityFontAvailability(BOGUS_FONTS),
             injectedFonts: identityFonts(fonts),
-            hostFontNegativeControls: identityFontAvailability(
+            hostFontNegativeControls: identityFontRenderAvailability(
               Array.isArray(window.__probeHostFonts)
                 ? window.__probeHostFonts
                 : [],
