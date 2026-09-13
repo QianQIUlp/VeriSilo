@@ -398,7 +398,7 @@ export function ManagedIdentityFacts({
   );
 }
 
-const identityEvidenceLabels = {
+export const identityEvidenceLabels = {
   matched: ["Matched", "已匹配"],
   mismatched: ["Mismatch", "不匹配"],
   unavailable: ["Unavailable", "不可用"],

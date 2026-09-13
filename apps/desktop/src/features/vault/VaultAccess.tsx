@@ -33,7 +33,7 @@ export function VaultAccess({
   return (
     <section className="vault-layout">
       <article className="panel vault-intro">
-        <IdentityMark id="local-vault" color="#176c68" />
+        <IdentityMark id="local-vault" color="#1553ff" />
         <p className="eyebrow">本地保险库</p>
         <h1>{initialize ? "先保护你的 Silo 配置" : "你的世界，留在这里。"}</h1>
         <p>

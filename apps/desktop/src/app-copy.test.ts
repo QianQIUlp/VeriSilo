@@ -42,8 +42,10 @@ describe("desktop product copy", () => {
   });
 
   it("keeps the shared brand mark and distinguishes desktop presentation tokens", () => {
-    expect(appSource).toContain('const defaultColor = "#5b5ce2";');
-    expect(appSource).toContain('src="/verisilo-mark.svg"');
+    expect(appSource).toContain('const defaultColor = "#1553ff";');
+    expect(appSource).toContain(
+      'new URL("./verisilo-symbol.svg", import.meta.url).href',
+    );
     expect(appSource).toContain('className="brand-mark"');
     expect(appSource).toContain('alt=""');
     expect(appSource).toContain('aria-hidden="true"');
@@ -51,10 +53,10 @@ describe("desktop product copy", () => {
       /<div className="brand-mark"[^>]*>\s*VS\s*<\/div>/u,
     );
     expect(appSource).not.toContain('const defaultColor = "#0f766e";');
-    expect(stylesSource).toContain("--primary: #164e63;");
-    expect(stylesSource).toContain("--primary-dark: #0f394a;");
-    expect(stylesSource).toContain("--primary-soft: #e0efef;");
-    expect(stylesSource).toContain("--good: #176c68;");
+    expect(stylesSource).toContain("--primary: #1553ff;");
+    expect(stylesSource).toContain("--primary-dark: #103cc4;");
+    expect(stylesSource).toContain("--primary-soft: #e8eeff;");
+    expect(stylesSource).toContain("--good: #244ba8;");
     expect(stylesSource).not.toContain("--primary: #0f766e;");
   });
 
@@ -136,7 +138,7 @@ describe("desktop product copy", () => {
     expect(createPanelSource).toContain("silo-boundary-confirm");
     expect(createPanelSource).toContain("focusFirstMissing");
     expect(stylesSource).toMatch(
-      /\.workspace-content > \.notice\s*\{[^}]*position:\s*sticky;/u,
+      /\.workspace-content > \.notice\s*\{[^}]*position:\s*(?:sticky|fixed);/u,
     );
     expect(stylesSource).toContain(".submit-row .submit-missing");
   });
@@ -243,7 +245,7 @@ describe("desktop product copy", () => {
       "系统浏览器不改这台电脑的指纹。登录数据分开保存，但这不是换了一套设备身份。",
     );
     expect(appSource).toContain("关掉窗口即可停止");
-    expect(appSource).toMatch(/不会动你其他的 Chrome 或\s+Edge/u);
+    expect(appSource).toMatch(/不会动你其他的\s+Chrome 或\s+Edge/u);
   });
 
   it("keeps a launched identity read-only and stops WSL from the Silo card", () => {

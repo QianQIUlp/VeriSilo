@@ -61,7 +61,9 @@ describe("Silo list presentation", () => {
       }),
     );
     expect(missingActive).toContain(`id="silo-${previewSilo.id}" aria-label=`);
-    expect(missingActive).not.toContain('hidden=""');
+    expect(missingActive.match(/<article[^>]*>/u)?.[0]).not.toContain(
+      'hidden=""',
+    );
   });
 
   it("explains why other Silos cannot launch while one is running", () => {
@@ -79,6 +81,7 @@ describe("Silo list presentation", () => {
     const populated = renderToStaticMarkup(
       createElement(SiloList, {
         activation: runningSilo.id,
+        focusedSiloId: waitingSilo.id,
         busy: false,
         managedEngineReady: false,
         networkEvidence: [],
@@ -99,6 +102,17 @@ describe("Silo list presentation", () => {
     );
     expect(populated).toContain("」正在运行。一次只能打开一个");
     expect(populated).toContain("「正在用的空间」");
+    const sceneTags = populated.match(/<article[^>]*>/gu) ?? [];
+    expect(
+      sceneTags.find((tag) => tag.includes(`id="silo-${waitingSilo.id}"`)),
+    ).not.toContain('hidden=""');
+    expect(
+      sceneTags.find((tag) => tag.includes(`id="silo-${runningSilo.id}"`)),
+    ).toContain('hidden=""');
+    const launch = populated.match(
+      /<button[^>]*disabled=""[^>]*>打开浏览器<\/button>/u,
+    );
+    expect(launch).not.toBeNull();
     expect(populated).toContain("先关闭它的浏览器窗口");
   });
 
