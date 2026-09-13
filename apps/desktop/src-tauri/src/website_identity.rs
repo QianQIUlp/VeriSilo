@@ -56,8 +56,7 @@ pub fn load_session_observation(
     let launch = parse_observed_file(&session_dir.join("observed.json"), silo_id);
     let reobserved = parse_observed_file(&session_dir.join("reobserved.json"), silo_id);
     match (launch, reobserved) {
-        (Some(launch), Some(reobserved)) => Some(if reobserved.observed_at > launch.observed_at
-        {
+        (Some(launch), Some(reobserved)) => Some(if reobserved.observed_at > launch.observed_at {
             reobserved
         } else {
             launch
@@ -73,8 +72,16 @@ pub fn load_latest_observation(
     let entries = fs::read_dir(state_root).ok()?;
     let mut latest: Option<WebsiteIdentityObservation> = None;
     for entry in entries.flatten() {
-        let path = entry.path().join("observed.json");
-        let Some(candidate) = parse_observed_file(&path, silo_id) else {
+        // Recovery paths without a live session must resolve each session the
+        // same way load_session_observation does: the newest valid member of
+        // that session's observed/reobserved pair. The Host names session
+        // directories with uuid4().hex, so anything else on disk (quarantine,
+        // logs, caches) never contributes an observation.
+        let file_name = entry.file_name();
+        let Some(session_id) = file_name.to_str() else {
+            continue;
+        };
+        let Some(candidate) = load_session_observation(state_root, session_id, silo_id) else {
             continue;
         };
         if latest
@@ -222,11 +229,28 @@ fn json_time(value: Option<&serde_json::Value>) -> Option<DateTime<Utc>> {
 mod tests {
     use super::*;
 
+    const SESSION_LAUNCH_ONLY: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
     fn write_observed(dir: &Path, generated_at: &str, user_agent: &str) {
-        let session = dir.join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        fs::create_dir_all(&session).expect("session dir");
+        write_observation(
+            &dir.join(SESSION_LAUNCH_ONLY),
+            "observed.json",
+            generated_at,
+            user_agent,
+            "Asia/Shanghai",
+        );
+    }
+
+    fn write_observation(
+        session_dir: &Path,
+        file_name: &str,
+        generated_at: &str,
+        user_agent: &str,
+        timezone: &str,
+    ) {
+        fs::create_dir_all(session_dir).expect("session dir");
         fs::write(
-            session.join("observed.json"),
+            session_dir.join(file_name),
             format!(
                 r#"{{
   "generatedAtUtc": "{generated_at}",
@@ -244,12 +268,21 @@ mod tests {
     "webglRenderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1080 Direct3D11 vs_5_0 ps_5_0)",
     "maxTouchPoints": 0,
     "webdriver": false,
-    "session": {{"timezone": "Asia/Shanghai", "utcOffsetMinutes": -480}}
+    "session": {{"timezone": "{timezone}", "utcOffsetMinutes": -480}}
   }}
 }}"#
             ),
         )
-        .expect("write observed.json");
+        .expect("write observation file");
+    }
+
+    fn temp_state_root(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "verisilo-website-identity-{label}-{}",
+            Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
     }
 
     #[test]
@@ -295,6 +328,232 @@ mod tests {
                 .is_none()
         );
         assert!(load_session_observation(&dir, "not-a-session", Uuid::nil()).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn observation_at(literal: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(literal)
+            .expect("rfc3339 timestamp")
+            .with_timezone(&Utc)
+    }
+
+    fn latest_user_agent(dir: &Path, silo_id: Uuid) -> String {
+        load_latest_observation(dir, silo_id)
+            .expect("a valid latest observation")
+            .user_agent
+    }
+
+    #[test]
+    fn latest_observation_returns_the_launch_observation_without_a_recheck() {
+        let dir = temp_state_root("launch-only");
+        write_observed(&dir, "2026-09-12T01:02:03Z", "launch user agent");
+        let silo_id = Uuid::nil();
+        let latest = load_latest_observation(&dir, silo_id).expect("launch observation");
+        assert_eq!(latest.user_agent, "launch user agent");
+        assert_eq!(latest.observed_at, observation_at("2026-09-12T01:02:03Z"));
+        assert_eq!(latest.timezone, "Asia/Shanghai");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn latest_observation_prefers_a_newer_reobserved_observation() {
+        let dir = temp_state_root("newer-recheck");
+        write_observed(&dir, "2026-09-12T01:00:00Z", "launch user agent");
+        write_observation(
+            &dir.join(SESSION_LAUNCH_ONLY),
+            "reobserved.json",
+            "2026-09-12T02:00:00Z",
+            "recheck user agent",
+            "Europe/Berlin",
+        );
+        let silo_id = Uuid::nil();
+        let session =
+            load_session_observation(&dir, SESSION_LAUNCH_ONLY, silo_id).expect("session");
+        assert_eq!(session.user_agent, "recheck user agent");
+        assert_eq!(session.timezone, "Europe/Berlin");
+        // The recovery path must surface exactly the session's current
+        // observation, never a mixture of the launch and recheck fields.
+        assert_eq!(
+            load_latest_observation(&dir, silo_id).expect("latest"),
+            session
+        );
+        assert_eq!(latest_user_agent(&dir, silo_id), "recheck user agent");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn latest_observation_keeps_the_launch_observation_when_the_recheck_is_older() {
+        let dir = temp_state_root("older-recheck");
+        write_observed(&dir, "2026-09-12T02:00:00Z", "launch user agent");
+        write_observation(
+            &dir.join(SESSION_LAUNCH_ONLY),
+            "reobserved.json",
+            "2026-09-12T01:00:00Z",
+            "recheck user agent",
+            "Europe/Berlin",
+        );
+        let silo_id = Uuid::nil();
+        assert_eq!(
+            load_session_observation(&dir, SESSION_LAUNCH_ONLY, silo_id)
+                .expect("session")
+                .user_agent,
+            "launch user agent"
+        );
+        assert_eq!(latest_user_agent(&dir, silo_id), "launch user agent");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn latest_observation_selects_the_newest_per_session_before_comparing_sessions() {
+        let dir = temp_state_root("cross-session");
+        let earlier = dir.join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let later = dir.join("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        write_observation(
+            &earlier,
+            "observed.json",
+            "2026-09-12T01:00:00Z",
+            "a launch",
+            "Asia/Shanghai",
+        );
+        write_observation(
+            &earlier,
+            "reobserved.json",
+            "2026-09-12T04:00:00Z",
+            "a recheck",
+            "Europe/Berlin",
+        );
+        write_observation(
+            &later,
+            "observed.json",
+            "2026-09-12T02:00:00Z",
+            "b launch",
+            "Asia/Shanghai",
+        );
+        write_observation(
+            &later,
+            "reobserved.json",
+            "2026-09-12T03:00:00Z",
+            "b recheck",
+            "America/New_York",
+        );
+        let silo_id = Uuid::nil();
+        // Each session resolves to its own newest observation (a: 04:00,
+        // b: 03:00), and the latest is the newest of those.
+        let session_a = load_session_observation(&dir, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", silo_id)
+            .expect("session a");
+        assert_eq!(session_a.user_agent, "a recheck");
+        let latest = load_latest_observation(&dir, silo_id).expect("latest");
+        assert_eq!(latest, session_a);
+        assert_eq!(latest.observed_at, observation_at("2026-09-12T04:00:00Z"));
+        assert_eq!(latest.timezone, "Europe/Berlin");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn latest_observation_falls_back_to_observed_when_the_recheck_is_unusable() {
+        let dir = temp_state_root("unusable-recheck");
+        let silo_id = Uuid::nil();
+        let empty_recheck = dir.join("cccccccccccccccccccccccccccccccc");
+        write_observation(
+            &empty_recheck,
+            "observed.json",
+            "2026-09-12T01:00:00Z",
+            "c launch",
+            "Asia/Shanghai",
+        );
+        fs::write(empty_recheck.join("reobserved.json"), []).expect("empty reobserved");
+        let malformed_recheck = dir.join("dddddddddddddddddddddddddddddddd");
+        write_observation(
+            &malformed_recheck,
+            "observed.json",
+            "2026-09-12T02:00:00Z",
+            "d launch",
+            "Asia/Shanghai",
+        );
+        fs::write(
+            malformed_recheck.join("reobserved.json"),
+            r#"{"observedFull": {"#.as_bytes(),
+        )
+        .expect("malformed reobserved");
+        let oversized_recheck = dir.join("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        write_observation(
+            &oversized_recheck,
+            "observed.json",
+            "2026-09-12T03:00:00Z",
+            "e launch",
+            "Asia/Shanghai",
+        );
+        fs::write(
+            oversized_recheck.join("reobserved.json"),
+            vec![b' '; (MAX_OBSERVED_JSON_BYTES + 1) as usize],
+        )
+        .expect("oversized reobserved");
+        // Each session honestly falls back to its own launch observation
+        // instead of failing or picking up the unusable recheck file.
+        for (session_id, user_agent) in [
+            ("cccccccccccccccccccccccccccccccc", "c launch"),
+            ("dddddddddddddddddddddddddddddddd", "d launch"),
+            ("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "e launch"),
+        ] {
+            assert_eq!(
+                load_session_observation(&dir, session_id, silo_id)
+                    .expect("launch fallback")
+                    .user_agent,
+                user_agent
+            );
+        }
+        assert_eq!(latest_user_agent(&dir, silo_id), "e launch");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn latest_observation_uses_the_recheck_when_the_launch_observation_is_unusable() {
+        let dir = temp_state_root("unusable-launch");
+        let session_dir = dir.join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        fs::create_dir_all(&session_dir).expect("session dir");
+        fs::write(session_dir.join("observed.json"), "not json at all").expect("malformed launch");
+        write_observation(
+            &session_dir,
+            "reobserved.json",
+            "2026-09-12T02:00:00Z",
+            "recheck user agent",
+            "Europe/Berlin",
+        );
+        let silo_id = Uuid::nil();
+        assert_eq!(
+            load_session_observation(&dir, SESSION_LAUNCH_ONLY, silo_id)
+                .expect("recheck fallback")
+                .user_agent,
+            "recheck user agent"
+        );
+        assert_eq!(latest_user_agent(&dir, silo_id), "recheck user agent");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn latest_observation_is_none_without_a_valid_session_observation() {
+        let dir = temp_state_root("no-valid-observation");
+        let silo_id = Uuid::nil();
+        assert!(load_latest_observation(&dir, silo_id).is_none());
+        // The Host names session directories with uuid4().hex; any other entry
+        // (a quarantine directory, a log file, a temp file) must never be
+        // mistaken for a session and must not forge an identity attribution.
+        let quarantine = dir.join("quarantine");
+        write_observation(
+            &quarantine,
+            "observed.json",
+            "2026-09-12T09:00:00Z",
+            "forged",
+            "Asia/Shanghai",
+        );
+        fs::write(dir.join("host-stderr.log"), b"log line").expect("log file");
+        let broken_session = dir.join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        fs::create_dir_all(&broken_session).expect("session dir");
+        fs::write(broken_session.join("observed.json"), "not json at all")
+            .expect("malformed launch");
+        fs::write(broken_session.join("reobserved.json"), "]\nbroken")
+            .expect("malformed reobserved");
+        assert!(load_latest_observation(&dir, silo_id).is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 }
