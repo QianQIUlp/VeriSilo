@@ -4,6 +4,7 @@ import { App } from "../App.js";
 import { ManagedSiloForm } from "../features/identity/ManagedSiloForm.js";
 import { installPreviewApi } from "./api.js";
 import "../styles.css";
+import "../shared/spatial.css";
 
 const scenario =
   new URLSearchParams(window.location.search).get("scenario") ?? "overview";
@@ -46,7 +47,7 @@ function Preview() {
           {message && <p role="status">{message}</p>}
           <ManagedSiloForm
             busy={false}
-            initialColor="#5b5ce2"
+            initialColor="#1553ff"
             onSubmit={async () => {
               setMessage("模拟创建完成。表单未写入 Vault。");
             }}

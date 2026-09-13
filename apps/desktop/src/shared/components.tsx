@@ -5,7 +5,7 @@ export function Brand() {
         alt=""
         aria-hidden="true"
         className="brand-mark"
-        src="/verisilo-mark.svg"
+        src={new URL("./verisilo-symbol.svg", import.meta.url).href}
       />
       <div>
         <strong>VeriSilo</strong>
@@ -22,7 +22,7 @@ export function TabButton({
   onClick,
 }: {
   active: boolean;
-  icon?: "atlas" | "create" | "vault" | "location" | "terminal";
+  icon?: "atlas" | "create" | "vault" | "location" | "terminal" | "tools";
   label: string;
   onClick: () => void;
 }) {
@@ -52,6 +52,7 @@ export function TabButton({
                 create: "M12 5v14M5 12h14",
                 vault: "M5 3h14v18H5z M8 12h8 M12 8v8 M10 10l4 4m0-4-4 4",
                 location: "M4 5h16v12H4z M8 21h8m-4-4v4",
+                tools: "M4 7h16M4 17h16M8 4v6m8 4v6",
                 terminal: "m5 6 5 6-5 6m8 0h6",
               }[icon]
             }

@@ -9,7 +9,7 @@ export const previewSilo: Silo = {
   id: "c3e82c0e-83e9-49ee-b152-44f9e22f131b",
   schemaVersion: 3,
   name: "工作空间（示例）",
-  color: "#5b5ce2",
+  color: "#cc4c25",
   browser: {
     kind: "edge",
     executablePath: "C:\\Preview\\msedge.exe",
@@ -29,7 +29,7 @@ export const previewManagedSilo: Silo = {
   id: "9f2c6a51-4b7e-4c1a-9d3e-5a1b2c3d4e5f",
   schemaVersion: 3,
   name: "托管空间（示例）",
-  color: "#128f8b",
+  color: "#1553ff",
   browser: null,
   executionTarget: { kind: "local" },
   profileDirectory: "C:\\Preview\\profiles\\managed",

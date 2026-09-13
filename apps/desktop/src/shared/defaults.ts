@@ -3,7 +3,7 @@ import {
   type NetworkProfile,
 } from "@verisilo/contracts";
 
-export const defaultColor = "#5b5ce2";
+export const defaultColor = "#1553ff";
 
 export const defaultMihomoControllerUrl = "";
 
