@@ -1,0 +1,2504 @@
+{
+  "generatedAtUtc": "2026-09-13T09:35:43.594448Z",
+  "projection": {
+    "schema": "verisilo-camoufox-stable-signal-projection/v3",
+    "runId": "a8eca7e4ca71442b8f0c0be29a460d38",
+    "coldStartIndex": 1,
+    "artifactId": "identity-a6d662b871505346f45edb5d",
+    "configuredIdentityDigest": "sha256:bd82d7b802c69447b89e5a94975e2023f97774ef573813508a99da24347f3175",
+    "observedWebsiteSignals": {
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+      "language": "zh-CN",
+      "languages": [
+        "zh-CN",
+        "zh"
+      ],
+      "platform": "Win32",
+      "oscpu": "Windows NT 10.0; Win64; x64",
+      "doNotTrack": "unspecified",
+      "globalPrivacyControl": true,
+      "screen": {
+        "width": 1280,
+        "height": 800,
+        "availWidth": 1280,
+        "availHeight": 800,
+        "availTop": 0,
+        "availLeft": 0,
+        "colorDepth": 24,
+        "pixelDepth": 24
+      },
+      "devicePixelRatio": 1.5,
+      "hardwareConcurrency": 2,
+      "historyLength": 2,
+      "mediaDevices": [
+        {
+          "kind": "audioinput",
+          "label": ""
+        },
+        {
+          "kind": "videoinput",
+          "label": ""
+        }
+      ],
+      "timezone": "Asia/Shanghai",
+      "utcOffsetMinutes": -480,
+      "fontNegativeControls": {
+        "VeriSiloBogusFontM2": true,
+        "DefinitelyNotAFontQz": true,
+        "NoSuchTypefaceXyZ": true
+      },
+      "webglVendor": "Google Inc. (NVIDIA)",
+      "webglRenderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+      "webglSummary": {
+        "version": "WebGL 1.0",
+        "shadingLanguageVersion": "WebGL GLSL ES 1.0",
+        "maxTextureSize": 16384,
+        "maxRenderbufferSize": 16384,
+        "maxViewportDims": [
+          32767,
+          32767
+        ],
+        "aliasedLineWidthRange": [
+          1,
+          1
+        ],
+        "aliasedPointSizeRange": [
+          1,
+          1024
+        ],
+        "extensions": [
+          "ANGLE_instanced_arrays",
+          "EXT_blend_minmax",
+          "EXT_color_buffer_half_float",
+          "EXT_float_blend",
+          "EXT_frag_depth",
+          "EXT_sRGB",
+          "EXT_shader_texture_lod",
+          "EXT_texture_compression_bptc",
+          "EXT_texture_compression_rgtc",
+          "EXT_texture_filter_anisotropic",
+          "OES_element_index_uint",
+          "OES_fbo_render_mipmap",
+          "OES_standard_derivatives",
+          "OES_texture_float",
+          "OES_texture_float_linear",
+          "OES_texture_half_float",
+          "OES_texture_half_float_linear",
+          "OES_vertex_array_object",
+          "WEBGL_color_buffer_float",
+          "WEBGL_compressed_texture_s3tc",
+          "WEBGL_compressed_texture_s3tc_srgb",
+          "WEBGL_debug_renderer_info",
+          "WEBGL_debug_shaders",
+          "WEBGL_depth_texture",
+          "WEBGL_draw_buffers",
+          "WEBGL_lose_context",
+          "WEBGL_provoking_vertex"
+        ]
+      },
+      "voices": [
+        {
+          "name": "Microsoft David - English (United States)",
+          "lang": "en-US",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.david.english.united.states"
+        },
+        {
+          "name": "Microsoft Mark - English (United States)",
+          "lang": "en-US",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.mark.english.united.states"
+        },
+        {
+          "name": "Microsoft Zira - English (United States)",
+          "lang": "en-US",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.zira.english.united.states"
+        },
+        {
+          "name": "Microsoft David Desktop - English (United States)",
+          "lang": "en-US",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.david.desktop.english.united.states"
+        },
+        {
+          "name": "Microsoft Zira Desktop - English (United States)",
+          "lang": "en-US",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.zira.desktop.english.united.states"
+        },
+        {
+          "name": "Microsoft Hazel - English (United Kingdom)",
+          "lang": "en-GB",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.english.united.kingdom"
+        },
+        {
+          "name": "Microsoft Hazel Desktop - English (Great Britain)",
+          "lang": "en-GB",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.desktop.english.great.britain"
+        },
+        {
+          "name": "Microsoft George - English (United Kingdom)",
+          "lang": "en-GB",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.george.english.united.kingdom"
+        },
+        {
+          "name": "Microsoft Susan - English (United Kingdom)",
+          "lang": "en-GB",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.susan.english.united.kingdom"
+        },
+        {
+          "name": "Microsoft Catherine - English (Australia)",
+          "lang": "en-AU",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.catherine.english.australia"
+        },
+        {
+          "name": "Microsoft James - English (Australia)",
+          "lang": "en-AU",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.james.english.australia"
+        },
+        {
+          "name": "Microsoft Linda - English (Canada)",
+          "lang": "en-CA",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.linda.english.canada"
+        },
+        {
+          "name": "Microsoft Richard - English (Canada)",
+          "lang": "en-CA",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.richard.english.canada"
+        },
+        {
+          "name": "Microsoft Sean - English (Ireland)",
+          "lang": "en-IE",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.sean.english.ireland"
+        },
+        {
+          "name": "Microsoft Heera - English (India)",
+          "lang": "en-IN",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.heera.english.india"
+        },
+        {
+          "name": "Microsoft Ravi - English (India)",
+          "lang": "en-IN",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.ravi.english.india"
+        },
+        {
+          "name": "Microsoft Hedda - German (Germany)",
+          "lang": "de-DE",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.german.germany"
+        },
+        {
+          "name": "Microsoft Hedda Desktop - German",
+          "lang": "de-DE",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.desktop.german"
+        },
+        {
+          "name": "Microsoft Katja - German (Germany)",
+          "lang": "de-DE",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.katja.german.germany"
+        },
+        {
+          "name": "Microsoft Stefan - German (Germany)",
+          "lang": "de-DE",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.stefan.german.germany"
+        },
+        {
+          "name": "Microsoft Hortense - French (France)",
+          "lang": "fr-FR",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.french.france"
+        },
+        {
+          "name": "Microsoft Hortense Desktop - French",
+          "lang": "fr-FR",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.desktop.french"
+        },
+        {
+          "name": "Microsoft Julie - French (France)",
+          "lang": "fr-FR",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.julie.french.france"
+        },
+        {
+          "name": "Microsoft Paul - French (France)",
+          "lang": "fr-FR",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.paul.french.france"
+        },
+        {
+          "name": "Microsoft Helena - Spanish (Spain)",
+          "lang": "es-ES",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.helena.spanish.spain"
+        },
+        {
+          "name": "Microsoft Helena Desktop - Spanish (Spain)",
+          "lang": "es-ES",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.helena.desktop.spanish.spain"
+        },
+        {
+          "name": "Microsoft Laura - Spanish (Spain)",
+          "lang": "es-ES",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.laura.spanish.spain"
+        },
+        {
+          "name": "Microsoft Pablo - Spanish (Spain)",
+          "lang": "es-ES",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.pablo.spanish.spain"
+        },
+        {
+          "name": "Microsoft Sabina - Spanish (Mexico)",
+          "lang": "es-MX",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.spanish.mexico"
+        },
+        {
+          "name": "Microsoft Sabina Desktop - Spanish (Mexico)",
+          "lang": "es-MX",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.desktop.spanish.mexico"
+        },
+        {
+          "name": "Microsoft Raul - Spanish (Mexico)",
+          "lang": "es-MX",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.raul.spanish.mexico"
+        },
+        {
+          "name": "Microsoft Cosimo - Italian (Italy)",
+          "lang": "it-IT",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.cosimo.italian.italy"
+        },
+        {
+          "name": "Microsoft Elsa - Italian (Italy)",
+          "lang": "it-IT",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.italian.italy"
+        },
+        {
+          "name": "Microsoft Elsa Desktop - Italian (Italy)",
+          "lang": "it-IT",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.desktop.italian.italy"
+        },
+        {
+          "name": "Microsoft Daniel - Portuguese (Brazil)",
+          "lang": "pt-BR",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.daniel.portuguese.brazil"
+        },
+        {
+          "name": "Microsoft Maria - Portuguese (Brazil)",
+          "lang": "pt-BR",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.maria.portuguese.brazil"
+        },
+        {
+          "name": "Microsoft Maria Desktop - Portuguese(Brazil)",
+          "lang": "pt-BR",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.maria.desktop.portuguese.brazil"
+        },
+        {
+          "name": "Microsoft Helia - Portuguese (Portugal)",
+          "lang": "pt-PT",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.helia.portuguese.portugal"
+        },
+        {
+          "name": "Microsoft Huihui - Chinese (Simplified, PRC)",
+          "lang": "zh-CN",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.chinese.simplified.prc"
+        },
+        {
+          "name": "Microsoft Huihui Desktop - Chinese (Simplified)",
+          "lang": "zh-CN",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.desktop.chinese.simplified"
+        },
+        {
+          "name": "Microsoft Kangkang - Chinese (Simplified, PRC)",
+          "lang": "zh-CN",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.kangkang.chinese.simplified.prc"
+        },
+        {
+          "name": "Microsoft Yaoyao - Chinese (Simplified, PRC)",
+          "lang": "zh-CN",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.yaoyao.chinese.simplified.prc"
+        },
+        {
+          "name": "Microsoft Anna - English (United States)",
+          "lang": "en-US",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.anna.english.united.states"
+        },
+        {
+          "name": "Microsoft Frank - Dutch (Netherlands)",
+          "lang": "nl-NL",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.frank.dutch.netherlands"
+        },
+        {
+          "name": "Microsoft Adam - Polish (Poland)",
+          "lang": "pl-PL",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.adam.polish.poland"
+        },
+        {
+          "name": "Microsoft Paulina - Polish (Poland)",
+          "lang": "pl-PL",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.polish.poland"
+        },
+        {
+          "name": "Microsoft Paulina Desktop - Polish",
+          "lang": "pl-PL",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.desktop.polish"
+        },
+        {
+          "name": "Microsoft Jakub - Czech (Czech Republic)",
+          "lang": "cs-CZ",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.jakub.czech.czech.republic"
+        },
+        {
+          "name": "Microsoft Stefanos - Greek (Greece)",
+          "lang": "el-GR",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.stefanos.greek.greece"
+        },
+        {
+          "name": "Microsoft Asaf - Hebrew (Israel)",
+          "lang": "he-IL",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.asaf.hebrew.israel"
+        },
+        {
+          "name": "Microsoft Naayf - Arabic (Saudi)",
+          "lang": "ar-SA",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.naayf.arabic.saudi"
+        },
+        {
+          "name": "Microsoft Tolga - Turkish (Turkey)",
+          "lang": "tr-TR",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.tolga.turkish.turkey"
+        },
+        {
+          "name": "Microsoft Sarah Mobile - English (Great Britain)",
+          "lang": "en-GB",
+          "localService": true,
+          "voiceURI": "urn:moz-tts:sapi:microsoft.sarah.mobile.english.great.britain"
+        }
+      ],
+      "audioHash": "sha256:800f85d155beb2a2e59a964fadd33a7b6ceede1f538b1727c1ce480b59d895c1"
+    },
+    "observedWebsiteDigest": "sha256:fa00ad84ecad21a1617cd7198efa26f1d92f9f177b7b97283b5a44b8d24de3c6"
+  },
+  "observedFull": {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+    "appCodeName": "Mozilla",
+    "appName": "Netscape",
+    "appVersion": "5.0 (Windows)",
+    "product": "Gecko",
+    "language": "zh-CN",
+    "languages": [
+      "zh-CN",
+      "zh"
+    ],
+    "platform": "Win32",
+    "oscpu": "Windows NT 10.0; Win64; x64",
+    "doNotTrack": "unspecified",
+    "globalPrivacyControl": true,
+    "screen": {
+      "width": 1280,
+      "height": 800,
+      "availWidth": 1280,
+      "availHeight": 800,
+      "availTop": 0,
+      "availLeft": 0,
+      "colorDepth": 24,
+      "pixelDepth": 24
+    },
+    "devicePixelRatio": 1.5,
+    "hardwareConcurrency": 2,
+    "maxTouchPoints": 0,
+    "windowGeometry": {
+      "innerWidth": 1265,
+      "innerHeight": 736,
+      "outerWidth": 1280,
+      "outerHeight": 800,
+      "screenX": 2232,
+      "screenY": 140,
+      "screenLeft": 2232,
+      "screenTop": 140
+    },
+    "historyLength": 2,
+    "bootCount": 0,
+    "mediaDevices": [
+      {
+        "kind": "audioinput",
+        "label": ""
+      },
+      {
+        "kind": "videoinput",
+        "label": ""
+      }
+    ],
+    "canvas": {
+      "rawHash": "sha256:ebc28bdd21a20d0e4bcfb5e130f84e9ef1ef0a1a68afaa10c9520393ad40434b",
+      "rawRgbaHash": "sha256:ebc28bdd21a20d0e4bcfb5e130f84e9ef1ef0a1a68afaa10c9520393ad40434b",
+      "exportHash": "sha256:027d559d8fb40a02b32b93e4da5b54d80c200421f9c5e9c29cff5a700ef1b43b",
+      "dataUrlHash": "sha256:027d559d8fb40a02b32b93e4da5b54d80c200421f9c5e9c29cff5a700ef1b43b",
+      "pngBytesHash": "sha256:554c53299ba5a1836900b94ee31f5cef7ec98cf7839289e91a39c5c7fdb68ac4",
+      "decodedPngPixelsHash": "sha256:d8ba65c1ae14dcba53a29db0f1d11197e3757f3a08e4c175a9ffc2be5394a881",
+      "png": {
+        "signatureValid": true,
+        "decodeValid": true,
+        "width": 240,
+        "height": 120,
+        "mimeType": "image/png"
+      }
+    },
+    "audioHash": "sha256:800f85d155beb2a2e59a964fadd33a7b6ceede1f538b1727c1ce480b59d895c1",
+    "fontUniverseWidths": {
+      "Arial|The quick brown fox jumps over the lazy dog": 318.32501220703125,
+      "Arial|VeriSiloM2 0123456789": 171,
+      "Arial|mmmmmmmmmmmmmmmmmmmm": 267.5,
+      "Arial Black|The quick brown fox jumps over the lazy dog": 318.32501220703125,
+      "Arial Black|VeriSiloM2 0123456789": 171,
+      "Arial Black|mmmmmmmmmmmmmmmmmmmm": 267.5,
+      "Arimo|The quick brown fox jumps over the lazy dog": 346.54998779296875,
+      "Arimo|VeriSiloM2 0123456789": 181.64999389648438,
+      "Arimo|mmmmmmmmmmmmmmmmmmmm": 300.5,
+      "Calibri|The quick brown fox jumps over the lazy dog": 291,
+      "Calibri|VeriSiloM2 0123456789": 156.47500610351562,
+      "Calibri|mmmmmmmmmmmmmmmmmmmm": 256.5,
+      "Cambria|The quick brown fox jumps over the lazy dog": 307.17498779296875,
+      "Cambria|VeriSiloM2 0123456789": 167.6750030517578,
+      "Cambria|mmmmmmmmmmmmmmmmmmmm": 267,
+      "Comic Sans MS|The quick brown fox jumps over the lazy dog": 335.4750061035156,
+      "Comic Sans MS|VeriSiloM2 0123456789": 184.625,
+      "Comic Sans MS|mmmmmmmmmmmmmmmmmmmm": 249.5,
+      "Consolas|The quick brown fox jumps over the lazy dog": 380.54998779296875,
+      "Consolas|VeriSiloM2 0123456789": 185.85000610351562,
+      "Consolas|mmmmmmmmmmmmmmmmmmmm": 177,
+      "Courier New|The quick brown fox jumps over the lazy dog": 414.3500061035156,
+      "Courier New|VeriSiloM2 0123456789": 202.5749969482422,
+      "Courier New|mmmmmmmmmmmmmmmmmmmm": 193,
+      "Cousine|The quick brown fox jumps over the lazy dog": 346.54998779296875,
+      "Cousine|VeriSiloM2 0123456789": 181.64999389648438,
+      "Cousine|mmmmmmmmmmmmmmmmmmmm": 300.5,
+      "DejaVu Sans|The quick brown fox jumps over the lazy dog": 346.54998779296875,
+      "DejaVu Sans|VeriSiloM2 0123456789": 181.64999389648438,
+      "DejaVu Sans|mmmmmmmmmmmmmmmmmmmm": 300.5,
+      "DejaVu Serif|The quick brown fox jumps over the lazy dog": 346.54998779296875,
+      "DejaVu Serif|VeriSiloM2 0123456789": 181.64999389648438,
+      "DejaVu Serif|mmmmmmmmmmmmmmmmmmmm": 300.5,
+      "Georgia|The quick brown fox jumps over the lazy dog": 316.70001220703125,
+      "Georgia|VeriSiloM2 0123456789": 172.875,
+      "Georgia|mmmmmmmmmmmmmmmmmmmm": 282.5,
+      "Helvetica|The quick brown fox jumps over the lazy dog": 318.32501220703125,
+      "Helvetica|VeriSiloM2 0123456789": 171,
+      "Helvetica|mmmmmmmmmmmmmmmmmmmm": 267.5,
+      "Impact|The quick brown fox jumps over the lazy dog": 287.7749938964844,
+      "Impact|VeriSiloM2 0123456789": 154.9499969482422,
+      "Impact|mmmmmmmmmmmmmmmmmmmm": 247.5,
+      "Liberation Mono|The quick brown fox jumps over the lazy dog": 346.54998779296875,
+      "Liberation Mono|VeriSiloM2 0123456789": 181.64999389648438,
+      "Liberation Mono|mmmmmmmmmmmmmmmmmmmm": 300.5,
+      "Liberation Sans|The quick brown fox jumps over the lazy dog": 346.54998779296875,
+      "Liberation Sans|VeriSiloM2 0123456789": 181.64999389648438,
+      "Liberation Sans|mmmmmmmmmmmmmmmmmmmm": 300.5,
+      "Liberation Serif|The quick brown fox jumps over the lazy dog": 346.54998779296875,
+      "Liberation Serif|VeriSiloM2 0123456789": 181.64999389648438,
+      "Liberation Serif|mmmmmmmmmmmmmmmmmmmm": 300.5,
+      "Lucida Console|The quick brown fox jumps over the lazy dog": 416.29998779296875,
+      "Lucida Console|VeriSiloM2 0123456789": 203.60000610351562,
+      "Lucida Console|mmmmmmmmmmmmmmmmmmmm": 194,
+      "Noto Sans|The quick brown fox jumps over the lazy dog": 346.54998779296875,
+      "Noto Sans|VeriSiloM2 0123456789": 181.64999389648438,
+      "Noto Sans|mmmmmmmmmmmmmmmmmmmm": 300.5,
+      "Noto Serif|The quick brown fox jumps over the lazy dog": 346.54998779296875,
+      "Noto Serif|VeriSiloM2 0123456789": 181.64999389648438,
+      "Noto Serif|mmmmmmmmmmmmmmmmmmmm": 300.5,
+      "Segoe UI|The quick brown fox jumps over the lazy dog": 319.0249938964844,
+      "Segoe UI|VeriSiloM2 0123456789": 167.0500030517578,
+      "Segoe UI|mmmmmmmmmmmmmmmmmmmm": 276.5,
+      "Tahoma|The quick brown fox jumps over the lazy dog": 320.375,
+      "Tahoma|VeriSiloM2 0123456789": 165.97500610351562,
+      "Tahoma|mmmmmmmmmmmmmmmmmmmm": 269.5,
+      "Times New Roman|The quick brown fox jumps over the lazy dog": 294.17498779296875,
+      "Times New Roman|VeriSiloM2 0123456789": 159.6999969482422,
+      "Times New Roman|mmmmmmmmmmmmmmmmmmmm": 249.5,
+      "Trebuchet MS|The quick brown fox jumps over the lazy dog": 324.82501220703125,
+      "Trebuchet MS|VeriSiloM2 0123456789": 163.0500030517578,
+      "Trebuchet MS|mmmmmmmmmmmmmmmmmmmm": 266.5,
+      "Verdana|The quick brown fox jumps over the lazy dog": 365.0249938964844,
+      "Verdana|VeriSiloM2 0123456789": 192.35000610351562,
+      "Verdana|mmmmmmmmmmmmmmmmmmmm": 312
+    },
+    "fontNegativeControls": {
+      "VeriSiloBogusFontM2": true,
+      "DefinitelyNotAFontQz": true,
+      "NoSuchTypefaceXyZ": true
+    },
+    "injectedFonts": [
+      {
+        "family": "Arial",
+        "available": true
+      },
+      {
+        "family": "Calibri",
+        "available": true
+      },
+      {
+        "family": "Cambria Math",
+        "available": true
+      },
+      {
+        "family": "Consolas",
+        "available": true
+      },
+      {
+        "family": "Courier New",
+        "available": true
+      },
+      {
+        "family": "Georgia",
+        "available": true
+      },
+      {
+        "family": "Nirmala UI",
+        "available": true
+      },
+      {
+        "family": "Segoe UI",
+        "available": true
+      },
+      {
+        "family": "Tahoma",
+        "available": true
+      },
+      {
+        "family": "Times New Roman",
+        "available": true
+      },
+      {
+        "family": "Trebuchet MS",
+        "available": true
+      },
+      {
+        "family": "Verdana",
+        "available": true
+      },
+      {
+        "family": "\u6e38\u30b4\u30b7\u30c3\u30af",
+        "available": true
+      },
+      {
+        "family": "Mongolian Baiti",
+        "available": true
+      },
+      {
+        "family": "Candara Light",
+        "available": true
+      },
+      {
+        "family": "Microsoft YaHei",
+        "available": true
+      },
+      {
+        "family": "Segoe UI Semilight",
+        "available": true
+      },
+      {
+        "family": "Segoe Script",
+        "available": true
+      },
+      {
+        "family": "Lucida Console",
+        "available": true
+      },
+      {
+        "family": "\u5fae\u8edf\u6b63\u9ed1\u9ad4 Light",
+        "available": true
+      },
+      {
+        "family": "Microsoft PhagsPa",
+        "available": true
+      },
+      {
+        "family": "Franklin Gothic Medium",
+        "available": true
+      },
+      {
+        "family": "Malgun Gothic Semilight",
+        "available": true
+      },
+      {
+        "family": "\u5b8b\u4f53",
+        "available": true
+      },
+      {
+        "family": "MS PGothic",
+        "available": true
+      },
+      {
+        "family": "Leelawadee UI",
+        "available": true
+      },
+      {
+        "family": "Microsoft YaHei UI Light",
+        "available": true
+      },
+      {
+        "family": "Javanese Text",
+        "available": true
+      },
+      {
+        "family": "Yu Gothic UI Light",
+        "available": true
+      },
+      {
+        "family": "\u5fae\u8f6f\u96c5\u9ed1",
+        "available": true
+      },
+      {
+        "family": "Sitka Text",
+        "available": true
+      },
+      {
+        "family": "Microsoft JhengHei",
+        "available": true
+      },
+      {
+        "family": "Segoe MDL2 Assets",
+        "available": true
+      },
+      {
+        "family": "Segoe UI Emoji",
+        "available": true
+      },
+      {
+        "family": "\uff2d\uff33 \uff30\u30b4\u30b7\u30c3\u30af",
+        "available": true
+      },
+      {
+        "family": "Marlett",
+        "available": true
+      },
+      {
+        "family": "Comic Sans MS",
+        "available": true
+      },
+      {
+        "family": "\u65b0\u5b8b\u4f53",
+        "available": true
+      },
+      {
+        "family": "Palatino Linotype",
+        "available": true
+      },
+      {
+        "family": "Cambria",
+        "available": true
+      },
+      {
+        "family": "PMingLiU-ExtB",
+        "available": true
+      },
+      {
+        "family": "\ub9d1\uc740 \uace0\ub515",
+        "available": true
+      },
+      {
+        "family": "Microsoft Sans Serif",
+        "available": true
+      },
+      {
+        "family": "Candara",
+        "available": true
+      },
+      {
+        "family": "Microsoft JhengHei Light",
+        "available": true
+      },
+      {
+        "family": "Yu Gothic Medium",
+        "available": true
+      },
+      {
+        "family": "\u6e38\u30b4\u30b7\u30c3\u30af Medium",
+        "available": true
+      },
+      {
+        "family": "Gabriola",
+        "available": true
+      },
+      {
+        "family": "Microsoft JhengHei UI Light",
+        "available": true
+      },
+      {
+        "family": "Microsoft Himalaya",
+        "available": true
+      },
+      {
+        "family": "MingLiU_HKSCS-ExtB",
+        "available": true
+      },
+      {
+        "family": "Microsoft Tai Le",
+        "available": true
+      },
+      {
+        "family": "Yu Gothic UI Semibold",
+        "available": true
+      },
+      {
+        "family": "Sitka",
+        "available": true
+      },
+      {
+        "family": "Symbol",
+        "available": true
+      },
+      {
+        "family": "Segoe Print",
+        "available": true
+      },
+      {
+        "family": "Segoe UI Variable",
+        "available": true
+      },
+      {
+        "family": "Twemoji Mozilla",
+        "available": true
+      },
+      {
+        "family": "MS UI Gothic",
+        "available": true
+      },
+      {
+        "family": "Microsoft YaHei Light",
+        "available": true
+      },
+      {
+        "family": "Segoe UI Semibold",
+        "available": true
+      },
+      {
+        "family": "Lucida Sans Unicode",
+        "available": true
+      },
+      {
+        "family": "MS Gothic",
+        "available": true
+      },
+      {
+        "family": "\uff2d\uff33 \u30b4\u30b7\u30c3\u30af",
+        "available": true
+      },
+      {
+        "family": "Ink Free",
+        "available": true
+      },
+      {
+        "family": "Microsoft YaHei UI",
+        "available": true
+      },
+      {
+        "family": "Myanmar Text",
+        "available": true
+      },
+      {
+        "family": "Wingdings",
+        "available": true
+      },
+      {
+        "family": "Yu Gothic UI",
+        "available": true
+      },
+      {
+        "family": "MV Boli",
+        "available": true
+      },
+      {
+        "family": "Yu Gothic",
+        "available": true
+      },
+      {
+        "family": "Microsoft New Tai Lue",
+        "available": true
+      },
+      {
+        "family": "Impact",
+        "available": true
+      },
+      {
+        "family": "Microsoft JhengHei UI",
+        "available": true
+      },
+      {
+        "family": "\u5fae\u8f6f\u96c5\u9ed1 Light",
+        "available": true
+      },
+      {
+        "family": "Corbel Light",
+        "available": true
+      },
+      {
+        "family": "Nirmala UI Semilight",
+        "available": true
+      },
+      {
+        "family": "Constantia",
+        "available": true
+      },
+      {
+        "family": "\u5fae\u8edf\u6b63\u9ed1\u9ad4",
+        "available": true
+      },
+      {
+        "family": "Segoe UI Light",
+        "available": true
+      },
+      {
+        "family": "Microsoft Yi Baiti",
+        "available": true
+      },
+      {
+        "family": "MingLiU-ExtB",
+        "available": true
+      }
+    ],
+    "hostFontNegativeControls": {},
+    "webglVendor": "Google Inc. (NVIDIA)",
+    "webglRenderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+    "webglSummary": {
+      "version": "WebGL 1.0",
+      "shadingLanguageVersion": "WebGL GLSL ES 1.0",
+      "maxTextureSize": 16384,
+      "maxRenderbufferSize": 16384,
+      "maxViewportDims": [
+        32767,
+        32767
+      ],
+      "aliasedLineWidthRange": [
+        1,
+        1
+      ],
+      "aliasedPointSizeRange": [
+        1,
+        1024
+      ],
+      "extensions": [
+        "ANGLE_instanced_arrays",
+        "EXT_blend_minmax",
+        "EXT_color_buffer_half_float",
+        "EXT_float_blend",
+        "EXT_frag_depth",
+        "EXT_sRGB",
+        "EXT_shader_texture_lod",
+        "EXT_texture_compression_bptc",
+        "EXT_texture_compression_rgtc",
+        "EXT_texture_filter_anisotropic",
+        "OES_element_index_uint",
+        "OES_fbo_render_mipmap",
+        "OES_standard_derivatives",
+        "OES_texture_float",
+        "OES_texture_float_linear",
+        "OES_texture_half_float",
+        "OES_texture_half_float_linear",
+        "OES_vertex_array_object",
+        "WEBGL_color_buffer_float",
+        "WEBGL_compressed_texture_s3tc",
+        "WEBGL_compressed_texture_s3tc_srgb",
+        "WEBGL_debug_renderer_info",
+        "WEBGL_debug_shaders",
+        "WEBGL_depth_texture",
+        "WEBGL_draw_buffers",
+        "WEBGL_lose_context",
+        "WEBGL_provoking_vertex"
+      ]
+    },
+    "webglAvailable": true,
+    "webgl2Vendor": "Google Inc. (NVIDIA)",
+    "webgl2Renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+    "webgl2Summary": {
+      "version": "WebGL 2.0",
+      "shadingLanguageVersion": "WebGL GLSL ES 3.00",
+      "maxTextureSize": 16384,
+      "maxRenderbufferSize": 16384,
+      "maxViewportDims": [
+        32767,
+        32767
+      ],
+      "aliasedLineWidthRange": [
+        1,
+        1
+      ],
+      "aliasedPointSizeRange": [
+        1,
+        1024
+      ],
+      "extensions": [
+        "EXT_color_buffer_float",
+        "EXT_float_blend",
+        "EXT_texture_compression_bptc",
+        "EXT_texture_compression_rgtc",
+        "EXT_texture_filter_anisotropic",
+        "OES_draw_buffers_indexed",
+        "OES_texture_float_linear",
+        "OVR_multiview2",
+        "WEBGL_compressed_texture_s3tc",
+        "WEBGL_compressed_texture_s3tc_srgb",
+        "WEBGL_debug_renderer_info",
+        "WEBGL_debug_shaders",
+        "WEBGL_lose_context",
+        "WEBGL_provoking_vertex"
+      ]
+    },
+    "webgl2Available": true,
+    "fonts": [
+      {
+        "family": "Arial",
+        "available": true
+      },
+      {
+        "family": "Calibri",
+        "available": true
+      },
+      {
+        "family": "Cambria Math",
+        "available": true
+      },
+      {
+        "family": "Consolas",
+        "available": true
+      },
+      {
+        "family": "Courier New",
+        "available": true
+      },
+      {
+        "family": "Georgia",
+        "available": true
+      },
+      {
+        "family": "Nirmala UI",
+        "available": true
+      },
+      {
+        "family": "Segoe UI",
+        "available": true
+      },
+      {
+        "family": "Tahoma",
+        "available": true
+      },
+      {
+        "family": "Times New Roman",
+        "available": true
+      },
+      {
+        "family": "Trebuchet MS",
+        "available": true
+      },
+      {
+        "family": "Verdana",
+        "available": true
+      },
+      {
+        "family": "\u6e38\u30b4\u30b7\u30c3\u30af",
+        "available": true
+      },
+      {
+        "family": "Mongolian Baiti",
+        "available": true
+      },
+      {
+        "family": "Candara Light",
+        "available": true
+      },
+      {
+        "family": "Microsoft YaHei",
+        "available": true
+      },
+      {
+        "family": "Segoe UI Semilight",
+        "available": true
+      },
+      {
+        "family": "Segoe Script",
+        "available": true
+      },
+      {
+        "family": "Lucida Console",
+        "available": true
+      },
+      {
+        "family": "\u5fae\u8edf\u6b63\u9ed1\u9ad4 Light",
+        "available": true
+      },
+      {
+        "family": "Microsoft PhagsPa",
+        "available": true
+      },
+      {
+        "family": "Franklin Gothic Medium",
+        "available": true
+      },
+      {
+        "family": "Malgun Gothic Semilight",
+        "available": true
+      },
+      {
+        "family": "\u5b8b\u4f53",
+        "available": true
+      },
+      {
+        "family": "MS PGothic",
+        "available": true
+      },
+      {
+        "family": "Leelawadee UI",
+        "available": true
+      },
+      {
+        "family": "Microsoft YaHei UI Light",
+        "available": true
+      },
+      {
+        "family": "Javanese Text",
+        "available": true
+      },
+      {
+        "family": "Yu Gothic UI Light",
+        "available": true
+      },
+      {
+        "family": "\u5fae\u8f6f\u96c5\u9ed1",
+        "available": true
+      },
+      {
+        "family": "Sitka Text",
+        "available": true
+      },
+      {
+        "family": "Microsoft JhengHei",
+        "available": true
+      },
+      {
+        "family": "Segoe MDL2 Assets",
+        "available": true
+      },
+      {
+        "family": "Segoe UI Emoji",
+        "available": true
+      },
+      {
+        "family": "\uff2d\uff33 \uff30\u30b4\u30b7\u30c3\u30af",
+        "available": true
+      },
+      {
+        "family": "Marlett",
+        "available": true
+      },
+      {
+        "family": "Comic Sans MS",
+        "available": true
+      },
+      {
+        "family": "\u65b0\u5b8b\u4f53",
+        "available": true
+      },
+      {
+        "family": "Palatino Linotype",
+        "available": true
+      },
+      {
+        "family": "Cambria",
+        "available": true
+      },
+      {
+        "family": "PMingLiU-ExtB",
+        "available": true
+      },
+      {
+        "family": "\ub9d1\uc740 \uace0\ub515",
+        "available": true
+      },
+      {
+        "family": "Microsoft Sans Serif",
+        "available": true
+      },
+      {
+        "family": "Candara",
+        "available": true
+      },
+      {
+        "family": "Microsoft JhengHei Light",
+        "available": true
+      },
+      {
+        "family": "Yu Gothic Medium",
+        "available": true
+      },
+      {
+        "family": "\u6e38\u30b4\u30b7\u30c3\u30af Medium",
+        "available": true
+      },
+      {
+        "family": "Gabriola",
+        "available": true
+      },
+      {
+        "family": "Microsoft JhengHei UI Light",
+        "available": true
+      },
+      {
+        "family": "Microsoft Himalaya",
+        "available": true
+      },
+      {
+        "family": "MingLiU_HKSCS-ExtB",
+        "available": true
+      },
+      {
+        "family": "Microsoft Tai Le",
+        "available": true
+      },
+      {
+        "family": "Yu Gothic UI Semibold",
+        "available": true
+      },
+      {
+        "family": "Sitka",
+        "available": true
+      },
+      {
+        "family": "Symbol",
+        "available": true
+      },
+      {
+        "family": "Segoe Print",
+        "available": true
+      },
+      {
+        "family": "Segoe UI Variable",
+        "available": true
+      },
+      {
+        "family": "Twemoji Mozilla",
+        "available": true
+      },
+      {
+        "family": "MS UI Gothic",
+        "available": true
+      },
+      {
+        "family": "Microsoft YaHei Light",
+        "available": true
+      },
+      {
+        "family": "Segoe UI Semibold",
+        "available": true
+      },
+      {
+        "family": "Lucida Sans Unicode",
+        "available": true
+      },
+      {
+        "family": "MS Gothic",
+        "available": true
+      },
+      {
+        "family": "\uff2d\uff33 \u30b4\u30b7\u30c3\u30af",
+        "available": true
+      },
+      {
+        "family": "Ink Free",
+        "available": true
+      },
+      {
+        "family": "Microsoft YaHei UI",
+        "available": true
+      },
+      {
+        "family": "Myanmar Text",
+        "available": true
+      },
+      {
+        "family": "Wingdings",
+        "available": true
+      },
+      {
+        "family": "Yu Gothic UI",
+        "available": true
+      },
+      {
+        "family": "MV Boli",
+        "available": true
+      },
+      {
+        "family": "Yu Gothic",
+        "available": true
+      },
+      {
+        "family": "Microsoft New Tai Lue",
+        "available": true
+      },
+      {
+        "family": "Impact",
+        "available": true
+      },
+      {
+        "family": "Microsoft JhengHei UI",
+        "available": true
+      },
+      {
+        "family": "\u5fae\u8f6f\u96c5\u9ed1 Light",
+        "available": true
+      },
+      {
+        "family": "Corbel Light",
+        "available": true
+      },
+      {
+        "family": "Nirmala UI Semilight",
+        "available": true
+      },
+      {
+        "family": "Constantia",
+        "available": true
+      },
+      {
+        "family": "\u5fae\u8edf\u6b63\u9ed1\u9ad4",
+        "available": true
+      },
+      {
+        "family": "Segoe UI Light",
+        "available": true
+      },
+      {
+        "family": "Microsoft Yi Baiti",
+        "available": true
+      },
+      {
+        "family": "MingLiU-ExtB",
+        "available": true
+      }
+    ],
+    "voices": [
+      {
+        "name": "Microsoft David - English (United States)",
+        "lang": "en-US",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.david.english.united.states",
+        "isDefault": true
+      },
+      {
+        "name": "Microsoft Mark - English (United States)",
+        "lang": "en-US",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.mark.english.united.states",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Zira - English (United States)",
+        "lang": "en-US",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.zira.english.united.states",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft David Desktop - English (United States)",
+        "lang": "en-US",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.david.desktop.english.united.states",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Zira Desktop - English (United States)",
+        "lang": "en-US",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.zira.desktop.english.united.states",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Hazel - English (United Kingdom)",
+        "lang": "en-GB",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.english.united.kingdom",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Hazel Desktop - English (Great Britain)",
+        "lang": "en-GB",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.desktop.english.great.britain",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft George - English (United Kingdom)",
+        "lang": "en-GB",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.george.english.united.kingdom",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Susan - English (United Kingdom)",
+        "lang": "en-GB",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.susan.english.united.kingdom",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Catherine - English (Australia)",
+        "lang": "en-AU",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.catherine.english.australia",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft James - English (Australia)",
+        "lang": "en-AU",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.james.english.australia",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Linda - English (Canada)",
+        "lang": "en-CA",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.linda.english.canada",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Richard - English (Canada)",
+        "lang": "en-CA",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.richard.english.canada",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Sean - English (Ireland)",
+        "lang": "en-IE",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.sean.english.ireland",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Heera - English (India)",
+        "lang": "en-IN",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.heera.english.india",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Ravi - English (India)",
+        "lang": "en-IN",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.ravi.english.india",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Hedda - German (Germany)",
+        "lang": "de-DE",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.german.germany",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Hedda Desktop - German",
+        "lang": "de-DE",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.desktop.german",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Katja - German (Germany)",
+        "lang": "de-DE",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.katja.german.germany",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Stefan - German (Germany)",
+        "lang": "de-DE",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.stefan.german.germany",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Hortense - French (France)",
+        "lang": "fr-FR",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.french.france",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Hortense Desktop - French",
+        "lang": "fr-FR",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.desktop.french",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Julie - French (France)",
+        "lang": "fr-FR",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.julie.french.france",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Paul - French (France)",
+        "lang": "fr-FR",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.paul.french.france",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Helena - Spanish (Spain)",
+        "lang": "es-ES",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.helena.spanish.spain",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Helena Desktop - Spanish (Spain)",
+        "lang": "es-ES",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.helena.desktop.spanish.spain",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Laura - Spanish (Spain)",
+        "lang": "es-ES",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.laura.spanish.spain",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Pablo - Spanish (Spain)",
+        "lang": "es-ES",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.pablo.spanish.spain",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Sabina - Spanish (Mexico)",
+        "lang": "es-MX",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.spanish.mexico",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Sabina Desktop - Spanish (Mexico)",
+        "lang": "es-MX",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.desktop.spanish.mexico",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Raul - Spanish (Mexico)",
+        "lang": "es-MX",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.raul.spanish.mexico",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Cosimo - Italian (Italy)",
+        "lang": "it-IT",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.cosimo.italian.italy",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Elsa - Italian (Italy)",
+        "lang": "it-IT",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.italian.italy",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Elsa Desktop - Italian (Italy)",
+        "lang": "it-IT",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.desktop.italian.italy",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Daniel - Portuguese (Brazil)",
+        "lang": "pt-BR",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.daniel.portuguese.brazil",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Maria - Portuguese (Brazil)",
+        "lang": "pt-BR",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.maria.portuguese.brazil",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Maria Desktop - Portuguese(Brazil)",
+        "lang": "pt-BR",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.maria.desktop.portuguese.brazil",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Helia - Portuguese (Portugal)",
+        "lang": "pt-PT",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.helia.portuguese.portugal",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Huihui - Chinese (Simplified, PRC)",
+        "lang": "zh-CN",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.chinese.simplified.prc",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Huihui Desktop - Chinese (Simplified)",
+        "lang": "zh-CN",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.desktop.chinese.simplified",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Kangkang - Chinese (Simplified, PRC)",
+        "lang": "zh-CN",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.kangkang.chinese.simplified.prc",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Yaoyao - Chinese (Simplified, PRC)",
+        "lang": "zh-CN",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.yaoyao.chinese.simplified.prc",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Anna - English (United States)",
+        "lang": "en-US",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.anna.english.united.states",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Frank - Dutch (Netherlands)",
+        "lang": "nl-NL",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.frank.dutch.netherlands",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Adam - Polish (Poland)",
+        "lang": "pl-PL",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.adam.polish.poland",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Paulina - Polish (Poland)",
+        "lang": "pl-PL",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.polish.poland",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Paulina Desktop - Polish",
+        "lang": "pl-PL",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.desktop.polish",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Jakub - Czech (Czech Republic)",
+        "lang": "cs-CZ",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.jakub.czech.czech.republic",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Stefanos - Greek (Greece)",
+        "lang": "el-GR",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.stefanos.greek.greece",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Asaf - Hebrew (Israel)",
+        "lang": "he-IL",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.asaf.hebrew.israel",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Naayf - Arabic (Saudi)",
+        "lang": "ar-SA",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.naayf.arabic.saudi",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Tolga - Turkish (Turkey)",
+        "lang": "tr-TR",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.tolga.turkish.turkey",
+        "isDefault": false
+      },
+      {
+        "name": "Microsoft Sarah Mobile - English (Great Britain)",
+        "lang": "en-GB",
+        "localService": true,
+        "voiceURI": "urn:moz-tts:sapi:microsoft.sarah.mobile.english.great.britain",
+        "isDefault": false
+      }
+    ],
+    "webdriver": false,
+    "session": {
+      "timezone": "Asia/Shanghai",
+      "utcOffsetMinutes": -480,
+      "navigatorOnLine": true,
+      "windowScreenX": 2232,
+      "windowScreenY": 140,
+      "documentFontsStatus": "loaded"
+    },
+    "unavailable": {
+      "deviceMemory": null,
+      "userAgentData": null,
+      "windowChrome": null
+    }
+  },
+  "identityEvidence": {
+    "schema": "verisilo-camoufox-identity-evidence/v0",
+    "observedAt": "2026-09-13T09:35:43.594448Z",
+    "state": "matched",
+    "signals": [
+      {
+        "signal": "userAgent",
+        "expected": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+        "observed": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+        "state": "matched"
+      },
+      {
+        "signal": "language",
+        "expected": "zh-CN",
+        "observed": "zh-CN",
+        "state": "matched"
+      },
+      {
+        "signal": "platform",
+        "expected": "Win32",
+        "observed": "Win32",
+        "state": "matched"
+      },
+      {
+        "signal": "oscpu",
+        "expected": "Windows NT 10.0; Win64; x64",
+        "observed": "Windows NT 10.0; Win64; x64",
+        "state": "matched"
+      },
+      {
+        "signal": "screen",
+        "expected": {
+          "width": 1280,
+          "height": 800,
+          "availWidth": 1280,
+          "availHeight": 800,
+          "colorDepth": 24,
+          "pixelDepth": 24
+        },
+        "observed": {
+          "width": 1280,
+          "height": 800,
+          "availWidth": 1280,
+          "availHeight": 800,
+          "availTop": 0,
+          "availLeft": 0,
+          "colorDepth": 24,
+          "pixelDepth": 24
+        },
+        "state": "matched"
+      },
+      {
+        "signal": "hardwareConcurrency",
+        "expected": 2,
+        "observed": 2,
+        "state": "matched"
+      },
+      {
+        "signal": "historyLength",
+        "expected": 2,
+        "observed": 2,
+        "state": "matched"
+      },
+      {
+        "signal": "timezone",
+        "expected": "Asia/Shanghai",
+        "observed": "Asia/Shanghai",
+        "state": "matched"
+      },
+      {
+        "signal": "globalPrivacyControl",
+        "expected": true,
+        "observed": true,
+        "state": "matched"
+      },
+      {
+        "signal": "webglVendor",
+        "expected": "Google Inc. (NVIDIA)",
+        "observed": "Google Inc. (NVIDIA)",
+        "state": "matched"
+      },
+      {
+        "signal": "mediaDevices",
+        "expected": {
+          "audioinput": 1,
+          "videoinput": 1,
+          "audiooutput": 0
+        },
+        "observed": {
+          "audioinput": 1,
+          "videoinput": 1,
+          "audiooutput": 0
+        },
+        "state": "matched"
+      },
+      {
+        "signal": "voices",
+        "expected": [
+          {
+            "name": "Microsoft David - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.david.english.united.states"
+          },
+          {
+            "name": "Microsoft Mark - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.mark.english.united.states"
+          },
+          {
+            "name": "Microsoft Zira - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.zira.english.united.states"
+          },
+          {
+            "name": "Microsoft David Desktop - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.david.desktop.english.united.states"
+          },
+          {
+            "name": "Microsoft Zira Desktop - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.zira.desktop.english.united.states"
+          },
+          {
+            "name": "Microsoft Hazel - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.english.united.kingdom"
+          },
+          {
+            "name": "Microsoft Hazel Desktop - English (Great Britain)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.desktop.english.great.britain"
+          },
+          {
+            "name": "Microsoft George - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.george.english.united.kingdom"
+          },
+          {
+            "name": "Microsoft Susan - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.susan.english.united.kingdom"
+          },
+          {
+            "name": "Microsoft Catherine - English (Australia)",
+            "lang": "en-AU",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.catherine.english.australia"
+          },
+          {
+            "name": "Microsoft James - English (Australia)",
+            "lang": "en-AU",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.james.english.australia"
+          },
+          {
+            "name": "Microsoft Linda - English (Canada)",
+            "lang": "en-CA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.linda.english.canada"
+          },
+          {
+            "name": "Microsoft Richard - English (Canada)",
+            "lang": "en-CA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.richard.english.canada"
+          },
+          {
+            "name": "Microsoft Sean - English (Ireland)",
+            "lang": "en-IE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sean.english.ireland"
+          },
+          {
+            "name": "Microsoft Heera - English (India)",
+            "lang": "en-IN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.heera.english.india"
+          },
+          {
+            "name": "Microsoft Ravi - English (India)",
+            "lang": "en-IN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.ravi.english.india"
+          },
+          {
+            "name": "Microsoft Hedda - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.german.germany"
+          },
+          {
+            "name": "Microsoft Hedda Desktop - German",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.desktop.german"
+          },
+          {
+            "name": "Microsoft Katja - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.katja.german.germany"
+          },
+          {
+            "name": "Microsoft Stefan - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.stefan.german.germany"
+          },
+          {
+            "name": "Microsoft Hortense - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.french.france"
+          },
+          {
+            "name": "Microsoft Hortense Desktop - French",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.desktop.french"
+          },
+          {
+            "name": "Microsoft Julie - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.julie.french.france"
+          },
+          {
+            "name": "Microsoft Paul - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paul.french.france"
+          },
+          {
+            "name": "Microsoft Helena - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helena.spanish.spain"
+          },
+          {
+            "name": "Microsoft Helena Desktop - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helena.desktop.spanish.spain"
+          },
+          {
+            "name": "Microsoft Laura - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.laura.spanish.spain"
+          },
+          {
+            "name": "Microsoft Pablo - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.pablo.spanish.spain"
+          },
+          {
+            "name": "Microsoft Sabina - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.spanish.mexico"
+          },
+          {
+            "name": "Microsoft Sabina Desktop - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.desktop.spanish.mexico"
+          },
+          {
+            "name": "Microsoft Raul - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.raul.spanish.mexico"
+          },
+          {
+            "name": "Microsoft Cosimo - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.cosimo.italian.italy"
+          },
+          {
+            "name": "Microsoft Elsa - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.italian.italy"
+          },
+          {
+            "name": "Microsoft Elsa Desktop - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.desktop.italian.italy"
+          },
+          {
+            "name": "Microsoft Daniel - Portuguese (Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.daniel.portuguese.brazil"
+          },
+          {
+            "name": "Microsoft Maria - Portuguese (Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.maria.portuguese.brazil"
+          },
+          {
+            "name": "Microsoft Maria Desktop - Portuguese(Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.maria.desktop.portuguese.brazil"
+          },
+          {
+            "name": "Microsoft Helia - Portuguese (Portugal)",
+            "lang": "pt-PT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helia.portuguese.portugal"
+          },
+          {
+            "name": "Microsoft Huihui - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.chinese.simplified.prc"
+          },
+          {
+            "name": "Microsoft Huihui Desktop - Chinese (Simplified)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.desktop.chinese.simplified"
+          },
+          {
+            "name": "Microsoft Kangkang - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.kangkang.chinese.simplified.prc"
+          },
+          {
+            "name": "Microsoft Yaoyao - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.yaoyao.chinese.simplified.prc"
+          },
+          {
+            "name": "Microsoft Anna - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.anna.english.united.states"
+          },
+          {
+            "name": "Microsoft Frank - Dutch (Netherlands)",
+            "lang": "nl-NL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.frank.dutch.netherlands"
+          },
+          {
+            "name": "Microsoft Adam - Polish (Poland)",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.adam.polish.poland"
+          },
+          {
+            "name": "Microsoft Paulina - Polish (Poland)",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.polish.poland"
+          },
+          {
+            "name": "Microsoft Paulina Desktop - Polish",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.desktop.polish"
+          },
+          {
+            "name": "Microsoft Jakub - Czech (Czech Republic)",
+            "lang": "cs-CZ",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.jakub.czech.czech.republic"
+          },
+          {
+            "name": "Microsoft Stefanos - Greek (Greece)",
+            "lang": "el-GR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.stefanos.greek.greece"
+          },
+          {
+            "name": "Microsoft Asaf - Hebrew (Israel)",
+            "lang": "he-IL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.asaf.hebrew.israel"
+          },
+          {
+            "name": "Microsoft Naayf - Arabic (Saudi)",
+            "lang": "ar-SA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.naayf.arabic.saudi"
+          },
+          {
+            "name": "Microsoft Tolga - Turkish (Turkey)",
+            "lang": "tr-TR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.tolga.turkish.turkey"
+          },
+          {
+            "name": "Microsoft Sarah Mobile - English (Great Britain)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sarah.mobile.english.great.britain"
+          }
+        ],
+        "observed": [
+          {
+            "name": "Microsoft David - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.david.english.united.states"
+          },
+          {
+            "name": "Microsoft Mark - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.mark.english.united.states"
+          },
+          {
+            "name": "Microsoft Zira - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.zira.english.united.states"
+          },
+          {
+            "name": "Microsoft David Desktop - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.david.desktop.english.united.states"
+          },
+          {
+            "name": "Microsoft Zira Desktop - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.zira.desktop.english.united.states"
+          },
+          {
+            "name": "Microsoft Hazel - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.english.united.kingdom"
+          },
+          {
+            "name": "Microsoft Hazel Desktop - English (Great Britain)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hazel.desktop.english.great.britain"
+          },
+          {
+            "name": "Microsoft George - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.george.english.united.kingdom"
+          },
+          {
+            "name": "Microsoft Susan - English (United Kingdom)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.susan.english.united.kingdom"
+          },
+          {
+            "name": "Microsoft Catherine - English (Australia)",
+            "lang": "en-AU",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.catherine.english.australia"
+          },
+          {
+            "name": "Microsoft James - English (Australia)",
+            "lang": "en-AU",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.james.english.australia"
+          },
+          {
+            "name": "Microsoft Linda - English (Canada)",
+            "lang": "en-CA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.linda.english.canada"
+          },
+          {
+            "name": "Microsoft Richard - English (Canada)",
+            "lang": "en-CA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.richard.english.canada"
+          },
+          {
+            "name": "Microsoft Sean - English (Ireland)",
+            "lang": "en-IE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sean.english.ireland"
+          },
+          {
+            "name": "Microsoft Heera - English (India)",
+            "lang": "en-IN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.heera.english.india"
+          },
+          {
+            "name": "Microsoft Ravi - English (India)",
+            "lang": "en-IN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.ravi.english.india"
+          },
+          {
+            "name": "Microsoft Hedda - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.german.germany"
+          },
+          {
+            "name": "Microsoft Hedda Desktop - German",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hedda.desktop.german"
+          },
+          {
+            "name": "Microsoft Katja - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.katja.german.germany"
+          },
+          {
+            "name": "Microsoft Stefan - German (Germany)",
+            "lang": "de-DE",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.stefan.german.germany"
+          },
+          {
+            "name": "Microsoft Hortense - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.french.france"
+          },
+          {
+            "name": "Microsoft Hortense Desktop - French",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.hortense.desktop.french"
+          },
+          {
+            "name": "Microsoft Julie - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.julie.french.france"
+          },
+          {
+            "name": "Microsoft Paul - French (France)",
+            "lang": "fr-FR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paul.french.france"
+          },
+          {
+            "name": "Microsoft Helena - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helena.spanish.spain"
+          },
+          {
+            "name": "Microsoft Helena Desktop - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helena.desktop.spanish.spain"
+          },
+          {
+            "name": "Microsoft Laura - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.laura.spanish.spain"
+          },
+          {
+            "name": "Microsoft Pablo - Spanish (Spain)",
+            "lang": "es-ES",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.pablo.spanish.spain"
+          },
+          {
+            "name": "Microsoft Sabina - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.spanish.mexico"
+          },
+          {
+            "name": "Microsoft Sabina Desktop - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sabina.desktop.spanish.mexico"
+          },
+          {
+            "name": "Microsoft Raul - Spanish (Mexico)",
+            "lang": "es-MX",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.raul.spanish.mexico"
+          },
+          {
+            "name": "Microsoft Cosimo - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.cosimo.italian.italy"
+          },
+          {
+            "name": "Microsoft Elsa - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.italian.italy"
+          },
+          {
+            "name": "Microsoft Elsa Desktop - Italian (Italy)",
+            "lang": "it-IT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.elsa.desktop.italian.italy"
+          },
+          {
+            "name": "Microsoft Daniel - Portuguese (Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.daniel.portuguese.brazil"
+          },
+          {
+            "name": "Microsoft Maria - Portuguese (Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.maria.portuguese.brazil"
+          },
+          {
+            "name": "Microsoft Maria Desktop - Portuguese(Brazil)",
+            "lang": "pt-BR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.maria.desktop.portuguese.brazil"
+          },
+          {
+            "name": "Microsoft Helia - Portuguese (Portugal)",
+            "lang": "pt-PT",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.helia.portuguese.portugal"
+          },
+          {
+            "name": "Microsoft Huihui - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.chinese.simplified.prc"
+          },
+          {
+            "name": "Microsoft Huihui Desktop - Chinese (Simplified)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.huihui.desktop.chinese.simplified"
+          },
+          {
+            "name": "Microsoft Kangkang - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.kangkang.chinese.simplified.prc"
+          },
+          {
+            "name": "Microsoft Yaoyao - Chinese (Simplified, PRC)",
+            "lang": "zh-CN",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.yaoyao.chinese.simplified.prc"
+          },
+          {
+            "name": "Microsoft Anna - English (United States)",
+            "lang": "en-US",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.anna.english.united.states"
+          },
+          {
+            "name": "Microsoft Frank - Dutch (Netherlands)",
+            "lang": "nl-NL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.frank.dutch.netherlands"
+          },
+          {
+            "name": "Microsoft Adam - Polish (Poland)",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.adam.polish.poland"
+          },
+          {
+            "name": "Microsoft Paulina - Polish (Poland)",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.polish.poland"
+          },
+          {
+            "name": "Microsoft Paulina Desktop - Polish",
+            "lang": "pl-PL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.paulina.desktop.polish"
+          },
+          {
+            "name": "Microsoft Jakub - Czech (Czech Republic)",
+            "lang": "cs-CZ",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.jakub.czech.czech.republic"
+          },
+          {
+            "name": "Microsoft Stefanos - Greek (Greece)",
+            "lang": "el-GR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.stefanos.greek.greece"
+          },
+          {
+            "name": "Microsoft Asaf - Hebrew (Israel)",
+            "lang": "he-IL",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.asaf.hebrew.israel"
+          },
+          {
+            "name": "Microsoft Naayf - Arabic (Saudi)",
+            "lang": "ar-SA",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.naayf.arabic.saudi"
+          },
+          {
+            "name": "Microsoft Tolga - Turkish (Turkey)",
+            "lang": "tr-TR",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.tolga.turkish.turkey"
+          },
+          {
+            "name": "Microsoft Sarah Mobile - English (Great Britain)",
+            "lang": "en-GB",
+            "localService": true,
+            "voiceURI": "urn:moz-tts:sapi:microsoft.sarah.mobile.english.great.britain"
+          }
+        ],
+        "state": "matched"
+      },
+      {
+        "signal": "utcOffsetMinutes",
+        "expected": -480,
+        "observed": -480,
+        "state": "matched"
+      },
+      {
+        "signal": "webglRenderer",
+        "expected": null,
+        "observed": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+        "state": "unavailable",
+        "reason": "Artifact \u53ea\u58f0\u660e\u4e86\u6e32\u67d3\u5668\u7cfb\u5217\uff0c\u5f53\u524d contract \u4e0d\u652f\u6301\u7cbe\u786e\u6bd4\u8f83\u3002"
+      },
+      {
+        "signal": "fonts",
+        "expected": null,
+        "observed": null,
+        "state": "unavailable",
+        "reason": "fontMode=inherit\uff1a\u5b57\u4f53\u6307\u6807\u7531\u4e3b\u673a\u63d0\u4f9b\uff0c\u5f53\u524d\u4e0d\u80fd\u8bda\u5b9e\u6bd4\u8f83\u3002"
+      }
+    ],
+    "reason": "\u90e8\u5206\u7f51\u7ad9\u53ef\u89c1\u5b57\u6bb5\u4e0d\u5728\u5f53\u524d\u5bf9\u8d26 contract \u5185\u3002"
+  },
+  "hostFontControls": [],
+  "hostFontMasking": {
+    "controlsTested": 0,
+    "allUnavailable": true,
+    "failures": []
+  },
+  "mediaDeviceReadiness": {
+    "expectedCounts": {
+      "audioinput": 1,
+      "videoinput": 1,
+      "audiooutput": 0
+    },
+    "attempts": [
+      {
+        "counts": {
+          "audioinput": 1,
+          "videoinput": 1,
+          "audiooutput": 0
+        },
+        "matched": true
+      }
+    ],
+    "matched": true,
+    "waitSeconds": 0.234,
+    "reason": "success"
+  },
+  "fontMode": "inherit",
+  "cookieEvidence": {
+    "cookieAbsentBeforeWrite": null,
+    "cookieInApi": null,
+    "cookieOnPage": null,
+    "cookieValueLooksManaged": null
+  },
+  "verified": false,
+  "evidenceClass": "observed-on-this-host"
+}

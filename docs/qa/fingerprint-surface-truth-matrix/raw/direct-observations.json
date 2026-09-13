@@ -1,0 +1,98 @@
+{
+  "meta": {
+    "task": "Fingerprint Surface Truth Matrix",
+    "baseline": "0d742906881263796d86018342699046c5e1b0cd",
+    "branch": "agent/qa/fingerprint-surface-52ebde",
+    "vault": "qa-fingerprint-surface-52ebde",
+    "silo": "fp-matrix-a",
+    "siloId": "5954a52c-fbe7-4332-855c-c130fd8b8ba0",
+    "artifactId": "identity-a6d662b871505346f45edb5d",
+    "artifactSchema": "verisilo-camoufox-resolved-identity/v5",
+    "artifactFileSha256": "973aab4fad02a3e5b5ce3a5d1c876c638d83f4d6b393a89a6f126840a6a99e7d",
+    "network": "direct",
+    "enginePackageStaging": "apps/desktop/src-tauri/target/verisilo-managed-browser-resources (staged 2026-09-12, signed camoufox-host.exe)",
+    "collectors": "verisilo-cli page goto/evaluate against a loopback QA server (docs/qa/fingerprint-surface-truth-matrix/probe_server.py); no product source modified",
+    "collectedAt": "2026-09-13"
+  },
+  "requestHeadersDocument": {
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "accept-language": "zh-CN,zh;q=0.9",
+    "accept-encoding": "gzip, deflate, br, zstd",
+    "sec-gpc": "1",
+    "dnt": "(header absent)"
+  },
+  "requestHeadersFetch": {
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+    "accept": "*/*",
+    "accept-language": "zh-CN,zh;q=0.9",
+    "accept-encoding": "gzip, deflate, br, zstd",
+    "sec-gpc": "1"
+  },
+  "artifactHeadersAcceptEncoding": "gzip, deflate, br, zstd",
+  "webRtcIceProbe": {
+    "rtcSupported": true,
+    "candidates": [
+      "candidate:0 1 UDP 2122252543 be2c661f-ef5f-4455-8953-25bd297a7b47.local 60949 typ host",
+      "candidate:1 1 TCP 2105524479 be2c661f-ef5f-4455-8953-25bd297a7b47.local 9 typ host tcptype active",
+      ""
+    ],
+    "note": "no STUN server configured in probe; srflx/public-IP reflection NOT tested; all gathered host candidates are mDNS-obfuscated; no raw host LAN IP exposed"
+  },
+  "geolocationProbe": {
+    "geoApiPresent": true,
+    "permissionsQuery": "prompt",
+    "outcome": "no-answer-within-6s",
+    "note": "v5 artifact configures no geolocation; no Playwright geolocation override on direct launches (v6-only)"
+  },
+  "webGpuProbe": {
+    "navigatorGpuPresent": true,
+    "requestAdapterType": "function",
+    "requestAdapterResult": null,
+    "note": "API exposed by engine; on THIS host (VM, no D3D12 adapter) requestAdapter() returned null so adapter.info could not be exercised; artifact v5 has no WebGPU keys at all"
+  },
+  "crossRealm": {
+    "compared": ["userAgent", "platform", "language", "languages", "timezone", "hardwareConcurrency", "webgl vendor+renderer"],
+    "top": {
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+      "platform": "Win32",
+      "oscpu": "Windows NT 10.0; Win64; x64",
+      "language": "zh-CN",
+      "languages": ["zh-CN", "zh"],
+      "timezone": "Asia/Shanghai",
+      "hardwareConcurrency": 2,
+      "maxTouchPoints": 0,
+      "devicePixelRatio": 1.5,
+      "screen": [1280, 800],
+      "webdriver": false,
+      "globalPrivacyControl": true,
+      "doNotTrack": "unspecified",
+      "deviceMemory": null,
+      "userAgentData": null,
+      "webgl": {
+        "vendor": "Google Inc. (NVIDIA)",
+        "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 980 Direct3D11 vs_5_0 ps_5_0), or similar",
+        "version": "WebGL 1.0"
+      }
+    },
+    "iframe": "identical to top for all compared values",
+    "dedicatedWorker": "identical to top for all compared values (worker WebGL via OffscreenCanvas)"
+  },
+  "freshRecheck": {
+    "command": "verisilo-cli recheck fp-matrix-a",
+    "result": "identityEvidence.state=unavailable; observedAt unchanged (2026-09-13T09:18:38.534843Z = launch time)",
+    "reason": "本次身份复核未能重新观察网站身份：受控引擎运行证据协议失败：Camoufox Host rejected reobserve_identity: unknown command: 'reobserve_identity' (unknown_command)",
+    "rootCause": "staged engine package host exe (staged 2026-09-12, predates baseline 0d74290 of 2026-09-13) does not implement reobserve_identity; Core at 0d74290 sends it and degrades honestly (no fabricated evidence, launch evidence preserved)",
+    "sourceLevelCheck": "python apps/camoufox-host/test_page_command.py → check_reobserve_identity PASS ('fresh identity re-observation recorded'); none of the staged/rc2/rc3 packages contain the string reobserve_identity",
+    "rawFiles": ["recheck-1.json", "start-cold1.json", "start-cold2.json"]
+  },
+  "coldStartStability": {
+    "cold1RunId": "0e574c00917349229bdc8903cd160e93",
+    "cold2RunId": "a8eca7e4ca71442b8f0c0be29a460d38",
+    "configuredIdentityDigest": "sha256:bd82d7b802c69447b89e5a94975e2023f97774ef573813508a99da24347f3175 (identical both cold starts)",
+    "observedWebsiteDigest": "sha256:fa00ad84ecad21a1617cd7198efa26f1d92f9f177b7b97283b5a44b8d24de3c6 (identical both cold starts)",
+    "identicalSurfaces": ["userAgent", "language", "languages", "platform", "oscpu", "hardwareConcurrency", "maxTouchPoints", "devicePixelRatio", "webdriver", "globalPrivacyControl", "doNotTrack", "audioHash", "screen", "session", "mediaDevices", "webglVendor/Renderer", "webgl2Vendor/Renderer", "voices", "fonts", "fontNegativeControls", "hostFontNegativeControls", "windowGeometry"],
+    "canvasAllFourHashesIdentical": true,
+    "rawFiles": ["observed-cold1.json", "observed-cold2.json"]
+  }
+}
