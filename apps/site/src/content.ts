@@ -180,7 +180,7 @@ export const copy = {
       fallback: "Open the standalone demo",
       note: "Simulated data. No local file access, browser launch, or connection to your desktop app.",
       version:
-        "Development UI · Demo in Chinese · May differ from the rc3 download",
+        "Development UI · Interactive demo · May differ from the rc3 download",
       mobile:
         "A scaled view of the whole desktop. Expand to pan and interact at full size; best experienced on a computer.",
       exit: "Keep exploring ↓",
