@@ -1,0 +1,83 @@
+{
+  "schema": "verisilo-managed-runtime-environment-qualification/v1",
+  "recordedAtUtc": "2026-09-14T06:30:00.0000000Z",
+  "task": {
+    "lane": "integration",
+    "branch": "agent/integration/runtime-proof-repair-3698b4",
+    "baseline": "0d177a3e68657f048bf44a8690bb967c588f76c1",
+    "purpose": "Evidence Coverage Closure II real-runtime proof repair and environment qualification"
+  },
+  "packageUnderQualification": {
+    "packageRoot": "artifacts/build/managed-browser/rc3-engine-package",
+    "browserExecutablePath": "artifacts/build/managed-browser/rc3-engine-package/browser/camoufox.exe",
+    "browserExecutableSha256": "c5535c7c25c04b8bba90b9b3e64fca13fce01a52fcb5a1532130e99e4804b49e",
+    "browserTreeManifestSha256": "165ff0e71dc81f6ebfd042fb142a78b8719fb49bfd02f5424cf3d9c79f41259e",
+    "runtimeAssetLockSha256": "165ff0e71dc81f6ebfd042fb142a78b8719fb49bfd02f5424cf3d9c79f41259e",
+    "comparisonWithRc2Package": "BYTE_IDENTICAL",
+    "filesCompared": 504,
+    "filesVerifiedIdentical": 504
+  },
+  "environments": {
+    "host": {
+      "type": "Local Windows Host",
+      "windowsEdition": "Microsoft Windows 11 25H2",
+      "windowsBuild": "26200",
+      "ubr": "9445",
+      "architecture": "AMD64",
+      "plainLaunchObservation": {
+        "mainProcessLaunched": true,
+        "childProcessesSpawned": false,
+        "childProcessesCount": 0,
+        "uiWindowStatus": "Appears after ~36s software-fallback",
+        "errorObservation": "Child processes crash immediately with MSVC exception 0xc06d007e",
+        "exceptionSemantics": "delay-load exception carrying ERROR_MOD_NOT_FOUND semantics",
+        "faultingModule": "KERNELBASE.dll",
+        "faultingOffset": "0xc41ca"
+      },
+      "verdict": "CURRENT_HOST_RUNTIME_ENVIRONMENT_BROKEN"
+    },
+    "alternateWindowsSandbox": {
+      "type": "Windows Sandbox",
+      "disposable": true,
+      "pristineInstance": true,
+      "windowsEdition": "Microsoft Windows 11 Enterprise",
+      "windowsBuild": "26100",
+      "ubr": "9445",
+      "architecture": "AMD64",
+      "username": "WDAGUtilityAccount",
+      "isAdministrator": true,
+      "plainLaunchObservation": {
+        "mainProcessLaunched": true,
+        "childProcessesSpawned": true,
+        "childProcessesCount": 7,
+        "childProcessRoles": [
+          "gpu-process",
+          "tab (content process)",
+          "socket process",
+          "utility/RDD"
+        ],
+        "crashesObserved": 0,
+        "uiWindowStatus": "Appears in ~2-3s"
+      },
+      "toolchainQualification": {
+        "pythonInPath": false,
+        "playwrightAvailable": false,
+        "toolchainStatus": "UNAVAILABLE",
+        "notes": "Pristine disposable Windows Sandbox guest OS has no Python or Playwright installed; mapping the 40GB primary repo directory failed due to volume projection timeout. Per strict instructions, no system software installation or packaging inside the sandbox was performed."
+      },
+      "verdict": "ALTERNATE_ENVIRONMENT_TEST_TOOLCHAIN_BLOCKED"
+    }
+  },
+  "overallVerdict": "MANAGED_RUNTIME_ENVIRONMENT_BLOCKED",
+  "harnessRepairStatus": {
+    "file": "apps/camoufox-host/test_real_runtime_evidence_closure_ii.py",
+    "changes": [
+      "Fixed signal retrieval to use signal_by_name(evidence, 'acceptEncoding') matching canonical identityEvidence.signals array",
+      "Enforced explicit --package-root (or VERISILO_PACKAGE_ROOT), failing closed with exit code 2 if omitted",
+      "Added provenance logging: packageRoot, browserExecutableSha256, browserTreeManifestSha256, runtimeAssetLockSha256, hostSourceTreeSha, repoSha",
+      "Replaced stale fixture with canonical provision_artifact call with fontMode='managed'",
+      "Single positive cycle (launch -> assert -> reobserve -> close) plus managed font masking smoke gate"
+    ],
+    "unitTestStatus": "PASS (10/10 test_evidence_coverage_closure_ii.py, test_package_contract.py, test_page_command.py)"
+  }
+}
