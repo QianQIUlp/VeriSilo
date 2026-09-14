@@ -1,0 +1,13 @@
+{
+  "repoHeadSha": "521ae2496a90fd45d001e6b2864f20e67ea4586e",
+  "hostSourceTreeSha": "1841095c545c082a6233e92ce6dc1e8732a382fe",
+  "packageRoot": "C:\\Users\\qiu\\src\\VeriSilo\\.verisilo-worktrees\\integration-packaged-host-windows-6ea6c8\\artifacts\\qa\\dev-engine-package-521ae24",
+  "hostExecutableSha256": "8a554956e59555e9d6f6b95001830f2a14ae95ed41e755e98245b6b1461c4611",
+  "supervisorExecutableSha256": "d9c2e0c7c1a5efab1bfb4a89210bd37ad59342bc80e54bf2c72394a8602fad87",
+  "probeHtmlSha256": "20306c39a9ca3c1c9960547066ca083068fc0d5123c4fd628a7d87c10531a08d",
+  "manifestSha256": "64eb046db3ecd91b7689ad393f15860e4e5a1d8b86ae056e324526b470b1fe3c",
+  "packageTreeSha256": "cf002e2c2c77f87b6b26efe31a8228ac733b0f36dd0c55d7c749fe8c827492ee",
+  "browserTreeSha256": "d77002d0f872a1ca57675d9b3bc2f9d88769e406d2d082cd94b07d78c9f075e6",
+  "signed": false,
+  "classification": "UNSIGNED_DEV_ENGINE_PACKAGE"
+}

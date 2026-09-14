@@ -1,6 +1,7 @@
 # Orchestrator to launch and monitor Windows Sandbox acceptance
 [CmdletBinding()]
 param(
+  [string]$PackagePath,
   [int]$BootTimeoutSeconds = 240,
   [int]$ExecutionTimeoutSeconds = 900
 )
@@ -21,8 +22,21 @@ function Stop-AllSandboxProcesses {
 Stop-AllSandboxProcesses
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$sourcePackage = (Resolve-Path (Join-Path $repoRoot "artifacts/qa/dev-engine-package-521ae24")).Path
-$sourceDriver = (Resolve-Path (Join-Path $repoRoot "artifacts/qa/sandbox-driver")).Path
+if (-not $PackagePath) {
+  $defaultPkg = Join-Path $repoRoot "artifacts/qa/dev-engine-package-521ae24"
+  if (Test-Path $defaultPkg) {
+    $PackagePath = $defaultPkg
+  } else {
+    $worktreeSibling = Join-Path $repoRoot "../integration-packaged-host-windows-6ea6c8/artifacts/qa/dev-engine-package-521ae24"
+    if (Test-Path $worktreeSibling) {
+      $PackagePath = $worktreeSibling
+    } else {
+      $PackagePath = $defaultPkg
+    }
+  }
+}
+$sourcePackage = if (Test-Path $PackagePath) { (Resolve-Path $PackagePath).Path } else { $PackagePath }
+$sourceDriver = (Resolve-Path (Join-Path $repoRoot "docs/qa/packaged-host-sandbox-runtime-acceptance/tools")).Path
 $worktreeEvidence = Join-Path $repoRoot "artifacts/qa/sandbox-evidence"
 $docsQaEvidence = Join-Path $repoRoot "docs/qa/packaged-host-sandbox-runtime-acceptance"
 
@@ -177,7 +191,7 @@ Copy-Item "$stageEvidence\*" $worktreeEvidence -Recurse -Force
 Write-Host "[Host] Copied safe evidence artifacts to: $worktreeEvidence"
 
 New-Item -ItemType Directory -Path $docsQaEvidence -Force | Out-Null
-Get-ChildItem -Path $docsQaEvidence -Exclude "STATUS.md" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $docsQaEvidence -Exclude "STATUS.md", "tools" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item "$stageEvidence\*" $docsQaEvidence -Recurse -Force
 Write-Host "[Host] Copied safe evidence artifacts to: $docsQaEvidence"
 

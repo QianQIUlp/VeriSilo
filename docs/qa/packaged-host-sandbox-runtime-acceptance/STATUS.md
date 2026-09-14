@@ -29,11 +29,16 @@
 - **Integration Task Branch**: `agent/integration/packaged-host-windows-6ea6c8`
 - **Worktree**: `C:\Users\qiu\src\VeriSilo\.verisilo-worktrees\integration-packaged-host-windows-6ea6c8`
 - **Dev Engine Package**: `artifacts/qa/dev-engine-package-521ae24`
-  - Package Tree SHA: `5dc9e86333ea6fb5a8eeb4a5e2f7596ff1842eb412613d9f37c35eb85aa882c1`
+  - Package Tree SHA: `cf002e2c2c77f87b6b26efe31a8228ac733b0f36dd0c55d7c749fe8c827492ee`
   - Browser Tree Manifest SHA: `d77002d0f872a1ca57675d9b3bc2f9d88769e406d2d082cd94b07d78c9f075e6`
-  - Host Executable (`camoufox-host.exe`) SHA: `3636f3223067ddad6d0df2c71f5cebb6dfc924bc98ec6d56d814be953a992fb2`
-  - Windows Supervisor (`verisilo-camoufox-supervisor.exe`) SHA: `d9c2e0c7c1a5efab1bfb4a89210bd37ad59342bc80e54bf2c72394a8602fad87`（现编 Release，附带构建源自当前工作区）
+  - Host Executable (`camoufox-host.exe`) SHA: `8a554956e59555e9d6f6b95001830f2a14ae95ed41e755e98245b6b1461c4611`
+  - Windows Supervisor (`verisilo-camoufox-supervisor.exe`) SHA: `d9c2e0c7c1a5efab1bfb4a89210bd37ad59342bc80e54bf2c72394a8602fad87`（现编 Release，构建源自当前工作区）
+  - Manifest (`engine-package.json`) SHA: `64eb046db3ecd91b7689ad393f15860e4e5a1d8b86ae056e324526b470b1fe3c`
+  - Probe HTML (`probe.html`) SHA: `20306c39a9ca3c1c9960547066ca083068fc0d5123c4fd628a7d87c10531a08d`
   - Classification: `UNSIGNED_DEV_ENGINE_PACKAGE`（严格禁止代码签名，未查询或 mock 签名凭据）
+  - *Provenance 对账说明*：同目录下的 `package-provenance.json` 是输入工件在沙箱映射装载时的权威事实；前期文档草稿中 Package Tree 与 Host SHA 的记录系混入历史 rc2 工件哈希所致，已完全纠正对齐。
+- **Acceptance Driver & Fixtures**: `docs/qa/packaged-host-sandbox-runtime-acceptance/tools/`
+  - 已将实际通过验收测试的完整驱动套件版本化追踪（包含 `bootstrap.ps1`、`sandbox-acceptance.ps1`、`package-provenance.json` 与 `legacy/` fixture 及其加载逻辑）。
 
 ---
 
@@ -88,7 +93,7 @@
     - `screenX` 成功从越界的 `2232` 动态裁剪收敛至虚拟屏幕边界内 `114`；
     - 6 项几何不变量判定 **PASS**；
   - 进程优雅退出后重新读取磁盘文件 SHA-256：`2edabe511a057dc165a5c469df697b4ecaaf2cdbc134700f2d6cf1a0c653e103`；
-  - `artifactFileUnchanged: True`（修正仅在运行时生效，磁盘 Artifact 与 sidecar 字节分毫不变）；
+  - `artifactFileUnchanged: True`（磁盘 Artifact 字节分毫不变，修正仅在运行时内存生效，且证明未触碰磁盘 Artifact）；
 - Session 4 综合判定：**PASS**。
 
 ### 5. Cleanup: 进程与锁清理校验
