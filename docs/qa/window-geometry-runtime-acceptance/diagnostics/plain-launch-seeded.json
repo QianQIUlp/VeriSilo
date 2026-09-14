@@ -1,0 +1,38 @@
+{
+  "exe": "C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\rc2-candidate-acceptance\\release-smoke-work\\engine-state\\camoufox-cache\\camoufox\\camoufox\\Cache\\browsers\\verisilo\\152.0.4-beta.28-8a3ef192\\camoufox.exe",
+  "exeExists": true,
+  "startedAt": "2026-09-14T02:29:22Z",
+  "samples": [
+    {
+      "tree": [],
+      "windows": []
+    },
+    {
+      "tree": [],
+      "windows": []
+    },
+    {
+      "tree": [],
+      "windows": []
+    },
+    {
+      "tree": [],
+      "windows": []
+    },
+    {
+      "tree": [],
+      "windows": []
+    },
+    {
+      "tree": [],
+      "windows": []
+    },
+    {
+      "tree": [],
+      "windows": []
+    }
+  ],
+  "rootPid": 4168,
+  "killedAt": "2026-09-14T02:30:19Z",
+  "stderrTail": "JavaScript error: chrome://juggler/content/SimpleChannel.js, line 1: SyntaxError: redeclaration of let SimpleChannel\nJavaScript error: chrome://juggler/content/SimpleChannel.js, line 1: SyntaxError: redeclaration of let SimpleChannel\nJavaScript error: chrome://juggler/content/SimpleChannel.js, line 1: SyntaxError: redeclaration of let SimpleChannel\n"
+}

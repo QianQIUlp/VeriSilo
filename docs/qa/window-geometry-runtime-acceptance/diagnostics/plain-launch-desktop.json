@@ -1,0 +1,65 @@
+{
+  "exe": "C:\\Users\\qiu\\src\\VeriSilo\\artifacts\\release\\managed-browser\\v0.1.0-rc2\\engine-package\\browser\\camoufox.exe",
+  "exeExists": true,
+  "startedAt": "2026-09-14T02:41:04Z",
+  "samples": [
+    {
+      "camoufoxPids": [
+        11104
+      ],
+      "windows": [],
+      "trees": {
+        "11104": []
+      }
+    },
+    {
+      "camoufoxPids": [
+        11104
+      ],
+      "windows": [],
+      "trees": {
+        "11104": []
+      }
+    },
+    {
+      "camoufoxPids": [
+        11104
+      ],
+      "windows": [],
+      "trees": {
+        "11104": []
+      }
+    },
+    {
+      "camoufoxPids": [
+        11104
+      ],
+      "windows": [],
+      "trees": {
+        "11104": []
+      }
+    },
+    {
+      "camoufoxPids": [
+        11104
+      ],
+      "windows": [
+        {
+          "pid": 11104,
+          "handle": 589908,
+          "title": "Camoufox",
+          "x": 3,
+          "y": 0,
+          "width": 1280,
+          "height": 1040
+        }
+      ],
+      "trees": {
+        "11104": []
+      }
+    }
+  ],
+  "stubPid": 18888,
+  "killedAt": "2026-09-14T02:41:42Z",
+  "stderrTail": "JavaScript warning: resource://services-settings/Utils.sys.mjs, line 119: unreachable code after return statement\n"
+}

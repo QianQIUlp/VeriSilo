@@ -1,36 +1,73 @@
-# Window Geometry Runtime Acceptance — 进度快照（2026-09-13 夜）
+# Window Geometry Runtime Acceptance — VERDICT: ENVIRONMENT_BLOCKED（2026-09-14）
 
-## 绑定事实
-- baseline：`origin/baseline/dev = f4aa6c6cafbf52d09741018583fd2e6dee122e62`（任务创建时确认）
-- 分支：`agent/qa/accept-real-managed-e0f551`（本 worktree，仅 evidence，不推进 baseline）
-- verdict：**尚未产生**（测试矩阵未完整执行）
-- 运行绑定：
-  - python = `C:\Users\qiu\src\VeriSilo\apps\camoufox-host\.venv\Scripts\python.exe`（3.12.11，playwright/camoufox 可用）
-  - package-root = `C:\Users\qiu\src\VeriSilo\artifacts\build\managed-browser\rc3-engine-package`（browser 二进制冻结 Formal-v3；Host 源码来自本 worktree f4aa6）
-  - 重根（cache/profiles）在 `%TEMP%\verisilo-geometry-qa\run-01`（已清空，下次运行自动重播 cache）
+## 判定
 
-## 已完成
-- `tools/run_geometry_qa.py`：provision / legacy / runtime / run-all 全链路驱动，已修复 argparse 参数顺序
-- `tools/run_on_desktop.ps1`：桌面执行包装。注意：`exit-code.txt` 幂等护栏，重跑前需删除（run-01 当前是干净的）
-- `run-00-sandbox-ancestry/`：两次失败尝试归档。第二次 attempt 已通过 provision×2 + legacy artifact 构建，卡在 `first-1280x800` 的 launch
+**ENVIRONMENT_BLOCKED** —— 非修复失败、非方法失败：本机（Windows 11 25H2, build 26200）
+自 2026-09-13 起无法让冻结版 Camoufox 浏览器派生任何子进程（GPU/content/socket/RDD 全部），
+任何真实 runtime 几何观测都无法进行。测试矩阵（1280×800 / second-size / legacy clamp /
+cold restart）未执行，无 PASS/FAIL 结论。
 
-## 根因（当前最强假设）
-camoufox 的 content/GPU 子进程在「Trae 沙箱 job 后代」进程树中无法派生：
-`Failed to launch GPU process after 3 attempts` + `gBrowser never populated`。
-computer_use 第一次执行时用 `Start-Process` 从沙箱 spawn 了 PowerShell —— 父链仍在沙箱 job 内，
-因此症状与沙箱内完全一致。桌面（explorer 祖先）启动是尚未验证的变量。
+关键判别实验：**plain 启动**（explorer 祖先 PowerShell、无 Host/supervisor/Playwright/Juggler、
+全新 temp profile）复现同一症状 —— 主进程存活、36 秒后窗口出现（1280×1040，软件渲染回退）、
+**零子进程**。产品源码与几何修复完全不在启动路径上，故与本任务验收对象无关。
 
-## 明天恢复步骤
-1. computer_use 通过**开始菜单 UI**打开 PowerShell（父进程必须是 explorer / WindowsTerminal；
-   禁止 Start-Process 或任何程序化 spawn）。
-2. 先验证祖先：
-   `$p = Get-CimInstance Win32_Process -Filter "ProcessId = $PID"; $p.ParentProcessId; (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.ParentProcessId)").Name`
-   父进程名不是 shell/explorer 类则停下来报告。
-3. 运行：
-   `powershell -NoExit -ExecutionPolicy Bypass -File "C:\Users\qiu\src\VeriSilo\.verisilo-worktrees\qa-accept-real-managed-e0f551\docs\qa\window-geometry-runtime-acceptance\tools\run_on_desktop.ps1"`
-   轮询 `run-01\exit-code.txt`；结束后读 `run-01\out\summary.json` 的 verdict / invariantChecks。
-4. 若干净桌面祖先下仍 GPU 失败 → 改试 `schtasks /Create ... /IT` 交互任务执行同一脚本；
-   再失败 → verdict = `ENVIRONMENT_BLOCKED`（run-00 console.log 即为证据）。
-5. PASS 后按任务合同出最终报告（1280×800 / second-size / legacy clamp / cold restart /
-   screenLeft alias / artifact bytes unchanged），commit evidence branch，不推进 baseline，
-   不改 docs/camoufox-program-status.md。
+## 证据链
+
+1. **baseline**：`origin/baseline/dev = f4aa6c6cafbf52d09741018583fd2e6dee122e62`（任务创建时确认，
+   本分支 `agent/qa/accept-real-managed-e0f551` 直接分叉于它）
+2. **real runtime path**：source `apps/camoufox-host/host_v1.py`（f4aa6c6）+ repo venv
+   （playwright 1.60.0 / camoufox 0.5.4 / browserforge 1.2.4，与 lock 一致）+ 冻结 rc3 engine
+   package（browser exe sha256 `c5535c7c…804b49e` = runtime-asset-lock 值）
+3. **run-01**（干净 explorer 祖先）：provision×2 OK、legacy Artifact 构造 OK（注入 screenX=2232,
+   screenY=140，超界）；`first-1280x800` launch 失败 ——
+   `Failed to launch GPU process after 3 attempts` → `gBrowser never populated` → Playwright 180s 超时
+4. **对照实验**（`diagnostics/`）：
+   - `plain-launch-desktop.json`：桌面 plain 启动 —— 窗口出现（pid 11104, title "Camoufox",
+     1280×1040 @ x=3,y=0），全程零子进程
+   - `plain-launch-control.json` / `plain-launch-seeded.json`：沙箱内 plain 启动 —— 同样零子进程
+     （camoufox.exe 是 launcher stub，真实浏览器进程被重新父化后存活）
+   - `run-00-sandbox-ancestry/`：早期失败尝试归档
+5. **字节未变证明**：rc2 包、rc3 包、09-09 smoke seeded 副本三处 camoufox.exe sha256 均等于
+   lock 值 `c5535c7c…`；omni.ja mtime 2026-09-02 未动
+6. **最后已知成功**：2026-09-09T08:48Z RC2 packaged-host wire smoke PASSED（同一字节：
+   google.com 真实加载、content target 正常、真实窗口 1280×800 @ x=3,y=3）—— 证据
+   `artifacts/rc2-candidate-acceptance/packaged-host-wire-smoke.json`
+7. **排除项**：Host 源码 / Artifact prefs / 沙箱 job 祖先 / Playwright 版本 / 系统级 Exploit
+   Protection（全 NOTSET）/ IFEO（无 camoufox.exe 键）/ WER 崩溃事件（无记录）
+8. **窗口期机器变化**（候选而非定论，超出 QA 范围）：KB5126052、KB5124008、KB5124007
+   安装于 09-09（09-11 重启生效）；另有包 09-13 staged、09-14 08:59 开机生效。最后成功
+   09-09 16:48 local → 首次观测失败 09-13（本任务 run-00）
+
+## 复现步骤（交 owning lane / 环境所有者）
+
+```
+# 桌面 PowerShell（explorer 祖先），~70 秒，自动清理：
+& "C:\Users\qiu\src\VeriSilo\apps\camoufox-host\.venv\Scripts\python.exe" `
+  "C:\Users\qiu\src\VeriSilo\.verisilo-worktrees\qa-accept-real-managed-e0f551\docs\qa\window-geometry-runtime-acceptance\tools\plain_launch_desktop.py" `
+  --exe "C:\Users\qiu\src\VeriSilo\artifacts\release\managed-browser\v0.1.0-rc2\engine-package\browser\camoufox.exe" `
+  --profile "C:\Users\qiu\AppData\Local\Temp\camoufox-plain-desktop\profile" `
+  --out "...\diagnostics\plain-launch-desktop-rerun.json"
+# 预期（当前坏状态）：窗口 ~36s 出现，camoufoxPids 仅主进程，trees 全空
+# 健康（09-09 状态）：窗口 2-5s 出现，trees 含 GPU/content 等多个子进程
+```
+
+附带症状：Playwright 路径下 juggler 报 `gBrowser never populated`（content 进程缺失使初始
+tab 永不就绪）；沙箱内运行还观察到 `SimpleChannel.js redeclaration` 噪声与 SkeletonUI lock
+写入被沙箱拦截（后者仅沙箱环境）。
+
+## 测试矩阵状态
+
+| 项 | 状态 |
+|---|---|
+| Test 1: 1280×800 observation | 未执行（launch 阻断） |
+| Test 2: second size (1024×768) | 未执行 |
+| Test 3: legacy Artifact clamp | Artifact 已构造（run-01/artifacts + legacy 注入记录），launch 阻断 |
+| Cold restart | 未执行 |
+| screenLeft/screenTop alias | 未执行 |
+| Artifact bytes unchanged | 未到可验证点 |
+
+## 恢复条件
+
+机器子进程派生能力恢复后（如卸载/回滚嫌疑更新、修复环境策略），本任务可直接续跑：
+`tools/run_on_desktop.ps1`（桌面 explorer 祖先执行）→ `run-01` 输出完整矩阵 + summary.json。
+工具链已全部就绪并经过参数顺序修复。
