@@ -1,0 +1,31 @@
+---
+
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    {
+      !import.meta.env.DEV && (
+        <meta
+          http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+        />
+      )
+    }
+    <title>VeriSilo · 交互演示 / Interactive demo</title>
+  </head>
+  <body>
+    <div id="demo-root"><p>正在展开 VeriSilo 交互演示…</p></div>
+    <noscript
+      >此交互演示需要 JavaScript。你仍可以回到官网阅读产品介绍。</noscript
+    >
+    <script>
+      import "../../../desktop/src/preview/public";
+    </script>
+  </body>
+</html>

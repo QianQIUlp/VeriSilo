@@ -11,7 +11,7 @@ interface Props {
 const { locale } = Astro.props;
 const content = privacyCopy[locale];
 const homeHref = locale === "zh" ? "/zh/" : "/";
-const languageHref = locale === "zh" ? "/privacy" : "/zh/privacy";
+const languageHref = locale === "zh" ? "/privacy/" : "/zh/privacy/";
 ---
 
 <BaseLayout
@@ -19,7 +19,9 @@ const languageHref = locale === "zh" ? "/privacy" : "/zh/privacy";
   title={content.meta.title}
   description={content.meta.description}
 >
-  <a class="skip-link" href="#main">Skip to content</a>
+  <a class="skip-link" href="#main"
+    >{locale === "zh" ? "跳到主要内容" : "Skip to content"}</a
+  >
 
   <header class="site-header">
     <div class="header-inner">
@@ -43,6 +45,25 @@ const languageHref = locale === "zh" ? "/privacy" : "/zh/privacy";
       <p class="privacy-updated">{content.updated}</p>
       <h1 class="privacy-title">{content.title}</h1>
       <p class="privacy-intro">{content.intro}</p>
+      <section class="privacy-section website-data-note">
+        <h2>
+          {locale === "zh" ? "官网交互演示的数据" : "Data in the website demo"}
+        </h2>
+        <p>
+          {
+            locale === "zh"
+              ? "官网演示使用模拟身份与模拟证据，创建和编辑的数据只保存在当前页面内存中，刷新后重置。它不连接桌面应用，不读取本机文件，也不探测访客的 IP 或 DNS。请勿输入真实口令或代理凭据。"
+              : "The website demo uses simulated identities and evidence. Created and edited data stays in page memory and resets on reload. It does not connect to the desktop app, read local files, or probe your IP or DNS. Do not enter real passphrases or proxy credentials."
+          }
+        </p>
+        <p>
+          {
+            locale === "zh"
+              ? "选择动态效果时，官网会在浏览器本地保存这一偏好，并与演示窗口同步。官网不包含分析或广告脚本；页面和静态资源仍由网站托管服务提供。以下政策正文针对浏览器扩展。"
+              : "Your motion preference is saved in this browser and shared with the demo window. The site includes no analytics or advertising scripts; pages and static assets are delivered by the website host. The policy below covers the browser extension."
+          }
+        </p>
+      </section>
       {
         content.sections.map((section) => (
           <section class="privacy-section">
@@ -78,6 +99,12 @@ const languageHref = locale === "zh" ? "/privacy" : "/zh/privacy";
 </BaseLayout>
 
 <style>
+  .website-data-note {
+    padding: 24px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: var(--blue-soft);
+  }
   .privacy-main {
     padding: 3rem 0 4rem;
   }

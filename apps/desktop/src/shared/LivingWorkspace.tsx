@@ -22,6 +22,18 @@ export function useWorkspaceMotion() {
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
   useEffect(() => {
+    const syncPreference = (event: StorageEvent) => {
+      if (event.key !== "verisilo.motion") return;
+      setPreference(
+        event.newValue === "full" || event.newValue === "reduce"
+          ? event.newValue
+          : "system",
+      );
+    };
+    window.addEventListener("storage", syncPreference);
+    return () => window.removeEventListener("storage", syncPreference);
+  }, []);
+  useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)");
     const update = () => setSystemReduced(media.matches);
     media.addEventListener("change", update);

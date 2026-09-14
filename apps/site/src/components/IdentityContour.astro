@@ -1,0 +1,30 @@
+---
+import { identityContours } from "../../../desktop/src/shared/identity-contours";
+interface Props {
+  identity?: string;
+  class?: string;
+}
+const {
+  identity = "9f2c6a51-4b7e-4c1a-9d3e-5a1b2c3d4e5f",
+  class: className = "",
+} = Astro.props;
+---
+
+<svg
+  class={`identity-contour ${className}`}
+  viewBox="0 0 240 240"
+  aria-hidden="true"
+>
+  {
+    identityContours(identity).map((path, layer) => (
+      <path
+        d={path}
+        fill={layer === 0 ? "currentColor" : "none"}
+        fill-opacity={layer === 0 ? ".045" : undefined}
+        stroke="currentColor"
+        stroke-width={layer % 5 === 0 ? "1.4" : ".7"}
+      />
+    ))
+  }
+  <circle cx="130" cy="114" r="3.5" fill="currentColor"></circle>
+</svg>

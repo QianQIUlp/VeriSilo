@@ -14,7 +14,7 @@ import {
   previewStatus,
 } from "./fixtures.js";
 
-// Imported only by preview.html. Unsupported operations fail here instead of
+// Imported only by UI preview entries, including the public demo. Unsupported operations fail here instead of
 // reaching Tauri; all state is synthetic and lasts only until the page reloads.
 export function installPreviewApi(scenario: string) {
   const status = previewStatus(
@@ -57,7 +57,7 @@ export function installPreviewApi(scenario: string) {
       configurable: true,
       writable: true,
       value: async () => {
-        throw new Error("此操作未在 UI 预览中模拟，请使用隔离的桌面测试实例。");
+        throw new Error("这项操作尚未在演示中模拟。请在安装后的桌面应用中使用。");
       },
     });
   }
