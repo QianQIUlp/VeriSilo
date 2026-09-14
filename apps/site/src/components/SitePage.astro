@@ -14,6 +14,7 @@ const identities = [
   "creative-workspace",
 ];
 const homeHref = locale === "zh" ? "/zh/" : "/";
+const demoHref = `${locale === "zh" ? "/demo/" : "/demo/en/"}?scene=matched`;
 ---
 
 <BaseLayout
@@ -178,22 +179,26 @@ const homeHref = locale === "zh" ? "/zh/" : "/";
             <div class="portal-canvas">
               <div class="demo-loading" role="status">
                 <IdentityContour /><span>{c.demo.loading}</span><a
-                  href="/demo/?scene=matched">{c.demo.fallback}</a>
+                  href={demoHref}>{c.demo.fallback}</a
+                >
               </div>
               <iframe
                 id="demo-frame"
-                title="VeriSilo — interactive product demo / 中文交互演示"
-                src="/demo/?scene=matched"
+                title={locale === "zh"
+                  ? "VeriSilo — 中文交互演示"
+                  : "VeriSilo — interactive product demo"}
+                src={demoHref}
                 loading="lazy"
                 sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads"
                 allow="clipboard-write 'self'"></iframe>
             </div>
             <div class="portal-caption">
               <span>{c.demo.note}</span><a
-                href="/demo/?scene=matched"
+                href={demoHref}
                 target="_blank"
                 rel="noreferrer"
-                >{c.demo.fallback}<span aria-hidden="true">↗</span></a>
+                >{c.demo.fallback}<span aria-hidden="true">↗</span></a
+              >
             </div>
           </div>
         </div>
@@ -268,7 +273,8 @@ const homeHref = locale === "zh" ? "/zh/" : "/";
             class="text-link"
             href={links.capabilities}
             target="_blank"
-            rel="noreferrer">{c.evidence.link} ↗</a>
+            rel="noreferrer">{c.evidence.link} ↗</a
+          >
         </div>
         <div class="evidence-lab" data-evidence="0">
           <p class="lab-label">{c.evidence.sample}</p>
@@ -347,7 +353,8 @@ const homeHref = locale === "zh" ? "/zh/" : "/";
           class="text-link"
           href={links.threatModel}
           target="_blank"
-          rel="noreferrer">{c.boundaries.link} ↗</a>
+          rel="noreferrer">{c.boundaries.link} ↗</a
+        >
       </div>
       <div class="boundary-list">
         {
@@ -386,7 +393,8 @@ const homeHref = locale === "zh" ? "/zh/" : "/";
               class="text-link"
               href={links.repository}
               target="_blank"
-              rel="noreferrer">{c.download.source} ↗</a>
+              rel="noreferrer">{c.download.source} ↗</a
+            >
           </div>
           <span class="download-version">{c.download.version}</span><a
             class="release-details"
@@ -408,7 +416,8 @@ const homeHref = locale === "zh" ? "/zh/" : "/";
           ><a href={links.license} target="_blank" rel="noreferrer"
             >{c.download.license}</a
           ><a href={links.repository} target="_blank" rel="noreferrer"
-            >GitHub ↗</a>
+            >GitHub ↗</a
+          >
         </div>
       </footer>
     </section>
