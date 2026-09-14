@@ -53,6 +53,25 @@ body,
   min-height: 0;
   height: auto;
 }
+/* The public frame includes two extra toolbars above the desktop workspace. */
+@media (max-height: 740px) {
+  #demo-root .scene-copy {
+    align-self: start;
+    padding-top: 14px;
+    padding-bottom: 0;
+  }
+  #demo-root .scene-copy h2 {
+    margin: 12px 0;
+    font-size: 28px;
+  }
+  #demo-root .scene-copy h2.long-name {
+    font-size: 22px;
+  }
+  #demo-root .scene-copy .scene-boundary {
+    margin-top: 8px;
+    font-size: 10px;
+  }
+}
 @media (max-width: 1000px) {
   .public-demo-bar span {
     display: none;
