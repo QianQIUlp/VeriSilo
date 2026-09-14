@@ -53,7 +53,10 @@ export function VaultAccess({
           保险库口令
           <input
             aria-label="保险库口令"
-            autoFocus
+            // Embedded previews must not scroll their containing website on mount.
+            autoFocus={
+              typeof window !== "undefined" && window.self === window.top
+            }
             autoComplete={initialize ? "new-password" : "current-password"}
             disabled={busy}
             id="vault-passphrase"
