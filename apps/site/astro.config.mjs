@@ -1,5 +1,6 @@
 import { defineConfig } from "astro/config";
 import { fileURLToPath } from "node:url";
+import { demoLocalization } from "./src/demo/localize.mjs";
 
 export default defineConfig({
   output: "static",
@@ -7,6 +8,7 @@ export default defineConfig({
   trailingSlash: "always",
   build: { inlineStylesheets: "never" },
   vite: {
+    plugins: [demoLocalization()],
     esbuild: { jsx: "automatic" },
     resolve: {
       alias: [
