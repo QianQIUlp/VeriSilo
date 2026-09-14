@@ -1,0 +1,40 @@
+{
+    "evidenceCoverageII":  {
+                               "sessionId":  "a0f182d40db942b08eceeb4282f0f329",
+                               "state":  "running",
+                               "fontMode":  "managed",
+                               "managedFontMaskingGatePassed":  true,
+                               "webgl2Vendor":  {
+                                                    "state":  "matched",
+                                                    "expected":  "Google Inc. (Intel)",
+                                                    "observed":  "Google Inc. (Intel)",
+                                                    "pass":  true
+                                                },
+                               "webgl2Renderer":  {
+                                                      "state":  "unavailable",
+                                                      "expected":  null,
+                                                      "observed":  "ANGLE (Intel, Intel(R) HD Graphics Direct3D11 vs_5_0 ps_5_0), or similar",
+                                                      "unavailableCorrect":  true,
+                                                      "pass":  true
+                                                  },
+                               "acceptEncoding":  {
+                                                      "state":  "matched",
+                                                      "expected":  "gzip, deflate, br, zstd",
+                                                      "observed":  "gzip, deflate, br, zstd",
+                                                      "pass":  true
+                                                  },
+                               "pass":  true
+                           },
+    "freshRecheck":  {
+                         "sessionId":  "a0f182d40db942b08eceeb4282f0f329",
+                         "initialObservedAt":  "2026-09-14T12:04:38.588065Z",
+                         "reobservedAt":  "2026-09-14T12:04:51.782551Z",
+                         "timestampAdvanced":  true,
+                         "sentinelIntact":  true,
+                         "urlIntact":  true,
+                         "webgl2VendorReobserved":  true,
+                         "webgl2RendererReobserved":  true,
+                         "acceptEncodingReobserved":  true,
+                         "pass":  true
+                     }
+}

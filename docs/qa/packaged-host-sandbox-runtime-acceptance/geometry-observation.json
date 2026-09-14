@@ -1,0 +1,115 @@
+{
+    "1280x800":  {
+                     "observation":  {
+                                         "outerWidth":  1166,
+                                         "outerHeight":  632,
+                                         "innerWidth":  1152,
+                                         "innerHeight":  569,
+                                         "screenX":  0,
+                                         "screenY":  0,
+                                         "screenLeft":  0,
+                                         "screenTop":  0,
+                                         "devicePixelRatio":  1.25,
+                                         "screen":  {
+                                                        "width":  1280,
+                                                        "height":  800,
+                                                        "availWidth":  1280,
+                                                        "availHeight":  800,
+                                                        "availLeft":  0,
+                                                        "availTop":  0,
+                                                        "colorDepth":  24,
+                                                        "pixelDepth":  24
+                                                    },
+                                         "url":  "http://127.0.0.1:49703/probe.html"
+                                     },
+                     "invariants":  {
+                                        "screenX_equals_screenLeft":  true,
+                                        "screenY_equals_screenTop":  true,
+                                        "availLeft_le_screenX":  true,
+                                        "screenX_outerWidth_le_avail":  true,
+                                        "availTop_le_screenY":  true,
+                                        "screenY_outerHeight_le_avail":  true
+                                    },
+                     "pass":  true
+                 },
+    "1024x768":  {
+                     "observation":  {
+                                         "outerWidth":  1024,
+                                         "outerHeight":  632,
+                                         "innerWidth":  1010,
+                                         "innerHeight":  569,
+                                         "screenX":  0,
+                                         "screenY":  0,
+                                         "screenLeft":  0,
+                                         "screenTop":  0,
+                                         "devicePixelRatio":  1.25,
+                                         "screen":  {
+                                                        "width":  1024,
+                                                        "height":  768,
+                                                        "availWidth":  1024,
+                                                        "availHeight":  768,
+                                                        "availLeft":  0,
+                                                        "availTop":  0,
+                                                        "colorDepth":  24,
+                                                        "pixelDepth":  24
+                                                    },
+                                         "url":  "http://127.0.0.1:49758/probe.html"
+                                     },
+                     "invariants":  {
+                                        "screenX_equals_screenLeft":  true,
+                                        "screenY_equals_screenTop":  true,
+                                        "availLeft_le_screenX":  true,
+                                        "screenX_outerWidth_le_avail":  true,
+                                        "availTop_le_screenY":  true,
+                                        "screenY_outerHeight_le_avail":  true
+                                    },
+                     "pass":  true
+                 },
+    "coldRestart":  {
+                        "sessionId":  "a0f9469101f04bc6ae52d92e44b7c647",
+                        "observation":  {
+                                            "outerWidth":  1166,
+                                            "outerHeight":  632,
+                                            "innerWidth":  1152,
+                                            "innerHeight":  569,
+                                            "screenX":  0,
+                                            "screenY":  0,
+                                            "screenLeft":  0,
+                                            "screenTop":  0,
+                                            "devicePixelRatio":  1.25,
+                                            "screen":  {
+                                                           "width":  1280,
+                                                           "height":  800,
+                                                           "availWidth":  1280,
+                                                           "availHeight":  800,
+                                                           "availLeft":  0,
+                                                           "availTop":  0,
+                                                           "colorDepth":  24,
+                                                           "pixelDepth":  24
+                                                       },
+                                            "url":  "http://127.0.0.1:49740/probe.html"
+                                        },
+                        "invariants":  {
+                                           "screenX_equals_screenLeft":  true,
+                                           "screenY_equals_screenTop":  true,
+                                           "availLeft_le_screenX":  true,
+                                           "screenX_outerWidth_le_avail":  true,
+                                           "availTop_le_screenY":  true,
+                                           "screenY_outerHeight_le_avail":  true
+                                       },
+                        "pass":  true
+                    },
+    "legacyCompatibility":  {
+                                "artifactId":  "identity-f49f1202d9ac4d79f991f794",
+                                "injectedScreenX":  2232,
+                                "injectedScreenY":  140,
+                                "observedScreenX":  114,
+                                "observedScreenY":  140,
+                                "clampedWithinBounds":  true,
+                                "invariantsPass":  true,
+                                "artifactFileShaBefore":  "2edabe511a057dc165a5c469df697b4ecaaf2cdbc134700f2d6cf1a0c653e103",
+                                "artifactFileShaAfter":  "2edabe511a057dc165a5c469df697b4ecaaf2cdbc134700f2d6cf1a0c653e103",
+                                "artifactFileUnchanged":  true,
+                                "pass":  true
+                            }
+}

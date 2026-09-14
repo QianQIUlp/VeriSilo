@@ -208,15 +208,15 @@ rc2 的固定 source binding，`407c501741c1be3444bfa607c7e693ecc7324409` 是 v0
 **Transport Coherence 直接观察**：QA 诊断（commit `94a3641`，branch `origin/agent/qa/transport-fingerprint-d96e42`）在真实 Managed session 验证了 TLS/HTTP2/QUIC 观察链。ClientHello 与 Firefox 152 NSS 自洽，HTTP/2 SETTINGS 与伪头顺序稳定且呈 Gecko 形态，QUIC v1 Initial 握手尝试已观察，代理路径保持端到端 TLS 且域名委托正确。结论为 `TRANSPORT_COHERENCE_NO_CONTROL_BLOCKER_FOUND`；formal verifier 保持 unavailable。
 
 **Fingerprint Coherence Closure I**：
-- **窗口几何一致性（Window Geometry Coherence）**：source fix closed / real-browser post-fix acceptance pending。根因为 BrowserForge 生成了多显示器大坐标合成值（如 `screenX=2232, screen.width=1280`），而此前覆盖逻辑仅约束了 `outerWidth/outerHeight`，遗漏了 `screenX/screenY`。已在 `provision_artifact.py`、`generate_identity.py` 以及 `host_runtime.py` 的 `apply_interactive_window_override()` 中强制执行虚拟屏幕有效边界裁剪（`[availLeft, availLeft + max(0, availWidth - outerWidth)]`）。即便窗口尺寸未发生改变，也强制裁剪历史 Artifact 暴露的过时越界坐标，且不改写历史磁盘文件，保证会话变量语义与测试覆盖。真实浏览器 post-fix 验收因宿主环境崩溃受阻（`docs/qa/window-geometry-runtime-acceptance/STATUS.md`）。
+- **窗口几何一致性（Window Geometry Coherence）**：`ACCEPTED_IN_WINDOWS_SANDBOX`。BrowserForge 越界坐标（如 `screenX=2232, screen.width=1280`）的虚拟屏幕有效边界裁剪（`[availLeft, availLeft + max(0, availWidth - outerWidth)]`）与历史 Artifact 不改写保证已在健康 Windows Sandbox 中完成 1280x800、1024x768、冷重启与 Legacy 越界 Artifact（2232 裁剪至 114）四重场景的真实浏览器验收（详见 `docs/qa/packaged-host-sandbox-runtime-acceptance/STATUS.md`）。
 - **WebGPU 边界与策略定级**：官方分类确立为 `WEBGPU_NO_LEAK_OBSERVED_BUT_POLICY_BOUNDARY_STILL_OPEN`。Camoufox 152 引擎无 WebGPU 伪装配置，安全上下文中 `navigator.gpu` 存在但 `requestAdapter()` 返回 `null`（当前环境下无真实硬件信息泄露）。直接关闭 `dom.webgpu.enabled` 会导致 `navigator.gpu` 缺失产生反常指纹；伪装需等待 Gecko 源码级补丁。
 
-**Evidence Coverage Closure II（源码闭合，Harness 修复完成，真实验收待环境就绪）**：
-- **WebGL2 证据闭环**：WebGL2 vendor/renderer 正式纳入 Runtime Identity Evidence 观察与对账。复用同一 expected GPU identity（`webglVendor` / `webglRenderer`），不扩张 Artifact schema。renderer 若含 `, or similar` 严格保持 `unavailable`，不伪造 exact match；WebGPU 策略边界继续保持 `WEBGPU_NO_LEAK_OBSERVED_BUT_POLICY_BOUNDARY_STILL_OPEN`。
-- **Request Header（Accept-Encoding）真实观察闭环**：`headers.Accept-Encoding` 正式纳入 formal observation 与 reconciliation。Host loopback probe server 在真实浏览器 HTTP 请求到达时直接捕获请求头并提供 `/header-observation` 端点，严禁从 expected config 自证或外部伪造。
+**Evidence Coverage Closure II（源码闭合，Windows Sandbox 真实运行时验收通过）**：
+- **WebGL2 证据闭环**：WebGL2 vendor/renderer 正式纳入 Runtime Identity Evidence 观察与对账。复用同一 expected GPU identity（`webglVendor` / `webglRenderer`），不扩张 Artifact schema。renderer 若含 `, or similar` 严格保持 `unavailable`，不伪造 exact match；WebGPU 策略边界继续保持 `WEBGPU_NO_LEAK_OBSERVED_BUT_POLICY_BOUNDARY_STILL_OPEN`。在真实浏览器中 `webgl2Vendor` 匹配（Google Inc. (Intel)），`webgl2Renderer` 判定 `unavailableCorrect: true`。
+- **Request Header（Accept-Encoding）真实观察闭环**：`headers.Accept-Encoding` 正式纳入 formal observation 与 reconciliation。Host loopback probe server 在真实浏览器 HTTP 请求到达时直接捕获请求头，已在真实运行中验证与预期一致（`gzip, deflate, br, zstd`）。
 - **ObservedWebsiteDigest 稳定性**：保持 `verisilo-camoufox-observed-website/v2` 规范与既有字段集合不变，新表面仅作为 formal evidence signal 呈现，完全不破坏历史 digest 兼容性。
-- **Fresh Recheck 一致性**：活动 session 的 `reobserve_identity` 在临时页面上重新进行真实 WebGL2 与 loopback HTTP 请求头观察，生成新的 `observedAt`，不破坏用户页面。
-- **Real-Runtime Harness 规范化修复**：`test_real_runtime_evidence_closure_ii.py` 严格对齐 `signals` 数组访问（`signal_by_name(evidence, "acceptEncoding")`）、强制 `--package-root` 显式参数化、加入完整 Provenance 记录并验证了 Managed 模式字体遮蔽；单测 10/10 PASS。真实运行时执行受当前环境阻断（`MANAGED_RUNTIME_ENVIRONMENT_BLOCKED`，详见 `docs/qa/managed-runtime-proof-repair/STATUS.md`）。
+- **Fresh Recheck 一致性**：活动 session 的 `reobserve_identity` 在临时页面上重新进行真实 WebGL2 与 loopback HTTP 请求头观察，生成新的 `observedAt`，且严格验证了活跃页面 Sentinel 与 URL 的完好保持（`sentinelIntact=true, urlIntact=true`）。
+- **Packaged-Host 真实运行时验收闭环**：使用当前源码打包的自包含 Dev Engine Package 在原生 Windows Sandbox 中通过全套 4 会话验收矩阵与进程清理（详见 `docs/qa/packaged-host-sandbox-runtime-acceptance/STATUS.md`，判定 `CURRENT_SOURCE_PACKAGED_HOST_RUNTIME_ACCEPTED_IN_WINDOWS_SANDBOX`）。
 
 **Create New Identity From This Silo 已进入 source**：Managed Identity Silo 可以把当前
 安全可复用的 identity/network 配置作为新建模板，创建新的 Silo、Profile、seed 和
@@ -289,9 +289,10 @@ rc2 与 rc3 的发布状态均为 `PUBLIC_GITHUB_PRERELEASE`，且都没有 stri
 | Surface Truth Matrix 审计 | QA branch `origin/agent/qa/fingerprint-surface-52ebde`；commit `96543d74e34089c8d3f0b6199aaa974a2cff9922`；四层能力审计，基线 `0d74290`，零 CONTROL_GAP |
 | 传输层自洽性诊断 | QA branch `origin/agent/qa/transport-fingerprint-d96e42`；commit `94a364143f68f270597f86baf9ce735573632aff`；TLS ClientHello / HTTP2 / QUIC v1 观察自洽，`TRANSPORT_COHERENCE_NO_CONTROL_BLOCKER_FOUND` |
 | Managed Font Isolation | commit `1b41b812f3d10bdb2dc6543ea4a740a665f8d7c9`；`fontMode=managed` 成为生产预设，Windows 宿主未声明字体遮蔽经 oracle 验证 |
-| Window Geometry Coherence | source fix closed / real-browser post-fix acceptance pending（环境阻断：宿主子进程派生故障，详见 `docs/qa/window-geometry-runtime-acceptance/STATUS.md`）；`provision_artifact.py`、`generate_identity.py`、`host_runtime.py` 强制 virtual screen bounds clamp；回归测试覆盖 |
+| Window Geometry Coherence | `ACCEPTED_IN_WINDOWS_SANDBOX`；`provision_artifact.py`、`generate_identity.py`、`host_runtime.py` 强制 virtual screen bounds clamp；真实浏览器四场景验收通过，详见 `docs/qa/packaged-host-sandbox-runtime-acceptance/STATUS.md` |
 | WebGPU Boundary 结论 | 本任务裁定；`WEBGPU_NO_LEAK_OBSERVED_BUT_POLICY_BOUNDARY_STILL_OPEN`；无硬件泄露观察，保持开启策略边界 |
-| Evidence Coverage Closure II | 源码闭合；Harness 修复完成（`test_real_runtime_evidence_closure_ii.py`，单测 10/10 通过）；真实 runtime 验收待运行环境就绪（`MANAGED_RUNTIME_ENVIRONMENT_BLOCKED`，详见 `docs/qa/managed-runtime-proof-repair/STATUS.md`） |
+| Evidence Coverage Closure II | `ACCEPTED_IN_WINDOWS_SANDBOX`；WebGL2、Accept-Encoding、Managed 字体遮蔽与 Fresh Recheck Sentinel 对账真实运行全量通过，详见 `docs/qa/packaged-host-sandbox-runtime-acceptance/STATUS.md` |
+| Packaged-Host Windows Sandbox Acceptance | `CURRENT_SOURCE_PACKAGED_HOST_RUNTIME_ACCEPTED_IN_WINDOWS_SANDBOX`；基于当前 baseline 自包含 Dev Engine Package 在健康 Windows Sandbox 中完成 4 阶段真实浏览器验收矩阵与进程清理，详见 `docs/qa/packaged-host-sandbox-runtime-acceptance/STATUS.md` |
 | FP1-R1 carry-forward result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp1-r1-result.json`；SHA-256 `a4f0ef539ee09925d7715e6bfea1cbd74dde74ff62dac26f619ab56dbae5b197`；report `f05f2fd…`；claim `b1a37e60…`；this native Windows host only |
 | FP2 attempt 1 result | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-r1-result.json`；SHA-256 `bd91dff1a324cfdd3e6241aa5a61a59e0b64597e8ca173ff8d6a64374d309a24`；immutable Inconclusive |
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |
