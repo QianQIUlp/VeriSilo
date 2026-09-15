@@ -1,0 +1,138 @@
+{
+  "task": "Commercial User Journey QA",
+  "date": "2026-09-15",
+  "baseline": "cefe9dd062363f8f1682bb8c5fb868525634e18f",
+  "baselineRef": "origin/baseline/dev",
+  "qaBranch": "agent/qa/commercial-user-journey-4b3cef",
+  "runtime": {
+    "mode": "tauri-dev",
+    "port": 15716,
+    "vault": "qa-commercial-user-journe-4b3cef",
+    "browser": "chrome",
+    "fixture": "tests/fixtures/session-site/server.mjs",
+    "fixturePort": 4173
+  },
+  "rc4Build": {
+    "releaseVersion": "v0.1.0-rc4",
+    "sourceRevision": "cefe9dd062363f8f1682bb8c5fb868525634e18f",
+    "sourceDirty": false,
+    "enginePackage": {
+      "path": "artifacts/build/managed-browser/rc4-engine-package-input",
+      "schemaVersion": 3,
+      "engineVersion": "152.0.4-beta.28",
+      "engineRevision": "verisilo-camoufox-152.0.4-beta.28-r1-formal-v3",
+      "memberCount": 1388,
+      "browserFileCount": 503,
+      "packageTreeSha256": "062c1b58cff8b4ac874b0607cab183aaa1004da0724f62f284c11c9cd19c056a",
+      "browserTreeSha256": "d77002d0f872a1ca57675d9b3bc2f9d88769e406d2d082cd94b07d78c9f075e6",
+      "hostSha256": "d670364a46a9a6e5fc8f4f636b13e08cfb100be80eee7b3c4be399a9ee254e5d",
+      "signed": true,
+      "signerPinSha256": "57f3b44cf572571e8b133c6b605b061e0d1c4d9dd75a490b14f658c292bebd93"
+    },
+    "artifactDir": "artifacts/release/managed-browser/v0.1.0-rc4",
+    "installer": "VeriSilo-Managed-Browser-v0.1.0-rc4-x64-setup.exe",
+    "installerSha256": "1f3155090d1280637b5f310657dbdd08a384636e72530d13e7028e3822f26b16",
+    "outerAuthenticode": "unsigned",
+    "buildVerified": true,
+    "verifierResult": "Managed-browser release verification passed for 1404 files.",
+    "provenance": "1402 payload files / 1403 SHA-256 entries verified",
+    "selfTests": ["package builder", "release verifier", "orchestrator"],
+    "postBuildCheck": "passed (-Check re-verification)"
+  },
+  "journeys": {
+    "A_vault_daily_use": {
+      "status": "PASS",
+      "evidence": ["A1-initialized-unlocked.png", "A2-locked.png", "A3-wrong-password-error.png", "A4-reunlocked.png", "A5-restart-unlocked.png"],
+      "checks": ["wrong password rejected", "correct unlock", "lock protects contents", "restart and unlock preserve Vault"]
+    },
+    "B_standard_silo_persistence_isolation": {
+      "status": "PARTIAL",
+      "standardA": {"id": "f168c7c5-0804-4dfb-967e-cdb8b0323597", "profilePathVerified": true},
+      "standardB": {"id": "af4837e0-c437-47a8-bc5f-e7a0550e0332", "profilePathVerified": true},
+      "chromeMarkerChecks": "NOT_VERIFIED",
+      "boundary": "Chrome control extension unavailable; stock Chrome rejected product page actions; no shell/Playwright substitution"
+    },
+    "C_silo_lifecycle": {
+      "status": "PARTIAL",
+      "desktopCloseWithActiveStandardBrowser": "VERIFIED",
+      "standardRestart": "VERIFIED",
+      "manualBrowserClose": "NOT_VERIFIED",
+      "orphanCheckAtCheckpoints": "PASS"
+    },
+    "D_silo_crud_navigation": {
+      "status": "PASS_WITH_LIMITATION",
+      "uiCreateSelectEditRenameArchive": "PASS",
+      "uiPermanentDelete": "FAILED_GENERIC_ERROR",
+      "productCliDeleteAfterRestore": "PASS",
+      "disposableRemoved": true,
+      "disposableSiloId": "79c6e6f4-c9fc-4917-8b3b-9ec6563ad742"
+    },
+    "E_managed_silo_entry": {
+      "status": "BLOCKER",
+      "siloId": "d96c1538-d430-49c6-9420-8492608d3825",
+      "adapter": "camoufox",
+      "profileDirectoryVerified": true,
+      "artifactMaterialized": true,
+      "artifactSchema": "verisilo-camoufox-resolved-identity/v5",
+      "artifactPolicyFontMode": "inherit",
+      "expectedProductionFontMode": "managed",
+      "artifactRelativePath": "silos/d96c1538-d430-49c6-9420-8492608d3825/identity/identity-5b28e289ee4d3a825bc46eee.json",
+      "oneManagedLaunchAttempt": "FAILED_KNOWN_NATIVE_HOST_ENVIRONMENT",
+      "recoveryUi": "PASS",
+      "directEvidence": "materialized Artifact safe-field inspection plus current preset source and RC4 host hash match"
+    },
+    "F_create_new_identity": {
+      "status": "NOT_RUN_AFTER_BLOCKER"
+    },
+    "G_network_policy_ux": {
+      "status": "CARRIED_FORWARD_FROM_FP3",
+      "deterministicProxyFixtureFound": false,
+      "newProxyInfrastructureCreated": false
+    },
+    "H_report_evidence_ux": {
+      "status": "NOT_RUN_AFTER_BLOCKER",
+      "existingLocalReportEvidence": "CARRIED_FORWARD"
+    },
+    "essential_ux_1280_800_and_normal": {
+      "status": "PARTIAL_BEFORE_BLOCKER",
+      "tauriPrimaryUiAndErrorReadability": "OBSERVED",
+      "escapeOverlayOrAutocomplete": "VERIFIED",
+      "fullCompactViewportAndTabEnter": "NOT_RUN_AFTER_BLOCKER"
+    },
+    "process_cleanup": {
+      "status": "PASS",
+      "userChromeTouched": false,
+      "devAndFixtureStopped": true,
+      "qaVaultRemoved": true,
+      "defaultVaultStillExists": true,
+      "qaBrowserProcessesRemaining": false
+    }
+  },
+  "blockers": [
+    {
+      "id": "E-MANAGED-FONT-MODE",
+      "severity": "blocker",
+      "journey": "E",
+      "reproduction": "Desktop UI Managed / balanced-zh-cn creation in real Tauri dev created a camoufox Silo and materialized Artifact whose policy.fontMode was inherit.",
+      "userImpact": "Managed production Silo does not deliver the declared managed font policy, so RC4 acceptance would be a false claim.",
+      "owningLayer": "Managed Camoufox host/package Artifact provisioning seam",
+      "directEvidence": {
+        "siloId": "d96c1538-d430-49c6-9420-8492608d3825",
+        "artifactSchema": "verisilo-camoufox-resolved-identity/v5",
+        "artifactPolicyFontMode": "inherit",
+        "expectedCurrentPresetFontMode": "managed",
+        "rc4HostSha256": "d670364a46a9a6e5fc8f4f636b13e08cfb100be80eee7b3c4be399a9ee254e5d",
+        "sourceReference": "apps/camoufox-host/provision_artifact.py:99-104"
+      },
+      "qaAction": "STOPPED_AFTER_CONFIRMATION; NO_PRODUCT_SOURCE_MODIFIED"
+    }
+  ],
+  "backlog": [
+    {"id": "D-ARCHIVED-DELETE-UI", "summary": "Archived-space UI permanent delete returned a generic error; CLI deletion after restore completed cleanup."},
+    {"id": "B-CHROME-MARKERS", "summary": "Chrome connector unavailable, so Standard cookie/localStorage markers were not verified."},
+    {"id": "NATIVE-HOST-26200", "summary": "Known Build 26200 / 0xc06d007e native Camoufox environment failure; Sandbox success is carried forward."},
+    {"id": "OUTER-AUTHENTICODE", "summary": "RC4 installer outer Authenticode is unsigned."},
+    {"id": "STANDARD-USER-LIFECYCLE", "summary": "Strict standard-user lifecycle remains unproven."}
+  ],
+  "finalVerdict": "COMMERCIAL_USER_JOURNEY_PRODUCT_BLOCKER_CONFIRMED"
+}
