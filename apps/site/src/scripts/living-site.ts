@@ -214,5 +214,5 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "verisilo-demo-exit") setExpanded(false);
 });
 // Covers a cached iframe finishing before this module was evaluated.
-if (frame.contentDocument?.querySelector(".public-demo-bar"))
+if (frame.contentDocument?.querySelector(".spatial-shell"))
   portal.classList.add("is-ready");

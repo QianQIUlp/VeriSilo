@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { useDesktopWorkspace } from "./workspace/useDesktopWorkspace.js";
 
@@ -51,7 +57,7 @@ import { CliPanel } from "./features/cli/CliPanel.js";
 
 import { EnvironmentWorkspace } from "./features/environments/EnvironmentWorkspace.js";
 
-export function App() {
+export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
   const {
     creation,
     startIdentityFromSilo,
@@ -262,6 +268,7 @@ export function App() {
               检查身份
             </button>
           )}
+          {headerActions}
         </div>
       </header>
 
