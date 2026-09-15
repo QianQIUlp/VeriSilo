@@ -1,79 +1,396 @@
+/* The website frame has one application header and one bounded workspace. */
 html,
 body,
 #demo-root {
   width: 100%;
   height: 100%;
   margin: 0;
-}
-#demo-root {
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
-.public-demo-bar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 40px;
-  padding: 7px 18px;
-  background: #202b4c;
-  color: #fff;
-  font-size: 10px;
-}
-.public-demo-bar > div {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.public-demo-bar strong {
-  white-space: nowrap;
-  font-size: 11px;
-}
-.public-demo-bar span {
-  color: #d5dced;
-}
-.public-demo-controls button,
-.public-demo-controls select {
-  width: auto;
-  min-height: 26px;
-  padding: 3px 8px;
-  border: 1px solid #6e7d9f;
-  background: #202b4c;
-  color: #fff;
-  border-radius: 7px;
-  font-size: 10px;
-}
-.public-demo-controls select option {
-  background: #202b4c;
-}
 #demo-root .spatial-shell {
-  flex: 1;
+  height: 100%;
   min-height: 0;
+}
+#demo-root .topbar {
+  min-height: 68px;
+  padding: 10px 24px;
+  gap: 12px;
+}
+#demo-root .brand-mark {
+  width: 40px;
+  height: 40px;
+}
+#demo-root .shell-caption {
+  display: none;
+}
+#demo-root .motion-control select {
+  min-width: 148px;
+}
+#demo-root .living-workspace {
+  display: flex;
+  flex-direction: column;
+  padding: 18px 30px 6px;
+  container-type: size;
+}
+#demo-root .living-workspace > .notice {
+  flex: none;
+}
+#demo-root .route-stage {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+/* Each view owns a single scroll surface. Long forms remain fully reachable. */
+#demo-root .route-stage[data-screen="edit"],
+#demo-root .route-stage[data-screen="cli"],
+#demo-root .is-locked .route-stage {
+  overflow: auto;
+}
+#demo-root .route-content,
+#demo-root .creation-space {
+  min-height: 0;
+  height: 100%;
+}
+#demo-root .creation-space,
+#demo-root .creation-space:has(.composer-definition:not([hidden])) {
+  grid-template-columns: minmax(190px, 0.45fr) minmax(0, 1fr);
+  gap: 28px;
+}
+#demo-root .creation-preview {
+  padding: 0 12px 0 0;
+}
+#demo-root .creation-preview > .eyebrow {
+  margin-top: 20px;
+}
+#demo-root .creation-orbit {
+  width: min(100%, 36cqh, 260px);
+  margin: auto 0 16px;
+}
+#demo-root .creation-preview h2 {
+  font-size: clamp(24px, 3vw, 38px);
+}
+#demo-root .creation-preview p {
+  font-size: 12px;
+}
+#demo-root .creation-form {
+  padding: 0 12px 8px 0;
+}
+#demo-root .creation-form .create-hero {
+  padding: 0 0 8px;
+  margin-bottom: 12px;
+}
+#demo-root .creation-form .create-hero > p:last-child {
+  margin-bottom: 0;
+  font-size: 12px;
+}
+#demo-root .creation-form .create-hero h1 {
+  margin: 8px 0;
+}
+#demo-root .creation-form .create-hero .eyebrow {
+  margin-top: 0;
+}
+#demo-root .creation-form .browser-mode-panel {
+  padding: 16px;
+  margin-top: 12px;
+}
+#demo-root .creation-form .browser-mode-card {
+  padding: 16px;
+  min-height: 136px;
+}
+#demo-root .composer-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 4px 8px;
+  gap: 8px;
+}
+#demo-root .composer-next span {
+  order: -1;
+  flex: 1;
+}
+#demo-root .creation-form .step-heading {
+  margin-bottom: 16px;
+}
+#demo-root .spatial-shell > .tabbar {
+  min-height: 60px;
+  margin: 8px 0 10px;
+}
+#demo-root .spatial-shell .tab {
+  min-height: 44px;
+  padding-block: 8px;
+}
+#demo-root .world-coordinate {
+  display: none;
+}
+
+/* Instruments respond to the workspace height, not just the browser width. */
+#demo-root .living-heading h1 {
+  font-size: clamp(24px, 5.5cqh, 34px);
+}
+#demo-root .vault-object-stage {
+  min-height: 0;
+}
+#demo-root .vault-core {
+  width: clamp(230px, 57cqh, 360px);
+}
+#demo-root .vault-core .instrument-object {
+  height: clamp(170px, 48cqh, 290px);
+}
+#demo-root .vault-action {
+  padding: 16px 18px;
+}
+#demo-root .vault-action strong {
+  font-size: 15px;
+}
+#demo-root .vault-action-key {
+  left: 5%;
+  top: 9%;
+}
+#demo-root .vault-action-backup {
+  right: 3%;
+  top: 20%;
+}
+#demo-root .vault-action-restore {
+  left: 13%;
+  bottom: 3%;
+}
+#demo-root .vault-pull-hint {
+  margin-top: 12px;
+}
+#demo-root .chamber-boundary,
+#demo-root .map-boundary {
+  margin: 10px 0 2px;
+}
+#demo-root .location-observatory:not(.location-open) {
+  height: 100%;
+  min-height: 0;
+}
+#demo-root .location-map {
+  min-height: 0;
+}
+#demo-root .map-place .instrument-object {
+  height: min(38cqh, 240px);
+  width: min(42cqh, 270px);
+}
+#demo-root .map-place strong {
+  font-size: 22px;
+}
+#demo-root .location-open .location-map {
+  flex: none;
+  height: 86px;
+  margin: 12px 0;
+}
+#demo-root .location-open .map-place {
+  height: 84px;
+}
+#demo-root .location-open .map-place .instrument-object {
+  width: 90px;
+  height: 80px;
+}
+#demo-root .location-open .map-place strong {
+  font-size: 15px;
+}
+#demo-root .location-console-body {
+  padding: 20px;
+}
+#demo-root .command-studio {
+  min-height: 100%;
   height: auto;
 }
-/* The public frame includes two extra toolbars above the desktop workspace. */
-@media (max-height: 740px) {
+#demo-root .command-studio .living-heading > p:last-child {
+  margin-bottom: 0;
+}
+#demo-root .command-cockpit {
+  min-height: 0;
+  padding-block: 6px;
+}
+#demo-root .command-emitter .instrument-object {
+  width: min(36cqh, 250px);
+  height: min(34cqh, 240px);
+}
+#demo-root .command-phases {
+  margin-top: 8px;
+}
+#demo-root .command-phases button {
+  padding-block: 8px;
+}
+#demo-root .command-deck {
+  padding: 12px 20px;
+}
+#demo-root .command-output pre {
+  padding: 12px 16px;
+}
+#demo-root .command-output h2 {
+  margin: 8px 0 12px;
+}
+#demo-root .command-output p {
+  margin-block: 8px;
+}
+#demo-root .command-output > small {
+  margin-top: 6px;
+}
+#demo-root .command-picks {
+  margin-block: 6px;
+}
+#demo-root .command-connection {
+  padding: 8px 0 0;
+}
+#demo-root .workbench-layout {
+  margin-top: 18px;
+  gap: 24px;
+}
+#demo-root .tool-selector {
+  gap: 8px;
+  padding-top: 0;
+}
+#demo-root .tool-selector button {
+  padding: 14px 24px 14px 14px;
+}
+#demo-root .workbench-surface {
+  padding: 20px;
+}
+#demo-root .workbench-surface .status-card {
+  min-height: 130px;
+  padding: 18px;
+}
+
+/* Native scrolling stays available without nested, oversized platform rails. */
+#demo-root * {
+  scrollbar-width: thin;
+  scrollbar-color: #a8b6ce transparent;
+}
+#demo-root ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+#demo-root ::-webkit-scrollbar-track {
+  background: transparent;
+}
+#demo-root ::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: #a8b6ce;
+}
+#demo-root ::-webkit-scrollbar-button {
+  display: none;
+}
+
+.public-demo-options {
+  position: relative;
+  z-index: 20;
+}
+.public-demo-options > summary {
+  display: grid;
+  place-items: center;
+  list-style: none;
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  font-size: 20px;
+}
+.public-demo-options > summary::-webkit-details-marker {
+  display: none;
+}
+.public-demo-options > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.public-demo-controls {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  width: 270px;
+  padding: 18px;
+  display: grid;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 16px 48px #24335620;
+}
+.public-demo-controls label {
+  font-size: 12px;
+}
+.public-demo-controls select,
+.public-demo-controls button {
+  width: 100%;
+  font-size: 12px;
+  min-height: 36px;
+}
+.public-demo-controls p {
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin: 3px 0 0;
+}
+
+@container (max-height: 520px) {
   #demo-root .scene-copy {
-    align-self: start;
-    padding-top: 14px;
     padding-bottom: 0;
   }
   #demo-root .scene-copy h2 {
-    margin: 12px 0;
     font-size: 28px;
+    margin-block: 10px;
   }
   #demo-root .scene-copy h2.long-name {
     font-size: 22px;
   }
   #demo-root .scene-copy .scene-boundary {
-    margin-top: 8px;
+    margin-top: 10px;
     font-size: 10px;
+  }
+  #demo-root .identity-focus {
+    width: min(29vw, 60cqh, 330px);
+  }
+  #demo-root .lens-open .scene-field {
+    min-height: 0;
+  }
+  #demo-root .creation-preview > .eyebrow {
+    margin-top: 14px;
+  }
+  #demo-root .creation-preview p {
+    margin-block: 8px;
   }
 }
 @media (max-width: 1000px) {
-  .public-demo-bar span {
+  #demo-root .topbar {
+    padding-inline: 18px;
+  }
+  #demo-root .topbar-status {
+    gap: 7px;
+  }
+  #demo-root .local-pill,
+  #demo-root .motion-control > span {
     display: none;
+  }
+  #demo-root .living-workspace {
+    padding-inline: 22px;
+  }
+  #demo-root .creation-space,
+  #demo-root .creation-space:has(.composer-definition:not([hidden])) {
+    gap: 18px;
+  }
+  #demo-root .vault-action {
+    width: 175px;
+    padding: 14px;
+  }
+}
+@media (max-width: 700px) {
+  #demo-root .topbar {
+    padding: 10px 14px;
+  }
+  #demo-root .brand span,
+  #demo-root .motion-control {
+    display: none;
+  }
+  #demo-root .brand strong {
+    font-size: 20px;
+  }
+  #demo-root .topbar-status {
+    margin-left: auto;
   }
 }

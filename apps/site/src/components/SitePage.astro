@@ -160,22 +160,15 @@ const demoHref = `${locale === "zh" ? "/demo/" : "/demo/en/"}?scene=matched`;
         </div>
         <div class="portal-berth">
           <div class="portal-window" id="portal-window">
-            <div class="portal-toolbar">
-              <span class="portal-name"
-                ><BrandMark /><strong>VeriSilo</strong><span
-                  >{c.demo.badge}</span
-                ></span
-              >
-              <button
-                id="demo-expand"
-                type="button"
-                aria-expanded="false"
-                aria-controls="demo-frame"
-                data-open-label={c.demo.expand}
-                data-close-label={c.demo.close}
-                >{c.demo.expand}<span aria-hidden="true">↗</span></button
-              >
-            </div>
+            <button
+              id="demo-expand"
+              type="button"
+              aria-expanded="false"
+              aria-controls="demo-frame"
+              data-open-label={c.demo.expand}
+              data-close-label={c.demo.close}
+              >{c.demo.expand}<span aria-hidden="true">↗</span></button
+            >
             <div class="portal-canvas">
               <div class="demo-loading" role="status">
                 <IdentityContour /><span>{c.demo.loading}</span><a
@@ -193,10 +186,8 @@ const demoHref = `${locale === "zh" ? "/demo/" : "/demo/en/"}?scene=matched`;
                 allow="clipboard-write 'self'"></iframe>
             </div>
             <div class="portal-caption">
-              <span>{c.demo.note}</span><a
-                href={demoHref}
-                target="_blank"
-                rel="noreferrer"
+              <span>{c.demo.note}</span>
+              <a href={demoHref} target="_blank" rel="noreferrer"
                 >{c.demo.fallback}<span aria-hidden="true">↗</span></a
               >
             </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "../App.js";
 import { desktopApi } from "../desktop-api.js";
@@ -24,46 +24,63 @@ installPreviewApi(scene);
 
 function PublicDemo() {
   const [generation, setGeneration] = useState(0);
+  const controls = useRef<HTMLDetailsElement>(null);
   return (
-    <>
-      <aside className="public-demo-bar" aria-label="官网交互演示">
-        <div>
-          <strong>交互演示</strong>
-          <span>身份与证据均为模拟 · 请勿输入真实口令或代理凭据</span>
-        </div>
-        <div className="public-demo-controls">
-          <select
-            aria-label="演示场景"
-            value={scene}
-            onChange={(event) =>
-              location.assign(
-                `${location.pathname}?scene=${event.target.value}`,
-              )
+    <App
+      key={generation}
+      headerActions={
+        <details
+          className="public-demo-options"
+          ref={controls}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              event.preventDefault();
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector("summary")?.focus();
             }
-          >
-            {Object.entries(scenes).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => {
-              void desktopApi
-                .unlockVault("verisilo-demo")
-                .then(() => setGeneration((value) => value + 1));
-            }}
-            type="button"
-          >
-            解锁演示
-          </button>
-          <button onClick={() => location.reload()} type="button">
-            重置
-          </button>
-        </div>
-      </aside>
-      <App key={generation} />
-    </>
+          }}
+        >
+          <summary aria-label="预览选项" title="预览选项">
+            ···
+          </summary>
+          <div className="public-demo-controls">
+            <label htmlFor="public-scene">场景</label>
+            <select
+              id="public-scene"
+              aria-label="演示场景"
+              value={scene}
+              onChange={(event) =>
+                location.assign(
+                  `${location.pathname}?scene=${event.target.value}`,
+                )
+              }
+            >
+              {Object.entries(scenes).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                void desktopApi.unlockVault("verisilo-demo").then(() => {
+                  if (controls.current) controls.current.open = false;
+                  setGeneration((value) => value + 1);
+                });
+              }}
+              type="button"
+            >
+              解锁演示
+            </button>
+            <button onClick={() => location.reload()} type="button">
+              重置
+            </button>
+            <p>身份与证据均为模拟 · 请勿输入真实口令或代理凭据</p>
+          </div>
+        </details>
+      }
+    />
   );
 }
 
