@@ -211,7 +211,7 @@ body,
   height: min(34cqh, 240px);
 }
 #demo-root .command-phases {
-  margin-top: 8px;
+  margin: 6px 0 0;
 }
 #demo-root .command-phases button {
   padding-block: 8px;
@@ -223,7 +223,7 @@ body,
   padding: 12px 16px;
 }
 #demo-root .command-output h2 {
-  margin: 8px 0 12px;
+  margin: 6px 0 8px;
 }
 #demo-root .command-output p {
   margin-block: 8px;
@@ -232,7 +232,7 @@ body,
   margin-top: 6px;
 }
 #demo-root .command-picks {
-  margin-block: 6px;
+  margin-block: 4px;
 }
 #demo-root .command-connection {
   padding: 8px 0 0;
