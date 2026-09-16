@@ -101,6 +101,23 @@ FORMAL_V3_CLAIMS = {
     "runtimeVerified": False,
     "windowsRuntimeObserved": False,
 }
+# These are the local Python modules that form the frozen Host runtime import
+# seam.  A one-folder Host may only be reused when its receipt proves that
+# these exact source bytes produced it.
+HOST_SOURCE_PROVENANCE_SCHEMA = "verisilo-camoufox-host-source/v1"
+HOST_SOURCE_PROVENANCE_NAME = "verisilo-host-source-provenance.json"
+HOST_SOURCE_FILES = (
+    "apps/camoufox-host/browser_asset.py",
+    "apps/camoufox-host/browser_tree.py",
+    "apps/camoufox-host/host_fonts.py",
+    "apps/camoufox-host/host_platform.py",
+    "apps/camoufox-host/host_probe.py",
+    "apps/camoufox-host/host_runtime.py",
+    "apps/camoufox-host/host_v1.py",
+    "apps/camoufox-host/identity_policy.py",
+    "apps/camoufox-host/package_contract.py",
+    "apps/camoufox-host/provision_artifact.py",
+)
 CAPABILITIES = [
     "identity_template",
     "ua_ua_ch",
@@ -119,6 +136,91 @@ CAPABILITIES = [
 
 def _fail(message: str) -> None:
     raise PackageContractError(message)
+
+
+def _current_source_revision() -> str:
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    revision = result.stdout.strip()
+    if (
+        result.returncode != 0
+        or len(revision) != 40
+        or any(character not in "0123456789abcdef" for character in revision)
+    ):
+        _fail("cannot bind the Host package to the current Git source revision")
+    return revision
+
+
+def _host_source_provenance(host_source: Path) -> dict[str, Any]:
+    if host_source.is_symlink() or not host_source.is_file():
+        _fail(f"Host source must be a regular file: {host_source}")
+    source = host_source.resolve()
+    if not source.is_file():
+        _fail(f"Host source must be a regular file: {host_source}")
+    try:
+        source_relative = source.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        _fail(f"Host source must be inside the repository: {host_source}")
+    source_files: dict[str, str] = {}
+    for relative in HOST_SOURCE_FILES:
+        path = REPO_ROOT / Path(*relative.split("/"))
+        if path.is_symlink() or not path.is_file():
+            _fail(f"Host provenance source file is not regular: {relative}")
+        source_files[relative] = sha256_file(path)
+    return {
+        "schema": HOST_SOURCE_PROVENANCE_SCHEMA,
+        "sourceRevision": _current_source_revision(),
+        "hostSource": {
+            "path": source_relative,
+            "sha256": sha256_file(source),
+        },
+        "sourceFiles": source_files,
+    }
+
+
+def _write_host_source_provenance(host_directory: Path, host_source: Path) -> None:
+    destination = host_directory / HOST_SOURCE_PROVENANCE_NAME
+    if destination.exists() or destination.is_symlink():
+        _fail(f"Host source provenance path already exists: {destination}")
+    _write_json(destination, _host_source_provenance(host_source))
+
+
+def _validate_host_source_provenance(host_directory: Path, host_source: Path) -> None:
+    receipt = host_directory / HOST_SOURCE_PROVENANCE_NAME
+    if receipt.is_symlink() or not receipt.is_file():
+        _fail(
+            "Host one-folder input is missing verifiable source provenance: "
+            f"{HOST_SOURCE_PROVENANCE_NAME}"
+        )
+    try:
+        actual = read_json(receipt, max_bytes=256 * 1024)
+    except (OSError, PackageContractError) as exc:
+        _fail(f"Host source provenance is invalid: {exc}")
+    expected = _host_source_provenance(host_source)
+    if actual != expected:
+        _fail(
+            "Host one-folder source provenance does not match the current "
+            "canonical Host source"
+        )
+
+
+def _validate_smoke_artifact(
+    preset_name: str,
+    artifact: dict[str, Any],
+    expected_font_mode: str,
+) -> None:
+    policy = artifact.get("policy")
+    if type(policy) is not dict or policy.get("fontMode") != expected_font_mode:
+        actual = policy.get("fontMode") if type(policy) is dict else None
+        _fail(
+            f"packaged Host semantic smoke failed for {preset_name}: "
+            f"policy.fontMode={actual!r}, expected {expected_font_mode!r}"
+        )
 
 
 def _read_formal_json(path: Path) -> dict[str, Any]:
@@ -424,67 +526,102 @@ def _smoke_packaged_host(layout: PackageLayout, temporary: Path) -> None:
     ):
         _fail("packaged Host hello binding is not exact")
 
+    from provision_artifact import PROVISION_PRESETS
+
+    smoke_presets = tuple(
+        name
+        for name, preset in PROVISION_PRESETS.items()
+        if preset.get("network") == "direct"
+    )
+    if not smoke_presets:
+        _fail("packaged Host semantic smoke has no direct production presets")
     seed = bytes(range(32))
-    request = compact_json_bytes(
-        {
-            "seed": base64.b64encode(seed).decode("ascii"),
-            "preset": "balanced-en-us",
-        }
-    )
-    provision = subprocess.run(
-        [*arguments, "--provision-artifact"],
-        input=len(request).to_bytes(4, "big") + request,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=120,
-        check=False,
-    )
-    if provision.returncode != 0 or len(provision.stdout) < 5:
-        detail = provision.stderr.decode("utf-8", errors="replace").strip()[-2000:]
-        if len(provision.stdout) >= 5:
-            size = int.from_bytes(provision.stdout[:4], "big")
-            if size == len(provision.stdout) - 4:
-                rejected = strict_json_loads(
-                    provision.stdout[4:], "rejected packaged Host provisioning"
-                )
-                error = rejected.get("error") if type(rejected) is dict else None
-                if type(error) is dict:
-                    detail = f"{error.get('code')}: {error.get('message')}"
-        _fail(
-            f"packaged Host Artifact provisioning failed (exit {provision.returncode}): {detail}"
+    for preset_name in smoke_presets:
+        request = compact_json_bytes(
+            {
+                "seed": base64.b64encode(seed).decode("ascii"),
+                "preset": preset_name,
+            }
         )
-    response_size = int.from_bytes(provision.stdout[:4], "big")
-    if response_size != len(provision.stdout) - 4 or response_size > 8 * 1024:
-        _fail("packaged Host Artifact provisioning response is malformed")
-    response = strict_json_loads(provision.stdout[4:], "packaged Host provisioning")
-    result = response.get("result") if type(response) is dict else None
-    if type(response) is not dict or response.get("ok") is not True or type(result) is not dict:
-        _fail("packaged Host Artifact provisioning was rejected")
-    artifact_id = result.get("artifactId")
-    artifact_sha256 = result.get("artifactFileSha256")
-    artifact_suffix = artifact_id.removeprefix("identity-") if type(artifact_id) is str else ""
-    if (
-        type(artifact_id) is not str
-        or not artifact_id.startswith("identity-")
-        or not artifact_suffix
-        or len(artifact_suffix) > 64
-        or not artifact_suffix[0].isalnum()
-        or not all(character.isascii() and (character.islower() or character.isdigit() or character == "-") for character in artifact_suffix)
-        or result.get("schema") != "verisilo-camoufox-resolved-identity/v5"
-        or type(artifact_sha256) is not str
-        or len(artifact_sha256) != 64
-        or not all(character in "0123456789abcdef" for character in artifact_sha256)
-    ):
-        _fail("packaged Host Artifact binding is invalid")
-    artifact = artifact_root / f"{artifact_id}.json"
-    sidecar = artifact.with_name(f"{artifact.name}.sha256")
-    if (
-        not artifact.is_file()
-        or sha256_file(artifact) != artifact_sha256
-        or not sidecar.is_file()
-        or sidecar.read_bytes() != f"{artifact_sha256}  {artifact.name}\n".encode("ascii")
-    ):
-        _fail("packaged Host Artifact bytes or sidecar do not match")
+        provision = subprocess.run(
+            [*arguments, "--provision-artifact"],
+            input=len(request).to_bytes(4, "big") + request,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=120,
+            check=False,
+        )
+        if provision.returncode != 0 or len(provision.stdout) < 5:
+            detail = provision.stderr.decode("utf-8", errors="replace").strip()[-2000:]
+            if len(provision.stdout) >= 5:
+                size = int.from_bytes(provision.stdout[:4], "big")
+                if size == len(provision.stdout) - 4:
+                    rejected = strict_json_loads(
+                        provision.stdout[4:],
+                        f"rejected packaged Host provisioning for {preset_name}",
+                    )
+                    error = rejected.get("error") if type(rejected) is dict else None
+                    if type(error) is dict:
+                        detail = f"{error.get('code')}: {error.get('message')}"
+            _fail(
+                f"packaged Host Artifact provisioning failed for {preset_name} "
+                f"(exit {provision.returncode}): {detail}"
+            )
+        response_size = int.from_bytes(provision.stdout[:4], "big")
+        if response_size != len(provision.stdout) - 4 or response_size > 8 * 1024:
+            _fail(f"packaged Host {preset_name} provisioning response is malformed")
+        response = strict_json_loads(
+            provision.stdout[4:], f"packaged Host provisioning for {preset_name}"
+        )
+        result = response.get("result") if type(response) is dict else None
+        if (
+            type(response) is not dict
+            or response.get("ok") is not True
+            or type(result) is not dict
+        ):
+            _fail(f"packaged Host Artifact provisioning was rejected for {preset_name}")
+        artifact_id = result.get("artifactId")
+        artifact_sha256 = result.get("artifactFileSha256")
+        artifact_suffix = (
+            artifact_id.removeprefix("identity-") if type(artifact_id) is str else ""
+        )
+        if (
+            type(artifact_id) is not str
+            or not artifact_id.startswith("identity-")
+            or not artifact_suffix
+            or len(artifact_suffix) > 64
+            or not artifact_suffix[0].isalnum()
+            or not all(
+                character.isascii()
+                and (character.islower() or character.isdigit() or character == "-")
+                for character in artifact_suffix
+            )
+            or result.get("schema") != "verisilo-camoufox-resolved-identity/v5"
+            or type(artifact_sha256) is not str
+            or len(artifact_sha256) != 64
+            or not all(character in "0123456789abcdef" for character in artifact_sha256)
+        ):
+            _fail(f"packaged Host {preset_name} Artifact binding is invalid")
+        artifact = artifact_root / f"{artifact_id}.json"
+        sidecar = artifact.with_name(f"{artifact.name}.sha256")
+        if (
+            not artifact.is_file()
+            or sha256_file(artifact) != artifact_sha256
+            or not sidecar.is_file()
+            or sidecar.read_bytes()
+            != f"{artifact_sha256}  {artifact.name}\n".encode("ascii")
+        ):
+            _fail(f"packaged Host {preset_name} Artifact bytes or sidecar do not match")
+        artifact_value = strict_json_loads(
+            artifact.read_bytes(), f"packaged Host {preset_name} Artifact"
+        )
+        if type(artifact_value) is not dict:
+            _fail(f"packaged Host {preset_name} Artifact is not a JSON object")
+        _validate_smoke_artifact(
+            preset_name,
+            artifact_value,
+            PROVISION_PRESETS[preset_name]["fontMode"],
+        )
 
 
 def _stage(
@@ -522,13 +659,16 @@ def _stage(
         if host_directory is not None:
             if not host_directory.is_dir() or host_directory.is_symlink():
                 _fail("Host one-folder input must be a real directory")
+            _validate_host_source_provenance(host_directory, host_source)
             shutil.copytree(host_directory, layout.host.parent, symlinks=True)
         else:
             host_executable = _build_pyinstaller(host_source, python, Path(temporary) / "pyinstaller")
+            _write_host_source_provenance(host_executable.parent, host_source)
             # PyInstaller one-folder output has DLLs beside the executable.
             shutil.copytree(host_executable.parent, layout.host.parent, symlinks=True)
         if layout.host.is_symlink() or not layout.host.is_file():
             _fail("staged Host one-folder output is missing camoufox-host.exe")
+        _validate_host_source_provenance(layout.host.parent, host_source)
         _copy_regular(supervisor, layout.supervisor)
         _copy_regular(probe, layout.probe)
         # Preserve the accepted Formal-v3 tree bytes and their raw digest;
@@ -730,6 +870,9 @@ def main() -> int:
             manifest = _read_formal_json(root / PACKAGE_MANIFEST_NAME)
             validate_v3_manifest(manifest, allow_unsigned=not args.require_signed)
             result = recheck_formal_package(root, manifest)
+            _validate_host_source_provenance(
+                root / "host", args.host_source.absolute()
+            )
             result["signed"] = bool(manifest["signature"]["value"])
             print(json.dumps(result, sort_keys=True))
             return 0

@@ -124,6 +124,11 @@ def main() -> int:
         "balanced-de-de",
         "match-fixed-proxy",
     }
+    direct_presets = tuple(
+        name for name, preset in PROVISION_PRESETS.items() if preset["network"] == "direct"
+    )
+    assert direct_presets == ("balanced-en-us", "balanced-zh-cn", "balanced-de-de")
+    assert all(preset["fontMode"] == "managed" for preset in PROVISION_PRESETS.values())
     layout = PackageLayout.from_root("package")
     assert layout.asset_lock.name == "runtime-asset-lock.json"
     assert layout.supervisor.as_posix().endswith("host/verisilo-camoufox-supervisor.exe")
@@ -321,6 +326,45 @@ def main() -> int:
     )
     builder = importlib.util.module_from_spec(builder_spec)
     builder_spec.loader.exec_module(builder)
+
+    # A reused PyInstaller directory must carry a source receipt matching the
+    # current runtime import seam; an unknown/stale directory is rejected.
+    host_source = repo_root / "apps" / "camoufox-host" / "host_v1.py"
+    with tempfile.TemporaryDirectory(prefix="verisilo-host-provenance-") as temporary:
+        host_directory = Path(temporary) / "host"
+        host_directory.mkdir()
+        builder._write_host_source_provenance(host_directory, host_source)
+        builder._validate_host_source_provenance(host_directory, host_source)
+        receipt_path = host_directory / builder.HOST_SOURCE_PROVENANCE_NAME
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["sourceFiles"]["apps/camoufox-host/provision_artifact.py"] = "0" * 64
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+        try:
+            builder._validate_host_source_provenance(host_directory, host_source)
+        except PackageContractError:
+            pass
+        else:
+            raise AssertionError("stale Host source provenance was accepted")
+
+    with tempfile.TemporaryDirectory(prefix="verisilo-host-provenance-missing-") as temporary:
+        try:
+            builder._validate_host_source_provenance(Path(temporary), host_source)
+        except PackageContractError:
+            pass
+        else:
+            raise AssertionError("Host directory without source provenance was accepted")
+
+    builder._validate_smoke_artifact(
+        "balanced-zh-cn", {"policy": {"fontMode": "managed"}}, "managed"
+    )
+    try:
+        builder._validate_smoke_artifact(
+            "balanced-zh-cn", {"policy": {"fontMode": "inherit"}}, "managed"
+        )
+    except PackageContractError:
+        pass
+    else:
+        raise AssertionError("semantic Host smoke accepted the wrong font mode")
 
     def _dual_boot_record() -> dict:
         return {
