@@ -16,10 +16,27 @@ const desktopMarkPath = resolve(desktopPublicDirectory, "verisilo-mark.svg");
 const tauriIconDirectory = resolve(root, "apps/desktop/src-tauri/icons");
 const icoPath = resolve(tauriIconDirectory, "icon.ico");
 const pngPath = resolve(tauriIconDirectory, "icon.png");
-// The complete Windows system icon ladder; every DPI shell surface (title
-// bar, taskbar, Explorer views, installer) then finds an exact-size frame
-// instead of rescaling a neighboring one.
-const iconSizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256];
+// Tauri's Windows default-window path decodes only the first ICO entry into a
+// single runtime image. Keep the complete Windows ladder, but put the largest
+// canonical frame first so title bars and trays downsample instead of
+// upscaling the 16px frame; Explorer/taskbar still select exact group frames.
+const iconSizes = [256, 16, 20, 24, 32, 40, 48, 64, 96, 128];
+
+const PNG_SIGNATURE = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+
+function readPngHeader(bytes, label) {
+  if (bytes.length < 26 || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+    throw new Error(`${label} is not a PNG with an IHDR header.`);
+  }
+  return {
+    width: bytes.readUInt32BE(16),
+    height: bytes.readUInt32BE(20),
+    bitDepth: bytes[24],
+    colorType: bytes[25],
+  };
+}
 
 const brandSymbol = await readFile(brandSymbolPath);
 const extensionIcons = await Promise.all(
@@ -30,6 +47,20 @@ const extensionIcons = await Promise.all(
     size,
   })),
 );
+
+for (const { bytes, size } of extensionIcons) {
+  const header = readPngHeader(bytes, `verisilo-${size}.png`);
+  if (
+    header.width !== size ||
+    header.height !== size ||
+    header.bitDepth !== 8 ||
+    header.colorType !== 6
+  ) {
+    throw new Error(
+      `verisilo-${size}.png must be an ${size}x${size} 8-bit RGBA PNG.`,
+    );
+  }
+}
 
 function buildIco(images) {
   const headerSize = 6;
@@ -58,6 +89,42 @@ function buildIco(images) {
   return Buffer.concat([directory, ...images.map(({ bytes }) => bytes)]);
 }
 
+function inspectIco(bytes) {
+  if (
+    bytes.length < 6 ||
+    bytes.readUInt16LE(0) !== 0 ||
+    bytes.readUInt16LE(2) !== 1
+  ) {
+    throw new Error("Desktop icon ICO header is invalid.");
+  }
+  const count = bytes.readUInt16LE(4);
+  if (count !== iconSizes.length) {
+    throw new Error(
+      `Desktop icon ICO must contain ${iconSizes.length} frames; found ${count}.`,
+    );
+  }
+  const frames = iconSizes.map((size, index) => {
+    const offset = 6 + index * 16;
+    const width = bytes[offset] || 256;
+    const height = bytes[offset + 1] || 256;
+    const bytesInRes = bytes.readUInt32LE(offset + 8);
+    const imageOffset = bytes.readUInt32LE(offset + 12);
+    const payload = bytes.subarray(imageOffset, imageOffset + bytesInRes);
+    const expected = extensionIcons.find((icon) => icon.size === size).bytes;
+    if (
+      width !== size ||
+      height !== size ||
+      bytes.readUInt16LE(offset + 4) !== 1 ||
+      bytes.readUInt16LE(offset + 6) !== 32 ||
+      !payload.equals(expected)
+    ) {
+      throw new Error(`Desktop icon ICO frame ${size}px is invalid or stale.`);
+    }
+    return { width, height };
+  });
+  return frames;
+}
+
 const ico = buildIco(extensionIcons);
 const png = extensionIcons.find(({ size }) => size === 256)?.bytes;
 
@@ -84,6 +151,8 @@ if (process.argv.includes("--check")) {
       "Desktop icon assets are missing or stale; run pnpm assets:generate.",
     );
   }
+
+  inspectIco(actualIco);
 
   console.log(
     "Verified desktop SVG, PNG, and multi-size ICO assets match the desktop brand symbol.",
