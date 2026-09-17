@@ -1,9 +1,9 @@
 export type Locale = "en" | "zh";
 export const links = {
   repository: "https://github.com/QianQIUlp/VeriSilo",
-  release: "https://github.com/QianQIUlp/VeriSilo/releases/tag/v0.1.0-rc3",
+  release: "https://github.com/QianQIUlp/VeriSilo/releases/tag/v0.1.0-rc4",
   releaseInstaller:
-    "https://github.com/QianQIUlp/VeriSilo/releases/download/v0.1.0-rc3/VeriSilo-Managed-Browser-v0.1.0-rc3-x64-setup.exe",
+    "https://github.com/QianQIUlp/VeriSilo/releases/download/v0.1.0-rc4/VeriSilo-Managed-Browser-v0.1.0-rc4-x64-setup.exe",
   architecture:
     "https://github.com/QianQIUlp/VeriSilo/blob/main/docs/architecture.md",
   capabilities:
@@ -51,7 +51,7 @@ export const copy = {
       loading: "正在展开你的工作空间…",
       fallback: "独立打开",
       note: "示例数据 · 不连接你的桌面应用",
-      version: "当前开发版界面 · 与 rc3 下载版可能不同",
+      version: "当前开发版界面 · 与公开下载版可能不同",
       mobile:
         "这是完整桌面的缩放视图。展开后可左右滑动操作；建议在电脑上体验。",
       exit: "继续探索 ↓",
@@ -118,7 +118,7 @@ export const copy = {
         },
         {
           title: "下载之前，我需要知道什么？",
-          text: "公开版本为 v0.1.0-rc3，属于 Windows x64 预发布版。安装程序尚未进行 Authenticode 签名，Windows 可能显示未知发布者或 SmartScreen 提示。严格的普通用户安装语义仍未得到证明。请在 Release 页面核对 SHA256、来源信息与已知限制。",
+          text: "公开版本为 v0.1.0-rc4，属于 Windows x64 预发布版。安装程序尚未进行 Authenticode 签名，Windows 可能显示未知发布者或 SmartScreen 提示。严格的普通用户安装语义仍未得到证明。请在 Release 页面核对 SHA256、来源信息与已知限制。",
         },
       ],
       link: "阅读威胁模型",
@@ -128,7 +128,7 @@ export const copy = {
       title: "下一种你。\n从这里开始。",
       body: "先试，再把这个空间留在你的电脑上。",
       action: "下载 Windows 预发布版",
-      version: "v0.1.0-rc3 · Windows x64",
+      version: "v0.1.0-rc4 · Windows x64",
       source: "打开源代码",
       verify: "校验和、来源与已知限制 ↗",
       note: "公开下载版与上方开发版演示可能不同。安装包暂未进行 Windows 发布者签名。",
@@ -177,7 +177,7 @@ export const copy = {
       loading: "Opening your workspace…",
       fallback: "Open separately",
       note: "Sample data · No connection to your desktop app",
-      version: "Development UI · May differ from the rc3 download",
+      version: "Development UI · May differ from the public download",
       mobile:
         "A scaled view of the whole desktop. Expand to pan and interact at full size; best experienced on a computer.",
       exit: "Keep exploring ↓",
@@ -245,7 +245,7 @@ export const copy = {
         },
         {
           title: "What should I know before downloading?",
-          text: "The public version is v0.1.0-rc3, a Windows x64 pre-release. The installer is not Authenticode-signed and may trigger an Unknown publisher or SmartScreen prompt. Strict standard-user installation semantics remain unproven. Check the Release page for SHA256, provenance, and known limits.",
+          text: "The public version is v0.1.0-rc4, a Windows x64 pre-release. The installer is not Authenticode-signed and may trigger an Unknown publisher or SmartScreen prompt. Strict standard-user installation semantics remain unproven. Check the Release page for SHA256, provenance, and known limits.",
         },
       ],
       link: "Read the threat model",
@@ -255,7 +255,7 @@ export const copy = {
       title: "Your next you.\nStarts here.",
       body: "Try the space. Then make it yours, on your computer.",
       action: "Get the Windows pre-release",
-      version: "v0.1.0-rc3 · Windows x64",
+      version: "v0.1.0-rc4 · Windows x64",
       source: "Explore the source",
       verify: "Checksums, provenance & known limits ↗",
       note: "The public download may differ from the development demo above. The installer is not Windows publisher-signed yet.",

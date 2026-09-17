@@ -33,5 +33,5 @@ Deployment remains the existing Cloudflare Pages project and build command.
 In addition to the watch paths in `docs/site-deployment.md`, changes to
 `apps/desktop/src/*`, `apps/desktop/package.json`, and `packages/contracts/*` now
 affect this bundle and should trigger site rebuilds. No desktop production build
-or installer is needed. Public download copy deliberately identifies rc3 while
-the demo is labelled as the current development UI.
+or installer is needed. Public download copy identifies the current public
+prerelease while the demo remains labelled as the current development UI.
