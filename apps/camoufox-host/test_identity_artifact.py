@@ -2714,16 +2714,20 @@ def test_font_universe_sync_with_probe() -> None:
 
 
 def test_interactive_launch_ordering_and_media_readiness() -> None:
-    source = inspect.getsource(host_v1.CamoufoxHost._launch_browser)
-    assert source.index('_active_launch_stage("goto")') < source.index(
-        '_active_launch_stage("observed.media")'
+    source = inspect.getsource(host_v1.CamoufoxHost._observe_website_identity)
+    assert source.index('stages("goto")') < source.index(
+        'stages("observed.media")'
     ), "goto must precede observed.media"
     assert "await page.goto(probe_url" in source
-    assert source.index('_active_launch_stage("observed.media")') < source.index(
-        '_active_launch_stage("observed.identity")'
+    assert source.index('stages("observed.media")') < source.index(
+        'stages("observed.identity")'
     ), "observed.media must precede observed.identity"
     assert "wait_for_configured_media_devices" in source
     assert "requires_media = any(expected_counts.values())" in source
+    launch_source = inspect.getsource(host_v1.CamoufoxHost._launch_browser)
+    assert (
+        "_observe_website_identity(" in launch_source
+    ), "launch must delegate to the shared observation sequence"
 
 
 def test_interactive_launch_media_readiness_error_handling() -> None:
