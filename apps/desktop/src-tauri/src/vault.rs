@@ -1354,6 +1354,43 @@ impl VaultRuntime {
             .ok_or(VaultError::SiloNotFound)
     }
 
+    /// Resolves and verifies the managed profile directory for one Silo
+    /// without walking its contents, so callers can measure storage outside
+    /// the Vault lock: profile trees hold hundreds of thousands of changing
+    /// cache entries.
+    pub fn verified_silo_profile_directory(
+        &mut self,
+        root: &Path,
+        silo_id: Uuid,
+    ) -> Result<PathBuf, VaultError> {
+        let profile_directory = self.silo_profile_directory(silo_id)?;
+        verified_managed_silo_directory(root, silo_id, &profile_directory)
+    }
+
+    /// Verified managed profile directories for every Silo (active and
+    /// archived), snapshotted under the lock so the caller can walk them all
+    /// outside the Vault lock.
+    pub fn verified_silo_profile_directories(
+        &mut self,
+        root: &Path,
+    ) -> Result<Vec<(Uuid, PathBuf)>, VaultError> {
+        let directories = {
+            let unlocked = self.unlocked_without_activity()?;
+            unlocked
+                .data
+                .silos
+                .iter()
+                .map(|silo| (silo.id, PathBuf::from(&silo.profile_directory)))
+                .collect::<Vec<_>>()
+        };
+        let mut verified = Vec::with_capacity(directories.len());
+        for (silo_id, profile_directory) in directories {
+            verified_managed_silo_directory(root, silo_id, &profile_directory)?;
+            verified.push((silo_id, profile_directory));
+        }
+        Ok(verified)
+    }
+
     fn acquire_silo_profile_lease(
         &mut self,
         silo_id: Uuid,
@@ -2789,7 +2826,7 @@ fn browser_paths_match(stored: &str, resolved: &str) -> bool {
     }
 }
 
-fn directory_size_without_links(path: &Path) -> Result<u64, VaultError> {
+pub(crate) fn directory_size_without_links(path: &Path) -> Result<u64, VaultError> {
     let metadata = fs::symlink_metadata(path)?;
     if metadata_is_link_or_reparse(&metadata) {
         return Ok(0);

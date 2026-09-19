@@ -3,8 +3,9 @@ use crate::application::{
 };
 use crate::domain::{
     BrowserCandidate, BrowserVerification, CreateManagedSiloInput, CreateSiloInput,
-    ManagedIdentityPreview, RuntimeActivation, Silo, SiloStorageUsage, UpdateManagedIdentityInput,
-    UpdateSiloEngineInput, UpdateSiloInput, UpdateSiloNetworkInput, VaultStatus,
+    ManagedIdentityPreview, RuntimeActivation, Silo, SiloStorageUsage, SiloStorageUsageSummary,
+    UpdateManagedIdentityInput, UpdateSiloEngineInput, UpdateSiloInput, UpdateSiloNetworkInput,
+    VaultStatus,
 };
 use crate::engine::{EngineAdapterId, EngineMaintenanceReceipt, EnginePackageRequest};
 use crate::environment::backend::{
@@ -274,9 +275,19 @@ pub(crate) fn remote_environment_send_input(
     application::remote_environment_send_input(&state.core, silo_id, principal, events)
 }
 
+// Heavy commands run their body on the blocking thread pool via
+// `tauri::async_runtime::spawn_blocking` (the launch_silo/stop_silo pattern):
+// Tauri 2 executes non-async commands inline on the main/UI thread, and these
+// bodies take process spawns, Argon2 derives, filesystem walks, or global
+// lifecycle locks.
 #[tauri::command]
-pub(crate) fn desktop_status(state: State<'_, AppState>) -> Result<DesktopStatus, String> {
-    application::desktop_status(&state.core)
+pub(crate) async fn desktop_status(app: AppHandle) -> Result<DesktopStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::desktop_status(&state.core)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -288,11 +299,16 @@ pub(crate) fn initialize_vault(
 }
 
 #[tauri::command]
-pub(crate) fn unlock_vault(
-    state: State<'_, AppState>,
+pub(crate) async fn unlock_vault(
+    app: AppHandle,
     passphrase: String,
 ) -> Result<VaultStatus, String> {
-    application::unlock_vault(&state.core, passphrase)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::unlock_vault(&state.core, passphrase)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -310,31 +326,47 @@ pub(crate) fn change_vault_passphrase(
 }
 
 #[tauri::command]
-pub(crate) fn backup_vault(
-    state: State<'_, AppState>,
+pub(crate) async fn backup_vault(
+    app: AppHandle,
     destination_path: String,
 ) -> Result<VaultBackupReceipt, String> {
-    application::backup_vault(&state.core, destination_path)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::backup_vault(&state.core, destination_path)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn restore_vault(
-    state: State<'_, AppState>,
+pub(crate) async fn restore_vault(
+    app: AppHandle,
     source_path: String,
     passphrase: String,
     confirm_overwrite: bool,
 ) -> Result<VaultStatus, String> {
-    application::restore_vault(&state.core, source_path, passphrase, confirm_overwrite)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::restore_vault(&state.core, source_path, passphrase, confirm_overwrite)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn discover_browsers() -> Vec<BrowserCandidate> {
-    application::discover_browsers()
+pub(crate) async fn discover_browsers() -> Vec<BrowserCandidate> {
+    tauri::async_runtime::spawn_blocking(application::discover_browsers)
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
-pub(crate) fn detect_wsl() -> WslStatus {
-    application::detect_wsl()
+pub(crate) async fn detect_wsl() -> WslStatus {
+    // A detection panic degrades to the unavailable status instead of taking
+    // down the blocking worker; the serialized shape is unchanged.
+    tauri::async_runtime::spawn_blocking(application::detect_wsl)
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -353,11 +385,16 @@ pub(crate) fn select_wsl_environment_distribution(
 }
 
 #[tauri::command]
-pub(crate) fn environment_backend_execute(
-    state: State<'_, AppState>,
+pub(crate) async fn environment_backend_execute(
+    app: AppHandle,
     request: EnvironmentOperationRequest,
 ) -> Result<EnvironmentActionReceipt, String> {
-    application::environment_backend_execute(&state.core, request)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::environment_backend_execute(&state.core, request)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -419,11 +456,16 @@ pub(crate) fn list_archived_silos(state: State<'_, AppState>) -> Result<Vec<Silo
 }
 
 #[tauri::command]
-pub(crate) fn create_managed_silo(
-    state: State<'_, AppState>,
+pub(crate) async fn create_managed_silo(
+    app: AppHandle,
     input: CreateManagedSiloInput,
 ) -> Result<Silo, String> {
-    application::create_managed_silo(&state.core, input)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::create_managed_silo(&state.core, input)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -434,12 +476,17 @@ pub(crate) fn list_managed_identity_previews(
 }
 
 #[tauri::command]
-pub(crate) fn update_managed_identity(
-    state: State<'_, AppState>,
+pub(crate) async fn update_managed_identity(
+    app: AppHandle,
     silo_id: Uuid,
     input: UpdateManagedIdentityInput,
 ) -> Result<Silo, String> {
-    application::update_managed_identity(&state.core, silo_id, input)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::update_managed_identity(&state.core, silo_id, input)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -460,14 +507,19 @@ pub(crate) fn update_silo(
 }
 
 #[tauri::command]
-pub(crate) fn update_silo_configuration(
-    state: State<'_, AppState>,
+pub(crate) async fn update_silo_configuration(
+    app: AppHandle,
     silo_id: Uuid,
     input: UpdateSiloInput,
     network_input: Option<UpdateSiloNetworkInput>,
     engine_input: Option<UpdateSiloEngineInput>,
 ) -> Result<Silo, String> {
-    application::update_silo_configuration(&state.core, silo_id, input, network_input, engine_input)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::update_silo_configuration(&state.core, silo_id, input, network_input, engine_input)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -480,12 +532,17 @@ pub(crate) fn rename_silo(
 }
 
 #[tauri::command]
-pub(crate) fn update_silo_network(
-    state: State<'_, AppState>,
+pub(crate) async fn update_silo_network(
+    app: AppHandle,
     silo_id: Uuid,
     input: UpdateSiloNetworkInput,
 ) -> Result<Silo, String> {
-    application::update_silo_network(&state.core, silo_id, input)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::update_silo_network(&state.core, silo_id, input)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -520,11 +577,28 @@ pub(crate) fn delete_silo(
 }
 
 #[tauri::command]
-pub(crate) fn silo_storage_usage(
-    state: State<'_, AppState>,
+pub(crate) async fn silo_storage_usage(
+    app: AppHandle,
     silo_id: Uuid,
 ) -> Result<SiloStorageUsage, String> {
-    application::silo_storage_usage(&state.core, silo_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::silo_storage_usage(&state.core, silo_id)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
+}
+
+#[tauri::command]
+pub(crate) async fn silo_storage_usages(
+    app: AppHandle,
+) -> Result<Vec<SiloStorageUsageSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::silo_storage_usages(&state.core)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -545,11 +619,16 @@ pub(crate) fn clear_network_evidence(
 }
 
 #[tauri::command]
-pub(crate) fn recheck_silo_browser(
-    state: State<'_, AppState>,
+pub(crate) async fn recheck_silo_browser(
+    app: AppHandle,
     silo_id: Uuid,
 ) -> Result<BrowserVerification, String> {
-    application::recheck_silo_browser(&state.core, silo_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::recheck_silo_browser(&state.core, silo_id)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]

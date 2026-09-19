@@ -981,6 +981,14 @@ pub struct SiloStorageUsage {
     pub bytes: u64,
 }
 
+/// Compact per-Silo storage usage for the bulk `silo_storage_usages` command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiloStorageUsageSummary {
+    pub silo_id: Uuid,
+    pub bytes: u64,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProxyCredentialsInput {

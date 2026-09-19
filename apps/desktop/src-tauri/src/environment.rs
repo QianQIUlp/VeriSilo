@@ -82,6 +82,19 @@ pub struct WslStatus {
     pub message: String,
 }
 
+impl Default for WslStatus {
+    /// Spawn-blocking join fallback: a panic inside detection degrades to the
+    /// unavailable status instead of taking down the blocking worker.
+    fn default() -> Self {
+        Self {
+            supported_platform: cfg!(target_os = "windows"),
+            available: false,
+            distributions: Vec::new(),
+            message: "WSL 当前不可用；VeriSilo 只做了只读检查。".to_owned(),
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 pub fn detect_wsl() -> WslStatus {
     let Some(status) = run_fixed_windows_process(WindowsSystemTool::Wsl, &["--status"], None, &[])
