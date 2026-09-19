@@ -298,8 +298,10 @@ rc2 与 rc3 的发布状态均为 `PUBLIC_GITHUB_PRERELEASE`，且都没有 stri
 | retired Formal-v1 FP2 aggregate | `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v1-fp2-result.json`；SHA-256 `540472a6f33f2426fc66a6a1d0ea722356b259a8e315b19b10b445d813f045db`；attempt 2 immutable Failed |
 | final Voices design checkpoint | `594d16700c7d8f5d169eaac6cf6fd62d5a12df49` |
 
-原始 machine evidence 保留在既有本地 `artifacts/`、source locks、results 和 Git 历史中；
-状态页不再复制每个文件的 SHA/size 表。
+原始 machine evidence 曾保留在本地 `artifacts/` 目录；该目录不在 Git 内
+（gitignored），本地已清理，上表指向 `artifacts/…` 的锚点无法从仓库解析，
+durable 副本只有 `apps/camoufox-host/lock/` 下的 locks/results 与 Git 历史中的
+revision；状态页不再复制每个文件的 SHA/size 表。
 
 ## 历史索引
 

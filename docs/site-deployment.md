@@ -54,17 +54,17 @@ The production branch updates the production URL. Other branches create preview 
 In **Settings → Build → Build watch paths**, use these include paths:
 
 ```text
-apps/site/*
-apps/desktop/src/*
+apps/site/**
+apps/desktop/src/**
 apps/desktop/package.json
-packages/contracts/*
+packages/contracts/**
 pnpm-lock.yaml
 pnpm-workspace.yaml
 package.json
 .npmrc
 ```
 
-Leave excludes empty. The public demo bundles the desktop preview and shared contracts, so changes in those paths must rebuild the site. These paths still avoid rebuilding the website for unrelated desktop, Host, extension, or release-only changes while rebuilding it when workspace installation metadata changes. See [Build watch paths](https://developers.cloudflare.com/pages/configuration/build-watch-paths/).
+Leave excludes empty. The public demo bundles the desktop preview and shared contracts, so changes in those paths must rebuild the site — the `**` globs matter because single-star paths do not match nested files such as `apps/desktop/src/features/identity/ManagedSiloForm.tsx`. These paths still avoid rebuilding the website for unrelated desktop, Host, extension, or release-only changes while rebuilding it when workspace installation metadata changes. See [Build watch paths](https://developers.cloudflare.com/pages/configuration/build-watch-paths/).
 
 ## Custom domain
 

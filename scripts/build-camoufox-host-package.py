@@ -750,20 +750,19 @@ def _stage(
             "browserAssetSha256": FORMAL_V3_ARCHIVE_SHA256,
         }
 
-        def _bind_package_tree() -> bytes:
+        def _bind_package_tree() -> tuple[bytes, dict]:
             package_tree = build_package_tree(staging)
             package_tree_raw = _write_json(layout.package_tree, package_tree)
             manifest["treeManifest"]["sha256"] = sha256_bytes(package_tree_raw)
             validate_v3_manifest(manifest, allow_unsigned=True)
             _write_json(layout.root / PACKAGE_MANIFEST_NAME, manifest)
-            return package_tree_raw
+            return package_tree_raw, package_tree
 
         # First pass: a consistent manifest/package tree so the packaged-Host
         # smoke can start against the staging layout.
-        package_tree_raw = _bind_package_tree()
+        package_tree_raw, package_tree = _bind_package_tree()
         pre_smoke_entries = {
-            entry["path"]: entry["sha256"]
-            for entry in build_package_tree(staging)["entries"]
+            entry["path"]: entry["sha256"] for entry in package_tree["entries"]
         }
         # The smoke runs the packaged Host's own hello/provision path, whose
         # cache seeding junctions the staged browser root and generates
@@ -790,7 +789,7 @@ def _stage(
                 f"missing={missing} changed={changed} added={added}"
             )
         if added:
-            package_tree_raw = _bind_package_tree()
+            package_tree_raw, _ = _bind_package_tree()
         payload = manifest_signing_payload(manifest)
         unsigned_manifest_path = Path(temporary) / "engine-package.unsigned.json"
         payload_path = Path(temporary) / "engine-package.payload.bin"

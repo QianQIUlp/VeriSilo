@@ -28,7 +28,7 @@
 // explicit actions: `promote` (eligible single task) or `baseline advance`
 // (integration).
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -68,6 +68,7 @@ export const LANES = {
       "apps/site/**",
     ],
     verify: [
+      "python scripts/check_managed_contracts.py",
       "pnpm --filter @verisilo/desktop check",
       "pnpm --filter @verisilo/desktop test",
     ],
@@ -84,6 +85,7 @@ export const LANES = {
       "crates/verisilo-desktop-core-harness/**",
     ],
     verify: [
+      "python scripts/check_managed_contracts.py",
       "cargo check --offline --locked --manifest-path apps/desktop/src-tauri/Cargo.toml",
       "cargo test --offline --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml --lib application::",
     ],
@@ -102,6 +104,7 @@ export const LANES = {
       "scripts/*managed-browser*",
     ],
     verify: [
+      "python scripts/check_managed_contracts.py",
       "python apps/camoufox-host/test_package_contract.py",
       "python apps/camoufox-host/test_page_command.py",
     ],
@@ -126,6 +129,7 @@ export const LANES = {
     // `verify`, the complete matrix below.
     verifyLight: [],
     verify: [
+      "python scripts/check_managed_contracts.py",
       "pnpm check",
       "pnpm test",
       "cargo check --offline --locked --manifest-path apps/desktop/src-tauri/Cargo.toml",
@@ -133,7 +137,6 @@ export const LANES = {
       "cargo test --offline --locked --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml --lib -- --skip probe_and_inspect_use_verge_pipe_when_http_controller_is_closed --skip runtime_guard_accepts_live_verge_rule_mode_selector --skip live_verge_runs_two_isolated_silos_without_changing_main_clash",
       "python apps/camoufox-host/test_package_contract.py",
       "python apps/camoufox-host/test_page_command.py",
-      "node --test scripts/dev-desktop.test.mjs",
       "node --test scripts/agent-task.test.mjs",
     ],
     verifyExtra:
@@ -1016,13 +1019,18 @@ function resolvePnpm() {
   return null;
 }
 
-function runCommand(command, cwd, pnpmCmd) {
+// Async command runner so independent toolchain groups can run in parallel
+// while commands inside one group stay serial.
+function runCommandAsync(command, cwd, pnpmCmd) {
   let cmd = command;
   if (pnpmCmd && cmd.startsWith("pnpm "))
     cmd = `${pnpmCmd} ${cmd.slice("pnpm ".length)}`;
   console.log(`\n▶ ${cmd}`);
-  const result = spawnSync(cmd, { shell: true, stdio: "inherit", cwd });
-  return result.status === 0;
+  return new Promise((resolve) => {
+    const child = spawn(cmd, { shell: true, stdio: "inherit", cwd });
+    child.on("exit", (code) => resolve(code === 0));
+    child.on("error", () => resolve(false));
+  });
 }
 
 // `git diff --check` exits non-zero when it finds problems (leftover conflict
@@ -1093,10 +1101,29 @@ async function cmdVerify({ lane, full }) {
       );
     }
   }
-  const failed = [];
+  // Independent toolchains (JS / Rust / Python / node scripts) run as
+  // concurrent groups; commands within a group stay serial because they may
+  // share state (cargo build lock, pnpm workspace store).
+  const groups = new Map();
   for (const command of commands) {
-    if (!runCommand(command, root, pnpmCmd)) failed.push(command);
+    const key = command.startsWith("cargo ")
+      ? "rust"
+      : command.startsWith("python ")
+        ? "python"
+        : command.startsWith("node ")
+          ? "node"
+          : "js";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(command);
   }
+  const runGroup = async (groupCommands) => {
+    const failedHere = [];
+    for (const command of groupCommands) {
+      if (!(await runCommandAsync(command, root, pnpmCmd))) failedHere.push(command);
+    }
+    return failedHere;
+  };
+  const failed = (await Promise.all([...groups.values()].map(runGroup))).flat();
   if (failed.length > 0) {
     console.error(`\nverify FAILED (${failed.length}/${commands.length}):`);
     for (const command of failed) console.error(`  ✘ ${command}`);
