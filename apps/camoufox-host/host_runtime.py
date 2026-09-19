@@ -309,10 +309,11 @@ def _link_or_copy_browser_tree(source: Path, destination: Path) -> bool:
     if destination.exists() and not destination.is_dir():
         destination.unlink()
     if IS_WINDOWS:
+        # mklink prints localized text; keep the pipes as bytes because only
+        # the exit code matters and locale decoding can crash the host.
         completed = subprocess.run(
             ["cmd", "/c", "mklink", "/J", str(destination), str(source)],
             capture_output=True,
-            text=True,
             check=False,
         )
         if completed.returncode == 0 and (destination / EXECUTABLE_REL).exists():

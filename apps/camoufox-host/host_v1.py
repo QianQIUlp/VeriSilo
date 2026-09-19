@@ -962,6 +962,107 @@ class CamoufoxHost:
         self._bundle_families = families
         return families
 
+    def _host_font_families(self) -> set[str]:
+        """Families GDI enumerates on this host, cached per host process."""
+        cached = getattr(self, "_host_families", None)
+        if cached is not None:
+            return cached
+        families = host_font_families()
+        self._host_families = families
+        return families
+
+    async def _observe_website_identity(
+        self,
+        page: Any,
+        *,
+        probe_url: str,
+        disk_config: dict,
+        fonts: list,
+        interactive: bool,
+        session: dict,
+        stage_factory: Any = None,
+    ) -> dict:
+        """Drive one probe page through the shared observation sequence.
+
+        The launch path (with launch-stage recording) and identity
+        re-observation (without) must run the same probe phases, so a
+        probe-protocol change only ever lands here.
+        """
+        stages = stage_factory or (lambda name: contextlib.nullcontext())
+        with stages("goto"):
+            await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
+            if interactive:
+                with contextlib.suppress(Exception):
+                    await page.evaluate(
+                        "(attrs) => { window.__probeWebGlAttrs = attrs; }",
+                        disk_config.get("webGl:contextAttributes") or {},
+                    )
+
+        with stages("observed.fonts"):
+            host_controls = host_negative_control_families(
+                fonts,
+                limit=MANAGED_FONT_CONTROLS_LIMIT,
+                host_families=self._host_font_families(),
+                bundled_families=self._bundle_font_families(),
+            )
+            try:
+                await page.evaluate(f"window.__probeFonts = {json.dumps(fonts)}")
+                await page.evaluate(
+                    f"window.__probeFontUniverse = {json.dumps(FONT_UNIVERSE)}"
+                )
+                await page.evaluate(
+                    f"window.__probeHostFonts = {json.dumps(host_controls)}"
+                )
+                await page.evaluate("document.fonts.ready")
+            except Exception:
+                if not interactive:
+                    raise
+
+        with stages("observed.media") as media_stage:
+            expected_counts = expected_media_device_counts(disk_config)
+            requires_media = any(expected_counts.values())
+            if interactive and not requires_media:
+                media_readiness = skipped_media_readiness(disk_config)
+                if media_stage is not None:
+                    media_stage.set_terminal_reason(media_readiness["reason"])
+            else:
+                try:
+                    media_readiness = await wait_for_configured_media_devices(
+                        page, disk_config
+                    )
+                except (MediaDeviceReadinessTimeout, MediaDeviceReadinessError) as exc:
+                    if media_stage is not None:
+                        media_stage.set_terminal_reason(exc.reason)
+                    if not interactive:
+                        raise
+                    media_readiness = {
+                        "expectedCounts": expected_counts,
+                        "attempts": [],
+                        "matched": False,
+                        "waitSeconds": 0.0,
+                        "reason": exc.reason,
+                    }
+                if media_stage is not None:
+                    media_stage.set_terminal_reason(media_readiness["reason"])
+
+        with stages("observed.identity"):
+            probe_start = time.perf_counter()
+            observed = await read_page_identity(page, interactive=interactive)
+            if interactive and not observed.get("webglAvailable"):
+                observed = await self._retry_webgl_observation(page, observed)
+            if not observed.get("acceptEncoding") and session.get("server") is not None:
+                if hasattr(session["server"], "get_observed_accept_encoding"):
+                    server_ae = session["server"].get_observed_accept_encoding()
+                    if server_ae:
+                        observed["acceptEncoding"] = server_ae
+            probe_seconds = round(time.perf_counter() - probe_start, 3)
+        return {
+            "observed": observed,
+            "hostControls": host_controls,
+            "mediaReadiness": media_readiness,
+            "probeSeconds": probe_seconds,
+        }
+
     def _state(self) -> str:
         if self.session is None:
             return "idle"
@@ -1437,75 +1538,21 @@ class CamoufoxHost:
             page = await self._bind_single_page(ctx)
             session["page"] = page
 
-        with _active_launch_stage("goto"):
-            await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
-            if interactive:
-                with contextlib.suppress(Exception):
-                    await page.evaluate(
-                        "(attrs) => { window.__probeWebGlAttrs = attrs; }",
-                        disk_config.get("webGl:contextAttributes") or {},
-                    )
-
-        with _active_launch_stage("observed.fonts"):
-            fonts = artifact["stableSignalsDeclared"]["fonts"]
-            host_controls = host_negative_control_families(
-                fonts,
-                limit=MANAGED_FONT_CONTROLS_LIMIT,
-                host_families=host_font_families(),
-                bundled_families=self._bundle_font_families(),
-            )
-            try:
-                await page.evaluate(f"window.__probeFonts = {json.dumps(fonts)}")
-                await page.evaluate(
-                    f"window.__probeFontUniverse = {json.dumps(FONT_UNIVERSE)}"
-                )
-                await page.evaluate(
-                    f"window.__probeHostFonts = {json.dumps(host_controls)}"
-                )
-                await page.evaluate("document.fonts.ready")
-            except Exception:
-                if not interactive:
-                    raise
-
-        with _active_launch_stage("observed.media") as media_stage:
-            expected_counts = expected_media_device_counts(disk_config)
-            requires_media = any(expected_counts.values())
-            if interactive and not requires_media:
-                media_readiness = skipped_media_readiness(disk_config)
-                if media_stage is not None:
-                    media_stage.set_terminal_reason(media_readiness["reason"])
-            else:
-                try:
-                    media_readiness = await wait_for_configured_media_devices(
-                        page, disk_config
-                    )
-                except (MediaDeviceReadinessTimeout, MediaDeviceReadinessError) as exc:
-                    if media_stage is not None:
-                        media_stage.set_terminal_reason(exc.reason)
-                    if not interactive:
-                        raise
-                    media_readiness = {
-                        "expectedCounts": expected_counts,
-                        "attempts": [],
-                        "matched": False,
-                        "waitSeconds": 0.0,
-                        "reason": exc.reason,
-                    }
-                if media_stage is not None:
-                    media_stage.set_terminal_reason(media_readiness["reason"])
-
-        with _active_launch_stage("observed.identity"):
-            probe_start = time.perf_counter()
-            observed = await read_page_identity(page, interactive=interactive)
-            if interactive and not observed.get("webglAvailable"):
-                observed = await self._retry_webgl_observation(page, observed)
-            if not observed.get("acceptEncoding") and session.get("server") is not None:
-                if hasattr(session["server"], "get_observed_accept_encoding"):
-                    server_ae = session["server"].get_observed_accept_encoding()
-                    if server_ae:
-                        observed["acceptEncoding"] = server_ae
-            session["probeSeconds"] = round(time.perf_counter() - probe_start, 3)
-            session["spawnSeconds"] = round(spawn_seconds, 3)
+        fonts = artifact["stableSignalsDeclared"]["fonts"]
+        observation = await self._observe_website_identity(
+            page,
+            probe_url=probe_url,
+            disk_config=disk_config,
+            fonts=fonts,
+            interactive=interactive,
+            session=session,
+            stage_factory=_active_launch_stage,
+        )
+        observed = observation["observed"]
+        host_controls = observation["hostControls"]
+        media_readiness = observation["mediaReadiness"]
+        session["probeSeconds"] = observation["probeSeconds"]
+        session["spawnSeconds"] = round(spawn_seconds, 3)
 
         font_mode = policy.get("fontMode", "inherit")
         session["fontMode"] = font_mode
@@ -1950,64 +1997,20 @@ class CamoufoxHost:
         )
         disk_config = copy.deepcopy(artifact["resolvedConfig"])
         fonts = artifact["stableSignalsDeclared"]["fonts"]
-        host_controls = host_negative_control_families(
-            fonts,
-            limit=MANAGED_FONT_CONTROLS_LIMIT,
-            host_families=host_font_families(),
-            bundled_families=self._bundle_font_families(),
-        )
-        expected_counts = expected_media_device_counts(disk_config)
 
         page = await session["ctx"].new_page()
         try:
-            await page.goto(probe_url, wait_until="domcontentloaded", timeout=60_000)
-            if interactive:
-                with contextlib.suppress(Exception):
-                    await page.evaluate(
-                        "(attrs) => { window.__probeWebGlAttrs = attrs; }",
-                        disk_config.get("webGl:contextAttributes") or {},
-                    )
-            try:
-                await page.evaluate(f"window.__probeFonts = {json.dumps(fonts)}")
-                await page.evaluate(
-                    f"window.__probeFontUniverse = {json.dumps(FONT_UNIVERSE)}"
-                )
-                await page.evaluate(
-                    f"window.__probeHostFonts = {json.dumps(host_controls)}"
-                )
-                await page.evaluate("document.fonts.ready")
-            except Exception:
-                if not interactive:
-                    raise
-            requires_media = any(expected_counts.values())
-            if interactive and not requires_media:
-                media_readiness = skipped_media_readiness(disk_config)
-            else:
-                try:
-                    media_readiness = await wait_for_configured_media_devices(
-                        page, disk_config
-                    )
-                except (
-                    MediaDeviceReadinessTimeout,
-                    MediaDeviceReadinessError,
-                ) as exc:
-                    if not interactive:
-                        raise
-                    media_readiness = {
-                        "expectedCounts": expected_counts,
-                        "attempts": [],
-                        "matched": False,
-                        "waitSeconds": 0.0,
-                        "reason": exc.reason,
-                    }
-            observed = await read_page_identity(page, interactive=interactive)
-            if interactive and not observed.get("webglAvailable"):
-                observed = await self._retry_webgl_observation(page, observed)
-            if not observed.get("acceptEncoding") and session.get("server") is not None:
-                if hasattr(session["server"], "get_observed_accept_encoding"):
-                    server_ae = session["server"].get_observed_accept_encoding()
-                    if server_ae:
-                        observed["acceptEncoding"] = server_ae
+            observation = await self._observe_website_identity(
+                page,
+                probe_url=probe_url,
+                disk_config=disk_config,
+                fonts=fonts,
+                interactive=interactive,
+                session=session,
+            )
+            observed = observation["observed"]
+            host_controls = observation["hostControls"]
+            media_readiness = observation["mediaReadiness"]
         finally:
             with contextlib.suppress(Exception):
                 await page.close()
@@ -2213,17 +2216,6 @@ class CamoufoxHost:
             "closeOutcome": session["closeOutcome"],
             "closeSeconds": session["closeSeconds"],
         }
-
-
-def _reassemble_config(env: dict) -> dict:
-    chunks = sorted(
-        (int(key.rsplit("_", 1)[1]), value)
-        for key, value in env.items()
-        if key.startswith("CAMOU_CONFIG_")
-    )
-    if not chunks:
-        raise RuntimeError("launch_options returned no CAMOU_CONFIG env chunks")
-    return json.loads("".join(value for _, value in chunks))
 
 
 def proc_starttime_ticks(pid: int) -> Optional[int]:
@@ -3304,7 +3296,13 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.state_root.mkdir(parents=True, exist_ok=True)
-    _LOG_FILE = (args.state_root / "host-stderr.log").open("ab")
+    log_path = args.state_root / "host-stderr.log"
+    try:
+        if log_path.exists() and log_path.stat().st_size > 8 * 1024 * 1024:
+            os.replace(log_path, log_path.with_name("host-stderr.log.1"))
+    except OSError:
+        pass
+    _LOG_FILE = log_path.open("ab")
     host = CamoufoxHost(
         artifact_root=args.artifact_root,
         profile_root=args.profile_root,
