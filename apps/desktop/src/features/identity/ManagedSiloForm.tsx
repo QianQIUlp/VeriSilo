@@ -1,8 +1,6 @@
 import {
-  desktopApi,
   type CreateManagedSiloInput,
   type ManagedIdentityPreset,
-  type MihomoSnapshot,
 } from "../../desktop-api.js";
 
 import { useRef, useState, type FormEvent } from "react";
@@ -18,19 +16,18 @@ import {
   TIMEZONE_PRESETS,
 } from "../../timezone-presets.js";
 
-import {
-  clashControllerLabel,
-  clashControllerPort,
-  clashControllerUrl,
-  isClashPipeController,
-  MIHOMO_DEFAULT_MIXED_PORT,
-} from "../../proxy-presets.js";
-
-import { UserFacingError } from "../../user-errors.js";
+import { MIHOMO_DEFAULT_MIXED_PORT } from "../../proxy-presets.js";
 
 import { managedErrorMessage } from "../../shared/notice.js";
 
-import { readMihomoGroups } from "../network/controller.js";
+import {
+  proxyCredentialsPaired,
+  PROXY_CREDENTIAL_PAIRING_MESSAGE,
+} from "../../proxy-input.js";
+
+import { ClashBindingCard } from "../network/ClashBindingCard.js";
+
+import { useClashBinding } from "../network/useClashBinding.js";
 
 import { type NetworkProfile } from "@verisilo/contracts";
 
@@ -43,6 +40,8 @@ import type { ManagedSiloTemplate } from "./managedTemplate.js";
 export function ManagedSiloForm({
   busy,
   initialColor,
+  managedEngineReady,
+  managedStatusBusy = false,
   onSubmit,
   name: controlledName,
   onNameChange,
@@ -52,6 +51,9 @@ export function ManagedSiloForm({
 }: {
   busy: boolean;
   initialColor: string;
+  /** Whether the managed engine currently reports healthy readiness. */
+  managedEngineReady: boolean;
+  managedStatusBusy?: boolean;
   onSubmit: (input: CreateManagedSiloInput) => Promise<void>;
   name?: string;
   onNameChange?: (value: string) => void;
@@ -114,23 +116,22 @@ export function ManagedSiloForm({
   const [mixedPort, setMixedPort] = useState(
     seed?.mixedPort ?? String(MIHOMO_DEFAULT_MIXED_PORT),
   );
-  const [controllerUrl, setControllerUrl] = useState(seed?.controllerUrl ?? "");
-  const [mihomoControllerSecret, setMihomoControllerSecret] = useState("");
-  const [mihomoSnapshot, setMihomoSnapshot] = useState<MihomoSnapshot | null>(
-    null,
-  );
-  const [findingClash, setFindingClash] = useState(false);
-  const [readingGroups, setReadingGroups] = useState(false);
-  const [clashStatus, setClashStatus] = useState<string | null>(null);
-  const [selectorGroup, setSelectorGroup] = useState(seed?.selectorGroup ?? "");
-  const [nodeName, setNodeName] = useState(seed?.nodeName ?? "");
+  const clash = useClashBinding({
+    initialControllerUrl: seed?.controllerUrl ?? "",
+    initialSelection:
+      seed?.selectorGroup !== undefined &&
+      seed?.selectorGroup !== "" &&
+      seed?.nodeName !== undefined &&
+      seed?.nodeName !== ""
+        ? { selectorGroup: seed.selectorGroup, nodeName: seed.nodeName }
+        : null,
+  });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(seed !== null);
   const formRef = useRef<HTMLFormElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const hasProxy = networkMode !== "direct";
-  const mihomoControllerUrl = controllerUrl;
   const screenChoiceOptions: readonly (readonly [number, number])[] =
     managedScreenChoices.some(
       ([width, height]) => width === screenWidth && height === screenHeight,
@@ -138,59 +139,10 @@ export function ManagedSiloForm({
       ? managedScreenChoices
       : [...managedScreenChoices, [screenWidth, screenHeight]];
 
-  const applyClashSnapshot = (snapshot: MihomoSnapshot) => {
-    const group = snapshot.groups[0];
-    if (group === undefined || group.nodes.length === 0) {
-      throw new UserFacingError("Clash 已经连上，但没有可用的代理组。");
-    }
-    const selectedNode =
-      group.nodes.find((node) => node.name === group.selected) ??
-      group.nodes[0];
-    if (selectedNode === undefined) {
-      throw new UserFacingError("所选代理组里没有线路。");
-    }
-    setMihomoSnapshot(snapshot);
-    setSelectorGroup(group.name);
-    setNodeName(selectedNode.name);
-  };
-
-  const probeClash = async () => {
-    setError(null);
-    setFindingClash(true);
-    try {
-      const probe = await desktopApi.probeLocalClash(mihomoControllerSecret);
-      setClashStatus(probe.detail);
-      if (probe.mixedPort !== null) {
-        setMixedPort(String(probe.mixedPort));
-      }
-      if (probe.controllerUrl !== null) {
-        setControllerUrl(probe.controllerUrl);
-      }
-    } catch (probeError) {
-      setError(managedErrorMessage(probeError));
-    } finally {
-      setFindingClash(false);
-    }
-  };
-
-  const inspectClash = async () => {
-    setError(null);
-    setReadingGroups(true);
-    try {
-      const inspected = await readMihomoGroups(
-        controllerUrl,
-        mihomoControllerSecret,
-      );
-      setControllerUrl(inspected.controllerUrl);
-      applyClashSnapshot(inspected.snapshot);
-      setClashStatus(
-        `已读取代理组（${clashControllerLabel(inspected.controllerUrl)}）。`,
-      );
-    } catch (inspectError) {
-      setMihomoSnapshot(null);
-      setError(managedErrorMessage(inspectError));
-    } finally {
-      setReadingGroups(false);
+  const findLocalClash = async () => {
+    const probe = await clash.probe();
+    if (probe !== null && probe.mixedPort !== null) {
+      setMixedPort(String(probe.mixedPort));
     }
   };
 
@@ -225,25 +177,25 @@ export function ManagedSiloForm({
         port: parsedMixed,
         bypassList: [],
       };
-      if (selectorGroup !== "" && nodeName !== "") {
-        if (controllerUrl.trim() === "") {
+      if (clash.selectedGroup !== "" && clash.selectedNode !== "") {
+        if (clash.controllerUrl.trim() === "") {
           setError("请先读取代理组，或只使用本机代理端口、不绑定线路。");
           return;
         }
         networkProfile = {
           ...clashProfile,
           externalMihomo: {
-            controllerUrl,
-            selectorGroup,
-            nodeName,
+            controllerUrl: clash.controllerUrl,
+            selectorGroup: clash.selectedGroup,
+            nodeName: clash.selectedNode,
           },
         };
       } else {
         networkProfile = clashProfile;
       }
-      if (selectorGroup !== "" && mihomoControllerSecret.trim() !== "") {
+      if (clash.selectedGroup !== "" && clash.secret.trim() !== "") {
         mihomoControllerSecretInput = {
-          secret: mihomoControllerSecret,
+          secret: clash.secret,
         };
       }
     } else {
@@ -257,10 +209,8 @@ export function ManagedSiloForm({
         setError("请填写有效的代理主机和 1–65535 之间的端口。");
         return;
       }
-      const hasUsername = proxyUsername.trim() !== "";
-      const hasPassword = proxyPassword !== "";
-      if (hasUsername !== hasPassword) {
-        setError("代理用户名和密码需要同时填写；无认证代理请都留空。");
+      if (!proxyCredentialsPaired(proxyUsername, proxyPassword)) {
+        setError(PROXY_CREDENTIAL_PAIRING_MESSAGE);
         return;
       }
       networkProfile = {
@@ -271,7 +221,7 @@ export function ManagedSiloForm({
         port,
         bypassList: [],
       };
-      if (hasUsername) {
+      if (proxyUsername.trim() !== "") {
         proxyCredentials = {
           username: proxyUsername.trim(),
           password: proxyPassword,
@@ -319,7 +269,15 @@ export function ManagedSiloForm({
               : "选择网络出口和网站可见身份。第一次启动前还可以在 Silo 的编辑页微调或换一套指纹。"}
           </p>
         </div>
-        <span className="provider-health healthy">独立浏览器已就绪</span>
+        <span
+          className={`provider-health${managedEngineReady ? " healthy" : ""}`}
+        >
+          {managedStatusBusy
+            ? "正在检查独立浏览器…"
+            : managedEngineReady
+              ? "独立浏览器已就绪"
+              : "独立浏览器暂时不可用"}
+        </span>
       </div>
       <form
         aria-busy={busy}
@@ -468,7 +426,7 @@ export function ManagedSiloForm({
                 <label htmlFor="managed-clash-mixed">
                   本机代理端口
                   <input
-                    disabled={busy || findingClash}
+                    disabled={busy}
                     id="managed-clash-mixed"
                     inputMode="numeric"
                     onChange={(event) => setMixedPort(event.target.value)}
@@ -478,109 +436,30 @@ export function ManagedSiloForm({
                 </label>
                 <button
                   className="button-secondary"
-                  disabled={busy || findingClash}
-                  onClick={() => void probeClash()}
+                  disabled={busy || clash.busy}
+                  onClick={() => void findLocalClash()}
                   type="button"
                 >
-                  {findingClash ? "正在查找…" : "查找本机 Clash"}
+                  {clash.busy ? "正在查找…" : "查找本机 Clash"}
                 </button>
               </div>
-              {clashStatus !== null ? (
-                <p className="form-hint">{clashStatus}</p>
-              ) : null}
-              <div className="form-grid controller-grid">
-                <label htmlFor="managed-clash-controller">
-                  读取代理组用的控制口
-                  <input
-                    disabled={busy || readingGroups}
-                    id="managed-clash-controller"
-                    readOnly={isClashPipeController(controllerUrl)}
-                    onChange={(event) => {
-                      const value = event.target.value.trim();
-                      if (/^\d{2,5}$/.test(value)) {
-                        setControllerUrl(clashControllerUrl(Number(value)));
-                        return;
-                      }
-                      setControllerUrl(value);
-                    }}
-                    placeholder="可空；Clash Verge 不用填 9097"
-                    value={
-                      isClashPipeController(controllerUrl)
-                        ? clashControllerLabel(controllerUrl)
-                        : clashControllerPort(controllerUrl) || controllerUrl
-                    }
-                  />
-                </label>
-                <label htmlFor="managed-clash-secret">
-                  Clash 密钥（没设过就空着）
-                  <input
-                    disabled={busy || readingGroups}
-                    id="managed-clash-secret"
-                    onChange={(event) =>
-                      setMihomoControllerSecret(event.target.value)
-                    }
-                    placeholder="Clash 设置里的 secret，大多数人不用填"
-                    type="password"
-                    value={mihomoControllerSecret}
-                  />
-                </label>
-              </div>
-              <p className="form-hint">
-                找到 Clash Verge 后这里会显示「内核管道」。其他客户端才需要 9097
-                或 9090。不要把 7897 填到这里。
-              </p>
-              <button
-                className="button-secondary"
-                disabled={busy || readingGroups}
-                onClick={() => void inspectClash()}
-                type="button"
-              >
-                {readingGroups ? "正在读取…" : "读取代理组"}
-              </button>
-              {mihomoSnapshot !== null ? (
-                <div className="form-grid controller-selection">
-                  <label htmlFor="managed-clash-group">
-                    选择组
-                    <select
-                      disabled={busy}
-                      id="managed-clash-group"
-                      onChange={(event) => {
-                        const group = mihomoSnapshot.groups.find(
-                          (item) => item.name === event.target.value,
-                        );
-                        setSelectorGroup(event.target.value);
-                        setNodeName(group?.nodes[0]?.name ?? "");
-                      }}
-                      value={selectorGroup}
-                    >
-                      {mihomoSnapshot.groups.map((group) => (
-                        <option key={group.name} value={group.name}>
-                          {group.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label htmlFor="managed-clash-node">
-                    节点
-                    <select
-                      disabled={busy}
-                      id="managed-clash-node"
-                      onChange={(event) => setNodeName(event.target.value)}
-                      value={nodeName}
-                    >
-                      {(
-                        mihomoSnapshot.groups.find(
-                          (group) => group.name === selectorGroup,
-                        )?.nodes ?? []
-                      ).map((node) => (
-                        <option key={node.name} value={node.name}>
-                          {node.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              ) : null}
+              <ClashBindingCard
+                clash={clash}
+                controllerDisplay="port"
+                controllerHint={
+                  <p className="form-hint">
+                    找到 Clash Verge 后这里会显示「内核管道」。其他客户端才需要
+                    9097 或 9090。不要把 7897 填到这里。
+                  </p>
+                }
+                controllerLabel="读取代理组用的控制口"
+                description="Clash Verge 默认关闭 9097，读取代理组会自动走内核管道。启动时会重新选中该节点；不要求把 Clash 切成全局模式。"
+                disabled={busy}
+                nodeLabel="节点"
+                readLabel="读取代理组"
+                secretPlaceholder="Clash 设置里的 secret，大多数人不用填"
+                title="连接本机 Clash"
+              />
             </div>
           ) : null}
           {networkMode === "remote" ? (

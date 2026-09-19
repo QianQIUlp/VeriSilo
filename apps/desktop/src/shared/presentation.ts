@@ -16,10 +16,6 @@ import {
   type RemoteEnvironmentStatus,
 } from "../desktop-api.js";
 
-export function unboundEnvironmentControlsAvailable(): boolean {
-  return false;
-}
-
 export function legacyEnvironmentLabel(backend: EnvironmentBackendId): string {
   switch (backend) {
     case "wsl-chromium":

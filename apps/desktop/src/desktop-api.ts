@@ -149,6 +149,12 @@ export interface SiloStorageUsage {
   bytes: number;
 }
 
+/** One batched storage-usage entry returned by the silo_storage_usages command. */
+export interface SiloStorageUsageSummary {
+  siloId: string;
+  bytes: number;
+}
+
 export interface VaultBackupReceipt {
   destinationPath: string;
   bytes: number;
@@ -550,7 +556,6 @@ export const desktopApi = {
     invoke<MihomoSnapshot>("inspect_mihomo_controller", { input }),
   probeLocalClash: (secret?: string) =>
     invoke<LocalClashProbe>("probe_local_clash", { secret: secret ?? null }),
-  listSilos: () => invoke<Silo[]>("list_silos"),
   listActiveSilos: () => invoke<Silo[]>("list_active_silos"),
   listArchivedSilos: () => invoke<Silo[]>("list_archived_silos"),
   createSilo: (input: CreateSiloInput) =>
@@ -588,8 +593,8 @@ export const desktopApi = {
     invoke<Silo>("restore_archived_silo", { siloId }),
   deleteSilo: (siloId: string) =>
     invoke<void>("delete_silo", { siloId, confirmPermanent: true }),
-  siloStorageUsage: (siloId: string) =>
-    invoke<SiloStorageUsage>("silo_storage_usage", { siloId }),
+  siloStorageUsages: () =>
+    invoke<SiloStorageUsageSummary[]>("silo_storage_usages"),
   listNetworkEvidence: (siloId?: string) =>
     invoke<SiloNetworkEvidence[]>("list_network_evidence", {
       siloId: siloId ?? null,

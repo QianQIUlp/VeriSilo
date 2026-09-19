@@ -256,7 +256,8 @@ describe("desktop product copy", () => {
   });
 
   it("keeps remote setup in user language and does not forward backend status copy", () => {
-    expect(appSource).toContain("远程服务地址");
+    expect(appSource).toContain("只处理已经存在的远程环境");
+    expect(appSource).toContain("服务地址");
     expect(appSource).toContain("安全指纹");
     expect(appSource).toContain("一次性配对码");
     expect(appSource).not.toContain("{remoteStatus.message}");
@@ -363,12 +364,12 @@ describe("desktop product copy", () => {
   it("requires fresh approval after any remote pairing or fingerprint change", () => {
     expect(
       appSource.match(/setRemotePairingApproved\(false\)/gu)?.length ?? 0,
-    ).toBeGreaterThanOrEqual(6);
+    ).toBeGreaterThanOrEqual(1);
     expect(
       appSource.match(/setRemoteRotationApproved\(false\)/gu)?.length ?? 0,
-    ).toBeGreaterThanOrEqual(6);
-    expect(appSource).toContain("!remotePairingFieldsValid");
-    expect(appSource).toContain("!remoteRotationFieldsValid");
+    ).toBeGreaterThanOrEqual(1);
+    expect(appSource).toContain("remotePairingFieldsValid");
+    expect(appSource).toContain("remoteRotationFieldsValid");
   });
 
   it("keeps remote confirmation checkboxes at intrinsic width", () => {

@@ -4,10 +4,9 @@ import type {
   SiloExecutionTarget,
 } from "@verisilo/contracts";
 import { useCallback, useRef, useState } from "react";
-import type { MihomoSnapshot, WslStatus } from "../../desktop-api.js";
+import type { WslStatus } from "../../desktop-api.js";
 import {
   defaultColor,
-  defaultMihomoControllerUrl,
   emptyNetwork,
   type WslCreationOption,
 } from "../../shared/defaults.js";
@@ -34,15 +33,6 @@ export function useSiloDraft() {
   const [proxyImport, setProxyImport] = useState("");
   const [proxyUsername, setProxyUsername] = useState("");
   const [proxyPassword, setProxyPassword] = useState("");
-  const [mihomoControllerUrl, setMihomoControllerUrl] = useState(
-    defaultMihomoControllerUrl,
-  );
-  const [mihomoControllerSecret, setMihomoControllerSecret] = useState("");
-  const [mihomoSnapshot, setMihomoSnapshot] = useState<MihomoSnapshot | null>(
-    null,
-  );
-  const [mihomoBusy, setMihomoBusy] = useState(false);
-  const mihomoRequestRef = useRef(0);
   const createWslRequestRef = useRef(0);
   const browserSelectionExplicitRef = useRef(false);
 
@@ -61,10 +51,6 @@ export function useSiloDraft() {
     setProxyImport("");
     setProxyUsername("");
     setProxyPassword("");
-    setMihomoControllerUrl(defaultMihomoControllerUrl);
-    setMihomoControllerSecret("");
-    setMihomoSnapshot(null);
-    setMihomoBusy(false);
   }, []);
   return {
     name,
@@ -91,15 +77,6 @@ export function useSiloDraft() {
     setProxyUsername,
     proxyPassword,
     setProxyPassword,
-    mihomoControllerUrl,
-    setMihomoControllerUrl,
-    mihomoControllerSecret,
-    setMihomoControllerSecret,
-    mihomoSnapshot,
-    setMihomoSnapshot,
-    mihomoBusy,
-    setMihomoBusy,
-    mihomoRequestRef,
     createWslRequestRef,
     browserSelectionExplicitRef,
     resetSiloDraft,

@@ -8,7 +8,6 @@ import {
 import {
   type BrowserCandidate,
   type CreateManagedSiloInput,
-  type MihomoSnapshot,
   type WslStatus,
 } from "../../desktop-api.js";
 
@@ -24,6 +23,10 @@ import {
   isLoopbackProxyProfile,
   localMihomoProfile,
 } from "../../proxy-presets.js";
+
+import { ClashBindingCard } from "../network/ClashBindingCard.js";
+
+import type { ClashBindingController } from "../network/useClashBinding.js";
 
 import { ManagedSiloForm } from "../identity/ManagedSiloForm.js";
 
@@ -41,17 +44,13 @@ export function CreateSiloPanel({
   busy,
   candidateOptions,
   chooseBrowser,
+  clash,
   color,
   createSilo,
   createManagedSilo,
   executionTarget,
   importProxy,
-  inspectMihomoController,
   managedTemplate,
-  mihomoBusy,
-  mihomoControllerSecret,
-  mihomoControllerUrl,
-  mihomoSnapshot,
   managedEngineReady,
   managedStatusBusy,
   managedStatusError,
@@ -62,14 +61,10 @@ export function CreateSiloPanel({
   proxyUsername,
   refreshManagedStatus,
   refreshWsl,
-  resetMihomoSnapshot,
-  selectMihomoGroup,
-  selectMihomoNode,
   setBrowserKind,
   setBrowserPath,
   setColor,
   setExecutionTarget,
-  setMihomoControllerSecret,
   setMihomoControllerUrl,
   setName,
   setNetworkProfile,
@@ -85,17 +80,13 @@ export function CreateSiloPanel({
   busy: boolean;
   candidateOptions: BrowserCandidate[];
   chooseBrowser: (candidate: BrowserCandidate) => void;
+  clash: ClashBindingController;
   color: string;
   createSilo: () => Promise<void>;
   createManagedSilo: (input: CreateManagedSiloInput) => Promise<void>;
   executionTarget: SiloExecutionTarget;
   importProxy: () => void;
-  inspectMihomoController: () => Promise<void>;
   managedTemplate?: ManagedSiloTemplate | null;
-  mihomoBusy: boolean;
-  mihomoControllerSecret: string;
-  mihomoControllerUrl: string;
-  mihomoSnapshot: MihomoSnapshot | null;
   managedEngineReady: boolean;
   managedStatusBusy: boolean;
   managedStatusError: string | null;
@@ -106,14 +97,10 @@ export function CreateSiloPanel({
   proxyUsername: string;
   refreshManagedStatus: () => Promise<void>;
   refreshWsl: () => Promise<void>;
-  resetMihomoSnapshot: () => void;
-  selectMihomoGroup: (groupName: string) => void;
-  selectMihomoNode: (nodeName: string) => void;
   setBrowserKind: (kind: BrowserKind) => void;
   setBrowserPath: (path: string) => void;
   setColor: (color: string) => void;
   setExecutionTarget: (target: SiloExecutionTarget) => void;
-  setMihomoControllerSecret: (secret: string) => void;
   setMihomoControllerUrl: (url: string) => void;
   setName: (name: string) => void;
   setNetworkProfile: (profile: NetworkProfile) => void;
@@ -137,9 +124,6 @@ export function CreateSiloPanel({
     networkProfile.mode === "fixed_proxy"
       ? networkProfile.externalMihomo
       : undefined;
-  const selectedMihomoGroup = mihomoSnapshot?.groups.find(
-    (group) => group.name === mihomoBinding?.selectorGroup,
-  );
   useEffect(() => {
     setWebsiteBoundaryConfirmed(false);
   }, [browserKind, browserPath, executionTarget, networkProfile]);
@@ -346,6 +330,8 @@ export function CreateSiloPanel({
             busy={busy}
             color={color}
             initialColor={color}
+            managedEngineReady={managedEngineReady}
+            managedStatusBusy={managedStatusBusy}
             name={name}
             onColorChange={setColor}
             onNameChange={setName}
@@ -358,7 +344,7 @@ export function CreateSiloPanel({
             noValidate
             onSubmit={(event) => {
               event.preventDefault();
-              if (busy || mihomoBusy) {
+              if (busy || clash.busy) {
                 return;
               }
               if (missingBeforeCreate.length > 0) {
@@ -655,7 +641,7 @@ export function CreateSiloPanel({
               </div>
             </div>
             {localExecution ? (
-              <fieldset disabled={busy || mihomoBusy} hidden={!advancedOpen}>
+              <fieldset disabled={busy || clash.busy} hidden={!advancedOpen}>
                 <legend className="sr-only">网络配置</legend>
                 <div className="network-options">
                   <NetworkOption
@@ -666,7 +652,7 @@ export function CreateSiloPanel({
                       setNetworkProfile(emptyNetwork());
                       setProxyUsername("");
                       setProxyPassword("");
-                      resetMihomoSnapshot();
+                      clash.clearSnapshot();
                     }}
                   />
                   <NetworkOption
@@ -675,7 +661,7 @@ export function CreateSiloPanel({
                     label="本机 Clash"
                     onChange={() => {
                       setNetworkProfile(localMihomoProfile());
-                      resetMihomoSnapshot();
+                      clash.clearSnapshot();
                     }}
                   />
                   <NetworkOption
@@ -694,7 +680,7 @@ export function CreateSiloPanel({
                         port: 1080,
                         bypassList: [],
                       });
-                      resetMihomoSnapshot();
+                      clash.clearSnapshot();
                     }}
                   />
                   <NetworkOption
@@ -709,7 +695,7 @@ export function CreateSiloPanel({
                       });
                       setProxyUsername("");
                       setProxyPassword("");
-                      resetMihomoSnapshot();
+                      clash.clearSnapshot();
                     }}
                   />
                 </div>
@@ -762,117 +748,42 @@ export function CreateSiloPanel({
                             </p>
                           </div>
                         </div>
-                        <div className="controller-card">
-                          <div className="controller-heading">
-                            <div>
-                              <strong>连接本机 Clash（推荐）</strong>
-                              <span>
-                                浏览器走代理端口（常见 7897 或 7890）。Clash
-                                Verge 默认关闭
-                                9097，读取代理组会走内核管道，不必手填控制口。
-                              </span>
-                            </div>
-                            <button
-                              className="button-secondary"
-                              disabled={mihomoBusy}
-                              onClick={() => void inspectMihomoController()}
-                              type="button"
-                            >
-                              {mihomoBusy ? "正在读取…" : "连接并读取节点"}
-                            </button>
-                          </div>
-                          <div className="form-grid controller-grid">
-                            <label>
-                              Clash 控制地址
-                              <input
-                                autoComplete="off"
-                                onChange={(event) =>
-                                  setMihomoControllerUrl(event.target.value)
-                                }
-                                placeholder="可空；Clash Verge 不用填 9097"
-                                spellCheck={false}
-                                value={mihomoControllerUrl}
-                              />
-                            </label>
-                            <label>
-                              Clash 密钥（没设过就空着）
-                              <input
-                                autoComplete="off"
-                                onChange={(event) =>
-                                  setMihomoControllerSecret(event.target.value)
-                                }
-                                placeholder="Clash 设置里的 secret"
-                                type="password"
-                                value={mihomoControllerSecret}
-                              />
-                            </label>
-                          </div>
-                          {mihomoSnapshot !== null ? (
-                            <div className="form-grid controller-selection">
-                              <label>
-                                选择组
-                                <select
-                                  onChange={(event) =>
-                                    selectMihomoGroup(event.target.value)
-                                  }
-                                  value={
-                                    mihomoBinding?.selectorGroup ??
-                                    mihomoSnapshot.groups[0]?.name ??
-                                    ""
-                                  }
-                                >
-                                  {mihomoSnapshot.groups.map((group) => (
-                                    <option key={group.name} value={group.name}>
-                                      {group.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <label>
-                                固定节点
-                                <select
-                                  onChange={(event) =>
-                                    selectMihomoNode(event.target.value)
-                                  }
-                                  value={mihomoBinding?.nodeName ?? ""}
-                                >
-                                  {(selectedMihomoGroup?.nodes ?? []).map(
-                                    (node) => (
-                                      <option key={node.name} value={node.name}>
-                                        {node.name}
-                                        {node.delayMs === null
-                                          ? ""
-                                          : ` · ${node.delayMs} ms`}
-                                      </option>
-                                    ),
-                                  )}
-                                </select>
-                              </label>
-                              <p className="controller-proof">
-                                已于 {formatDate(mihomoSnapshot.checkedAt)}
-                                读取代理组。延迟是 Clash
-                                最近测到的，不等于浏览器出口已经验证。
-                                {mihomoSnapshot.providers.length > 0
-                                  ? ` 订阅：${mihomoSnapshot.providers
-                                      .map(
-                                        (provider) =>
-                                          `${provider.name}（${provider.nodeCount} 节点${
-                                            provider.updatedAt === null
-                                              ? ""
-                                              : `，更新于 ${formatDate(provider.updatedAt)}`
-                                          }）`,
-                                      )
-                                      .join("、")}。`
-                                  : " 当前代理应用未提供可读的订阅更新时间。"}
-                              </p>
-                            </div>
-                          ) : (
+                        <ClashBindingCard
+                          clash={clash}
+                          description="浏览器走代理端口（常见 7897 或 7890）。Clash Verge 默认关闭 9097，读取代理组会走内核管道，不必手填控制口。"
+                          nodeLabel="固定节点"
+                          onChangeControllerUrl={setMihomoControllerUrl}
+                          readLabel="连接并读取节点"
+                          secretPlaceholder="Clash 设置里的 secret"
+                          showNodeDelay
+                          title="连接本机 Clash（推荐）"
+                          unboundNote={
                             <p className="controller-proof">
                               尚未绑定节点。仍可按固定端口使用，但外部客户端切换节点时，Silo
                               的出口也会随之变化。
                             </p>
-                          )}
-                        </div>
+                          }
+                        >
+                          {clash.snapshot !== null ? (
+                            <p className="controller-proof">
+                              已于 {formatDate(clash.snapshot.checkedAt)}
+                              读取代理组。延迟是 Clash
+                              最近测到的，不等于浏览器出口已经验证。
+                              {clash.snapshot.providers.length > 0
+                                ? ` 订阅：${clash.snapshot.providers
+                                    .map(
+                                      (provider) =>
+                                        `${provider.name}（${provider.nodeCount} 节点${
+                                          provider.updatedAt === null
+                                            ? ""
+                                            : `，更新于 ${formatDate(provider.updatedAt)}`
+                                        }）`,
+                                    )
+                                    .join("、")}。`
+                                : " 当前代理应用未提供可读的订阅更新时间。"}
+                            </p>
+                          ) : null}
+                        </ClashBindingCard>
                       </div>
                     ) : null}
                     <div className="form-grid proxy-grid">
@@ -1127,7 +1038,7 @@ export function CreateSiloPanel({
               <label className="visibility-confirmation">
                 <input
                   checked={websiteBoundaryConfirmed}
-                  disabled={busy || mihomoBusy}
+                  disabled={busy || clash.busy}
                   id="silo-boundary-confirm"
                   onChange={(event) =>
                     setWebsiteBoundaryConfirmed(event.target.checked)
@@ -1152,7 +1063,7 @@ export function CreateSiloPanel({
                   </span>
                 ) : null}
               </div>
-              <button disabled={busy || mihomoBusy} type="submit">
+              <button disabled={busy || clash.busy} type="submit">
                 {busy ? "正在创建…" : "创建 Silo"}
               </button>
             </div>

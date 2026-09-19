@@ -439,6 +439,16 @@ button:disabled {
   background: var(--soft);
 }
 
+/* Secondary backend detail line under a curated primary message. */
+.error-detail {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .panel {
   margin-top: 20px;
   border: 1px solid var(--line);

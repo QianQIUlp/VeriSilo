@@ -1,5 +1,23 @@
 export class UserFacingError extends Error {
   override readonly name = "UserFacingError";
+  /** Optional secondary detail line shown smaller and muted under the message. */
+  readonly detail: string | null;
+
+  constructor(message: string, detail?: string) {
+    super(message);
+    this.detail = detail ?? null;
+  }
+}
+
+/** Backend detail lines are capped so a runaway native message cannot flood the UI. */
+const errorDetailLimit = 300;
+
+export function truncateErrorDetail(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= errorDetailLimit) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, errorDetailLimit)}…`;
 }
 
 const stableBackendErrors = {
@@ -94,4 +112,29 @@ export function userFacingErrorMessage(
     return raw;
   }
   return fallback;
+}
+
+/**
+ * Secondary detail for an error that was mapped to a curated fallback: the raw
+ * backend message stays visible instead of being silently dropped. Returns
+ * null when the primary text already explains the failure (matched code,
+ * product-native copy, or an explicit UserFacingError), or when the error
+ * carries no usable text.
+ */
+export function userFacingErrorDetail(
+  error: unknown,
+  fallback = "操作没有完成。请检查当前设置后重试。",
+): string | null {
+  if (error instanceof UserFacingError && error.detail !== null) {
+    return error.detail;
+  }
+  if (userFacingErrorMessage(error, fallback) !== fallback) {
+    return null;
+  }
+  const raw = rawErrorText(error);
+  if (raw.trim() === "") {
+    return null;
+  }
+  const detail = truncateErrorDetail(raw);
+  return detail === fallback ? null : detail;
 }

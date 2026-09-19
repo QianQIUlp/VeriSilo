@@ -38,8 +38,7 @@ describe("authoritative Vault lock UI cleanup", () => {
       'setProxyImport("")',
       'setProxyUsername("")',
       'setProxyPassword("")',
-      'setMihomoControllerSecret("")',
-      "setMihomoSnapshot(null)",
+      "resetClashBinding()",
       "setNetworkResult(null)",
       "setBusy(false)",
       "setNotice(null)",
@@ -141,11 +140,11 @@ describe("authoritative Vault lock UI cleanup", () => {
     ).toBeGreaterThanOrEqual(5);
     expect(appSource).toContain("unlockedOperationRef.current += 1");
     expect(appSource).toContain("networkRequestRef.current += 1");
-    expect(appSource).toContain("mihomoRequestRef.current += 1");
+    // The Clash binding read guard invalidates in-flight reads on Vault lock.
+    expect(appSource).toContain("invalidateClashBinding();");
     expect(appSource).toContain("operationId === unlockedOperationRef.current");
-    expect(appSource).toContain(
-      "remoteStatus === null || remoteStatus.pairing === null",
-    );
+    // Remote cleanup only runs against an existing, selected binding.
+    expect(appSource).toContain("selectedRemoteBinding !== undefined");
     expect(
       appSource.match(/disabled=\{remoteBusy \|\| vaultLocked\}/gu)?.length ??
         0,

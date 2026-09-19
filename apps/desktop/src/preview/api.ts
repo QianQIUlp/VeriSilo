@@ -138,10 +138,6 @@ export function installPreviewApi(scenario: string) {
       ),
     listLegacyEnvironmentArtifacts: async () => [],
     listNetworkEvidence: async () => [],
-    listSilos: async () => {
-      unlocked();
-      return structuredClone(silos);
-    },
     listActiveSilos: async () => {
       unlocked();
       return structuredClone(silos.filter((s) => s.archivedAt === null));
@@ -150,11 +146,8 @@ export function installPreviewApi(scenario: string) {
       unlocked();
       return structuredClone(silos.filter((s) => s.archivedAt !== null));
     },
-    siloStorageUsage: async (siloId: string) => ({
-      siloId,
-      profileDirectory: previewSilo.profileDirectory,
-      bytes: 24000000,
-    }),
+    siloStorageUsages: async () =>
+      silos.map((s) => ({ siloId: s.id, bytes: 24000000 })),
     createSilo: async (input: CreateSiloInput) => {
       unlocked();
       const silo: Silo = {
