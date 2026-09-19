@@ -804,8 +804,13 @@ fn scrub_and_remove(path: &Path, length: usize) {
     let _ = fs::remove_file(path);
 }
 
+/// Creates a Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE and assigns
+/// `child` to it. While the caller holds the returned handle the job stays
+/// alive; when the VeriSilo process dies, the kernel closes the handle and
+/// terminates the whole child tree. Shared by the isolated Mihomo runtime and
+/// the Camoufox Host child.
 #[cfg(windows)]
-fn attach_kill_on_close_job(child: &Child) -> io::Result<isize> {
+pub(crate) fn attach_kill_on_close_job(child: &Child) -> io::Result<isize> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::{
         Foundation::CloseHandle,

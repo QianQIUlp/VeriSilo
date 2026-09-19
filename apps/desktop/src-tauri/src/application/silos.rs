@@ -8,16 +8,27 @@ use super::identity::{
 use super::runtime::diagnostic_status_for_silo;
 use super::DesktopCore;
 use crate::domain::{
-    CreateSiloInput, ManagedIdentityPreset, NetworkProfile, ProxyScheme as SiloProxyScheme,
-    RuntimeState, Silo, SiloExecutionTarget, SiloStorageUsage, UpdateSiloEngineInput,
-    UpdateSiloInput, UpdateSiloNetworkInput,
+    CreateSiloInput, ManagedIdentityIntent, ManagedIdentityPreset, NetworkProfile,
+    ProxyScheme as SiloProxyScheme, RuntimeState, Silo, SiloExecutionTarget, SiloStorageUsage,
+    SiloStorageUsageSummary, UpdateSiloEngineInput, UpdateSiloInput, UpdateSiloNetworkInput,
 };
 use crate::environment::backend::{EnvironmentBackendId, EnvironmentOperation};
 use crate::environment::EnvironmentOperationRequest;
 use crate::launcher::profile_in_use;
-use crate::vault::StoredIdentityArtifact;
+use crate::vault::{directory_size_without_links, StoredIdentityArtifact};
 use crate::{mihomo, native_host};
 use uuid::Uuid;
+
+/// Managed Artifact rebind inputs gathered under the Vault lock. The
+/// provisioning subprocess then runs lock-free; the commit re-validates the
+/// running/managed guards under the lock before rebinding, and every Vault
+/// error leaves the old binding and network untouched.
+struct ManagedRebindPlan {
+    metadata: Option<UpdateSiloInput>,
+    network_input: UpdateSiloNetworkInput,
+    intent: ManagedIdentityIntent,
+    seed: [u8; 32],
+}
 
 pub(crate) fn list_silos(state: &DesktopCore) -> Result<Vec<Silo>, String> {
     list_silos_with(&state)
@@ -176,18 +187,34 @@ pub(crate) fn update_silo_configuration(
     engine_input: Option<UpdateSiloEngineInput>,
 ) -> Result<Silo, String> {
     let _local_reservation = state.local_control.reserve()?;
-    let mut vault = state
-        .vault
-        .lock()
-        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let mut runtime = state
-        .runtime
-        .lock()
-        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
-    drop(runtime);
-    let current = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
-    if !current.engine.is_stock() && network_input.is_some() {
+    // Phase 1: decide the path and gather managed provisioning inputs under
+    // the locks. The stock path needs no slow subprocess and commits inside
+    // this same lock scope; the managed path releases the Vault lock around
+    // the Host provisioning subprocess (up to the 120 s bound).
+    let plan = {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        let mut runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+        let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+        drop(runtime);
+        let current = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+        if current.engine.is_stock() || network_input.is_none() {
+            return vault
+                .update_silo_configuration(
+                    &state.root,
+                    silo_id,
+                    input,
+                    network_input,
+                    engine_input,
+                    is_active,
+                )
+                .map_err(|error| error.to_string());
+        }
         if engine_input.is_some() {
             return Err("managed_artifact_unavailable".to_owned());
         }
@@ -224,46 +251,63 @@ pub(crate) fn update_silo_configuration(
         let seed = vault
             .identity_seed_for_silo(silo_id)
             .map_err(managed_vault_error)?;
-        let mihomo_secret = network_input
-            .mihomo_controller_secret
-            .as_ref()
-            .map(|secret| secret.secret.as_str());
-        let result = provision_managed_artifact(
-            &state.root,
-            &managed_browser_package_root(&state),
-            silo_id,
-            &intent,
-            &network_input.network_profile,
-            network_input.proxy_credentials.as_ref(),
-            mihomo_secret,
-            &seed,
-        )?;
-        let artifact = StoredIdentityArtifact {
-            artifact_id: result.artifact_id,
-            schema: result.schema,
-            raw_json: result.raw_json,
-            raw_sha256: result.artifact_file_sha256,
-        };
-        return vault
-            .rebind_managed_silo_configuration(
-                &state.root,
-                silo_id,
-                Some(input),
-                network_input,
-                artifact,
-            )
-            .map_err(managed_vault_error);
+        Some(ManagedRebindPlan {
+            metadata: Some(input),
+            network_input,
+            intent,
+            seed: *seed,
+        })
+    };
+    // Phase 2: provision without the Vault lock. Provisioning writes only its
+    // own fresh per-attempt directory, so failure leaves no Vault state behind.
+    let Some(plan) = plan else {
+        unreachable!("managed rebind path always produces a plan")
+    };
+    let mihomo_secret = plan
+        .network_input
+        .mihomo_controller_secret
+        .as_ref()
+        .map(|secret| secret.secret.as_str());
+    let result = provision_managed_artifact(
+        &state.root,
+        &managed_browser_package_root(&state),
+        silo_id,
+        &plan.intent,
+        &plan.network_input.network_profile,
+        plan.network_input.proxy_credentials.as_ref(),
+        mihomo_secret,
+        &plan.seed,
+    )?;
+    let artifact = StoredIdentityArtifact {
+        artifact_id: result.artifact_id,
+        schema: result.schema,
+        raw_json: result.raw_json,
+        raw_sha256: result.artifact_file_sha256,
+    };
+    // Phase 3: re-acquire, re-check the running guard (it may have changed
+    // during the lock-free window), and commit in one Vault transaction.
+    let mut vault = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+    drop(runtime);
+    if is_active {
+        return Err("managed_another_silo_running".to_owned());
     }
     vault
-        .update_silo_configuration(
+        .rebind_managed_silo_configuration(
             &state.root,
             silo_id,
-            input,
-            network_input,
-            engine_input,
-            is_active,
+            plan.metadata,
+            plan.network_input,
+            artifact,
         )
-        .map_err(|error| error.to_string())
+        .map_err(managed_vault_error)
 }
 
 pub(crate) fn rename_silo(
@@ -291,18 +335,27 @@ pub(crate) fn update_silo_network(
     input: UpdateSiloNetworkInput,
 ) -> Result<Silo, String> {
     let _local_reservation = state.local_control.reserve()?;
-    let mut vault = state
-        .vault
-        .lock()
-        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let mut runtime = state
-        .runtime
-        .lock()
-        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
-    drop(runtime);
-    let current = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
-    if !current.engine.is_stock() {
+    // Phase 1: decide the path and gather managed provisioning inputs under
+    // the locks. The stock path needs no slow subprocess and commits inside
+    // this same lock scope; the managed path releases the Vault lock around
+    // the Host provisioning subprocess (up to the 120 s bound).
+    let plan = {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        let mut runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+        let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+        drop(runtime);
+        let current = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+        if current.engine.is_stock() {
+            return vault
+                .update_silo_network(&state.root, silo_id, input, is_active)
+                .map_err(|error| error.to_string());
+        }
         input
             .validate_for_execution_target(&current.execution_target)
             .map_err(|error| managed_proxy_error(error.to_string()))?;
@@ -332,33 +385,63 @@ pub(crate) fn update_silo_network(
         let seed = vault
             .identity_seed_for_silo(silo_id)
             .map_err(managed_vault_error)?;
-        let mihomo_secret = input
-            .mihomo_controller_secret
-            .as_ref()
-            .map(|secret| secret.secret.as_str());
-        let result = provision_managed_artifact(
-            &state.root,
-            &managed_browser_package_root(&state),
-            silo_id,
-            &intent,
-            &input.network_profile,
-            input.proxy_credentials.as_ref(),
-            mihomo_secret,
-            &seed,
-        )?;
-        let artifact = StoredIdentityArtifact {
-            artifact_id: result.artifact_id,
-            schema: result.schema,
-            raw_json: result.raw_json,
-            raw_sha256: result.artifact_file_sha256,
-        };
-        return vault
-            .rebind_managed_silo_network(&state.root, silo_id, input, artifact)
-            .map_err(managed_vault_error);
+        Some(ManagedRebindPlan {
+            metadata: None,
+            network_input: input,
+            intent,
+            seed: *seed,
+        })
+    };
+    // Phase 2: provision without the Vault lock. Provisioning writes only its
+    // own fresh per-attempt directory, so failure leaves no Vault state behind.
+    let Some(plan) = plan else {
+        unreachable!("managed rebind path always produces a plan")
+    };
+    let mihomo_secret = plan
+        .network_input
+        .mihomo_controller_secret
+        .as_ref()
+        .map(|secret| secret.secret.as_str());
+    let result = provision_managed_artifact(
+        &state.root,
+        &managed_browser_package_root(&state),
+        silo_id,
+        &plan.intent,
+        &plan.network_input.network_profile,
+        plan.network_input.proxy_credentials.as_ref(),
+        mihomo_secret,
+        &plan.seed,
+    )?;
+    let artifact = StoredIdentityArtifact {
+        artifact_id: result.artifact_id,
+        schema: result.schema,
+        raw_json: result.raw_json,
+        raw_sha256: result.artifact_file_sha256,
+    };
+    // Phase 3: re-acquire, re-check the running guard (it may have changed
+    // during the lock-free window), and commit in one Vault transaction.
+    let mut vault = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+    drop(runtime);
+    if is_active {
+        return Err("managed_another_silo_running".to_owned());
     }
     vault
-        .update_silo_network(&state.root, silo_id, input, is_active)
-        .map_err(|error| error.to_string())
+        .rebind_managed_silo_configuration(
+            &state.root,
+            silo_id,
+            plan.metadata,
+            plan.network_input,
+            artifact,
+        )
+        .map_err(managed_vault_error)
 }
 
 pub(crate) fn update_silo_engine(
@@ -502,13 +585,55 @@ pub(crate) fn silo_storage_usage(
     state: &DesktopCore,
     silo_id: Uuid,
 ) -> Result<SiloStorageUsage, String> {
-    let mut vault = state
-        .vault
-        .lock()
-        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    vault
-        .silo_storage_usage(&state.root, silo_id)
-        .map_err(|error| error.to_string())
+    // The Vault lock is taken only to resolve and verify the managed profile
+    // path. The recursive walk stays outside the lock: browser-owned profile
+    // trees can contain hundreds of thousands of changing cache entries.
+    let profile_directory = {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        vault
+            .verified_silo_profile_directory(&state.root, silo_id)
+            .map_err(|error| error.to_string())?
+    };
+    let bytes = if profile_directory.exists() {
+        directory_size_without_links(&profile_directory).map_err(|error| error.to_string())?
+    } else {
+        0
+    };
+    Ok(SiloStorageUsage {
+        silo_id,
+        profile_directory: profile_directory.to_string_lossy().to_string(),
+        bytes,
+    })
+}
+
+pub(crate) fn silo_storage_usages(
+    state: &DesktopCore,
+) -> Result<Vec<SiloStorageUsageSummary>, String> {
+    // The Vault lock is taken only to snapshot every managed profile path
+    // (active and archived Silos). All recursive walks then run outside the
+    // lock, inside the single spawn_blocking body of the command.
+    let silos = {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        vault
+            .verified_silo_profile_directories(&state.root)
+            .map_err(|error| error.to_string())?
+    };
+    let mut usages = Vec::with_capacity(silos.len());
+    for (silo_id, profile_directory) in silos {
+        let bytes = if profile_directory.exists() {
+            directory_size_without_links(&profile_directory).map_err(|error| error.to_string())?
+        } else {
+            0
+        };
+        usages.push(SiloStorageUsageSummary { silo_id, bytes });
+    }
+    Ok(usages)
 }
 
 pub(crate) fn list_network_evidence(

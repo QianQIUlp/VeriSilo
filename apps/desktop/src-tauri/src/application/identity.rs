@@ -311,14 +311,21 @@ pub(crate) fn create_managed_silo_with(
 ) -> Result<Silo, String> {
     let _local_reservation = state.local_control.reserve()?;
     input.validate().map_err(|error| error.to_string())?;
-    let mut vault = state
-        .vault
-        .lock()
-        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    vault.record_activity().map_err(|error| error.to_string())?;
     let package_root = managed_browser_package_root(&state);
-    let mut seed = [0_u8; 32];
-    OsRng.fill_bytes(&mut seed);
+    // Only activity bookkeeping and seed generation need the Vault lock; the
+    // provisioning subprocess (up to the 120 s Host bound) runs lock-free. The
+    // commit below re-validates the whole input and the Artifact under the
+    // lock, so nothing stale can be recorded after the window.
+    let seed = {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        vault.record_activity().map_err(|error| error.to_string())?;
+        let mut seed = [0_u8; 32];
+        OsRng.fill_bytes(&mut seed);
+        seed
+    };
     let result = provision_managed_artifact(
         &state.root,
         &package_root,
@@ -338,6 +345,10 @@ pub(crate) fn create_managed_silo_with(
         raw_json: result.raw_json,
         raw_sha256: result.artifact_file_sha256,
     };
+    let mut vault = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
     vault
         .create_managed_silo(&state.root, input, artifact, &seed)
         .map_err(managed_vault_error)
@@ -362,6 +373,83 @@ pub(crate) fn update_managed_identity(
     input: UpdateManagedIdentityInput,
 ) -> Result<Silo, String> {
     let _local_reservation = state.local_control.reserve()?;
+    // Phase 1: read every Vault input for provisioning under the lock, then
+    // release it. The Host provisioning subprocess (up to the 120 s bound)
+    // must not hold the global Vault Mutex.
+    let (intent, network_profile, proxy_credentials, mihomo_secret, seed) = {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        let mut runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+        let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+        drop(runtime);
+        if is_active {
+            return Err("managed_silo_active".to_owned());
+        }
+        let current = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
+        if current.engine.camoufox_artifact_binding().is_none() {
+            return Err("managed_artifact_unavailable".to_owned());
+        }
+        if current.identity_locked_at.is_some() {
+            return Err("managed_identity_locked".to_owned());
+        }
+        let has_proxy = current.network_profile.requires_proxy();
+        let intent = input.identity_intent();
+        intent
+            .validate(has_proxy)
+            .map_err(|_| "managed_identity_preset_invalid".to_owned())?;
+        let proxy_authentication = vault
+            .proxy_authentication_for_silo(silo_id)
+            .map_err(managed_vault_error)?;
+        let proxy_credentials =
+            proxy_authentication
+                .as_ref()
+                .map(|authentication| ProxyCredentialsInput {
+                    username: authentication.username().to_owned(),
+                    password: authentication.password().to_owned(),
+                });
+        let mihomo_authentication = vault
+            .mihomo_controller_authentication_for_silo(silo_id)
+            .map_err(managed_vault_error)?;
+        let current_seed = vault
+            .identity_seed_for_silo(silo_id)
+            .map_err(managed_vault_error)?;
+        let mut seed = *current_seed;
+        if input.rotate_seed {
+            OsRng.fill_bytes(&mut seed);
+        }
+        (
+            intent,
+            current.network_profile.clone(),
+            proxy_credentials,
+            mihomo_authentication.map(|authentication| authentication.secret().to_owned()),
+            seed,
+        )
+    };
+    // Phase 2: provision without the Vault lock. Provisioning writes only its
+    // own fresh per-attempt directory, so failure leaves no Vault state behind.
+    let result = provision_managed_artifact(
+        &state.root,
+        &managed_browser_package_root(&state),
+        silo_id,
+        &intent,
+        &network_profile,
+        proxy_credentials.as_ref(),
+        mihomo_secret.as_deref(),
+        &seed,
+    )?;
+    let artifact = StoredIdentityArtifact {
+        artifact_id: result.artifact_id,
+        schema: result.schema,
+        raw_json: result.raw_json,
+        raw_sha256: result.artifact_file_sha256,
+    };
+    // Phase 3: re-acquire, re-run the state guards (they may have changed
+    // during the lock-free window), and commit in one Vault transaction.
     let mut vault = state
         .vault
         .lock()
@@ -382,49 +470,6 @@ pub(crate) fn update_managed_identity(
     if current.identity_locked_at.is_some() {
         return Err("managed_identity_locked".to_owned());
     }
-    let has_proxy = current.network_profile.requires_proxy();
-    let intent = input.identity_intent();
-    intent
-        .validate(has_proxy)
-        .map_err(|_| "managed_identity_preset_invalid".to_owned())?;
-    let proxy_authentication = vault
-        .proxy_authentication_for_silo(silo_id)
-        .map_err(managed_vault_error)?;
-    let proxy_credentials =
-        proxy_authentication
-            .as_ref()
-            .map(|authentication| ProxyCredentialsInput {
-                username: authentication.username().to_owned(),
-                password: authentication.password().to_owned(),
-            });
-    let mihomo_authentication = vault
-        .mihomo_controller_authentication_for_silo(silo_id)
-        .map_err(managed_vault_error)?;
-    let current_seed = vault
-        .identity_seed_for_silo(silo_id)
-        .map_err(managed_vault_error)?;
-    let mut seed = *current_seed;
-    if input.rotate_seed {
-        OsRng.fill_bytes(&mut seed);
-    }
-    let result = provision_managed_artifact(
-        &state.root,
-        &managed_browser_package_root(&state),
-        silo_id,
-        &intent,
-        &current.network_profile,
-        proxy_credentials.as_ref(),
-        mihomo_authentication
-            .as_ref()
-            .map(MihomoControllerAuthentication::secret),
-        &seed,
-    )?;
-    let artifact = StoredIdentityArtifact {
-        artifact_id: result.artifact_id,
-        schema: result.schema,
-        raw_json: result.raw_json,
-        raw_sha256: result.artifact_file_sha256,
-    };
     vault
         .replace_managed_identity(
             &state.root,

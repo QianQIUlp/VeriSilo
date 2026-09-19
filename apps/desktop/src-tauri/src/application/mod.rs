@@ -27,7 +27,8 @@ pub(crate) use silos::{
     archive_silo, clear_network_evidence, create_silo, delete_silo, delete_silo_with,
     diagnose_silo_with, list_active_silos, list_archived_silos, list_network_evidence, list_silos,
     list_silos_with, page_action_with, rename_silo, restore_archived_silo, silo_storage_usage,
-    update_silo, update_silo_configuration, update_silo_engine, update_silo_network,
+    silo_storage_usages, update_silo, update_silo_configuration, update_silo_engine,
+    update_silo_network,
 };
 
 mod engines;

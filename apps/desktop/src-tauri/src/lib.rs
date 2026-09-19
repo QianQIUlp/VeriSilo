@@ -243,6 +243,7 @@ pub fn run() {
             commands::restore_archived_silo,
             commands::delete_silo,
             commands::silo_storage_usage,
+            commands::silo_storage_usages,
             commands::list_network_evidence,
             commands::clear_network_evidence,
             commands::recheck_silo_browser,
