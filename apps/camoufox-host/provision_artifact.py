@@ -72,17 +72,31 @@ GPU_PRESETS: dict[str, tuple[str, str]] = {
     "amd-rx-7800xt": ("ATI Technologies Inc.", "AMD Radeon RX 7800 XT, or similar"),
     "intel-uhd-770": ("Intel", "Intel(R) UHD Graphics 770, or similar"),
 }
+# Must cover every PROVISION_PRESETS default timezone and every zone the
+# desktop core accepts: the desktop form always sends a concrete timezone,
+# so a zone missing here fails provisioning for that country.
 SUPPORTED_TIMEZONES = {
     "Asia/Shanghai",
     "Asia/Hong_Kong",
     "Asia/Tokyo",
+    "Asia/Seoul",
     "Asia/Singapore",
+    "Asia/Kolkata",
+    "Asia/Manila",
     "Europe/London",
     "Europe/Berlin",
     "Europe/Paris",
+    "Europe/Madrid",
+    "Europe/Rome",
+    "Europe/Moscow",
+    "Europe/Istanbul",
+    "Africa/Cairo",
     "America/New_York",
     "America/Chicago",
     "America/Los_Angeles",
+    "America/Toronto",
+    "America/Sao_Paulo",
+    "Australia/Sydney",
     "UTC",
 }
 SUPPORTED_HARDWARE_CONCURRENCY = (2, 4, 6, 8, 12, 16)

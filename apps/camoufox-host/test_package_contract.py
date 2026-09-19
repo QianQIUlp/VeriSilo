@@ -38,6 +38,7 @@ from browser_tree import TreeIntegrityError, build_tree_manifest, verify_tree  #
 from provision_artifact import (  # noqa: E402
     PROVISION_PRESETS,
     PROVISION_REQUEST_KEYS,
+    SUPPORTED_TIMEZONES,
     _artifact_id,
     parse_gpu_preset,
     parse_hardware_concurrency,
@@ -158,6 +159,14 @@ def main() -> int:
         if preset["network"] == "direct"
     )
     assert all(preset["fontMode"] == "managed" for preset in PROVISION_PRESETS.values())
+    # The desktop form always sends a concrete timezone; every preset default
+    # must therefore be accepted by the host's own whitelist, or provisioning
+    # fails for that country.
+    assert all(
+        preset["timezone"] in SUPPORTED_TIMEZONES
+        for preset in PROVISION_PRESETS.values()
+        if preset["network"] == "direct"
+    )
     layout = PackageLayout.from_root("package")
     assert layout.asset_lock.name == "runtime-asset-lock.json"
     assert layout.supervisor.as_posix().endswith("host/verisilo-camoufox-supervisor.exe")
