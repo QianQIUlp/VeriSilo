@@ -2745,10 +2745,28 @@ impl ExternalPackageEngineAdapter {
         }
         if !matches!(
             preset,
-            "balanced-en-us" | "balanced-zh-cn" | "balanced-de-de" | "match-fixed-proxy"
+            "balanced-en-us"
+                | "balanced-zh-cn"
+                | "balanced-de-de"
+                | "balanced-ja-jp"
+                | "balanced-ko-kr"
+                | "balanced-en-gb"
+                | "balanced-fr-fr"
+                | "balanced-es-es"
+                | "balanced-it-it"
+                | "balanced-ru-ru"
+                | "balanced-pt-br"
+                | "balanced-en-ca"
+                | "balanced-en-au"
+                | "balanced-en-in"
+                | "balanced-en-sg"
+                | "balanced-en-ph"
+                | "balanced-tr-tr"
+                | "balanced-ar-eg"
+                | "match-fixed-proxy"
         ) {
             return Err(EngineError::InvalidIdentityTemplate(
-                "managed identity preset is not one of the four fixed values".to_owned(),
+                "managed identity preset is not one of the fixed values".to_owned(),
             ));
         }
         if follow_network && proxy_server.is_none() {

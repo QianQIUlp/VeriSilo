@@ -89,11 +89,58 @@ export function activationStatusTone(
 export function localePresetFromPreview(
   preview: ManagedIdentityPreview,
 ): ManagedIdentityPreset {
-  if (preview.language.startsWith("zh")) {
+  const language = preview.language.toLowerCase();
+  if (language.startsWith("zh")) {
     return "balanced-zh-cn";
   }
-  if (preview.language.startsWith("de")) {
+  if (language.startsWith("ja")) {
+    return "balanced-ja-jp";
+  }
+  if (language.startsWith("ko")) {
+    return "balanced-ko-kr";
+  }
+  if (language.startsWith("de")) {
     return "balanced-de-de";
+  }
+  if (language.startsWith("fr")) {
+    return "balanced-fr-fr";
+  }
+  if (language.startsWith("es")) {
+    return "balanced-es-es";
+  }
+  if (language.startsWith("it")) {
+    return "balanced-it-it";
+  }
+  if (language.startsWith("pt")) {
+    return "balanced-pt-br";
+  }
+  if (language.startsWith("ru")) {
+    return "balanced-ru-ru";
+  }
+  if (language.startsWith("tr")) {
+    return "balanced-tr-tr";
+  }
+  if (language.startsWith("ar")) {
+    return "balanced-ar-eg";
+  }
+  if (language.startsWith("en")) {
+    const region = (language.split("-")[1] ?? preview.countryCode ?? "").toUpperCase();
+    switch (region) {
+      case "GB":
+        return "balanced-en-gb";
+      case "CA":
+        return "balanced-en-ca";
+      case "AU":
+        return "balanced-en-au";
+      case "SG":
+        return "balanced-en-sg";
+      case "IN":
+        return "balanced-en-in";
+      case "PH":
+        return "balanced-en-ph";
+      default:
+        return "balanced-en-us";
+    }
   }
   return "balanced-en-us";
 }

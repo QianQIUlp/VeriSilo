@@ -61,6 +61,21 @@ export type ManagedIdentityPreset =
   | "balanced-en-us"
   | "balanced-zh-cn"
   | "balanced-de-de"
+  | "balanced-ja-jp"
+  | "balanced-ko-kr"
+  | "balanced-en-gb"
+  | "balanced-fr-fr"
+  | "balanced-es-es"
+  | "balanced-it-it"
+  | "balanced-ru-ru"
+  | "balanced-pt-br"
+  | "balanced-en-ca"
+  | "balanced-en-au"
+  | "balanced-en-in"
+  | "balanced-en-sg"
+  | "balanced-en-ph"
+  | "balanced-tr-tr"
+  | "balanced-ar-eg"
   | "match-fixed-proxy";
 
 export interface ManagedIdentityPreview {

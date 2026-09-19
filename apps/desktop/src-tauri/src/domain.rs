@@ -590,6 +590,21 @@ pub enum ManagedIdentityPreset {
     BalancedEnUs,
     BalancedZhCn,
     BalancedDeDe,
+    BalancedJaJp,
+    BalancedKoKr,
+    BalancedEnGb,
+    BalancedFrFr,
+    BalancedEsEs,
+    BalancedItIt,
+    BalancedRuRu,
+    BalancedPtBr,
+    BalancedEnCa,
+    BalancedEnAu,
+    BalancedEnIn,
+    BalancedEnSg,
+    BalancedEnPh,
+    BalancedTrTr,
+    BalancedArEg,
     MatchFixedProxy,
 }
 
@@ -599,6 +614,21 @@ impl ManagedIdentityPreset {
             Self::BalancedEnUs => "balanced-en-us",
             Self::BalancedZhCn => "balanced-zh-cn",
             Self::BalancedDeDe => "balanced-de-de",
+            Self::BalancedJaJp => "balanced-ja-jp",
+            Self::BalancedKoKr => "balanced-ko-kr",
+            Self::BalancedEnGb => "balanced-en-gb",
+            Self::BalancedFrFr => "balanced-fr-fr",
+            Self::BalancedEsEs => "balanced-es-es",
+            Self::BalancedItIt => "balanced-it-it",
+            Self::BalancedRuRu => "balanced-ru-ru",
+            Self::BalancedPtBr => "balanced-pt-br",
+            Self::BalancedEnCa => "balanced-en-ca",
+            Self::BalancedEnAu => "balanced-en-au",
+            Self::BalancedEnIn => "balanced-en-in",
+            Self::BalancedEnSg => "balanced-en-sg",
+            Self::BalancedEnPh => "balanced-en-ph",
+            Self::BalancedTrTr => "balanced-tr-tr",
+            Self::BalancedArEg => "balanced-ar-eg",
             Self::MatchFixedProxy => "match-fixed-proxy",
         }
     }
@@ -612,6 +642,21 @@ impl ManagedIdentityPreset {
             Self::BalancedEnUs => Some("en-US"),
             Self::BalancedZhCn => Some("zh-CN"),
             Self::BalancedDeDe => Some("de-DE"),
+            Self::BalancedJaJp => Some("ja-JP"),
+            Self::BalancedKoKr => Some("ko-KR"),
+            Self::BalancedEnGb => Some("en-GB"),
+            Self::BalancedFrFr => Some("fr-FR"),
+            Self::BalancedEsEs => Some("es-ES"),
+            Self::BalancedItIt => Some("it-IT"),
+            Self::BalancedRuRu => Some("ru-RU"),
+            Self::BalancedPtBr => Some("pt-BR"),
+            Self::BalancedEnCa => Some("en-CA"),
+            Self::BalancedEnAu => Some("en-AU"),
+            Self::BalancedEnIn => Some("en-IN"),
+            Self::BalancedEnSg => Some("en-SG"),
+            Self::BalancedEnPh => Some("en-PH"),
+            Self::BalancedTrTr => Some("tr-TR"),
+            Self::BalancedArEg => Some("ar-EG"),
             Self::MatchFixedProxy => None,
         }
     }
@@ -620,6 +665,21 @@ impl ManagedIdentityPreset {
         match locale {
             "zh-CN" => Self::BalancedZhCn,
             "de-DE" => Self::BalancedDeDe,
+            "ja-JP" => Self::BalancedJaJp,
+            "ko-KR" => Self::BalancedKoKr,
+            "en-GB" => Self::BalancedEnGb,
+            "fr-FR" => Self::BalancedFrFr,
+            "es-ES" => Self::BalancedEsEs,
+            "it-IT" => Self::BalancedItIt,
+            "ru-RU" => Self::BalancedRuRu,
+            "pt-BR" => Self::BalancedPtBr,
+            "en-CA" => Self::BalancedEnCa,
+            "en-AU" => Self::BalancedEnAu,
+            "en-IN" => Self::BalancedEnIn,
+            "en-SG" => Self::BalancedEnSg,
+            "en-PH" => Self::BalancedEnPh,
+            "tr-TR" => Self::BalancedTrTr,
+            "ar-EG" => Self::BalancedArEg,
             _ => Self::BalancedEnUs,
         }
     }
@@ -656,13 +716,24 @@ fn is_supported_managed_timezone(timezone: &str) -> bool {
         "Asia/Shanghai"
             | "Asia/Hong_Kong"
             | "Asia/Tokyo"
+            | "Asia/Seoul"
             | "Asia/Singapore"
+            | "Asia/Kolkata"
+            | "Asia/Manila"
             | "Europe/London"
             | "Europe/Berlin"
             | "Europe/Paris"
+            | "Europe/Madrid"
+            | "Europe/Rome"
+            | "Europe/Moscow"
+            | "Europe/Istanbul"
+            | "Africa/Cairo"
             | "America/New_York"
             | "America/Chicago"
             | "America/Los_Angeles"
+            | "America/Toronto"
+            | "America/Sao_Paulo"
+            | "Australia/Sydney"
             | "UTC"
     )
 }

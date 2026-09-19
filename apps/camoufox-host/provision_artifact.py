@@ -86,34 +86,26 @@ SUPPORTED_TIMEZONES = {
     "UTC",
 }
 SUPPORTED_HARDWARE_CONCURRENCY = (2, 4, 6, 8, 12, 16)
+_BALANCED_DIRECT_DEFAULTS: dict[str, Any] = {
+    "network": "direct",
+    "window": (1280, 800),
+    "fontMode": "managed",
+    "voicesMode": "managed",
+    "gpcPolicy": GPC_POLICY_MANAGED_OPT_OUT,
+}
+
+
+def _balanced_preset(locale: str, timezone: str) -> dict[str, Any]:
+    return {**_BALANCED_DIRECT_DEFAULTS, "locale": locale, "timezone": timezone}
+
+
+# Compact binary provision frames address presets by table index, so the four
+# historical entries keep their original positions; new country presets append
+# after them and must never be inserted in between.
 PROVISION_PRESETS: dict[str, dict[str, Any]] = {
-    "balanced-en-us": {
-        "network": "direct",
-        "locale": "en-US",
-        "timezone": "America/New_York",
-        "window": (1280, 800),
-        "fontMode": "managed",
-        "voicesMode": "managed",
-        "gpcPolicy": GPC_POLICY_MANAGED_OPT_OUT,
-    },
-    "balanced-zh-cn": {
-        "network": "direct",
-        "locale": "zh-CN",
-        "timezone": "Asia/Shanghai",
-        "window": (1280, 800),
-        "fontMode": "managed",
-        "voicesMode": "managed",
-        "gpcPolicy": GPC_POLICY_MANAGED_OPT_OUT,
-    },
-    "balanced-de-de": {
-        "network": "direct",
-        "locale": "de-DE",
-        "timezone": "Europe/Berlin",
-        "window": (1280, 800),
-        "fontMode": "managed",
-        "voicesMode": "managed",
-        "gpcPolicy": GPC_POLICY_MANAGED_OPT_OUT,
-    },
+    "balanced-en-us": _balanced_preset("en-US", "America/New_York"),
+    "balanced-zh-cn": _balanced_preset("zh-CN", "Asia/Shanghai"),
+    "balanced-de-de": _balanced_preset("de-DE", "Europe/Berlin"),
     "match-fixed-proxy": {
         "network": "proxy",
         "locale": None,
@@ -123,6 +115,31 @@ PROVISION_PRESETS: dict[str, dict[str, Any]] = {
         "voicesMode": "managed",
         "gpcPolicy": GPC_POLICY_MANAGED_OPT_OUT,
     },
+    "balanced-ja-jp": _balanced_preset("ja-JP", "Asia/Tokyo"),
+    "balanced-ko-kr": _balanced_preset("ko-KR", "Asia/Seoul"),
+    "balanced-en-gb": _balanced_preset("en-GB", "Europe/London"),
+    "balanced-fr-fr": _balanced_preset("fr-FR", "Europe/Paris"),
+    "balanced-es-es": _balanced_preset("es-ES", "Europe/Madrid"),
+    "balanced-it-it": _balanced_preset("it-IT", "Europe/Rome"),
+    "balanced-ru-ru": _balanced_preset("ru-RU", "Europe/Moscow"),
+    "balanced-pt-br": _balanced_preset("pt-BR", "America/Sao_Paulo"),
+    "balanced-en-ca": _balanced_preset("en-CA", "America/Toronto"),
+    "balanced-en-au": _balanced_preset("en-AU", "Australia/Sydney"),
+    "balanced-en-in": _balanced_preset("en-IN", "Asia/Kolkata"),
+    "balanced-en-sg": _balanced_preset("en-SG", "Asia/Singapore"),
+    "balanced-en-ph": _balanced_preset("en-PH", "Asia/Manila"),
+    "balanced-tr-tr": _balanced_preset("tr-TR", "Europe/Istanbul"),
+    "balanced-ar-eg": _balanced_preset("ar-EG", "Africa/Cairo"),
+}
+
+# Deterministic per-locale preferred font families merged into the managed
+# font subset after the fixpoint, so a country's language can actually render
+# its own script. Only families present in the Camoufox bundled font universe
+# (fonts.json "win" profile) may appear here; a family the universe lacks
+# would fall back to the masked default and make the preference a no-op.
+PRESET_PREFERRED_FONTS: dict[str, tuple[str, ...]] = {
+    "ja-JP": ("Yu Gothic", "MS Gothic"),
+    "ko-KR": ("Malgun Gothic",),
 }
 
 LOOPBACK_PROXY_PREFIX = "socks5://127.0.0.1:"
@@ -386,6 +403,11 @@ def complete_resolved_config(
     config["locale:language"] = language
     config["locale:region"] = region
     config["locale:script"] = script
+    fonts = config.get("fonts")
+    preferred = PRESET_PREFERRED_FONTS.get(locale, ())
+    if preferred and isinstance(fonts, list):
+        present = {str(family) for family in fonts}
+        config["fonts"] = [*fonts, *(family for family in preferred if family not in present)]
     return config
 
 

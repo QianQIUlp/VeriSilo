@@ -118,17 +118,45 @@ def main() -> int:
     clamped_y = max(0, min(sub_config["window.screenY"], max_y))
     assert clamped_x == 280
     assert clamped_y == 200
-    assert len(PROVISION_PRESETS) == 4
+    assert len(PROVISION_PRESETS) == 19
+    # Compact binary frames address presets by index: the four historical
+    # entries must keep their original table positions.
+    assert tuple(PROVISION_PRESETS)[:4] == (
+        "balanced-en-us",
+        "balanced-zh-cn",
+        "balanced-de-de",
+        "match-fixed-proxy",
+    )
     assert set(PROVISION_PRESETS) == {
         "balanced-en-us",
         "balanced-zh-cn",
         "balanced-de-de",
+        "balanced-ja-jp",
+        "balanced-ko-kr",
+        "balanced-en-gb",
+        "balanced-fr-fr",
+        "balanced-es-es",
+        "balanced-it-it",
+        "balanced-ru-ru",
+        "balanced-pt-br",
+        "balanced-en-ca",
+        "balanced-en-au",
+        "balanced-en-in",
+        "balanced-en-sg",
+        "balanced-en-ph",
+        "balanced-tr-tr",
+        "balanced-ar-eg",
         "match-fixed-proxy",
     }
     direct_presets = tuple(
         name for name, preset in PROVISION_PRESETS.items() if preset["network"] == "direct"
     )
-    assert direct_presets == ("balanced-en-us", "balanced-zh-cn", "balanced-de-de")
+    assert len(direct_presets) == 18
+    assert all(
+        isinstance(preset["locale"], str) and isinstance(preset["timezone"], str)
+        for preset in PROVISION_PRESETS.values()
+        if preset["network"] == "direct"
+    )
     assert all(preset["fontMode"] == "managed" for preset in PROVISION_PRESETS.values())
     layout = PackageLayout.from_root("package")
     assert layout.asset_lock.name == "runtime-asset-lock.json"

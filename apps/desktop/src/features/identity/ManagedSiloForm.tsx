@@ -718,6 +718,21 @@ export function ManagedSiloForm({
                 <option value="balanced-zh-cn">中文（简体）</option>
                 <option value="balanced-en-us">English (US)</option>
                 <option value="balanced-de-de">Deutsch</option>
+                <option value="balanced-ja-jp">日本語（日本）</option>
+                <option value="balanced-ko-kr">한국어（韩国）</option>
+                <option value="balanced-en-gb">English (UK)</option>
+                <option value="balanced-en-ca">English (Canada)</option>
+                <option value="balanced-en-au">English (Australia)</option>
+                <option value="balanced-en-sg">English (Singapore)</option>
+                <option value="balanced-en-in">English (India)</option>
+                <option value="balanced-en-ph">English (Philippines)</option>
+                <option value="balanced-fr-fr">Français（法国）</option>
+                <option value="balanced-es-es">Español（西班牙）</option>
+                <option value="balanced-it-it">Italiano（意大利）</option>
+                <option value="balanced-pt-br">Português（巴西）</option>
+                <option value="balanced-ru-ru">Русский（俄罗斯）</option>
+                <option value="balanced-tr-tr">Türkçe（土耳其）</option>
+                <option value="balanced-ar-eg">العربية（埃及）</option>
               </select>
             </label>
           </div>
