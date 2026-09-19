@@ -31,6 +31,7 @@ from package_contract import (  # noqa: E402
     recheck_package,
     safe_relative_path,
     sha256_bytes,
+    validate_probe_rendering_layer,
     validate_v3_manifest,
 )
 from browser_tree import TreeIntegrityError, build_tree_manifest, verify_tree  # noqa: E402
@@ -133,6 +134,20 @@ def main() -> int:
     assert layout.asset_lock.name == "runtime-asset-lock.json"
     assert layout.supervisor.as_posix().endswith("host/verisilo-camoufox-supervisor.exe")
     assert layout.probe.as_posix().endswith("host/probe/probe.html")
+    canonical_probe = (
+        Path(__file__).resolve().parents[2] / "tests" / "fingerprint-probe" / "probe.html"
+    )
+    validate_probe_rendering_layer(canonical_probe.read_text(encoding="utf-8"), "canonical-probe.html")
+    for stale_probe in (
+        "",
+        '<script>hostFontNegativeControls: identityFontAvailability(window.__probeHostFonts);</script>',
+        "<script>function identityFontRenderAvailability(fonts){return {};}</script>",
+    ):
+        try:
+            validate_probe_rendering_layer(stale_probe, "stale-probe.html")
+        except PackageContractError:
+            continue
+        raise AssertionError("a probe without rendering-layer masking must be rejected")
     seed = bytes(range(32))
     assert decode_seed(base64.b64encode(seed).decode()) == seed
     assert decode_seed(seed.hex()) == seed

@@ -50,6 +50,8 @@ from package_contract import (
     HOST_NAME,
     PACKAGE_MANIFEST_NAME,
     PACKAGE_TREE_NAME,
+    PROBE_DIRECTORY,
+    PROBE_NAME,
     PackageContractError,
     PackageLayout,
     build_package_tree,
@@ -60,11 +62,13 @@ from package_contract import (
     sha256_bytes,
     sha256_file,
     strict_json_loads,
+    validate_probe_rendering_layer,
     validate_v3_manifest,
 )
 
 PYINSTALLER_VERSION = "6.22.2"
 REPO_ROOT = Path(__file__).resolve().parents[1]
+CANONICAL_PROBE = REPO_ROOT / "tests" / "fingerprint-probe" / "probe.html"
 SOURCE_LOCK_DEFAULT = HOST_DIR / "lock" / "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-source.json"
 BUILD_RESULT_DEFAULT = HOST_DIR / "lock" / "camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-build-result.json"
 SIGNER_HELPER = Path(__file__).with_name("sign-camoufox-host-manifest.ps1")
@@ -206,6 +210,40 @@ def _validate_host_source_provenance(host_directory: Path, host_source: Path) ->
         _fail(
             "Host one-folder source provenance does not match the current "
             "canonical Host source"
+        )
+
+
+def _read_probe_bytes(probe: Path, label: str) -> bytes:
+    try:
+        return probe.read_bytes()
+    except OSError as exc:
+        _fail(f"{label} is missing or unreadable: {probe} ({exc})")
+
+
+def _stage_probe(probe: Path, destination: Path) -> None:
+    """Stage the probe only when it judges masking at the rendering layer."""
+    probe_bytes = _read_probe_bytes(probe, "probe file")
+    try:
+        validate_probe_rendering_layer(probe_bytes.decode("utf-8"), str(probe))
+    except (UnicodeDecodeError, PackageContractError) as exc:
+        _fail(f"refusing to stage a stale or unreadable probe: {exc}")
+    _copy_regular(probe, destination)
+
+
+def _validate_packaged_probe_parity(package_root: Path) -> None:
+    """Release packages must ship exactly the canonical repo probe."""
+    packaged = package_root / PROBE_DIRECTORY / PROBE_NAME
+    packaged_bytes = _read_probe_bytes(packaged, "packaged probe")
+    try:
+        validate_probe_rendering_layer(packaged_bytes.decode("utf-8"), str(packaged))
+    except (UnicodeDecodeError, PackageContractError) as exc:
+        _fail(f"packaged probe is stale or unreadable: {exc}")
+    canonical_bytes = _read_probe_bytes(CANONICAL_PROBE, "canonical probe")
+    if packaged_bytes != canonical_bytes:
+        _fail(
+            "packaged probe.html does not match the canonical "
+            f"{CANONICAL_PROBE.relative_to(REPO_ROOT).as_posix()}; rebuild the "
+            "package instead of shipping a stale probe"
         )
 
 
@@ -670,7 +708,7 @@ def _stage(
             _fail("staged Host one-folder output is missing camoufox-host.exe")
         _validate_host_source_provenance(layout.host.parent, host_source)
         _copy_regular(supervisor, layout.supervisor)
-        _copy_regular(probe, layout.probe)
+        _stage_probe(probe, layout.probe)
         # Preserve the accepted Formal-v3 tree bytes and their raw digest;
         # reserializing the same entries would sever that exact binding.
         browser_tree_raw = frozen_tree.read_bytes()
@@ -834,6 +872,21 @@ def _self_test() -> int:
         }
         assert manifest_signing_payload(manifest).startswith(b"VeriSilo engine package manifest v3\0")
         assert manifest_signing_payload(manifest) == manifest_signing_payload(manifest)
+        stale_probe = (
+            "<script>function identityFontAvailability(fonts){return null;}"
+            " hostFontNegativeControls: identityFontAvailability(window.__probeHostFonts);</script>"
+        )
+        try:
+            validate_probe_rendering_layer(stale_probe, "stale-probe.html")
+        except PackageContractError:
+            pass
+        else:
+            raise AssertionError("a document.fonts.check probe must fail the rendering-layer validation")
+        validate_probe_rendering_layer(
+            "identityFontRenderAvailability(BOGUS) "
+            "hostFontNegativeControls: identityFontRenderAvailability(window.__probeHostFonts)",
+            "rendering-probe.html",
+        )
     print("Camoufox Host package builder self-test passed")
     return 0
 
@@ -844,7 +897,7 @@ def main() -> int:
     parser.add_argument("--browser-root", type=Path)
     parser.add_argument("--browser-tree-manifest", type=Path)
     parser.add_argument("--supervisor", type=Path)
-    parser.add_argument("--probe", type=Path)
+    parser.add_argument("--probe", type=Path, default=CANONICAL_PROBE)
     parser.add_argument("--host-executable", type=Path)
     parser.add_argument("--host-directory", type=Path, help="Existing PyInstaller one-folder output")
     parser.add_argument("--source-lock", type=Path, default=SOURCE_LOCK_DEFAULT)
@@ -873,6 +926,7 @@ def main() -> int:
             _validate_host_source_provenance(
                 root / "host", args.host_source.absolute()
             )
+            _validate_packaged_probe_parity(root)
             result["signed"] = bool(manifest["signature"]["value"])
             print(json.dumps(result, sort_keys=True))
             return 0
@@ -881,7 +935,6 @@ def main() -> int:
             "--browser-root": args.browser_root,
             "--browser-tree-manifest": args.browser_tree_manifest,
             "--supervisor": args.supervisor,
-            "--probe": args.probe,
         }
         missing = [name for name, value in required.items() if value is None]
         if missing:

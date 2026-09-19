@@ -162,6 +162,28 @@ REQUIRED_RC1_MEMBERS = (
 )
 REQUIRED_RC1_DIRECTORIES = (BROWSER_DIRECTORY,)
 
+# The packaged probe must judge host-font masking at the rendering layer
+# (canvas text metrics against a bogus reference). document.fonts.check
+# reports every well-formed family as available in Firefox, so a probe built
+# on it fails the managed font gate on every host; the markers below must
+# stay in sync with tests/fingerprint-probe/probe.html.
+PROBE_RENDER_LAYER_MARKERS = (
+    "identityFontRenderAvailability",
+    "hostFontNegativeControls: identityFontRenderAvailability(",
+)
+
+
+def validate_probe_rendering_layer(probe_text: str, source: str = PROBE_NAME) -> None:
+    """Fail closed when a probe.html predates rendering-layer font masking."""
+    missing = [marker for marker in PROBE_RENDER_LAYER_MARKERS if marker not in probe_text]
+    if missing:
+        raise PackageContractError(
+            f"{source} predates rendering-layer font masking; it would fail the managed "
+            "font gate on every host because document.fonts.check cannot observe system "
+            "fonts in Firefox. Ship the current tests/fingerprint-probe/probe.html; "
+            f"missing markers: {', '.join(missing)}"
+        )
+
 
 @dataclass(frozen=True)
 class PackageLayout:

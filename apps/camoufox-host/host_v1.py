@@ -123,7 +123,7 @@ from host_runtime import LEGACY_SUPERVISOR as SUPERVISOR
 from host_runtime import LEGACY_CACHE_DIR as XDG_CACHE_DIR
 from host_runtime import LEGACY_PROBE_FILE
 from host_runtime import LEGACY_DEFAULT_TREE_MANIFEST
-from package_contract import PackageLayout
+from package_contract import PackageLayout, PackageContractError, validate_probe_rendering_layer
 
 PROTOCOL = "verisilo-camoufox-host/v1"
 HOST_VERSION = "0.1.0"
@@ -886,6 +886,14 @@ class CamoufoxHost:
             ):
                 if selected.resolve(strict=False) != expected.resolve(strict=False):
                     raise SystemExit(f"package {label} must use its fixed package-relative path")
+        try:
+            probe_text = self.probe_file.read_text(encoding="utf-8")
+        except OSError as error:
+            raise SystemExit(f"probe file is not readable: {self.probe_file} ({error})") from error
+        try:
+            validate_probe_rendering_layer(probe_text, str(self.probe_file))
+        except PackageContractError as error:
+            raise SystemExit(str(error)) from error
         self.display_arg = display
         self.probe_port = probe_port
         self.playwright: Any = None
