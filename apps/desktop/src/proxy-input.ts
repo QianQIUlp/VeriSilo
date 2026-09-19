@@ -8,6 +8,23 @@ import { UserFacingError } from "./user-errors.js";
 const SUPPORTED_SCHEMES = new Set(["http", "https", "socks4", "socks5"]);
 const HOST_PATTERN = /^[A-Za-z0-9.:-]+$/u;
 
+/** Shared copy for the username/password pairing rule across creation and edit forms. */
+export const PROXY_CREDENTIAL_PAIRING_MESSAGE =
+  "代理用户名和密码需要同时填写；无认证代理请都留空。";
+
+/** Proxy credentials must be provided as a pair, or not at all. */
+export function proxyCredentialsPaired(
+  username: string,
+  password: string,
+): boolean {
+  return (username.trim() === "") === (password === "");
+}
+
+/** Only these schemes can carry credentials into the encrypted vault. */
+export function proxySchemeSupportsCredentials(scheme: string): boolean {
+  return scheme === "http" || scheme === "socks5";
+}
+
 export interface ParsedProxyInput {
   profile: Extract<NetworkProfile, { mode: "fixed_proxy" }>;
   credentials: ProxyCredentialsInput | null;

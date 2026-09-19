@@ -1,7 +1,6 @@
 import {
   type BrowserCandidate,
   type ManagedIdentityPreview,
-  type MihomoSnapshot,
   type UpdateManagedIdentityInput,
   type UpdateSiloEngineInput,
   type UpdateSiloInput,
@@ -19,13 +18,13 @@ import { useState } from "react";
 
 import { emptyNetwork } from "../../shared/defaults.js";
 
-import { parseProxyInput } from "../../proxy-input.js";
+import { parseProxyInput, proxyCredentialsPaired } from "../../proxy-input.js";
 
-import { UserFacingError } from "../../user-errors.js";
+import { errorMessage } from "../../shared/notice.js";
 
-import { errorMessage, managedErrorMessage } from "../../shared/notice.js";
+import { ClashBindingCard } from "../network/ClashBindingCard.js";
 
-import { readMihomoGroups } from "../network/controller.js";
+import { useClashBinding } from "../network/useClashBinding.js";
 
 import {
   localePresetFromPreview,
@@ -79,15 +78,7 @@ export function EditSiloPanel({
   const [proxyImportError, setProxyImportError] = useState<string | null>(null);
   const [proxyUsername, setProxyUsername] = useState("");
   const [proxyPassword, setProxyPassword] = useState("");
-  const [clashControllerUrl, setClashControllerUrl] = useState("");
-  const [clashSecret, setClashSecret] = useState("");
-  const [clashBusy, setClashBusy] = useState(false);
-  const [clashSnapshot, setClashSnapshot] = useState<MihomoSnapshot | null>(
-    null,
-  );
-  const [clashGroup, setClashGroup] = useState("");
-  const [clashNode, setClashNode] = useState("");
-  const [clashError, setClashError] = useState<string | null>(null);
+  const clash = useClashBinding();
   const localExecution = silo.executionTarget.kind === "local";
   const identityLocked = silo.identityLockedAt !== null;
   const managedIdentity =
@@ -97,9 +88,7 @@ export function EditSiloPanel({
   );
   const networkValid =
     networkProfileSchema.safeParse(replacementNetwork).success;
-  const credentialsValid =
-    (proxyUsername.trim() === "" && proxyPassword === "") ||
-    (proxyUsername.trim() !== "" && proxyPassword !== "");
+  const credentialsValid = proxyCredentialsPaired(proxyUsername, proxyPassword);
   const credentialsSupported =
     proxyUsername.trim() === "" ||
     (replacementNetwork.mode === "fixed_proxy" &&
@@ -127,45 +116,10 @@ export function EditSiloPanel({
     }
   };
 
-  const clearClashBinding = () => {
-    setClashSnapshot(null);
-    setClashGroup("");
-    setClashNode("");
-    setClashError(null);
-  };
-
-  const inspectClashGroups = async () => {
-    setClashError(null);
-    setClashBusy(true);
-    try {
-      const inspected = await readMihomoGroups(clashControllerUrl, clashSecret);
-      const group = inspected.snapshot.groups[0];
-      if (group === undefined || group.nodes.length === 0) {
-        throw new UserFacingError("Clash 已经连上，但没有可用的代理组。");
-      }
-      const selectedNode =
-        group.nodes.find((node) => node.name === group.selected) ??
-        group.nodes[0];
-      if (selectedNode === undefined) {
-        throw new UserFacingError("所选代理组里没有线路。");
-      }
-      setClashControllerUrl(inspected.controllerUrl);
-      setClashSnapshot(inspected.snapshot);
-      setClashGroup(group.name);
-      setClashNode(selectedNode.name);
-    } catch (error) {
-      clearClashBinding();
-      setClashError(managedErrorMessage(error));
-    } finally {
-      setClashBusy(false);
-    }
-  };
-
   const clashBindingActive =
     replacementNetwork.mode === "fixed_proxy" &&
-    clashSnapshot !== null &&
-    clashGroup !== "" &&
-    clashNode !== "";
+    clash.selectedGroup !== "" &&
+    clash.selectedNode !== "";
 
   return (
     <section className="panel settings-panel">
@@ -378,9 +332,7 @@ export function EditSiloPanel({
               setProxyPassword("");
               setProxyImportError(null);
             } else {
-              setClashControllerUrl("");
-              setClashSecret("");
-              clearClashBinding();
+              clash.reset();
             }
           }}
           type="checkbox"
@@ -400,9 +352,7 @@ export function EditSiloPanel({
                 const mode = event.target.value;
                 setProxyUsername("");
                 setProxyPassword("");
-                setClashControllerUrl("");
-                setClashSecret("");
-                clearClashBinding();
+                clash.reset();
                 if (mode === "direct") {
                   setReplacementNetwork(emptyNetwork());
                 } else if (mode === "fixed_proxy") {
@@ -503,96 +453,12 @@ export function EditSiloPanel({
                   应用处理。
                 </p>
               ) : null}
-              <div className="controller-card edit-clash-card">
-                <div className="controller-heading">
-                  <div>
-                    <strong>连接本机 Clash（可选绑定）</strong>
-                    <span>
-                      绑定代理组后，每次启动前会重新选中该节点。只填端口不绑定也能用，但出口会跟随外部切换。
-                    </span>
-                  </div>
-                  <button
-                    className="button-secondary"
-                    disabled={busy || clashBusy}
-                    onClick={() => void inspectClashGroups()}
-                    type="button"
-                  >
-                    {clashBusy ? "正在读取…" : "连接并读取代理组"}
-                  </button>
-                </div>
-                <div className="form-grid controller-grid">
-                  <label>
-                    Clash 控制地址
-                    <input
-                      autoComplete="off"
-                      disabled={busy || clashBusy}
-                      onChange={(event) =>
-                        setClashControllerUrl(event.target.value)
-                      }
-                      placeholder="可空；Clash Verge 不用填 9097"
-                      spellCheck={false}
-                      value={clashControllerUrl}
-                    />
-                  </label>
-                  <label>
-                    Clash 密钥（没设过就空着）
-                    <input
-                      autoComplete="off"
-                      disabled={busy || clashBusy}
-                      onChange={(event) => setClashSecret(event.target.value)}
-                      type="password"
-                      value={clashSecret}
-                    />
-                  </label>
-                </div>
-                {clashError !== null ? (
-                  <p className="field-error" role="alert">
-                    {clashError}
-                  </p>
-                ) : null}
-                {clashSnapshot !== null ? (
-                  <div className="form-grid controller-grid">
-                    <label>
-                      选择组
-                      <select
-                        disabled={busy}
-                        onChange={(event) => {
-                          setClashGroup(event.target.value);
-                          const group = clashSnapshot.groups.find(
-                            (item) => item.name === event.target.value,
-                          );
-                          setClashNode(group?.nodes[0]?.name ?? "");
-                        }}
-                        value={clashGroup}
-                      >
-                        {clashSnapshot.groups.map((group) => (
-                          <option key={group.name} value={group.name}>
-                            {group.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      固定节点
-                      <select
-                        disabled={busy}
-                        onChange={(event) => setClashNode(event.target.value)}
-                        value={clashNode}
-                      >
-                        {(
-                          clashSnapshot.groups.find(
-                            (group) => group.name === clashGroup,
-                          )?.nodes ?? []
-                        ).map((node) => (
-                          <option key={node.name} value={node.name}>
-                            {node.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                ) : null}
-              </div>
+              <ClashBindingCard
+                clash={clash}
+                description="绑定代理组后，每次启动前会重新选中该节点。只填端口不绑定也能用，但出口会跟随外部切换。"
+                disabled={busy}
+                title="连接本机 Clash（可选绑定）"
+              />
               <div className="boundary-note compact-boundary">
                 <strong>准备应用</strong>
                 <span>{describeNetwork(replacementNetwork)}</span>
@@ -683,15 +549,14 @@ export function EditSiloPanel({
                   ? {
                       networkProfile:
                         replacementNetwork.mode === "fixed_proxy" &&
-                        clashSnapshot !== null &&
-                        clashGroup !== "" &&
-                        clashNode !== ""
+                        clash.selectedGroup !== "" &&
+                        clash.selectedNode !== ""
                           ? {
                               ...replacementNetwork,
                               externalMihomo: {
-                                controllerUrl: clashControllerUrl,
-                                selectorGroup: clashGroup,
-                                nodeName: clashNode,
+                                controllerUrl: clash.controllerUrl,
+                                selectorGroup: clash.selectedGroup,
+                                nodeName: clash.selectedNode,
                               },
                             }
                           : replacementNetwork,
@@ -703,9 +568,9 @@ export function EditSiloPanel({
                             },
                           }
                         : {}),
-                      ...(clashBindingActive && clashSecret.trim() !== ""
+                      ...(clashBindingActive && clash.secret.trim() !== ""
                         ? {
-                            mihomoControllerSecret: { secret: clashSecret },
+                            mihomoControllerSecret: { secret: clash.secret },
                           }
                         : {}),
                     }

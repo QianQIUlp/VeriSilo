@@ -5,7 +5,11 @@ import {
   isCommonClashMixedPort,
 } from "../../proxy-presets.js";
 
-import { UserFacingError, userFacingErrorMessage } from "../../user-errors.js";
+import {
+  UserFacingError,
+  userFacingErrorMessage,
+  truncateErrorDetail,
+} from "../../user-errors.js";
 
 export async function readMihomoGroups(
   controllerUrl: string,
@@ -41,6 +45,7 @@ export async function readMihomoGroups(
       }
     }
   }
+  let directInspectFailure: string | null = null;
   if (canTryDirect) {
     try {
       return await inspect(trimmed);
@@ -54,14 +59,22 @@ export async function readMihomoGroups(
       ) {
         throw error;
       }
+      directInspectFailure = truncateErrorDetail(text);
     }
   }
   const probe = await desktopApi.probeLocalClash(secret);
   if (probe.controllerUrl) {
     return inspect(probe.controllerUrl);
   }
+  const primary = probe.detail
+    ? probe.detail
+    : "本机没有可用的 Clash 控制口。请先打开 Clash Verge / Mihomo。";
+  // The direct attempt was expected to fail here; keep its reason visible as
+  // a secondary detail so unmatched connection problems are not invisible.
   throw new UserFacingError(
-    probe.detail ||
-      "本机没有可用的 Clash 控制口。请先打开 Clash Verge / Mihomo。",
+    primary,
+    directInspectFailure !== null && directInspectFailure !== primary
+      ? directInspectFailure
+      : undefined,
   );
 }

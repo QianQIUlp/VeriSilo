@@ -31,6 +31,7 @@ import {
 
 import {
   type Notice,
+  errorNotice,
   errorMessage,
   managedErrorMessage,
 } from "../shared/notice.js";
@@ -76,11 +77,16 @@ import {
 
 import { runDesktopNetworkCheck } from "../network-check-client.js";
 
-import { parseProxyInput } from "../proxy-input.js";
-
-import { readMihomoGroups } from "../features/network/controller.js";
+import { parseProxyInput, proxyCredentialsPaired, PROXY_CREDENTIAL_PAIRING_MESSAGE, proxySchemeSupportsCredentials } from "../proxy-input.js";
 
 import { clashControllerLabel } from "../proxy-presets.js";
+
+import {
+  useClashBinding,
+  type ClashBindingSelection,
+} from "../features/network/useClashBinding.js";
+
+import { truncateErrorDetail } from "../user-errors.js";
 
 export function useDesktopWorkspace() {
   const [view, setView] = useState<View>("overview");
@@ -149,24 +155,47 @@ export function useDesktopWorkspace() {
     setProxyUsername,
     proxyPassword,
     setProxyPassword,
-    mihomoControllerUrl,
-    setMihomoControllerUrl,
-    mihomoControllerSecret,
-    setMihomoControllerSecret,
-    mihomoSnapshot,
-    setMihomoSnapshot,
-    mihomoBusy,
-    setMihomoBusy,
-    mihomoRequestRef,
     createWslRequestRef,
     browserSelectionExplicitRef,
     resetSiloDraft,
   } = useSiloDraft();
+  const applyClashBinding = useCallback(
+    (binding: ClashBindingSelection) => {
+      if (networkProfile.mode !== "fixed_proxy") {
+        throw new UserFacingError("请先选择本机 Clash。");
+      }
+      setNetworkProfile({
+        ...networkProfile,
+        proxyRequired: true,
+        scheme: "socks5",
+        bypassList: [],
+        externalMihomo: binding,
+      });
+    },
+    [networkProfile, setNetworkProfile],
+  );
+  const handleClashInspected = useCallback(
+    (info: { controllerUrl: string; nodeName: string }) => {
+      setNotice({
+        tone: "success",
+        message: `已读取 ${clashControllerLabel(info.controllerUrl)}，并把这个 Silo 预绑定到「${info.nodeName}」。创建后每次启动都会重新选择并复查。`,
+      });
+    },
+    [],
+  );
+  const clashBinding = useClashBinding({
+    onBindingChange: applyClashBinding,
+    onInspected: handleClashInspected,
+  });
+  // Individually stable methods so effect/callback dependency chains stay stable.
+  const { reset: resetClashBinding, invalidate: invalidateClashBinding } =
+    clashBinding;
   const [networkResult, setNetworkResult] = useState<NetworkCheckResult | null>(
     null,
   );
   const [networkBusy, setNetworkBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [launchingSiloId, setLaunchingSiloId] = useState<string | null>(null);
   const [vaultBusy, setVaultBusy] = useState(false);
   const [closeHintVisible, setCloseHintVisible] = useState(false);
   const refreshRequestRef = useRef(0);
@@ -245,10 +274,12 @@ export function useDesktopWorkspace() {
     setManagedStatusError(null);
     setPassphrase("");
     resetSiloDraft();
+    resetClashBinding();
     setManagedTemplate(null);
     setNetworkResult(null);
     setNetworkBusy(false);
     setBusy(false);
+    setLaunchingSiloId(null);
     setNotice(null);
     setStatus((currentStatus) => scrubDesktopStatusForLockedUi(currentStatus));
     setView((currentView) =>
@@ -258,7 +289,7 @@ export function useDesktopWorkspace() {
         ? "overview"
         : currentView,
     );
-  }, [resetSiloDraft]);
+  }, [resetClashBinding, resetSiloDraft]);
 
   // "Create new identity from this Silo": map the source Silo's safe,
   // user-visible configuration onto the normal managed creation form. Seeds,
@@ -295,12 +326,12 @@ export function useDesktopWorkspace() {
       }
       unlockedOperationRef.current += 1;
       networkRequestRef.current += 1;
-      mihomoRequestRef.current += 1;
+      invalidateClashBinding();
       setUiVaultLocked(true);
       setVaultUiGeneration((generation) => generation + 1);
       scrubSensitiveUi();
     },
-    [scrubSensitiveUi],
+    [invalidateClashBinding, scrubSensitiveUi],
   );
 
   const refresh = useCallback(
@@ -359,25 +390,25 @@ export function useDesktopWorkspace() {
         }
         setSilos(active);
         setArchivedSilos(archived);
-        setNetworkEvidenceHistory(evidence);
+        // list_network_evidence is newest-first; keep only the most recent 200
+        // so an unbounded history cannot grow the workspace state forever.
+        setNetworkEvidenceHistory(evidence.slice(0, 200));
         setLegacyEnvironmentArtifacts(legacyArtifacts);
 
         if (includeStorageUsage) {
-          const silosForUsage = [...active, ...archived];
           void Promise.all([
             desktopApi.discoverBrowsers().then(
               (value) => ({ ok: true as const, value }),
               (error: unknown) => ({ ok: false as const, error }),
             ),
-            Promise.all(
-              silosForUsage.map(async (silo) => {
-                try {
-                  const usage = await desktopApi.siloStorageUsage(silo.id);
-                  return [silo.id, usage.bytes] as const;
-                } catch {
-                  return [silo.id, null] as const;
-                }
+            desktopApi.siloStorageUsages().then(
+              (entries) => ({
+                ok: true as const,
+                value: Object.fromEntries(
+                  entries.map((entry) => [entry.siloId, entry.bytes]),
+                ),
               }),
+              () => ({ ok: false as const }),
             ),
             desktopApi.listManagedIdentityPreviews().then(
               (value) => ({ ok: true as const, value }),
@@ -393,7 +424,7 @@ export function useDesktopWorkspace() {
             if (discovered.ok) {
               setBrowsers(discovered.value);
             }
-            setStorageUsage(Object.fromEntries(usageEntries));
+            setStorageUsage(usageEntries.ok ? usageEntries.value : {});
             if (previews.ok) {
               setIdentityPreviews(previews.value);
             }
@@ -436,17 +467,32 @@ export function useDesktopWorkspace() {
   useEffect(() => {
     const refreshWithNotice = () =>
       void refresh().catch((error: unknown) =>
-        setNotice({ tone: "error", message: errorMessage(error) }),
+        setNotice(errorNotice(error)),
+      );
+    const refreshWithoutNoticePayload = () =>
+      void refresh(false).catch((error: unknown) =>
+        setNotice(errorNotice(error)),
       );
     refreshWithNotice();
-    const interval = window.setInterval(
-      () =>
-        void refresh(false).catch((error: unknown) =>
-          setNotice({ tone: "error", message: errorMessage(error) }),
-        ),
-      30_000,
-    );
-    return () => window.clearInterval(interval);
+    const interval = window.setInterval(() => {
+      // The window is hidden (tray, minimized): skip the tick entirely.
+      if (document.hidden) {
+        return;
+      }
+      refreshWithoutNoticePayload();
+    }, 30_000);
+    // When the window becomes visible again, converge once instead of
+    // waiting for the next tick.
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refreshWithoutNoticePayload();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [refresh]);
 
   const pollLocalRuntimeStatus = useCallback(async () => {
@@ -461,10 +507,16 @@ export function useDesktopWorkspace() {
     const lockTransition = vaultUiSessionRef.current.observe(
       nextStatus.vault.state,
     );
-    setStatus(
+    const scrubbedStatus =
       nextStatus.vault.state === "unlocked"
         ? nextStatus
-        : scrubDesktopStatusForLockedUi(nextStatus),
+        : scrubDesktopStatusForLockedUi(nextStatus);
+    // Only re-render when the snapshot actually changed; the 2s poll would
+    // otherwise hand fresh-but-identical objects to every consumer.
+    setStatus((currentStatus) =>
+      JSON.stringify(currentStatus) === JSON.stringify(scrubbedStatus)
+        ? currentStatus
+        : scrubbedStatus,
     );
     if (nextStatus.vault.state === "unlocked") {
       setUiVaultLocked(false);
@@ -488,13 +540,14 @@ export function useDesktopWorkspace() {
     if (!localRuntimeActive) {
       return;
     }
-    const interval = window.setInterval(
-      () =>
-        void pollLocalRuntimeStatus().catch((error: unknown) =>
-          setNotice({ tone: "error", message: errorMessage(error) }),
-        ),
-      2_000,
-    );
+    const interval = window.setInterval(() => {
+      if (document.hidden) {
+        return;
+      }
+      void pollLocalRuntimeStatus().catch((error: unknown) =>
+        setNotice(errorNotice(error)),
+      );
+    }, 2_000);
     return () => window.clearInterval(interval);
   }, [localRuntimeActive, pollLocalRuntimeStatus]);
 
@@ -514,7 +567,7 @@ export function useDesktopWorkspace() {
           "保险库已自动锁定。未保存的 Silo 草稿和代理凭据已清除，解锁后可继续操作。",
       });
       void refresh(false).catch((error: unknown) =>
-        setNotice({ tone: "error", message: errorMessage(error) }),
+        setNotice(errorNotice(error)),
       );
     }, delay);
     return () => window.clearTimeout(timer);
@@ -626,30 +679,31 @@ export function useDesktopWorkspace() {
 
   const activeSilos = silos;
 
-  const withBusy = async (
-    action: (isCurrent: () => boolean) => Promise<void>,
-  ) => {
-    const sessionEpoch = vaultUiSessionRef.current.capture();
-    if (!vaultUiSessionRef.current.accepts(sessionEpoch)) {
-      return;
-    }
-    const operationId = ++unlockedOperationRef.current;
-    const isCurrent = () =>
-      operationId === unlockedOperationRef.current &&
-      vaultUiSessionRef.current.accepts(sessionEpoch);
-    setBusy(true);
-    try {
-      await action(isCurrent);
-    } catch (error) {
-      if (isCurrent()) {
-        setNotice({ tone: "error", message: errorMessage(error) });
+  const withBusy = useCallback(
+    async (action: (isCurrent: () => boolean) => Promise<void>) => {
+      const sessionEpoch = vaultUiSessionRef.current.capture();
+      if (!vaultUiSessionRef.current.accepts(sessionEpoch)) {
+        return;
       }
-    } finally {
-      if (operationId === unlockedOperationRef.current) {
-        setBusy(false);
+      const operationId = ++unlockedOperationRef.current;
+      const isCurrent = () =>
+        operationId === unlockedOperationRef.current &&
+        vaultUiSessionRef.current.accepts(sessionEpoch);
+      setBusy(true);
+      try {
+        await action(isCurrent);
+      } catch (error) {
+        if (isCurrent()) {
+          setNotice(errorNotice(error));
+        }
+      } finally {
+        if (operationId === unlockedOperationRef.current) {
+          setBusy(false);
+        }
       }
-    }
-  };
+    },
+    [],
+  );
 
   const withVaultBusy = async (action: () => Promise<void>) => {
     const operationId = ++vaultOperationRef.current;
@@ -748,7 +802,7 @@ export function useDesktopWorkspace() {
       setVaultTransition("idle");
     } catch (error) {
       if (operationId === vaultOperationRef.current) {
-        setNotice({ tone: "error", message: errorMessage(error) });
+        setNotice(errorNotice(error));
       }
     } finally {
       if (operationId === vaultOperationRef.current) {
@@ -786,22 +840,19 @@ export function useDesktopWorkspace() {
           "网络设置尚未填写完整。请检查代理地址、端口或自动代理配置。",
         );
       }
-      const hasUsername = proxyUsername.trim() !== "";
-      const hasPassword = proxyPassword !== "";
-      if (hasUsername !== hasPassword) {
-        throw new UserFacingError(
-          "代理用户名和密码需要同时填写；无认证代理请都留空。",
-        );
+      if (!proxyCredentialsPaired(proxyUsername, proxyPassword)) {
+        throw new UserFacingError(PROXY_CREDENTIAL_PAIRING_MESSAGE);
       }
       if (
-        hasUsername &&
+        proxyUsername.trim() !== "" &&
         networkProfile.mode === "fixed_proxy" &&
-        !["http", "socks5"].includes(networkProfile.scheme)
+        !proxySchemeSupportsCredentials(networkProfile.scheme)
       ) {
         throw new UserFacingError(
           "需要登录信息时，请使用 HTTP、SOCKS5，或交给本机 Clash 处理。",
         );
       }
+      const hasUsername = proxyUsername.trim() !== "";
       const input: CreateSiloInput & {
         executionTarget: SiloExecutionTarget;
       } = {
@@ -822,9 +873,9 @@ export function useDesktopWorkspace() {
           : {}),
         ...(networkProfile.mode === "fixed_proxy" &&
         networkProfile.externalMihomo !== undefined &&
-        mihomoControllerSecret !== ""
+        clashBinding.secret !== ""
           ? {
-              mihomoControllerSecret: { secret: mihomoControllerSecret },
+              mihomoControllerSecret: { secret: clashBinding.secret },
             }
           : {}),
       };
@@ -838,8 +889,7 @@ export function useDesktopWorkspace() {
       setProxyImport("");
       setProxyUsername("");
       setProxyPassword("");
-      setMihomoControllerSecret("");
-      setMihomoSnapshot(null);
+      clashBinding.clearSnapshot();
       setNotice({
         tone: "success",
         message: `已创建「${silo.name}」。它不会读取或改写默认浏览器的数据。`,
@@ -909,88 +959,127 @@ export function useDesktopWorkspace() {
       await refresh();
     });
 
-  const launchSilo = (silo: Silo) =>
-    withBusy(async (isCurrent) => {
-      const activation = await desktopApi.launchSilo(silo.id);
-      if (!isCurrent()) {
-        return;
-      }
-      setNotice({
-        tone: activationNoticeTone(activation),
-        message:
-          activation.state === "running" &&
-          silo.executionTarget.kind === "local" &&
-          silo.engine.adapter === "stock"
-            ? `已打开「${silo.name}」。用完后直接关掉那个浏览器窗口即可。`
-            : describeActivation(activation),
-      });
-      await refresh();
-    });
+  const launchSilo = useCallback(
+    (silo: Silo) =>
+      withBusy(async (isCurrent) => {
+        setLaunchingSiloId(silo.id);
+        try {
+          const activation = await desktopApi.launchSilo(silo.id);
+          if (!isCurrent()) {
+            return;
+          }
+          if (
+            activation.state === "running" &&
+            silo.executionTarget.kind === "local" &&
+            silo.engine.adapter === "stock"
+          ) {
+            setNotice({
+              tone: "success",
+              message: `已打开「${silo.name}」。用完后直接关掉那个浏览器窗口即可。`,
+            });
+          } else {
+            // Keep the curated message primary; surface the backend's own
+            // explanation as a secondary detail line when it adds information.
+            const message = describeActivation(activation);
+            const detail =
+              activation.message === null
+                ? null
+                : truncateErrorDetail(activation.message);
+            setNotice({
+              tone: activationNoticeTone(activation),
+              message,
+              ...(detail !== null && detail !== "" && detail !== message
+                ? { detail }
+                : {}),
+            });
+          }
+          await refresh();
+        } finally {
+          setLaunchingSiloId((current) => (current === silo.id ? null : current));
+        }
+      }),
+    [refresh, withBusy],
+  );
 
-  const stopSilo = (silo: Silo) =>
-    withBusy(async (isCurrent) => {
-      const activation = await desktopApi.stopSilo(silo.id);
-      if (!isCurrent()) {
-        return;
-      }
-      setNotice({
-        tone: activationNoticeTone(activation),
-        message: describeActivation(activation),
-      });
-      await refresh();
-    });
+  const stopSilo = useCallback(
+    (silo: Silo) =>
+      withBusy(async (isCurrent) => {
+        const activation = await desktopApi.stopSilo(silo.id);
+        if (!isCurrent()) {
+          return;
+        }
+        setNotice({
+          tone: activationNoticeTone(activation),
+          message: describeActivation(activation),
+        });
+        await refresh();
+      }),
+    [refresh, withBusy],
+  );
 
-  const recheckSiloBrowser = (silo: Silo) =>
-    withBusy(async (isCurrent) => {
-      const verification = await desktopApi.recheckSiloBrowser(silo.id);
-      if (!isCurrent()) {
-        return;
-      }
-      setNotice({
-        tone: verification.state === "verified" ? "success" : "error",
-        message: browserVerificationMessage(verification),
-      });
-      await refresh();
-    });
+  const recheckSiloBrowser = useCallback(
+    (silo: Silo) =>
+      withBusy(async (isCurrent) => {
+        const verification = await desktopApi.recheckSiloBrowser(silo.id);
+        if (!isCurrent()) {
+          return;
+        }
+        setNotice({
+          tone: verification.state === "verified" ? "success" : "error",
+          message: browserVerificationMessage(verification),
+        });
+        await refresh();
+      }),
+    [refresh, withBusy],
+  );
 
-  const recheckSiloRuntime = (silo: Silo) =>
-    withBusy(async (isCurrent) => {
-      const activation = await desktopApi.recheckSiloRuntime(silo.id);
-      if (!isCurrent()) {
-        return;
-      }
-      setNotice({
-        tone: activation.state === "running" ? "success" : "error",
-        message: describeIdentityRecheck(activation),
-      });
-      await refresh(false);
-    });
+  const recheckSiloRuntime = useCallback(
+    (silo: Silo) =>
+      withBusy(async (isCurrent) => {
+        const activation = await desktopApi.recheckSiloRuntime(silo.id);
+        if (!isCurrent()) {
+          return;
+        }
+        setNotice({
+          tone: activation.state === "running" ? "success" : "error",
+          message: describeIdentityRecheck(activation),
+        });
+        await refresh(false);
+      }),
+    [refresh, withBusy],
+  );
 
-  const rebindSiloMihomo = (silo: Silo) =>
-    withBusy(async (isCurrent) => {
-      const activation = await desktopApi.rebindSiloMihomo(silo.id);
-      if (!isCurrent()) {
-        return;
-      }
-      setNotice({
-        tone: activation.state === "running" ? "success" : "error",
-        message: describeActivation(activation),
-      });
-      await refresh(false);
-    });
+  const rebindSiloMihomo = useCallback(
+    (silo: Silo) =>
+      withBusy(async (isCurrent) => {
+        const activation = await desktopApi.rebindSiloMihomo(silo.id);
+        if (!isCurrent()) {
+          return;
+        }
+        setNotice({
+          tone: activation.state === "running" ? "success" : "error",
+          message: describeActivation(activation),
+        });
+        await refresh(false);
+      }),
+    [refresh, withBusy],
+  );
 
-  const archiveSilo = (silo: Silo) =>
-    withBusy(async (isCurrent) => {
-      await desktopApi.archiveSilo(silo.id);
-      if (!isCurrent()) {
-        return;
-      }
-      setNotice({
-        tone: "info",
-        message: `已归档「${silo.name}」。浏览器数据目录仍保留，未被删除。`,
-      });
-      await refresh();
-    });
+  const archiveSilo = useCallback(
+    (silo: Silo) =>
+      withBusy(async (isCurrent) => {
+        await desktopApi.archiveSilo(silo.id);
+        if (!isCurrent()) {
+          return;
+        }
+        setNotice({
+          tone: "info",
+          message: `已归档「${silo.name}」。浏览器数据目录仍保留，未被删除。`,
+        });
+        await refresh();
+      }),
+    [refresh, withBusy],
+  );
 
   const cleanupLegacyEnvironment = async (
     artifact: LegacyEnvironmentArtifact,
@@ -1169,7 +1258,7 @@ export function useDesktopWorkspace() {
       });
     } catch (error) {
       if (isCurrent()) {
-        setNotice({ tone: "error", message: errorMessage(error) });
+        setNotice(errorNotice(error));
       }
     } finally {
       if (requestId === networkRequestRef.current) {
@@ -1185,7 +1274,7 @@ export function useDesktopWorkspace() {
       setProxyUsername(parsed.credentials?.username ?? "");
       setProxyPassword(parsed.credentials?.password ?? "");
       setProxyImport("");
-      setMihomoSnapshot(null);
+      clashBinding.clearSnapshot();
       setNotice({
         tone: "success",
         message: parsed.credentials
@@ -1193,111 +1282,8 @@ export function useDesktopWorkspace() {
           : "代理地址已解析。默认开启“必须代理”，端口失效时不会回退真实出口。",
       });
     } catch (error) {
-      setNotice({ tone: "error", message: errorMessage(error) });
+      setNotice(errorNotice(error));
     }
-  };
-
-  const inspectMihomoController = async () => {
-    const sessionEpoch = vaultUiSessionRef.current.capture();
-    const requestId = ++mihomoRequestRef.current;
-    const isCurrent = () =>
-      requestId === mihomoRequestRef.current &&
-      vaultUiSessionRef.current.accepts(sessionEpoch);
-    if (!isCurrent()) {
-      return;
-    }
-    setMihomoBusy(true);
-    try {
-      const inspected = await readMihomoGroups(
-        mihomoControllerUrl,
-        mihomoControllerSecret,
-      );
-      const snapshot = inspected.snapshot;
-      if (isCurrent()) {
-        setMihomoControllerUrl(inspected.controllerUrl);
-      }
-      const group = snapshot.groups[0];
-      if (group === undefined || group.nodes.length === 0) {
-        throw new UserFacingError("本机代理应用没有返回可用的线路分组。");
-      }
-      const selectedNode =
-        group.nodes.find((node) => node.name === group.selected) ??
-        group.nodes[0];
-      if (selectedNode === undefined) {
-        throw new UserFacingError("所选线路分组中没有可用线路。");
-      }
-      if (networkProfile.mode !== "fixed_proxy") {
-        throw new UserFacingError("请先选择本机 Clash。");
-      }
-      if (!isCurrent()) {
-        return;
-      }
-      setMihomoSnapshot(snapshot);
-      setNetworkProfile({
-        ...networkProfile,
-        proxyRequired: true,
-        scheme: "socks5",
-        bypassList: [],
-        externalMihomo: {
-          controllerUrl: inspected.controllerUrl,
-          selectorGroup: group.name,
-          nodeName: selectedNode.name,
-        },
-      });
-      setNotice({
-        tone: "success",
-        message: `已读取 ${clashControllerLabel(inspected.controllerUrl)}，并把这个 Silo 预绑定到「${selectedNode.name}」。创建后每次启动都会重新选择并复查。`,
-      });
-    } catch (error) {
-      if (isCurrent()) {
-        setMihomoSnapshot(null);
-        setNotice({ tone: "error", message: errorMessage(error) });
-      }
-    } finally {
-      if (requestId === mihomoRequestRef.current) {
-        setMihomoBusy(false);
-      }
-    }
-  };
-
-  const selectMihomoGroup = (groupName: string) => {
-    if (networkProfile.mode !== "fixed_proxy" || mihomoSnapshot === null) {
-      return;
-    }
-    const group = mihomoSnapshot.groups.find((item) => item.name === groupName);
-    const node =
-      group?.nodes.find((item) => item.name === group.selected) ??
-      group?.nodes[0];
-    if (group === undefined || node === undefined) {
-      return;
-    }
-    setNetworkProfile({
-      ...networkProfile,
-      proxyRequired: true,
-      scheme: "socks5",
-      bypassList: [],
-      externalMihomo: {
-        controllerUrl: mihomoControllerUrl,
-        selectorGroup: group.name,
-        nodeName: node.name,
-      },
-    });
-  };
-
-  const selectMihomoNode = (nodeName: string) => {
-    if (
-      networkProfile.mode !== "fixed_proxy" ||
-      networkProfile.externalMihomo === undefined
-    ) {
-      return;
-    }
-    setNetworkProfile({
-      ...networkProfile,
-      externalMihomo: {
-        ...networkProfile.externalMihomo,
-        nodeName,
-      },
-    });
   };
 
   const creation: ComponentProps<typeof CreateSiloPanel> = {
@@ -1321,19 +1307,12 @@ export function useDesktopWorkspace() {
     refreshManagedStatus: refreshManagedBrowserStatus,
     name: name,
     importProxy: importProxy,
-    inspectMihomoController: inspectMihomoController,
-    mihomoBusy: mihomoBusy,
-    mihomoControllerSecret: mihomoControllerSecret,
-    mihomoControllerUrl: mihomoControllerUrl,
-    mihomoSnapshot: mihomoSnapshot,
+    clash: clashBinding,
     networkProfile: networkProfile,
     proxyImport: proxyImport,
     proxyPassword: proxyPassword,
     proxyUsername: proxyUsername,
     refreshWsl: detectCreateWsl,
-    resetMihomoSnapshot: () => setMihomoSnapshot(null),
-    selectMihomoGroup: selectMihomoGroup,
-    selectMihomoNode: selectMihomoNode,
     setBrowserKind: (kind) => {
       browserSelectionExplicitRef.current = true;
       setBrowserKind(kind);
@@ -1353,14 +1332,11 @@ export function useDesktopWorkspace() {
         setProxyImport("");
         setProxyUsername("");
         setProxyPassword("");
-        setMihomoControllerSecret("");
-        setMihomoSnapshot(null);
+        clashBinding.clearSnapshot();
       }
     },
-    setMihomoControllerSecret: setMihomoControllerSecret,
     setMihomoControllerUrl: (value) => {
-      setMihomoControllerUrl(value);
-      setMihomoSnapshot(null);
+      clashBinding.setControllerUrl(value);
       if (
         networkProfile.mode === "fixed_proxy" &&
         networkProfile.externalMihomo !== undefined
@@ -1402,6 +1378,7 @@ export function useDesktopWorkspace() {
     submitVault,
     activeSilos,
     busy,
+    launchingSiloId,
     lockVault,
     identityPreviews,
     archiveSilo,

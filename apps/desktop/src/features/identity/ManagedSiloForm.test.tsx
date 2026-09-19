@@ -16,6 +16,7 @@ const renderForm = (name: string) =>
     createElement(ManagedSiloForm, {
       busy: false,
       initialColor: "#5b5ce2",
+      managedEngineReady: true,
       name,
       onNameChange: () => {},
       color: "#5b5ce2",
@@ -53,6 +54,7 @@ const renderTemplatedForm = (template: ManagedSiloTemplate) =>
     createElement(ManagedSiloForm, {
       busy: false,
       initialColor: "#5b5ce2",
+      managedEngineReady: true,
       name: template.name,
       onNameChange: () => {},
       color: template.color,

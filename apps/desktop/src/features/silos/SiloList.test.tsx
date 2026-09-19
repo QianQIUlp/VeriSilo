@@ -66,6 +66,43 @@ describe("Silo list presentation", () => {
     );
   });
 
+  it("shows 正在打开… on the launching silo only", () => {
+    const noAction = async () => {};
+    const base = {
+      activation: null,
+      busy: false,
+      managedEngineReady: false,
+      networkEvidence: [],
+      identityPreviews: {},
+      storageUsage: {},
+      onArchive: noAction,
+      onCreate: noAction,
+      onEdit: noAction,
+      onLaunch: noAction,
+      onRebindMihomo: noAction,
+      onRecheckBrowser: noAction,
+      onRecheckRuntime: noAction,
+      onStop: noAction,
+      runtimeActivation: previewStatus().activation,
+      runtimeState: "idle" as const,
+    };
+    const launching = renderToStaticMarkup(
+      createElement(SiloList, {
+        ...base,
+        launchingSiloId: previewSilo.id,
+        silos: [previewSilo],
+      }),
+    );
+    expect(launching).toContain("正在打开…");
+    expect(launching).not.toContain(">打开浏览器</button>");
+
+    const idle = renderToStaticMarkup(
+      createElement(SiloList, { ...base, silos: [previewSilo] }),
+    );
+    expect(idle).toContain("打开浏览器");
+    expect(idle).not.toContain("正在打开…");
+  });
+
   it("explains why other Silos cannot launch while one is running", () => {
     const noAction = async () => {};
     const runningSilo = {

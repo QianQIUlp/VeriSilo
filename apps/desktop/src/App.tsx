@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -80,6 +81,7 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
     submitVault,
     activeSilos,
     busy,
+    launchingSiloId,
     lockVault,
     identityPreviews,
     archiveSilo,
@@ -115,10 +117,13 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
   } = useDesktopWorkspace();
   const [toolsOpen, setToolsOpen] = useState(false);
   const motion = useWorkspaceMotion();
-  const navigate = (next: typeof view) => {
-    setToolsOpen(false);
-    setView(next);
-  };
+  const navigate = useCallback(
+    (next: typeof view) => {
+      setToolsOpen(false);
+      setView(next);
+    },
+    [setView],
+  );
   const [focusedSiloId, setFocusedSiloId] = useState<string>();
   const previousSilos = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -139,6 +144,25 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
     const timer = window.setTimeout(() => setNotice(null), 8_000);
     return () => window.clearTimeout(timer);
   }, [notice, setNotice]);
+  const showCreate = useCallback(() => {
+    clearManagedTemplate();
+    navigate("create");
+  }, [clearManagedTemplate, navigate]);
+  const editSilo = useCallback(
+    (silo: Parameters<typeof setEditingSilo>[0]) => {
+      setEditingSilo(silo);
+      navigate("edit");
+    },
+    [navigate, setEditingSilo],
+  );
+  const createIdentityFromSilo = useCallback(
+    (silo: Parameters<typeof startIdentityFromSilo>[0]) => {
+      if (startIdentityFromSilo(silo, identityPreviews[silo.id])) {
+        navigate("create");
+      }
+    },
+    [identityPreviews, navigate, startIdentityFromSilo],
+  );
   if (status === null) {
     return (
       <main className="shell loading-state">
@@ -184,6 +208,9 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
         role={notice.tone === "error" ? "alert" : "status"}
       >
         <span>{notice.message}</span>
+        {notice.detail !== undefined ? (
+          <span className="error-detail">{notice.detail}</span>
+        ) : null}
         <button
           aria-label="关闭通知"
           className="notice-dismiss"
@@ -403,22 +430,11 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                     onFocusSilo={setFocusedSiloId}
                     activation={status.activation.activeSiloId}
                     busy={busy}
+                    launchingSiloId={launchingSiloId}
                     onArchive={archiveSilo}
-                    onCreate={() => {
-                      clearManagedTemplate();
-                      navigate("create");
-                    }}
-                    onCreateIdentity={(silo) => {
-                      if (
-                        startIdentityFromSilo(silo, identityPreviews[silo.id])
-                      ) {
-                        navigate("create");
-                      }
-                    }}
-                    onEdit={(silo) => {
-                      setEditingSilo(silo);
-                      navigate("edit");
-                    }}
+                    onCreate={showCreate}
+                    onCreateIdentity={createIdentityFromSilo}
+                    onEdit={editSilo}
                     onLaunch={launchSilo}
                     onRebindMihomo={rebindSiloMihomo}
                     onRecheckBrowser={recheckSiloBrowser}

@@ -32,7 +32,7 @@ describe("desktop lifecycle command contract", () => {
     await desktopApi.archiveSilo("silo-1");
     await desktopApi.restoreArchivedSilo("silo-1");
     await desktopApi.deleteSilo("silo-1");
-    await desktopApi.siloStorageUsage("silo-1");
+    await desktopApi.siloStorageUsages();
     await desktopApi.listNetworkEvidence("silo-1");
     await desktopApi.listNetworkEvidence();
     await desktopApi.clearNetworkEvidence("silo-1");
@@ -44,10 +44,23 @@ describe("desktop lifecycle command contract", () => {
       ["archive_silo", { siloId: "silo-1" }],
       ["restore_archived_silo", { siloId: "silo-1" }],
       ["delete_silo", { siloId: "silo-1", confirmPermanent: true }],
-      ["silo_storage_usage", { siloId: "silo-1" }],
+      ["silo_storage_usages"],
       ["list_network_evidence", { siloId: "silo-1" }],
       ["list_network_evidence", { siloId: null }],
       ["clear_network_evidence", { siloId: "silo-1", confirmClear: true }],
+    ]);
+  });
+
+  it("fetches every Silo storage usage in one batched command", async () => {
+    invokeMock.mockResolvedValueOnce([
+      { siloId: "silo-1", bytes: 1024 },
+      { siloId: "silo-2", bytes: 2048 },
+    ]);
+    const usages = await desktopApi.siloStorageUsages();
+    expect(invokeMock.mock.calls).toEqual([["silo_storage_usages"]]);
+    expect(usages).toEqual([
+      { siloId: "silo-1", bytes: 1024 },
+      { siloId: "silo-2", bytes: 2048 },
     ]);
   });
 

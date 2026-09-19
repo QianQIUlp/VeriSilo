@@ -49,6 +49,7 @@ function Preview() {
           <ManagedSiloForm
             busy={false}
             initialColor="#1553ff"
+            managedEngineReady
             onSubmit={async () => {
               setMessage("模拟创建完成。表单未写入 Vault。");
             }}
