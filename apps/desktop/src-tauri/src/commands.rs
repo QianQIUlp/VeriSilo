@@ -27,35 +27,52 @@ use verisilo_remote_backend::{
 };
 
 #[tauri::command]
-pub(crate) fn list_engine_adapters(
-    state: State<'_, AppState>,
+pub(crate) async fn list_engine_adapters(
+    app: AppHandle,
 ) -> Result<Vec<EngineAdapterStatus>, String> {
-    application::list_engine_adapters(&state.core)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::list_engine_adapters(&state.core)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn install_engine_package(
-    state: State<'_, AppState>,
+pub(crate) async fn install_engine_package(
+    app: AppHandle,
     adapter_id: EngineAdapterId,
     request: EnginePackageRequest,
 ) -> Result<EngineMaintenanceReceipt, String> {
-    application::install_engine_package(&state.core, adapter_id, request)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::install_engine_package(&state.core, adapter_id, request)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn update_engine_package(
-    state: State<'_, AppState>,
+pub(crate) async fn update_engine_package(
+    app: AppHandle,
     adapter_id: EngineAdapterId,
     request: EnginePackageRequest,
 ) -> Result<EngineMaintenanceReceipt, String> {
-    application::update_engine_package(&state.core, adapter_id, request)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::update_engine_package(&state.core, adapter_id, request)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn rollback_engine_package(
+pub(crate) async fn rollback_engine_package(
     adapter_id: EngineAdapterId,
 ) -> Result<EngineMaintenanceReceipt, String> {
-    application::rollback_engine_package(adapter_id)
+    tauri::async_runtime::spawn_blocking(move || application::rollback_engine_package(adapter_id))
+        .await
+        .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -291,11 +308,16 @@ pub(crate) async fn desktop_status(app: AppHandle) -> Result<DesktopStatus, Stri
 }
 
 #[tauri::command]
-pub(crate) fn initialize_vault(
-    state: State<'_, AppState>,
+pub(crate) async fn initialize_vault(
+    app: AppHandle,
     passphrase: String,
 ) -> Result<VaultStatus, String> {
-    application::initialize_vault(&state.core, passphrase)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::initialize_vault(&state.core, passphrase)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -312,17 +334,27 @@ pub(crate) async fn unlock_vault(
 }
 
 #[tauri::command]
-pub(crate) fn lock_vault(state: State<'_, AppState>) -> Result<VaultStatus, String> {
-    application::lock_vault(&state.core)
+pub(crate) async fn lock_vault(app: AppHandle) -> Result<VaultStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::lock_vault(&state.core)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn change_vault_passphrase(
-    state: State<'_, AppState>,
+pub(crate) async fn change_vault_passphrase(
+    app: AppHandle,
     current_passphrase: String,
     new_passphrase: String,
 ) -> Result<VaultStatus, String> {
-    application::change_vault_passphrase(&state.core, current_passphrase, new_passphrase)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::change_vault_passphrase(&state.core, current_passphrase, new_passphrase)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -405,25 +437,39 @@ pub(crate) fn list_legacy_environment_artifacts(
 }
 
 #[tauri::command]
-pub(crate) fn cleanup_legacy_environment_artifact(
-    state: State<'_, AppState>,
+pub(crate) async fn cleanup_legacy_environment_artifact(
+    app: AppHandle,
     silo_id: Uuid,
     backend: EnvironmentBackendId,
     confirm_cleanup: bool,
 ) -> Result<EnvironmentActionReceipt, String> {
-    application::cleanup_legacy_environment_artifact(&state.core, silo_id, backend, confirm_cleanup)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::cleanup_legacy_environment_artifact(
+            &state.core,
+            silo_id,
+            backend,
+            confirm_cleanup,
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn inspect_mihomo_controller(
+pub(crate) async fn inspect_mihomo_controller(
     input: MihomoControllerInput,
 ) -> Result<MihomoSnapshot, String> {
-    application::inspect_mihomo_controller(input)
+    tauri::async_runtime::spawn_blocking(move || application::inspect_mihomo_controller(input))
+        .await
+        .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn probe_local_clash(secret: Option<String>) -> LocalClashProbe {
-    application::probe_local_clash(secret)
+pub(crate) async fn probe_local_clash(secret: Option<String>) -> Result<LocalClashProbe, String> {
+    tauri::async_runtime::spawn_blocking(move || application::probe_local_clash(secret))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -568,12 +614,17 @@ pub(crate) fn restore_archived_silo(
 }
 
 #[tauri::command]
-pub(crate) fn delete_silo(
-    state: State<'_, AppState>,
+pub(crate) async fn delete_silo(
+    app: AppHandle,
     silo_id: Uuid,
     confirm_permanent: bool,
 ) -> Result<(), String> {
-    application::delete_silo(&state.core, silo_id, confirm_permanent)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::delete_silo(&state.core, silo_id, confirm_permanent)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -632,11 +683,16 @@ pub(crate) async fn recheck_silo_browser(
 }
 
 #[tauri::command]
-pub(crate) fn recheck_silo_runtime(
-    state: State<'_, AppState>,
+pub(crate) async fn recheck_silo_runtime(
+    app: AppHandle,
     silo_id: Uuid,
 ) -> Result<RuntimeActivation, String> {
-    application::recheck_silo_runtime(&state.core, silo_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::recheck_silo_runtime(&state.core, silo_id)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
@@ -650,11 +706,16 @@ pub(crate) async fn stop_silo(app: AppHandle, silo_id: Uuid) -> Result<RuntimeAc
 }
 
 #[tauri::command]
-pub(crate) fn rebind_silo_mihomo(
-    state: State<'_, AppState>,
+pub(crate) async fn rebind_silo_mihomo(
+    app: AppHandle,
     silo_id: Uuid,
 ) -> Result<RuntimeActivation, String> {
-    application::rebind_silo_mihomo(&state.core, silo_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        application::rebind_silo_mihomo(&state.core, silo_id)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
