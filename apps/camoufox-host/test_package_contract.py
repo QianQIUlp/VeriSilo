@@ -9,6 +9,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -29,6 +30,8 @@ from package_contract import (  # noqa: E402
     build_package_tree,
     manifest_signing_payload,
     recheck_package,
+    recheck_formal_package,
+    sha256_file,
     safe_relative_path,
     sha256_bytes,
     validate_probe_rendering_layer,
@@ -212,7 +215,20 @@ def main() -> int:
         (root / "keep.bin").write_bytes(b"keep")
         manifest = build_tree_manifest(root)
         (root / "version.json").write_text("{}", encoding="utf-8")
-        assert verify_tree(root, manifest)["verified"] is True
+        verified = verify_tree(root, manifest)
+        assert verified["verified"] is True
+        with patch("browser_tree.sha256_file", side_effect=AssertionError("browser rehashed")):
+            assert verify_tree(
+                root,
+                manifest,
+                _verified_digests={"keep.bin": sha256_bytes(b"keep")},
+            ) == verified
+        try:
+            verify_tree(root, manifest, _verified_digests={})
+        except TreeIntegrityError:
+            pass
+        else:
+            raise AssertionError("missing verified package digest was accepted")
         (root / "extra.bin").write_bytes(b"nope")
         try:
             verify_tree(root, manifest)
@@ -326,12 +342,18 @@ def main() -> int:
         layout.probe.parent.mkdir(parents=True)
         layout.probe.write_bytes(b"probe")
         layout.asset_lock.write_bytes(b"lock")
-        layout.browser_tree.write_bytes(b"tree")
+        (layout.browser_root / "camoufox.exe").write_bytes(b"browser")
+        (layout.browser_root / "application.ini").write_text(
+            "BuildID=fixture\nSourceStamp=fixture\n", encoding="utf-8"
+        )
+        (layout.browser_root / "properties.json").write_bytes(b"{}")
         for index in range(1500):
             (layout.browser_root / f"payload-{index:04d}.bin").write_bytes(b"x" * 64)
-        tree_raw = (
-            json.dumps(build_package_tree(root), indent=2, ensure_ascii=False) + "\n"
-        ).encode("utf-8")
+        layout.browser_tree.write_bytes(
+            (json.dumps(build_tree_manifest(layout.browser_root), indent=2) + "\n").encode("utf-8")
+        )
+        large_tree = build_package_tree(root)
+        tree_raw = (json.dumps(large_tree, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
         layout.package_tree.write_bytes(tree_raw)
         assert len(tree_raw) > 65536
         large_manifest = _manifest()
@@ -342,7 +364,25 @@ def main() -> int:
         large_manifest["browserTreeManifest"]["sha256"] = sha256_bytes(
             layout.browser_tree.read_bytes()
         )
-        assert recheck_package(root, large_manifest)["memberCount"] > 1500
+        with patch("package_contract.sha256_file", wraps=sha256_file) as hashing:
+            assert recheck_package(root, large_manifest)["memberCount"] > 1500
+            assert hashing.call_count == len(large_tree["entries"])
+        fixture_lock = {
+            "browserTreeManifestSha256": sha256_bytes(layout.browser_tree.read_bytes()),
+            "executableRelativePath": "camoufox.exe",
+            "buildId": "fixture",
+            "sourceStamp": "fixture",
+            "browserExecutableSha256": sha256_bytes(b"browser"),
+            "propertiesJsonSha256": sha256_bytes(b"{}"),
+            "engineRevision": "fixture",
+        }
+        with (
+            patch("package_contract.load_package_asset_lock", return_value=fixture_lock),
+            patch("package_contract._validate_package_asset_lock"),
+            patch("browser_tree.sha256_file", side_effect=AssertionError("browser rehashed")),
+        ):
+            formal = recheck_formal_package(root, large_manifest)
+        assert formal["browserFileCount"] == 1503
         layout.probe.unlink()
         try:
             recheck_package(root, large_manifest)

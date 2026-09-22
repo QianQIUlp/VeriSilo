@@ -297,8 +297,9 @@ def verify_package_browser_root(
     tree_manifest_path: Path | str,
     *,
     verify_tree_contents: bool = True,
+    _verified_digests: dict[str, str] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
-    """Verify the final staged browser root without consulting a repository."""
+    """Verify the staged browser root; private digests come from a frozen package scan."""
 
     _validate_package_asset_lock(lock)
     browser_root = Path(browser_root).absolute()
@@ -335,9 +336,22 @@ def verify_package_browser_root(
     if verify_tree_contents:
         if sha256_bytes(manifest_raw) != lock["browserTreeManifestSha256"]:
             raise PackageContractError("browser tree manifest SHA-256 does not match asset lock")
-        if sha256_file(executable) != lock["browserExecutableSha256"]:
+        executable_relative = executable.relative_to(browser_root).as_posix()
+        if os.name == "nt":
+            executable_relative = executable_relative.casefold()
+        executable_hash = (
+            sha256_file(executable)
+            if _verified_digests is None
+            else _verified_digests.get(executable_relative)
+        )
+        if executable_hash != lock["browserExecutableSha256"]:
             raise PackageContractError("package browser executable SHA-256 mismatch")
-        if sha256_file(properties) != lock["propertiesJsonSha256"]:
+        properties_hash = (
+            sha256_file(properties)
+            if _verified_digests is None
+            else _verified_digests.get("properties.json")
+        )
+        if properties_hash != lock["propertiesJsonSha256"]:
             raise PackageContractError("package browser metadata does not match asset lock")
     verification: dict[str, Any] = {
         "verified": verify_tree_contents,
@@ -347,7 +361,9 @@ def verify_package_browser_root(
         "totalBytes": manifest["totalBytes"],
     }
     if verify_tree_contents:
-        verification["tree"] = verify_tree(browser_root, manifest)
+        verification["tree"] = verify_tree(
+            browser_root, manifest, _verified_digests=_verified_digests
+        )
         verification["treeManifestSha256"] = sha256_bytes(manifest_raw)
     return executable, verification
 
@@ -526,7 +542,12 @@ def validate_v3_manifest(manifest: dict[str, Any], *, allow_unsigned: bool = Fal
         _require_sha(value, label)
 
 
-def recheck_package(root: Path | str, manifest: dict[str, Any]) -> dict[str, Any]:
+def recheck_package(
+    root: Path | str,
+    manifest: dict[str, Any],
+    *,
+    _verified_entries: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     """Re-read all final package bytes and compare the signed tree bindings."""
 
     root = Path(root).absolute()
@@ -570,9 +591,12 @@ def recheck_package(root: Path | str, manifest: dict[str, Any]) -> dict[str, Any
     }
     if actual["schema"] != PACKAGE_TREE_SCHEMA or normalized_expected != declared_entries:
         raise PackageContractError("package tree does not match final bytes")
-    host_path = root / manifest["entrypoint"]["relativePath"]
-    if sha256_file(host_path) != manifest["entrypoint"]["sha256"]:
+    host_relative = manifest["entrypoint"]["relativePath"]
+    host_key = host_relative.casefold() if os.name == "nt" else host_relative
+    if normalized_expected.get(host_key) != manifest["entrypoint"]["sha256"]:
         raise PackageContractError("Host entrypoint digest changed")
+    if _verified_entries is not None:
+        _verified_entries.extend(actual["entries"])
     return {
         "packageTreeSha256": sha256_bytes(tree_raw),
         "browserTreeSha256": sha256_bytes(browser_tree_raw),
@@ -584,7 +608,18 @@ def recheck_formal_package(root: Path | str, manifest: dict[str, Any]) -> dict[s
     """Recheck the structural package plus its exact frozen Formal-v3 browser binding."""
 
     root = Path(root).absolute()
-    result = recheck_package(root, manifest)
+    verified_entries: list[dict[str, str]] = []
+    result = recheck_package(root, manifest, _verified_entries=verified_entries)
+    # The exact package-tree scan has already hashed every browser file.
+    browser_prefix = f"{BROWSER_DIRECTORY}/"
+    browser_digests: dict[str, str] = {}
+    for entry in verified_entries:
+        relative = entry["path"]
+        if not (relative.casefold() if os.name == "nt" else relative).startswith(browser_prefix):
+            continue
+        browser_relative = relative[len(browser_prefix):]
+        key = browser_relative.casefold() if os.name == "nt" else browser_relative
+        browser_digests[key] = entry["sha256"]
     asset_lock = load_package_asset_lock(root / ASSET_LOCK_NAME)
     browser_tree_path = root / manifest["browserTreeManifest"]["relativePath"]
     browser_tree_sha256 = sha256_file(browser_tree_path)
@@ -595,6 +630,7 @@ def recheck_formal_package(root: Path | str, manifest: dict[str, Any]) -> dict[s
         root / BROWSER_DIRECTORY,
         browser_tree_path,
         verify_tree_contents=True,
+        _verified_digests=browser_digests,
     )
     result.update(
         engineRevision=asset_lock["engineRevision"],

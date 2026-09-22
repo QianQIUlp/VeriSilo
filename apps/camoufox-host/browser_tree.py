@@ -170,7 +170,15 @@ def load_tree_manifest(path: Path | str) -> dict:
     return manifest
 
 
-def verify_tree(tree_root: Path, manifest: dict, error_cap: int = 20) -> dict:
+def verify_tree(
+    tree_root: Path,
+    manifest: dict,
+    error_cap: int = 20,
+    *,
+    _verified_digests: dict[str, str] | None = None,
+) -> dict:
+    # Internal package-recheck path: these digests must come from a completed
+    # exact package-tree scan of the same frozen input.
     expected = {
         (entry["path"].replace("\\", "/").casefold() if IS_WINDOWS else entry["path"].replace("\\", "/")): entry
         for entry in manifest["entries"]
@@ -212,7 +220,11 @@ def verify_tree(tree_root: Path, manifest: dict, error_cap: int = 20) -> dict:
             if mismatched >= error_cap:
                 break
             continue
-        digest = sha256_file(path)
+        digest = (
+            sha256_file(path)
+            if _verified_digests is None
+            else _verified_digests.get(rel)
+        )
         if digest != entry["sha256"]:
             errors.append(f"sha256 mismatch: {rel}")
             mismatched += 1
