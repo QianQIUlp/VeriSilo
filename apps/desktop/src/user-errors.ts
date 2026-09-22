@@ -46,6 +46,22 @@ const stableBackendErrors = {
   managed_create_failed: "托管身份浏览器创建失败，请检查设置后重试。",
 } as const;
 
+function structuredBackendError(
+  error: unknown,
+): { code: keyof typeof stableBackendErrors; detail: string | null } | null {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return null;
+  }
+  const { code, detail } = error as { code: unknown; detail?: unknown };
+  if (typeof code !== "string" || !(code in stableBackendErrors)) {
+    return null;
+  }
+  return {
+    code: code as keyof typeof stableBackendErrors,
+    detail: typeof detail === "string" ? detail : null,
+  };
+}
+
 function rawErrorText(error: unknown): string {
   if (typeof error === "string") {
     return error;
@@ -97,6 +113,10 @@ export function userFacingErrorMessage(
   error: unknown,
   fallback = "操作没有完成。请检查当前设置后重试。",
 ): string {
+  const structured = structuredBackendError(error);
+  if (structured !== null) {
+    return stableBackendErrors[structured.code];
+  }
   const raw = rawErrorText(error);
   const normalized = raw.toLowerCase().replaceAll("-", "_");
   const code = (
@@ -127,6 +147,12 @@ export function userFacingErrorDetail(
 ): string | null {
   if (error instanceof UserFacingError && error.detail !== null) {
     return error.detail;
+  }
+  const structured = structuredBackendError(error);
+  if (structured !== null) {
+    return structured.detail === null || structured.detail.trim() === ""
+      ? null
+      : truncateErrorDetail(structured.detail);
   }
   if (userFacingErrorMessage(error, fallback) !== fallback) {
     return null;

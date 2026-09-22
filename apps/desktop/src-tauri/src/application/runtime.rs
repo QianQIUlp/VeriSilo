@@ -20,7 +20,34 @@ use chrono::Utc;
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::identity::{managed_launcher_error, managed_vault_error};
+use super::identity::{
+    managed_launcher_error, managed_launcher_failure, managed_vault_error, ManagedLauncherFailure,
+};
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub(crate) enum LaunchFailure {
+    Plain(String),
+    Managed(ManagedLauncherFailure),
+}
+
+impl From<String> for LaunchFailure {
+    fn from(value: String) -> Self {
+        Self::Plain(value)
+    }
+}
+
+impl std::fmt::Display for LaunchFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Plain(message) => formatter.write_str(message),
+            Self::Managed(failure) => match &failure.detail {
+                Some(detail) => write!(formatter, "{}: {detail}", failure.code),
+                None => formatter.write_str(failure.code),
+            },
+        }
+    }
+}
 
 pub(crate) fn publish_runtime_status(
     state: &DesktopCore,
@@ -581,7 +608,7 @@ pub(crate) fn rebind_silo_mihomo(
 pub(crate) fn launch_silo_with(
     state: &DesktopCore,
     silo_id: Uuid,
-) -> Result<RuntimeActivation, String> {
+) -> Result<RuntimeActivation, LaunchFailure> {
     let _local_reservation = state.local_control.reserve()?;
     let mut vault = state
         .vault
@@ -617,22 +644,22 @@ pub(crate) fn launch_silo_with(
                 .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
             runtime.release_inactive_managed_session();
             if runtime.activation().active_silo_id.is_some() {
-                return Err(if managed_camoufox {
+                return Err((if managed_camoufox {
                     "managed_another_silo_running".to_owned()
                 } else {
                     "Close the active browser Silo before starting another Silo.".to_owned()
-                });
+                }).into());
             }
             {
                 let mut environment_runtime = state.environment_runtime.lock().map_err(|_| {
                     "VeriSilo environment runtime state is unavailable.".to_owned()
                 })?;
                 if environment_runtime.has_active_silo() {
-                    return Err(if managed_camoufox {
+                    return Err((if managed_camoufox {
                         "managed_another_silo_running".to_owned()
                     } else {
                         "Stop the active Silo before starting another run location.".to_owned()
-                    });
+                    }).into());
                 }
                 environment_runtime.activation = RuntimeActivation::idle();
                 environment_runtime.wsl_distribution = None;
@@ -670,9 +697,9 @@ pub(crate) fn launch_silo_with(
                     let activation = runtime.activation();
                     publish_runtime_status(&state, &activation, &vault_status);
                     Err(if managed_camoufox {
-                        managed_launcher_error(error)
+                        LaunchFailure::Managed(managed_launcher_failure(error))
                     } else {
-                        error.to_string()
+                        LaunchFailure::Plain(error.to_string())
                     })
                 }
             }
@@ -686,7 +713,7 @@ pub(crate) fn launch_silo_with(
             if runtime.activation().active_silo_id.is_some() {
                 return Err(
                     "Close the browser Silo already running on this computer before starting the Linux environment."
-                        .to_owned(),
+                        .to_owned().into(),
                 );
             }
             drop(runtime);
@@ -695,9 +722,8 @@ pub(crate) fn launch_silo_with(
                     "VeriSilo environment runtime state is unavailable.".to_owned()
                 })?;
                 if environment_runtime.has_active_silo() {
-                    return Err(
-                        "Stop the active Silo before starting another run location.".to_owned(),
-                    );
+                    return Err("Stop the active Silo before starting another run location."
+                        .to_owned().into());
                 }
                 environment_runtime.activation = RuntimeActivation {
                     active_silo_id: Some(silo_id),
@@ -883,16 +909,16 @@ pub(crate) fn launch_silo_with(
                         Err(activation
                             .message
                             .clone()
-                            .unwrap_or(error))
+                            .unwrap_or(error).into())
                     } else {
-                        Err(error)
+                        Err(error.into())
                     }
                 }
             }
         }
         SiloExecutionTarget::Remote { .. } => Err(
             "This Silo targets a remote node, but this build has no verified remote browser identity runtime. VeriSilo will not fall back to the local computer."
-                .to_owned(),
+                .to_owned().into(),
         ),
     }
 }

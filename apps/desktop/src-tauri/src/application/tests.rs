@@ -5,7 +5,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::environments::{verified_current_wsl_artifact, LocalEnvironmentControl};
-use super::identity::{managed_launcher_error, managed_vault_error};
+use super::identity::{managed_launcher_error, managed_launcher_failure, managed_vault_error};
 use crate::domain::{
     BrowserDescriptor, BrowserKind, CreateSiloInput, NetworkProfile, Silo, SiloExecutionTarget,
     SCHEMA_VERSION,
@@ -606,6 +606,33 @@ fn managed_failures_return_stable_user_codes_without_internal_details() {
     ));
     assert!(mihomo.contains("直连模式"), "{mihomo}");
     assert!(!mihomo.contains("managed_network_mismatch"), "{mihomo}");
+}
+
+#[test]
+fn managed_launch_failure_separates_safe_diagnostics_from_private_details() {
+    let timeout = managed_launcher_failure(LauncherError::RuntimeReceipt(
+        "Camoufox Host response timeout/EOF: timed out".to_owned(),
+    ));
+    let value = serde_json::to_value(timeout).unwrap();
+    assert_eq!(value["code"], "managed_browser_open_failed");
+    assert!(value["detail"].as_str().unwrap().contains("没有按时回应"));
+
+    let private = managed_launcher_failure(LauncherError::ProxyPreflight(
+        "proxy.internal.example:1080 password=private".to_owned(),
+    ));
+    let value = serde_json::to_value(private).unwrap();
+    assert_eq!(value["code"], "managed_network_mismatch");
+    assert!(value.get("detail").is_none());
+
+    let rejected = managed_launcher_failure(LauncherError::RuntimeReceipt(
+        "Camoufox Host rejected launch: private path C:\\Users\\hidden (integrity_rejected)"
+            .to_owned(),
+    ));
+    let value = serde_json::to_value(rejected).unwrap();
+    assert_eq!(
+        value["detail"],
+        "浏览器宿主拒绝本次操作（错误码 integrity_rejected）。"
+    );
 }
 
 #[test]

@@ -580,7 +580,7 @@ fn dispatch_silo(
             Err(error) => error_status(error),
         },
         ("POST", Some("start")) => match resolve_silo_id(state, spec) {
-            Ok(id) => map_result(launch_silo_with(state, id)),
+            Ok(id) => map_result(launch_silo_with(state, id).map_err(|error| error.to_string())),
             Err(error) => error_status(error),
         },
         ("POST", Some("recheck")) => match resolve_silo_id(state, spec) {

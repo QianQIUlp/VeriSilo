@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { UserFacingError, userFacingErrorMessage } from "./user-errors.js";
+import {
+  UserFacingError,
+  userFacingErrorDetail,
+  userFacingErrorMessage,
+} from "./user-errors.js";
 
 describe("user-facing errors", () => {
   it("only forwards messages explicitly written for the product UI", () => {
@@ -45,5 +49,15 @@ describe("user-facing errors", () => {
         "无法绑定所选 Mihomo 节点：Clash 当前是直连模式，所选节点不会生效。请在 Clash 里改回规则或全局模式后再启动。",
       ),
     ).toContain("直连模式");
+  });
+
+  it("shows a structured managed launch cause below the stable message", () => {
+    const failure = {
+      code: "managed_browser_open_failed",
+      detail: "浏览器宿主没有按时回应，或已提前退出。",
+    };
+    expect(userFacingErrorMessage(failure)).toContain("浏览器没有打开成功");
+    expect(userFacingErrorDetail(failure)).toContain("没有按时回应");
+    expect(userFacingErrorDetail({ code: "managed_engine_unavailable" })).toBeNull();
   });
 });

@@ -19,6 +19,7 @@ import {
 import { MIHOMO_DEFAULT_MIXED_PORT } from "../../proxy-presets.js";
 
 import { managedErrorMessage } from "../../shared/notice.js";
+import { userFacingErrorDetail } from "../../user-errors.js";
 
 import {
   proxyCredentialsPaired,
@@ -127,6 +128,7 @@ export function ManagedSiloForm({
         : null,
   });
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(seed !== null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -149,6 +151,7 @@ export function ManagedSiloForm({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    setErrorDetail(null);
     setSuccess(null);
     if (name.trim() === "") {
       setError("请填写 Silo 名称。");
@@ -249,6 +252,7 @@ export function ManagedSiloForm({
       setSuccess("托管身份浏览器已创建。");
     } catch (submitError) {
       setError(managedErrorMessage(submitError));
+      setErrorDetail(userFacingErrorDetail(submitError));
       window.setTimeout(() => errorRef.current?.focus(), 0);
     }
   };
@@ -296,6 +300,7 @@ export function ManagedSiloForm({
           >
             <strong id="managed-create-error-title">创建没有完成</strong>
             <span>{error}</span>
+            {errorDetail !== null ? <small>{errorDetail}</small> : null}
             <button
               className="button-secondary"
               disabled={busy}
@@ -497,8 +502,10 @@ export function ManagedSiloForm({
                       setProxyPassword(parsed.credentials?.password ?? "");
                       setProxyImport("");
                       setError(null);
+                      setErrorDetail(null);
                     } catch (parseError) {
                       setError(managedErrorMessage(parseError));
+                      setErrorDetail(userFacingErrorDetail(parseError));
                     }
                   }}
                   type="button"

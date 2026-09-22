@@ -722,11 +722,11 @@ pub(crate) async fn rebind_silo_mihomo(
 pub(crate) async fn launch_silo(
     app: AppHandle,
     silo_id: Uuid,
-) -> Result<RuntimeActivation, String> {
+) -> Result<RuntimeActivation, application::LaunchFailure> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         application::launch_silo_with(&state.core, silo_id)
     })
     .await
-    .unwrap_or_else(|error| Err(error.to_string()))
+    .unwrap_or_else(|error| Err(error.to_string().into()))
 }

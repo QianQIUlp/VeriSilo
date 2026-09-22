@@ -19,7 +19,7 @@ pub(crate) use environments::{
 mod runtime;
 pub(crate) use runtime::{
     desktop_status, desktop_status_with, launch_silo_with, rebind_silo_mihomo,
-    recheck_silo_browser, recheck_silo_runtime, stop_silo_with, DesktopStatus,
+    recheck_silo_browser, recheck_silo_runtime, stop_silo_with, DesktopStatus, LaunchFailure,
 };
 
 mod silos;

@@ -929,11 +929,14 @@ export function useDesktopWorkspace() {
       setView("overview");
       await refresh();
     } catch (error) {
-      const message = managedErrorMessage(error);
+      const failure = errorNotice(
+        error,
+        "托管身份浏览器操作没有完成。请检查当前状态后重试。",
+      );
       if (isCurrent()) {
-        setNotice({ tone: "error", message });
+        setNotice(failure);
       }
-      throw new UserFacingError(message);
+      throw new UserFacingError(failure.message, failure.detail);
     } finally {
       if (operationId === unlockedOperationRef.current) {
         setBusy(false);

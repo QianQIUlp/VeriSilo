@@ -13,6 +13,7 @@ use crate::vault::{
 use crate::{engine, mihomo};
 use rand::rngs::OsRng;
 use rand::RngCore;
+use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -80,50 +81,99 @@ pub(crate) fn managed_vault_error(error: VaultError) -> String {
     .to_owned()
 }
 
-pub(crate) fn managed_launcher_error(error: LauncherError) -> String {
-    match &error {
-        LauncherError::AnotherSiloRunning => "managed_another_silo_running".to_owned(),
-        LauncherError::ProfileInUse => "managed_profile_in_use".to_owned(),
-        // The variant carries its own user-facing detail; the frontend shows
-        // the raw CJK text instead of a stable code for this precondition.
-        LauncherError::ProfileUnmanaged => error.to_string(),
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ManagedLauncherFailure {
+    pub code: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+pub(crate) fn managed_launcher_failure(error: LauncherError) -> ManagedLauncherFailure {
+    let (code, detail) = match &error {
+        LauncherError::AnotherSiloRunning => ("managed_another_silo_running", None),
+        LauncherError::ProfileInUse => ("managed_profile_in_use", None),
+        LauncherError::ProfileUnmanaged => {
+            ("managed_artifact_unavailable", Some(error.to_string()))
+        }
         LauncherError::ProxyPreflight(detail)
         | LauncherError::ProxyRelay(detail)
         | LauncherError::InvalidNetwork(detail)
-        | LauncherError::Mihomo(detail) => {
-            pass_user_detail(&error.to_string(), detail, "managed_network_mismatch")
-        }
-        LauncherError::RuntimeReceipt(detail) | LauncherError::Bootstrap(detail) => {
-            pass_user_detail(&error.to_string(), detail, "managed_browser_open_failed")
-        }
+        | LauncherError::Mihomo(detail) => (
+            "managed_network_mismatch",
+            safe_launcher_detail(detail).then(|| error.to_string()),
+        ),
+        LauncherError::RuntimeReceipt(detail) | LauncherError::Bootstrap(detail) => (
+            "managed_browser_open_failed",
+            host_failure_detail(detail)
+                .or_else(|| safe_launcher_detail(detail).then(|| error.to_string())),
+        ),
         LauncherError::BrowserVerification(detail)
         | LauncherError::BrowserStartup(detail)
-        | LauncherError::Engine(detail) => {
-            pass_user_detail(&error.to_string(), detail, "managed_engine_unavailable")
-        }
-        LauncherError::Spawn(_) => {
-            let raw = error.to_string();
-            if has_cjk(&raw) {
-                raw
-            } else {
-                "managed_engine_unavailable".to_owned()
-            }
-        }
+        | LauncherError::Engine(detail) => (
+            "managed_engine_unavailable",
+            safe_launcher_detail(detail).then(|| error.to_string()),
+        ),
+        LauncherError::Spawn(cause) => (
+            "managed_engine_unavailable",
+            match cause.kind() {
+                std::io::ErrorKind::NotFound => Some("找不到浏览器启动文件。".to_owned()),
+                std::io::ErrorKind::PermissionDenied => Some("系统拒绝启动浏览器进程。".to_owned()),
+                _ => None,
+            },
+        ),
+    };
+    ManagedLauncherFailure { code, detail }
+}
+
+pub(crate) fn managed_launcher_error(error: LauncherError) -> String {
+    let failure = managed_launcher_failure(error);
+    match failure.detail {
+        Some(detail) if has_cjk(&detail) => detail,
+        _ => failure.code.to_owned(),
     }
+}
+
+fn host_failure_detail(detail: &str) -> Option<String> {
+    if detail.contains("response timeout/EOF") {
+        return Some("浏览器宿主没有按时回应，或已提前退出。".to_owned());
+    }
+    let code = detail
+        .rsplit_once(" (")
+        .and_then(|(_, tail)| tail.strip_suffix(')'))?;
+    if detail.starts_with("Camoufox Host rejected ")
+        && (2..=48).contains(&code.len())
+        && code
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        return Some(format!("浏览器宿主拒绝本次操作（错误码 {code}）。"));
+    }
+    None
+}
+
+fn safe_launcher_detail(detail: &str) -> bool {
+    let trimmed = detail.trim();
+    !trimmed.is_empty()
+        && trimmed.chars().count() <= 180
+        && !trimmed.chars().any(char::is_control)
+        && !trimmed.contains(['\\', '/', '@', '=', '.', ':'])
+        && ![
+            "password",
+            "secret",
+            "token",
+            "credential",
+            "bearer",
+            "cookie",
+        ]
+        .iter()
+        .any(|secret| trimmed.to_ascii_lowercase().contains(secret))
 }
 
 pub(crate) fn has_cjk(value: &str) -> bool {
     value
         .chars()
         .any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch))
-}
-
-pub(crate) fn pass_user_detail(full: &str, detail: &str, fallback: &str) -> String {
-    if has_cjk(detail) {
-        full.to_owned()
-    } else {
-        fallback.to_owned()
-    }
 }
 
 pub(crate) fn managed_proxy_error(raw: String) -> String {
