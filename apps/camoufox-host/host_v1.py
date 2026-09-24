@@ -229,8 +229,8 @@ _CLOSE_MESSAGE_PATH = re.compile(
 )
 
 
-def _bounded_close_message(exc: BaseException) -> str:
-    """Bounded, path-redacted one-line rendering of a close exception."""
+def _bounded_diagnostic_message(exc: BaseException) -> str:
+    """Bounded, path-redacted one-line rendering of a Host exception."""
     text = re.sub(r"\s+", " ", str(exc)).strip()
     text = _CLOSE_MESSAGE_PATH.sub("<redacted-path>", text)
     return text[:240]
@@ -761,6 +761,27 @@ def write_provision_frame(value: dict) -> None:
         view = view[written:]
 
 
+def report_startup_failure(provision_artifact: bool) -> None:
+    """Correlate a safe startup error with the first request already in flight."""
+    error = {
+        "code": "startup_rejected",
+        "message": "Camoufox Host failed startup checks; inspect host-stderr.log",
+    }
+    if provision_artifact:
+        read_provision_frame()
+        write_provision_frame({"ok": False, "error": error})
+        return
+    with os.fdopen(os.dup(_STDIN_FD), "rb", closefd=True) as stream:
+        raw = stream.readline(MAX_FRAME_BYTES + 1)
+    if not raw.endswith(b"\n") or len(raw) > MAX_FRAME_BYTES:
+        return
+    request = parse_frame(raw[:-1])
+    request_id = request.get("id")
+    if not isinstance(request_id, str) or not request_id:
+        return
+    _send({"id": request_id, "ok": False, "error": error})
+
+
 def run_provision(host: CamoufoxHost) -> int:
     if host.package_root is None:
         raise ProtocolError("package_required", "provision-artifact requires --package-root")
@@ -833,7 +854,7 @@ async def close_context_bounded(ctx: Any, timeout: float) -> ContextCloseOutcome
         return ContextCloseOutcome(
             "exception",
             re.sub(r"[^A-Za-z0-9_.-]", "_", type(exc).__name__)[:64],
-            _bounded_close_message(exc),
+            _bounded_diagnostic_message(exc),
         )
 
 
@@ -3130,7 +3151,21 @@ def scan_self(host: CamoufoxHost) -> dict:
 
 
 async def run_host(host: CamoufoxHost) -> int:
-    from playwright.async_api import async_playwright
+    try:
+        from playwright.async_api import async_playwright
+
+        playwright = await async_playwright().start()
+        host.set_playwright(playwright)
+    except (SystemExit, Exception) as error:
+        _log(
+            f"host startup rejected: {type(error).__name__}: "
+            f"{_bounded_diagnostic_message(error)}"
+        )
+        try:
+            report_startup_failure(False)
+        except Exception as response_error:
+            _log(f"host startup response failed: {type(response_error).__name__}")
+        return 1
 
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
@@ -3181,8 +3216,7 @@ async def run_host(host: CamoufoxHost) -> int:
         except NotImplementedError:
             pass
 
-    async with async_playwright() as playwright:
-        host.set_playwright(playwright)
+    try:
         while True:
             if shutdown_event.is_set():
                 break
@@ -3227,7 +3261,9 @@ async def run_host(host: CamoufoxHost) -> int:
                 "host: session is QUARANTINED; profile lock is released by "
                 "process exit, quarantine record persists for the next Host"
             )
-    _log("host: sessions closed, playwright stopping")
+    finally:
+        _log("host: sessions closed, playwright stopping")
+        await playwright.stop()
     return 0
 
 
@@ -3301,27 +3337,38 @@ def main() -> int:
         help="Read one length-prefixed seed/preset frame and write one Artifact",
     )
     args = parser.parse_args()
-    args.state_root.mkdir(parents=True, exist_ok=True)
-    log_path = args.state_root / "host-stderr.log"
     try:
-        if log_path.exists() and log_path.stat().st_size > 8 * 1024 * 1024:
-            os.replace(log_path, log_path.with_name("host-stderr.log.1"))
-    except OSError:
-        pass
-    _LOG_FILE = log_path.open("ab")
-    host = CamoufoxHost(
-        artifact_root=args.artifact_root,
-        profile_root=args.profile_root,
-        state_root=args.state_root,
-        tree_manifest=args.tree_manifest,
-        display=args.display,
-        probe_port=args.probe_port,
-        asset_lock=args.asset_lock,
-        browser_root=args.browser_root,
-        package_root=args.package_root,
-        supervisor=args.supervisor,
-        probe_file=args.probe_file,
-    )
+        args.state_root.mkdir(parents=True, exist_ok=True)
+        log_path = args.state_root / "host-stderr.log"
+        try:
+            if log_path.exists() and log_path.stat().st_size > 8 * 1024 * 1024:
+                os.replace(log_path, log_path.with_name("host-stderr.log.1"))
+        except OSError:
+            pass
+        _LOG_FILE = log_path.open("ab")
+        host = CamoufoxHost(
+            artifact_root=args.artifact_root,
+            profile_root=args.profile_root,
+            state_root=args.state_root,
+            tree_manifest=args.tree_manifest,
+            display=args.display,
+            probe_port=args.probe_port,
+            asset_lock=args.asset_lock,
+            browser_root=args.browser_root,
+            package_root=args.package_root,
+            supervisor=args.supervisor,
+            probe_file=args.probe_file,
+        )
+    except (SystemExit, Exception) as error:
+        _log(
+            f"host startup rejected: {type(error).__name__}: "
+            f"{_bounded_diagnostic_message(error)}"
+        )
+        try:
+            report_startup_failure(args.provision_artifact)
+        except Exception as response_error:
+            _log(f"host startup response failed: {type(response_error).__name__}")
+        return 1
     if args.provision_artifact:
         return run_provision(host)
     return asyncio.run(run_host(host))

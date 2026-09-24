@@ -189,6 +189,13 @@ def main() -> int:
         request_id = request.get("id")
         command = request.get("command")
         params = request.get("params", {})
+        if mode == "startup-rejected":
+            write_frame(json.dumps({
+                "id": request_id,
+                "ok": False,
+                "error": {"code": "startup_rejected", "message": "private path must not escape"},
+            }).encode())
+            return 1
         if mode == "eof":
             return 0
         if mode == "timeout":

@@ -110,6 +110,9 @@ pub(crate) fn managed_launcher_failure(error: LauncherError) -> ManagedLauncherF
         LauncherError::ProfileUnmanaged => {
             ("managed_artifact_unavailable", Some(error.to_string()))
         }
+        LauncherError::HostStartupRejected => {
+            ("managed_engine_unavailable", Some(error.to_string()))
+        }
         LauncherError::ProxyPreflight(detail)
         | LauncherError::ProxyRelay(detail)
         | LauncherError::InvalidNetwork(detail)
@@ -234,6 +237,7 @@ pub(crate) fn managed_identity_generation_error(error: engine::EngineError) -> S
             "tree_integrity_failed" => {
                 "内置浏览器目录多出了运行文件，身份生成被拦住了。请重试；若仍失败，重启应用后再创建。".to_owned()
             }
+            "startup_rejected" => "managed_engine_unavailable".to_owned(),
             "provision_rejected" if safe_launcher_detail(&message) => {
                 format!("身份配置生成失败：{message}")
             }

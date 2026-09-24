@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -53,7 +55,7 @@ from provision_artifact import (  # noqa: E402
     decode_seed,
     apply_identity_overrides,
 )
-from host_v1 import read_provision_frame  # noqa: E402
+from host_v1 import read_provision_frame, run_host  # noqa: E402
 
 
 def _manifest() -> dict:
@@ -594,6 +596,53 @@ def main() -> int:
     assert builder._package_asset_lock(
         {"build": _dual_boot_record()}, FORMAL_V3_RUNTIME_TREE_SHA256
     ) == expected_lock
+
+    # Constructor failures must answer the first native request with a bounded,
+    # typed error instead of leaving Rust with an unexplained stdout EOF.
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        command = [
+            sys.executable,
+            str(Path(__file__).parent / "host_v1.py"),
+            "--package-root", str(root / "missing-package"),
+            "--artifact-root", str(root / "artifacts"),
+            "--profile-root", str(root / "profiles"),
+            "--state-root", str(root / "state"),
+        ]
+        hello = subprocess.run(
+            command,
+            input=b'{"id":"startup-test","command":"hello","params":{}}\n',
+            capture_output=True,
+            timeout=20,
+        )
+        assert hello.returncode == 1
+        hello_response = json.loads(hello.stdout)
+        assert hello_response["id"] == "startup-test"
+        assert hello_response["error"]["code"] == "startup_rejected"
+        assert str(root).encode() not in hello.stdout
+
+        request = json.dumps({
+            "seed": base64.b64encode(bytes(32)).decode("ascii"),
+            "preset": "balanced-en-us",
+        }).encode("utf-8")
+        provision = subprocess.run(
+            [*command, "--provision-artifact"],
+            input=len(request).to_bytes(4, "big") + request,
+            capture_output=True,
+            timeout=20,
+        )
+        assert provision.returncode == 1
+        length = int.from_bytes(provision.stdout[:4], "big")
+        assert length == len(provision.stdout) - 4
+        provision_response = json.loads(provision.stdout[4:])
+        assert provision_response["error"]["code"] == "startup_rejected"
+        assert str(root).encode() not in provision.stdout
+
+    # A missing Playwright runtime fails before the reader thread owns stdin.
+    with patch.dict(sys.modules, {"playwright": None}):
+        with patch("host_v1.report_startup_failure") as report:
+            assert asyncio.run(run_host(None)) == 1
+            report.assert_called_once_with(False)
 
     print("Camoufox Host package contract self-test passed")
     return 0

@@ -623,6 +623,9 @@ impl CamoufoxHostTransport {
                 ));
             }
             let error = response.error.expect("checked Host error");
+            if error.code == "startup_rejected" {
+                return Err(LauncherError::HostStartupRejected);
+            }
             Err(LauncherError::RuntimeReceipt(format!(
                 "Camoufox Host rejected {command}: {} ({})",
                 error.message, error.code
@@ -687,6 +690,8 @@ pub enum LauncherError {
     BrowserStartup(String),
     #[error("浏览器引擎适配器拒绝启动：{0}")]
     Engine(String),
+    #[error("内置浏览器组件启动前检查失败，请查看 Host 日志并核对组件完整性。")]
+    HostStartupRejected,
     #[error("受控引擎启动协议写入失败：{0}")]
     Bootstrap(String),
     #[error("受控引擎运行证据协议失败：{0}")]
@@ -6314,6 +6319,18 @@ process.stdin.on('end', () => {
         };
         assert!(status.success());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn fake_camoufox_startup_failure_is_typed_without_private_host_message() {
+        let (root, plan, arguments) = fake_camoufox_host_fixture("startup-rejected");
+        let error = match super::spawn_camoufox_host(&plan, &arguments) {
+            Ok(_) => panic!("Host startup rejection must stop launch"),
+            Err(error) => error,
+        };
+        assert!(matches!(&error, super::LauncherError::HostStartupRejected));
+        assert!(!error.to_string().contains("private path"));
+        fs::remove_dir_all(root).expect("remove fake Host fixture");
     }
 
     #[test]
