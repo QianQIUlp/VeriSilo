@@ -255,22 +255,11 @@ describe("desktop product copy", () => {
     expect(appSource).toContain('silo.executionTarget.kind === "wsl"');
   });
 
-  it("keeps remote setup in user language and does not forward backend status copy", () => {
-    expect(appSource).toContain("只处理已经存在的远程环境");
-    expect(appSource).toContain("服务地址");
-    expect(appSource).toContain("安全指纹");
-    expect(appSource).toContain("一次性配对码");
-    expect(appSource).not.toContain("{remoteStatus.message}");
-    expect(appSource).not.toContain("严格引擎配置 JSON");
-    expect(appSource).not.toContain("Agent 已接受");
-    expect(appSource).not.toContain("message: verification.message");
-    expect(appSource).not.toContain("remoteStatus.pairing.node.cost.notice");
-    expect(appSource).not.toContain("安全连接可用");
-    expect(appSource).not.toContain("此设备已配对");
-  });
-
   it("exposes only cleanup actions for legacy remote bindings", () => {
     const appSource = environmentSource;
+    expect(appSource).toContain("只处理已经存在的远程环境");
+    expect(appSource).toContain("服务地址");
+    expect(appSource).not.toContain("{remoteStatus.message}");
     const recoveryStart = appSource.indexOf(
       'className="remote-recovery-warning"',
     );
@@ -302,6 +291,9 @@ describe("desktop product copy", () => {
     ]) {
       expect(recoverySource).not.toContain(forbidden);
     }
+    expect(appSource).not.toContain("desktopApi.pairRemoteEnvironment");
+    expect(appSource).not.toContain("desktopApi.rotateRemoteEnvironmentTlsPin");
+    expect(appSource).not.toContain("desktopApi.createRemoteEnvironment");
   });
 
   it("labels managed browsers accurately and only offers the safe system-browser switch", () => {
@@ -361,20 +353,4 @@ describe("desktop product copy", () => {
     expect(appSource).toContain('networkEvidence.exit === "observed"');
   });
 
-  it("requires fresh approval after any remote pairing or fingerprint change", () => {
-    expect(
-      appSource.match(/setRemotePairingApproved\(false\)/gu)?.length ?? 0,
-    ).toBeGreaterThanOrEqual(1);
-    expect(
-      appSource.match(/setRemoteRotationApproved\(false\)/gu)?.length ?? 0,
-    ).toBeGreaterThanOrEqual(1);
-    expect(appSource).toContain("remotePairingFieldsValid");
-    expect(appSource).toContain("remoteRotationFieldsValid");
-  });
-
-  it("keeps remote confirmation checkboxes at intrinsic width", () => {
-    expect(stylesSource).toMatch(
-      /\.remote-confirmation input\s*\{[^}]*width:\s*auto;[^}]*min-height:\s*auto;/u,
-    );
-  });
 });
