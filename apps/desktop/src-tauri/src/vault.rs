@@ -718,6 +718,9 @@ impl VaultRuntime {
         // copies a partially written or externally corrupted Vault file.
         self.persist(root)?;
         let raw = fs::read(vault_path(root))?;
+        if raw.len() as u64 > MAX_VAULT_BACKUP_BYTES {
+            return Err(VaultError::BackupTooLarge);
+        }
         let envelope: VaultEnvelope =
             serde_json::from_slice(&raw).map_err(|_| VaultError::InvalidData)?;
         if envelope.version != VAULT_ENVELOPE_VERSION || envelope.kdf != "argon2id" {
@@ -2310,9 +2313,8 @@ impl VaultRuntime {
             return Ok(0);
         }
 
-        let prospective_data = {
-            let unlocked = self.unlocked_mut_without_activity()?;
-            let mut data = unlocked.data.clone();
+        let (new_entries, newly_seen) = {
+            let data = &self.unlocked_without_activity()?.data;
             let silo_ids = data
                 .silos
                 .iter()
@@ -2329,6 +2331,7 @@ impl VaultRuntime {
                 .map(|entry| entry.request_id)
                 .collect::<HashSet<_>>();
             let mut newly_seen = HashSet::new();
+            let mut new_entries = Vec::new();
 
             for entry in entries {
                 validate_network_evidence_inbox_entry(&entry)
@@ -2344,9 +2347,18 @@ impl VaultRuntime {
                 evidence_ids.insert(entry.evidence_id);
                 request_ids.insert(entry.request_id);
                 newly_seen.insert(entry.evidence_id);
-                data.network_evidence.push(entry);
+                new_entries.push(entry);
             }
+            (new_entries, newly_seen)
+        };
+        if new_entries.is_empty() {
+            return Ok(0);
+        }
 
+        let prospective_data = {
+            let unlocked = self.unlocked_mut_without_activity()?;
+            let mut data = unlocked.data.clone();
+            data.network_evidence.extend(new_entries);
             data.network_evidence
                 .sort_by_key(|entry| std::cmp::Reverse(entry.received_at));
             let mut retained_per_silo = HashMap::<Uuid, usize>::new();
@@ -7051,6 +7063,7 @@ mod tests {
             first_request_id,
             now + Duration::seconds(1),
         ));
+        let duplicate_entry = entries[0].clone();
 
         assert_eq!(
             vault
@@ -7074,6 +7087,16 @@ mod tests {
         );
         let encrypted = fs::read(root.join("vault.json")).expect("read encrypted Vault");
         assert!(!String::from_utf8_lossy(&encrypted).contains("evidence history"));
+        assert_eq!(
+            vault
+                .import_network_evidence(&root, vec![duplicate_entry])
+                .expect("ignore already imported evidence"),
+            0
+        );
+        assert_eq!(
+            fs::read(root.join("vault.json")).expect("read unchanged Vault"),
+            encrypted
+        );
 
         vault.lock();
         vault
