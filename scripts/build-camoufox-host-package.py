@@ -750,8 +750,9 @@ def _stage(
             "browserAssetSha256": FORMAL_V3_ARCHIVE_SHA256,
         }
 
-        def _bind_package_tree() -> tuple[bytes, dict]:
-            package_tree = build_package_tree(staging)
+        def _bind_package_tree(package_tree: dict | None = None) -> tuple[bytes, dict]:
+            if package_tree is None:
+                package_tree = build_package_tree(staging)
             package_tree_raw = _write_json(layout.package_tree, package_tree)
             manifest["treeManifest"]["sha256"] = sha256_bytes(package_tree_raw)
             validate_v3_manifest(manifest, allow_unsigned=True)
@@ -771,9 +772,10 @@ def _stage(
         # declare exactly those runtime-produced bytes; any other smoke
         # drift is a builder failure.
         _smoke_packaged_host(layout, Path(temporary))
+        post_smoke_tree = build_package_tree(staging)
         post_smoke_entries = {
             entry["path"]: entry["sha256"]
-            for entry in build_package_tree(staging)["entries"]
+            for entry in post_smoke_tree["entries"]
         }
         missing = sorted(set(pre_smoke_entries) - set(post_smoke_entries))
         changed = sorted(
@@ -789,7 +791,7 @@ def _stage(
                 f"missing={missing} changed={changed} added={added}"
             )
         if added:
-            package_tree_raw, _ = _bind_package_tree()
+            package_tree_raw, _ = _bind_package_tree(post_smoke_tree)
         payload = manifest_signing_payload(manifest)
         unsigned_manifest_path = Path(temporary) / "engine-package.unsigned.json"
         payload_path = Path(temporary) / "engine-package.payload.bin"
