@@ -16,7 +16,7 @@ use crate::mihomo::{LocalClashProbe, MihomoControllerInput, MihomoSnapshot};
 use crate::native_host;
 use crate::vault::VaultBackupReceipt;
 use crate::{application, local_api, AppState};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 use verisilo_remote_backend::agent::{
     AutomationScope as RemoteAutomationScope, InputEvent as RemoteInputEvent,
@@ -25,6 +25,18 @@ use verisilo_remote_backend::{
     AgentInteractionReceipt as RemoteInteractionReceipt, InteractivePrincipal,
     OperationResult as RemoteOperationResult, PairingApproval, RemoteEndpoint, RemoteNetworkPolicy,
 };
+
+async fn run_blocking<T: Send + 'static>(
+    app: AppHandle,
+    operation: impl FnOnce(&application::DesktopCore) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        operation(&state.core)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
+}
 
 #[tauri::command]
 pub(crate) async fn list_engine_adapters(
@@ -76,19 +88,26 @@ pub(crate) async fn rollback_engine_package(
 }
 
 #[tauri::command]
-pub(crate) fn set_engine_emergency_disabled(
+pub(crate) async fn set_engine_emergency_disabled(
     adapter_id: EngineAdapterId,
     disabled: bool,
     reason: Option<String>,
 ) -> Result<EngineAdapterStatus, String> {
-    application::set_engine_emergency_disabled(adapter_id, disabled, reason)
+    tauri::async_runtime::spawn_blocking(move || {
+        application::set_engine_emergency_disabled(adapter_id, disabled, reason)
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_status(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_status(
+    app: AppHandle,
 ) -> Result<RemoteEnvironmentStatus, String> {
-    application::remote_environment_status(&state.core)
+    run_blocking(app, move |core| {
+        application::remote_environment_status(core)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -99,197 +118,249 @@ pub(crate) fn validate_remote_environment_endpoint(
 }
 
 #[tauri::command]
-pub(crate) fn pair_remote_environment(
-    state: State<'_, AppState>,
+pub(crate) async fn pair_remote_environment(
+    app: AppHandle,
     endpoint: RemoteEndpoint,
     approval: PairingApproval,
 ) -> Result<RemoteEnvironmentStatus, String> {
-    application::pair_remote_environment(&state.core, endpoint, approval)
+    run_blocking(app, move |core| {
+        application::pair_remote_environment(core, endpoint, approval)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn rotate_remote_environment_tls_pin(
-    state: State<'_, AppState>,
+pub(crate) async fn rotate_remote_environment_tls_pin(
+    app: AppHandle,
     endpoint: RemoteEndpoint,
     approval: PairingApproval,
     confirm_rotation: bool,
 ) -> Result<RemoteEnvironmentStatus, String> {
-    application::rotate_remote_environment_tls_pin(
-        &state.core,
-        endpoint,
-        approval,
-        confirm_rotation,
-    )
+    run_blocking(app, move |core| {
+        application::rotate_remote_environment_tls_pin(core, endpoint, approval, confirm_rotation)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn revoke_remote_pairing(
-    state: State<'_, AppState>,
+pub(crate) async fn revoke_remote_pairing(
+    app: AppHandle,
     confirm_revoke: bool,
 ) -> Result<RemoteEnvironmentStatus, String> {
-    application::revoke_remote_pairing(&state.core, confirm_revoke)
+    run_blocking(app, move |core| {
+        application::revoke_remote_pairing(core, confirm_revoke)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn force_detach_remote_environment(
-    state: State<'_, AppState>,
+pub(crate) async fn force_detach_remote_environment(
+    app: AppHandle,
     silo_id: Uuid,
     confirm_local_detach: bool,
     acknowledge_remote_orphan_risk: bool,
 ) -> Result<RemoteEnvironmentStatus, String> {
-    application::force_detach_remote_environment(
-        &state.core,
-        silo_id,
-        confirm_local_detach,
-        acknowledge_remote_orphan_risk,
-    )
+    run_blocking(app, move |core| {
+        application::force_detach_remote_environment(
+            core,
+            silo_id,
+            confirm_local_detach,
+            acknowledge_remote_orphan_risk,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_create(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_create(
+    app: AppHandle,
     silo_id: Uuid,
     network: RemoteNetworkPolicy,
     ttl_seconds: u64,
     cost_acknowledged: bool,
 ) -> Result<RemoteOperationResult, String> {
-    application::remote_environment_create(
-        &state.core,
-        silo_id,
-        network,
-        ttl_seconds,
-        cost_acknowledged,
-    )
+    run_blocking(app, move |core| {
+        application::remote_environment_create(
+            core,
+            silo_id,
+            network,
+            ttl_seconds,
+            cost_acknowledged,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_start(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_start(
+    app: AppHandle,
     silo_id: Uuid,
 ) -> Result<RemoteOperationResult, String> {
-    application::remote_environment_start(&state.core, silo_id)
+    run_blocking(app, move |core| {
+        application::remote_environment_start(core, silo_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_stop(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_stop(
+    app: AppHandle,
     silo_id: Uuid,
 ) -> Result<RemoteOperationResult, String> {
-    application::remote_environment_stop(&state.core, silo_id)
+    run_blocking(app, move |core| {
+        application::remote_environment_stop(core, silo_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_pause(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_pause(
+    app: AppHandle,
     silo_id: Uuid,
 ) -> Result<RemoteOperationResult, String> {
-    application::remote_environment_pause(&state.core, silo_id)
+    run_blocking(app, move |core| {
+        application::remote_environment_pause(core, silo_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_snapshot(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_snapshot(
+    app: AppHandle,
     silo_id: Uuid,
 ) -> Result<RemoteOperationResult, String> {
-    application::remote_environment_snapshot(&state.core, silo_id)
+    run_blocking(app, move |core| {
+        application::remote_environment_snapshot(core, silo_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_destroy(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_destroy(
+    app: AppHandle,
     silo_id: Uuid,
     confirm_destroy: bool,
 ) -> Result<RemoteOperationResult, String> {
-    application::remote_environment_destroy(&state.core, silo_id, confirm_destroy)
+    run_blocking(app, move |core| {
+        application::remote_environment_destroy(core, silo_id, confirm_destroy)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_configure_network(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_configure_network(
+    app: AppHandle,
     silo_id: Uuid,
     network: RemoteNetworkPolicy,
 ) -> Result<RemoteOperationResult, String> {
-    application::remote_environment_configure_network(&state.core, silo_id, network)
+    run_blocking(app, move |core| {
+        application::remote_environment_configure_network(core, silo_id, network)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_health(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_health(
+    app: AppHandle,
     silo_id: Uuid,
 ) -> Result<RemoteOperationResult, String> {
-    application::remote_environment_health(&state.core, silo_id)
+    run_blocking(app, move |core| {
+        application::remote_environment_health(core, silo_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_logs(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_logs(
+    app: AppHandle,
     silo_id: Uuid,
     cursor: Option<Uuid>,
     limit: u16,
 ) -> Result<RemoteOperationResult, String> {
-    application::remote_environment_logs(&state.core, silo_id, cursor, limit)
+    run_blocking(app, move |core| {
+        application::remote_environment_logs(core, silo_id, cursor, limit)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_open_human_session(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_open_human_session(
+    app: AppHandle,
     silo_id: Uuid,
     lifetime_seconds: u64,
 ) -> Result<RemoteInteractionReceipt, String> {
-    application::remote_environment_open_human_session(&state.core, silo_id, lifetime_seconds)
+    run_blocking(app, move |core| {
+        application::remote_environment_open_human_session(core, silo_id, lifetime_seconds)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_close_human_session(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_close_human_session(
+    app: AppHandle,
     silo_id: Uuid,
 ) -> Result<RemoteInteractionReceipt, String> {
-    application::remote_environment_close_human_session(&state.core, silo_id)
+    run_blocking(app, move |core| {
+        application::remote_environment_close_human_session(core, silo_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_grant_automation(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_grant_automation(
+    app: AppHandle,
     silo_id: Uuid,
     lifetime_seconds: u64,
     scopes: Vec<RemoteAutomationScope>,
     approved_by_user: bool,
 ) -> Result<RemoteInteractionReceipt, String> {
-    application::remote_environment_grant_automation(
-        &state.core,
-        silo_id,
-        lifetime_seconds,
-        scopes,
-        approved_by_user,
-    )
+    run_blocking(app, move |core| {
+        application::remote_environment_grant_automation(
+            core,
+            silo_id,
+            lifetime_seconds,
+            scopes,
+            approved_by_user,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_revoke_automation(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_revoke_automation(
+    app: AppHandle,
     silo_id: Uuid,
     authorization_id: Uuid,
 ) -> Result<RemoteInteractionReceipt, String> {
-    application::remote_environment_revoke_automation(&state.core, silo_id, authorization_id)
+    run_blocking(app, move |core| {
+        application::remote_environment_revoke_automation(core, silo_id, authorization_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_open_screen(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_open_screen(
+    app: AppHandle,
     silo_id: Uuid,
     principal: InteractivePrincipal,
 ) -> Result<RemoteInteractionReceipt, String> {
-    application::remote_environment_open_screen(&state.core, silo_id, principal)
+    run_blocking(app, move |core| {
+        application::remote_environment_open_screen(core, silo_id, principal)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn remote_environment_send_input(
-    state: State<'_, AppState>,
+pub(crate) async fn remote_environment_send_input(
+    app: AppHandle,
     silo_id: Uuid,
     principal: InteractivePrincipal,
     events: Vec<RemoteInputEvent>,
 ) -> Result<RemoteInteractionReceipt, String> {
-    application::remote_environment_send_input(&state.core, silo_id, principal, events)
+    run_blocking(app, move |core| {
+        application::remote_environment_send_input(core, silo_id, principal, events)
+    })
+    .await
 }
 
 // Heavy commands run their body on the blocking thread pool via
@@ -402,18 +473,24 @@ pub(crate) async fn detect_wsl() -> WslStatus {
 }
 
 #[tauri::command]
-pub(crate) fn environment_backend_statuses(
-    state: State<'_, AppState>,
+pub(crate) async fn environment_backend_statuses(
+    app: AppHandle,
 ) -> Result<Vec<EnvironmentBackendStatus>, String> {
-    application::environment_backend_statuses(&state.core)
+    run_blocking(app, move |core| {
+        application::environment_backend_statuses(core)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn select_wsl_environment_distribution(
-    state: State<'_, AppState>,
+pub(crate) async fn select_wsl_environment_distribution(
+    app: AppHandle,
     distribution: String,
 ) -> Result<EnvironmentBackendStatus, String> {
-    application::select_wsl_environment_distribution(&state.core, distribution)
+    run_blocking(app, move |core| {
+        application::select_wsl_environment_distribution(core, distribution)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -430,10 +507,13 @@ pub(crate) async fn environment_backend_execute(
 }
 
 #[tauri::command]
-pub(crate) fn list_legacy_environment_artifacts(
-    state: State<'_, AppState>,
+pub(crate) async fn list_legacy_environment_artifacts(
+    app: AppHandle,
 ) -> Result<Vec<LegacyEnvironmentArtifact>, String> {
-    application::list_legacy_environment_artifacts(&state.core)
+    run_blocking(app, move |core| {
+        application::list_legacy_environment_artifacts(core)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -473,32 +553,35 @@ pub(crate) async fn probe_local_clash(secret: Option<String>) -> Result<LocalCla
 }
 
 #[tauri::command]
-pub(crate) fn list_silos(state: State<'_, AppState>) -> Result<Vec<Silo>, String> {
-    application::list_silos(&state.core)
+pub(crate) async fn list_silos(app: AppHandle) -> Result<Vec<Silo>, String> {
+    run_blocking(app, application::list_silos).await
 }
 
 #[tauri::command]
-pub(crate) fn local_api_info(
-    state: State<'_, AppState>,
-) -> Result<local_api::LocalApiInfo, String> {
-    let slot = state
-        .local_api
-        .lock()
-        .map_err(|_| "本机 API 状态不可用。".to_owned())?;
-    let (server, url) = slot
-        .as_ref()
-        .ok_or_else(|| "本机 API 没有启动。".to_owned())?;
-    Ok(server.info(url.clone()))
+pub(crate) async fn local_api_info(app: AppHandle) -> Result<local_api::LocalApiInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let slot = state
+            .local_api
+            .lock()
+            .map_err(|_| "本机 API 状态不可用。".to_owned())?;
+        let (server, url) = slot
+            .as_ref()
+            .ok_or_else(|| "本机 API 没有启动。".to_owned())?;
+        Ok(server.info(url.clone()))
+    })
+    .await
+    .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn list_active_silos(state: State<'_, AppState>) -> Result<Vec<Silo>, String> {
-    application::list_active_silos(&state.core)
+pub(crate) async fn list_active_silos(app: AppHandle) -> Result<Vec<Silo>, String> {
+    run_blocking(app, application::list_active_silos).await
 }
 
 #[tauri::command]
-pub(crate) fn list_archived_silos(state: State<'_, AppState>) -> Result<Vec<Silo>, String> {
-    application::list_archived_silos(&state.core)
+pub(crate) async fn list_archived_silos(app: AppHandle) -> Result<Vec<Silo>, String> {
+    run_blocking(app, application::list_archived_silos).await
 }
 
 #[tauri::command]
@@ -515,10 +598,13 @@ pub(crate) async fn create_managed_silo(
 }
 
 #[tauri::command]
-pub(crate) fn list_managed_identity_previews(
-    state: State<'_, AppState>,
+pub(crate) async fn list_managed_identity_previews(
+    app: AppHandle,
 ) -> Result<std::collections::HashMap<Uuid, ManagedIdentityPreview>, String> {
-    application::list_managed_identity_previews(&state.core)
+    run_blocking(app, move |core| {
+        application::list_managed_identity_previews(core)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -536,20 +622,20 @@ pub(crate) async fn update_managed_identity(
 }
 
 #[tauri::command]
-pub(crate) fn create_silo(
-    state: State<'_, AppState>,
-    input: CreateSiloInput,
-) -> Result<Silo, String> {
-    application::create_silo(&state.core, input)
+pub(crate) async fn create_silo(app: AppHandle, input: CreateSiloInput) -> Result<Silo, String> {
+    run_blocking(app, move |core| application::create_silo(core, input)).await
 }
 
 #[tauri::command]
-pub(crate) fn update_silo(
-    state: State<'_, AppState>,
+pub(crate) async fn update_silo(
+    app: AppHandle,
     silo_id: Uuid,
     input: UpdateSiloInput,
 ) -> Result<Silo, String> {
-    application::update_silo(&state.core, silo_id, input)
+    run_blocking(app, move |core| {
+        application::update_silo(core, silo_id, input)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -562,19 +648,28 @@ pub(crate) async fn update_silo_configuration(
 ) -> Result<Silo, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        application::update_silo_configuration(&state.core, silo_id, input, network_input, engine_input)
+        application::update_silo_configuration(
+            &state.core,
+            silo_id,
+            input,
+            network_input,
+            engine_input,
+        )
     })
     .await
     .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
-pub(crate) fn rename_silo(
-    state: State<'_, AppState>,
+pub(crate) async fn rename_silo(
+    app: AppHandle,
     silo_id: Uuid,
     name: String,
 ) -> Result<Silo, String> {
-    application::rename_silo(&state.core, silo_id, name)
+    run_blocking(app, move |core| {
+        application::rename_silo(core, silo_id, name)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -592,25 +687,28 @@ pub(crate) async fn update_silo_network(
 }
 
 #[tauri::command]
-pub(crate) fn update_silo_engine(
-    state: State<'_, AppState>,
+pub(crate) async fn update_silo_engine(
+    app: AppHandle,
     silo_id: Uuid,
     input: UpdateSiloEngineInput,
 ) -> Result<Silo, String> {
-    application::update_silo_engine(&state.core, silo_id, input)
+    run_blocking(app, move |core| {
+        application::update_silo_engine(core, silo_id, input)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn archive_silo(state: State<'_, AppState>, silo_id: Uuid) -> Result<(), String> {
-    application::archive_silo(&state.core, silo_id)
+pub(crate) async fn archive_silo(app: AppHandle, silo_id: Uuid) -> Result<(), String> {
+    run_blocking(app, move |core| application::archive_silo(core, silo_id)).await
 }
 
 #[tauri::command]
-pub(crate) fn restore_archived_silo(
-    state: State<'_, AppState>,
-    silo_id: Uuid,
-) -> Result<Silo, String> {
-    application::restore_archived_silo(&state.core, silo_id)
+pub(crate) async fn restore_archived_silo(app: AppHandle, silo_id: Uuid) -> Result<Silo, String> {
+    run_blocking(app, move |core| {
+        application::restore_archived_silo(core, silo_id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -653,20 +751,26 @@ pub(crate) async fn silo_storage_usages(
 }
 
 #[tauri::command]
-pub(crate) fn list_network_evidence(
-    state: State<'_, AppState>,
+pub(crate) async fn list_network_evidence(
+    app: AppHandle,
     silo_id: Option<Uuid>,
 ) -> Result<Vec<native_host::NativeNetworkEvidenceInboxEntry>, String> {
-    application::list_network_evidence(&state.core, silo_id)
+    run_blocking(app, move |core| {
+        application::list_network_evidence(core, silo_id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn clear_network_evidence(
-    state: State<'_, AppState>,
+pub(crate) async fn clear_network_evidence(
+    app: AppHandle,
     silo_id: Uuid,
     confirm_clear: bool,
 ) -> Result<usize, String> {
-    application::clear_network_evidence(&state.core, silo_id, confirm_clear)
+    run_blocking(app, move |core| {
+        application::clear_network_evidence(core, silo_id, confirm_clear)
+    })
+    .await
 }
 
 #[tauri::command]
