@@ -41,13 +41,13 @@ from browser_tree import TreeIntegrityError, build_tree_manifest, verify_tree  #
 from provision_artifact import (  # noqa: E402
     PROVISION_PRESETS,
     PROVISION_REQUEST_KEYS,
+    ProvisionError,
     SUPPORTED_TIMEZONES,
     _artifact_id,
     parse_gpu_preset,
     parse_hardware_concurrency,
     parse_timezone,
     parse_window,
-    _artifact_id,
     _atomic_first_writer,
     _network_identity_from_ipwhois,
     decode_seed,
@@ -276,6 +276,14 @@ def main() -> int:
     observed = _network_identity_from_ipwhois("socks5://127.0.0.1:43127", fetch=fake_fetch)
     assert observed["countryCode"] == "SG"
     assert seen == [("https://ipwho.is/", "socks5h://127.0.0.1:43127")]
+    try:
+        _network_identity_from_ipwhois(
+            "socks5://127.0.0.1:43127", fetch=lambda *_: {"success": False}
+        )
+    except ProvisionError as exc:
+        assert exc.code == "network_observation_failed"
+    else:
+        raise AssertionError("failed exit observation did not report its code")
 
     network = {
         "expectedPublicAddress": "1.1.1.1",

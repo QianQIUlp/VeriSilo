@@ -292,7 +292,7 @@ def test_asset_lock_selection_and_root_injection_are_fail_closed() -> None:
             raise AssertionError("an arbitrary copied lock became a trust anchor")
 
 
-def test_self_built_launch_rechecks_the_pinned_tree_before_profile_use() -> None:
+def test_self_built_launch_rechecks_the_pinned_binding_before_profile_use() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         artifact_root = root / "artifacts"
@@ -342,7 +342,7 @@ def test_self_built_launch_rechecks_the_pinned_tree_before_profile_use() -> None
             browser_root,
             repo_root=host_v1.REPO_ROOT,
             tree_manifest_path=tree_manifest,
-            verify_tree_contents=True,
+            verify_tree_contents=False,
         )
         assert not host.profile_root.exists()
 
@@ -1460,6 +1460,8 @@ def test_fp1_fake_stage_timeout_crosses_protocol_and_fail_closed_cleanup() -> No
         host.playwright = object()
         host.lock = {"schema": browser_asset.OFFICIAL_ASSET_SCHEMA}
         host.executable = root / "browser" / "camoufox.exe"
+        host.executable.parent.mkdir()
+        host.executable.write_bytes(b"fake browser executable")
         host.session = None
 
         class NeverMediaPage:

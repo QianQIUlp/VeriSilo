@@ -1,12 +1,13 @@
 use super::environments::environment_runtime_is_active;
 use super::DesktopCore;
 use crate::domain::{
-    CreateManagedSiloInput, ManagedIdentityIntent, ManagedIdentityPreset, ManagedIdentityPreview,
-    NetworkProfile, ProxyCredentialsInput, Silo, UpdateManagedIdentityInput,
+    CreateManagedSiloInput, DomainError, ManagedIdentityIntent, ManagedIdentityPreset,
+    ManagedIdentityPreview, NetworkProfile, ProxyCredentialsInput, Silo,
+    UpdateManagedIdentityInput,
 };
 use crate::engine::{CamoufoxProvisionOptions, EngineAdapterId, ExternalPackageEngineAdapter};
 use crate::launcher::LauncherError;
-use crate::proxy_relay::ProxyRelay;
+use crate::proxy_relay::{ProxyRelay, ProxyRelayError};
 use crate::vault::{
     MihomoControllerAuthentication, ProxyAuthentication, StoredIdentityArtifact, VaultError,
 };
@@ -47,8 +48,13 @@ pub(crate) fn managed_browser_package_root(state: &DesktopCore) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_managed_browser_package_root;
+    use super::{
+        managed_proxy_error, managed_proxy_relay_error, resolve_managed_browser_package_root,
+    };
+    use crate::domain::DomainError;
+    use crate::proxy_relay::ProxyRelayError;
     use std::fs;
+    use std::io;
     use uuid::Uuid;
 
     #[test]
@@ -65,6 +71,14 @@ mod tests {
         assert_eq!(resolve_managed_browser_package_root(&resource_root), staged);
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn relay_io_errors_do_not_expose_private_native_details() {
+        let error = ProxyRelayError::Io(io::Error::other("password=secret C:\\Users\\private"));
+        assert_eq!(managed_proxy_relay_error(error), "managed_network_mismatch");
+        let error = DomainError::InvalidNetwork("代理配置包含 password=secret".to_owned());
+        assert_eq!(managed_proxy_error(error), "managed_network_mismatch");
     }
 }
 
@@ -176,11 +190,23 @@ pub(crate) fn has_cjk(value: &str) -> bool {
         .any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch))
 }
 
-pub(crate) fn managed_proxy_error(raw: String) -> String {
-    if has_cjk(&raw) {
-        raw
-    } else {
-        "managed_network_mismatch".to_owned()
+pub(crate) fn managed_proxy_error(error: DomainError) -> String {
+    match error {
+        DomainError::InvalidNetwork(detail)
+            if has_cjk(&detail) && safe_launcher_detail(&detail) =>
+        {
+            detail
+        }
+        _ => "managed_network_mismatch".to_owned(),
+    }
+}
+
+fn managed_proxy_relay_error(error: ProxyRelayError) -> String {
+    match error {
+        ProxyRelayError::UnsupportedProxy | ProxyRelayError::SocksCredentialTooLong => {
+            error.to_string()
+        }
+        ProxyRelayError::Io(_) => "managed_network_mismatch".to_owned(),
     }
 }
 
@@ -197,32 +223,34 @@ pub(crate) fn managed_provision_roots(
 }
 
 pub(crate) fn managed_identity_generation_error(error: engine::EngineError) -> String {
-    let raw = error.to_string();
-    let lower = raw.to_ascii_lowercase();
-    if lower.contains("ipwho") {
-        return "无法通过当前代理查询出口地区。请确认 Clash 节点能访问外网后再试。".to_owned();
-    }
-    if lower.contains("no supported locale") {
-        return "当前代理出口地区没有匹配的语言包。请换一条线路，或关闭「时区语言跟随出口」。"
-            .to_owned();
-    }
-    if lower.contains("treeintegrity") || lower.contains("extra files") {
-        return "内置浏览器目录多出了运行文件，身份生成被拦住了。请重试；若仍失败，重启应用后再创建。"
-            .to_owned();
-    }
-    if lower.contains("strict json") || lower.contains("length prefix") {
-        return "身份组件返回了无法识别的结果。".to_owned();
-    }
-    if let Some(message) = raw.split_once(": ").map(|(_, rest)| rest.trim()) {
-        if !message.is_empty()
-            && message.chars().count() <= 180
-            && !message.contains('\\')
-            && !message.contains('\n')
-        {
-            return format!("身份配置生成失败：{message}");
+    match error {
+        engine::EngineError::HostProvisionRejected { code, message } => match code.as_str() {
+            "network_observation_failed" => {
+                "无法通过当前代理查询出口地区。请确认 Clash 节点能访问外网后再试。".to_owned()
+            }
+            "network_locale_unavailable" => {
+                "当前代理出口地区没有匹配的语言包。请换一条线路，或关闭「时区语言跟随出口」。".to_owned()
+            }
+            "tree_integrity_failed" => {
+                "内置浏览器目录多出了运行文件，身份生成被拦住了。请重试；若仍失败，重启应用后再创建。".to_owned()
+            }
+            "provision_rejected" if safe_launcher_detail(&message) => {
+                format!("身份配置生成失败：{message}")
+            }
+            _ => "managed_identity_generation_failed".to_owned(),
+        },
+        engine::EngineError::InvalidBootstrap(_) | engine::EngineError::Serialization(_) => {
+            "身份组件返回了无法识别的结果。".to_owned()
         }
+        engine::EngineError::InvalidPackage(_)
+        | engine::EngineError::VerificationUnavailable(_)
+        | engine::EngineError::UnsafePath(_)
+        | engine::EngineError::EmergencyDisabled(_) => "managed_engine_unavailable".to_owned(),
+        engine::EngineError::InvalidIdentityTemplate(_) => {
+            "managed_identity_preset_invalid".to_owned()
+        }
+        _ => "managed_identity_generation_failed".to_owned(),
     }
-    "managed_identity_generation_failed".to_owned()
 }
 
 pub(crate) fn provision_managed_artifact(
@@ -279,11 +307,11 @@ pub(crate) fn provision_managed_artifact(
             Uuid::new_v4(),
             authentication,
         )
-        .map_err(|error| managed_proxy_error(error.to_string()))?;
+        .map_err(managed_proxy_relay_error)?;
         let cancelled = std::sync::atomic::AtomicBool::new(false);
         relay
             .verify_upstream_until(Instant::now() + Duration::from_secs(10), &cancelled)
-            .map_err(|error| managed_proxy_error(error.to_string()))?;
+            .map_err(managed_proxy_relay_error)?;
         Some(relay)
     } else {
         None
@@ -435,7 +463,8 @@ pub(crate) fn update_managed_identity(
             .runtime
             .lock()
             .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-        let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+        let is_active =
+            runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
         drop(runtime);
         if is_active {
             return Err("managed_silo_active".to_owned());

@@ -82,6 +82,8 @@ pub enum EngineError {
     InvalidPackage(String),
     #[error("Engine package verification is unavailable or failed: {0}")]
     VerificationUnavailable(String),
+    #[error("Camoufox provisioning rejected ({code}): {message}")]
+    HostProvisionRejected { code: String, message: String },
     #[error("Engine adapter is emergency-disabled: {0}")]
     EmergencyDisabled(String),
     #[error("Engine state transition is invalid: {0}")]
@@ -592,7 +594,6 @@ struct CamoufoxProvisionResponseResult {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CamoufoxProvisionResponseError {
-    #[allow(dead_code)]
     code: String,
     message: String,
 }
@@ -2910,12 +2911,13 @@ impl ExternalPackageEngineAdapter {
         }
         let response = read_camoufox_provision_response(&output)?;
         if !response.ok {
-            return Err(EngineError::VerificationUnavailable(
-                response
-                    .error
-                    .map(|error| error.message)
-                    .unwrap_or_else(|| "Camoufox Artifact provisioning failed".to_owned()),
-            ));
+            let error = response.error.ok_or_else(|| {
+                EngineError::InvalidBootstrap("Camoufox provisioning returned no error".to_owned())
+            })?;
+            return Err(EngineError::HostProvisionRejected {
+                code: error.code,
+                message: error.message,
+            });
         }
         let result = response.result.ok_or_else(|| {
             EngineError::InvalidBootstrap(
@@ -7453,6 +7455,14 @@ mod tests {
         assert_eq!(
             result.configured_identity_digest.as_deref(),
             Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        );
+
+        let failure = br#"{"ok":false,"error":{"code":"network_observation_failed","message":"ipwho.is observation failed"}}"#;
+        let parsed = super::read_camoufox_provision_response(failure)
+            .expect("parse coded provision failure");
+        assert_eq!(
+            parsed.error.expect("host error").code,
+            "network_observation_failed"
         );
     }
 }

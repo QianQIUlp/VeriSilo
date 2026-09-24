@@ -163,6 +163,10 @@ OBSERVATION_PROXY_PREFIX = "socks5h://127.0.0.1:"
 class ProvisionError(ValueError):
     """A request cannot produce a strict Artifact."""
 
+    def __init__(self, message: str, *, code: str = "provision_rejected") -> None:
+        super().__init__(message)
+        self.code = code
+
 
 def decode_seed(value: object) -> bytes:
     """Accept exactly 32 bytes as base64 or lowercase/uppercase hex text."""
@@ -489,9 +493,9 @@ def _network_identity_from_ipwhois(
     try:
         raw = fetch("https://ipwho.is/", observation_proxy)
     except Exception as exc:  # noqa: BLE001 - do not expose endpoint/credentials
-        raise ProvisionError("ipwho.is observation failed") from exc
+        raise ProvisionError("ipwho.is observation failed", code="network_observation_failed") from exc
     if raw.get("success") is False:
-        raise ProvisionError("ipwho.is observation failed")
+        raise ProvisionError("ipwho.is observation failed", code="network_observation_failed")
     try:
         address = ipaddress.ip_address(raw["ip"])
         country = raw["country_code"]
@@ -499,13 +503,13 @@ def _network_identity_from_ipwhois(
         latitude = float(raw["latitude"])
         longitude = float(raw["longitude"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise ProvisionError("ipwho.is observation was incomplete") from exc
+        raise ProvisionError("ipwho.is observation was incomplete", code="network_observation_failed") from exc
     if not address.is_global or address.is_multicast:
-        raise ProvisionError("ipwho.is observation was not a global address")
+        raise ProvisionError("ipwho.is observation was not a global address", code="network_observation_failed")
     if type(country) is not str or len(country) != 2 or not country.isascii() or not country.isupper():
-        raise ProvisionError("ipwho.is country code was invalid")
+        raise ProvisionError("ipwho.is country code was invalid", code="network_observation_failed")
     if not math.isfinite(latitude) or not -90 <= latitude <= 90 or not math.isfinite(longitude) or not -180 <= longitude <= 180:
-        raise ProvisionError("ipwho.is coordinates were invalid")
+        raise ProvisionError("ipwho.is coordinates were invalid", code="network_observation_failed")
     return {
         "expectedPublicAddress": str(address),
         "countryCode": country,
@@ -753,7 +757,8 @@ def provision_artifact(
                 ).as_string
             except Exception as exc:  # noqa: BLE001 - country/locale data boundary
                 raise ProvisionError(
-                    "no supported locale matched the observed proxy country"
+                    "no supported locale matched the observed proxy country",
+                    code="network_locale_unavailable",
                 ) from exc
         else:
             network["locale"] = locale

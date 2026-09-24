@@ -29,6 +29,9 @@ describe("user-facing errors", () => {
       "没有打开成功",
     );
     expect(
+      userFacingErrorMessage("operation failed after managed_browser_open_failed check"),
+    ).toBe("操作没有完成。请检查当前设置后重试。");
+    expect(
       userFacingErrorMessage(
         "7897 是 Clash 给浏览器走流量的代理端口，不是读取代理组的控制端口。控制端口一般是 9097 或 9090。",
       ),

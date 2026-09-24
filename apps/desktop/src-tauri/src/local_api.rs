@@ -27,6 +27,7 @@ use crate::application::{
 };
 use crate::domain::{active_vault_name, app_data_root, CreateManagedSiloInput, CreateSiloInput};
 use crate::mihomo::diagnose_local_clash;
+use crate::vault::VaultError;
 
 pub const DISCOVERY_FILE: &str = "local-api.json";
 pub const DISCOVERY_SCHEMA: &str = "verisilo-local-api/v1";
@@ -493,7 +494,10 @@ fn dispatch(state: &DesktopCore, request: &ApiRequest) -> (u16, serde_json::Valu
         ("POST", "/v1/vault/initialize") => dispatch_vault_passphrase(state, request, true),
         ("POST", "/v1/vault/unlock") => dispatch_vault_passphrase(state, request, false),
         ("POST", "/v1/vault/lock") => map_result(lock_vault_with(state)),
-        ("GET", "/v1/silos") => map_result(list_silos_with(state).map_err(map_locked)),
+        ("GET", "/v1/silos") => match list_silos_with(state).map_err(map_locked) {
+            Ok(silos) => (200, ok_body(silos)),
+            Err(error) => api_error_status(error),
+        },
         ("POST", "/v1/silos") => dispatch_create_silo(state, &request.body, false),
         ("POST", "/v1/silos/standard") => dispatch_create_silo(state, &request.body, true),
         ("GET", "/v1/clash") => (200, ok_body(diagnose_local_clash(""))),
@@ -573,28 +577,28 @@ fn dispatch_silo(
     match (method, action) {
         ("GET", None) => match resolve_silo(state, spec) {
             Ok(silo) => (200, ok_body(silo)),
-            Err(error) => error_status(error),
+            Err(error) => api_error_status(error),
         },
         ("GET", Some("diagnose")) => match resolve_silo_id(state, spec) {
             Ok(id) => map_result(diagnose_silo_with(state, id)),
-            Err(error) => error_status(error),
+            Err(error) => api_error_status(error),
         },
         ("POST", Some("start")) => match resolve_silo_id(state, spec) {
             Ok(id) => map_result(launch_silo_with(state, id).map_err(|error| error.to_string())),
-            Err(error) => error_status(error),
+            Err(error) => api_error_status(error),
         },
         ("POST", Some("recheck")) => match resolve_silo_id(state, spec) {
             Ok(id) => map_result(recheck_silo_runtime(state, id)),
-            Err(error) => error_status(error),
+            Err(error) => api_error_status(error),
         },
         ("POST", Some("stop")) => match resolve_silo_id(state, spec) {
             Ok(id) => map_result(stop_silo_with(state, id)),
-            Err(error) => error_status(error),
+            Err(error) => api_error_status(error),
         },
         ("DELETE", None) => match serde_json::from_slice::<PermanentDeleteInput>(body) {
             Ok(input) if input.confirm_permanent => match resolve_silo_id(state, spec) {
                 Ok(id) => map_result(delete_silo_with(state, id, true)),
-                Err(error) => error_status(error),
+                Err(error) => api_error_status(error),
             },
             _ => (400, error_body("永久删除需要明确确认。")),
         },
@@ -604,7 +608,7 @@ fn dispatch_silo(
                 Ok(_) => (400, error_body("页面动作必须是 JSON 对象。")),
                 Err(error) => (400, error_body(&format!("页面动作参数无效：{error}"))),
             },
-            Err(error) => error_status(error),
+            Err(error) => api_error_status(error),
         },
         _ => (404, error_body("没有这个本机 API 路径。")),
     }
@@ -642,51 +646,76 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn resolve_silo_id(state: &DesktopCore, spec: &str) -> Result<Uuid, String> {
+fn resolve_silo_id(state: &DesktopCore, spec: &str) -> Result<Uuid, ApiError> {
     Ok(resolve_silo(state, spec)?.id)
 }
 
-fn resolve_silo(state: &DesktopCore, spec: &str) -> Result<crate::domain::Silo, String> {
+fn resolve_silo(state: &DesktopCore, spec: &str) -> Result<crate::domain::Silo, ApiError> {
     let silos = list_silos_with(state).map_err(map_locked)?;
     if let Ok(id) = Uuid::parse_str(spec) {
         return silos
             .into_iter()
             .find(|silo| silo.id == id)
-            .ok_or_else(|| format!("没有找到 Silo {spec}。"));
+            .ok_or_else(|| ApiError::NotFound(format!("没有找到 Silo {spec}。")));
     }
     let matches: Vec<_> = silos.into_iter().filter(|silo| silo.name == spec).collect();
     match matches.len() {
-        0 => Err(format!("没有找到名为「{spec}」的 Silo。")),
+        0 => Err(ApiError::NotFound(format!(
+            "没有找到名为「{spec}」的 Silo。"
+        ))),
         1 => Ok(matches.into_iter().next().expect("one match")),
-        _ => Err(format!("有多个 Silo 同名「{spec}」，请改用 id。")),
+        _ => Err(ApiError::Other(format!(
+            "有多个 Silo 同名「{spec}」，请改用 id。"
+        ))),
     }
 }
 
-fn map_locked(error: String) -> String {
-    let lower = error.to_ascii_lowercase();
-    if lower.contains("locked") || error.contains("保险库") {
-        "保险库已锁定。请先运行 verisilo-cli vault unlock。".to_owned()
+enum ApiError {
+    VaultLocked,
+    NotFound(String),
+    Other(String),
+}
+
+fn map_locked(error: String) -> ApiError {
+    if error == VaultError::Locked.to_string() {
+        ApiError::VaultLocked
     } else {
-        error
+        ApiError::Other(error)
     }
 }
 
 fn map_result<T: Serialize>(result: Result<T, String>) -> (u16, serde_json::Value) {
     match result {
         Ok(value) => (200, ok_body(value)),
-        Err(error) => error_status(error),
+        Err(error) => operation_error_status(error),
     }
 }
 
-fn error_status(error: String) -> (u16, serde_json::Value) {
-    let status = if error.contains("锁定") {
-        409
-    } else if error.contains("没有找到") {
-        404
+fn operation_error_status(error: String) -> (u16, serde_json::Value) {
+    let failure = if error == VaultError::Locked.to_string() {
+        ApiError::VaultLocked
+    } else if error == VaultError::SiloNotFound.to_string() {
+        ApiError::NotFound(error)
     } else {
-        400
+        ApiError::Other(error)
     };
-    (status, error_body(&error))
+    api_error_status(failure)
+}
+
+fn api_error_status(error: ApiError) -> (u16, serde_json::Value) {
+    let (status, code, message) = match error {
+        ApiError::VaultLocked => (
+            409,
+            "vault_locked",
+            "保险库已锁定。请先运行 verisilo-cli vault unlock。".to_owned(),
+        ),
+        ApiError::NotFound(message) => (404, "silo_not_found", message),
+        ApiError::Other(message) => (400, "operation_failed", message),
+    };
+    (
+        status,
+        serde_json::json!({ "ok": false, "code": code, "error": message }),
+    )
 }
 
 fn ok_body<T: Serialize>(value: T) -> serde_json::Value {
@@ -718,7 +747,26 @@ fn write_json(stream: &mut TcpStream, status: u16, body: &serde_json::Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_standard_create_request, parse_silo_path, percent_decode};
+    use super::{
+        api_error_status, is_standard_create_request, map_locked, operation_error_status,
+        parse_silo_path, percent_decode, ApiError,
+    };
+
+    #[test]
+    fn api_status_uses_explicit_error_kind() {
+        let (status, body) = api_error_status(ApiError::NotFound("没有找到 Silo。".to_owned()));
+        assert_eq!(status, 404);
+        assert_eq!(body["code"], "silo_not_found");
+
+        let (status, body) = api_error_status(map_locked("The vault is locked.".to_owned()));
+        assert_eq!(status, 409);
+        assert_eq!(body["code"], "vault_locked");
+
+        let (status, body) =
+            operation_error_status("没有找到网络凭据，保险库写入失败。".to_owned());
+        assert_eq!(status, 400);
+        assert_eq!(body["code"], "operation_failed");
+    }
 
     #[test]
     fn silo_paths_split_id_and_action() {

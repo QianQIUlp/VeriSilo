@@ -778,7 +778,13 @@ def run_provision(host: CamoufoxHost) -> int:
         write_provision_frame({"ok": False, "error": {"code": exc.code, "message": str(exc)}})
         return 2
     except ProvisionError as exc:
-        write_provision_frame({"ok": False, "error": {"code": "provision_rejected", "message": str(exc)}})
+        write_provision_frame({"ok": False, "error": {"code": exc.code, "message": str(exc)}})
+        return 2
+    except TreeIntegrityError as exc:
+        _log(f"provision package tree rejected: {exc}")
+        write_provision_frame(
+            {"ok": False, "error": {"code": "tree_integrity_failed", "message": "browser package tree verification failed"}}
+        )
         return 2
     except Exception as exc:  # noqa: BLE001 - never expose input values
         detail = str(exc).replace("\n", " ").strip()[:180]

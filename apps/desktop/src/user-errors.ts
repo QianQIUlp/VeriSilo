@@ -121,7 +121,10 @@ export function userFacingErrorMessage(
   const normalized = raw.toLowerCase().replaceAll("-", "_");
   const code = (
     Object.keys(stableBackendErrors) as Array<keyof typeof stableBackendErrors>
-  ).find((candidate) => normalized.includes(candidate));
+  ).find(
+    (candidate) =>
+      normalized === candidate || normalized.startsWith(`${candidate}:`),
+  );
   if (code !== undefined) {
     return stableBackendErrors[code];
   }

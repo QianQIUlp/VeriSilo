@@ -227,7 +227,7 @@ pub(crate) fn update_silo_configuration(
         let network_input = network_input.expect("checked managed network input");
         network_input
             .validate_for_execution_target(&current.execution_target)
-            .map_err(|error| managed_proxy_error(error.to_string()))?;
+            .map_err(managed_proxy_error)?;
         if !matches!(
             &network_input.network_profile,
             NetworkProfile::Direct {
@@ -358,7 +358,7 @@ pub(crate) fn update_silo_network(
         }
         input
             .validate_for_execution_target(&current.execution_target)
-            .map_err(|error| managed_proxy_error(error.to_string()))?;
+            .map_err(managed_proxy_error)?;
         if !matches!(
             &input.network_profile,
             NetworkProfile::Direct {

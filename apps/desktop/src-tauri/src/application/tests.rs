@@ -5,11 +5,15 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::environments::{verified_current_wsl_artifact, LocalEnvironmentControl};
-use super::identity::{managed_launcher_error, managed_launcher_failure, managed_vault_error};
+use super::identity::{
+    managed_identity_generation_error, managed_launcher_error, managed_launcher_failure,
+    managed_vault_error,
+};
 use crate::domain::{
     BrowserDescriptor, BrowserKind, CreateSiloInput, NetworkProfile, Silo, SiloExecutionTarget,
     SCHEMA_VERSION,
 };
+use crate::engine::EngineError;
 use crate::launcher::LauncherError;
 use crate::vault::{VaultError, VaultRuntime};
 
@@ -606,6 +610,22 @@ fn managed_failures_return_stable_user_codes_without_internal_details() {
     ));
     assert!(mihomo.contains("直连模式"), "{mihomo}");
     assert!(!mihomo.contains("managed_network_mismatch"), "{mihomo}");
+}
+
+#[test]
+fn provision_errors_use_host_codes_without_exposing_private_messages() {
+    let network = managed_identity_generation_error(EngineError::HostProvisionRejected {
+        code: "network_observation_failed".to_owned(),
+        message: "C:\\Users\\private\\proxy".to_owned(),
+    });
+    assert!(network.contains("查询出口地区"));
+    assert!(!network.contains("private"));
+
+    let unknown = managed_identity_generation_error(EngineError::HostProvisionRejected {
+        code: "provision_rejected".to_owned(),
+        message: "C:\\Users\\private\\artifact".to_owned(),
+    });
+    assert_eq!(unknown, "managed_identity_generation_failed");
 }
 
 #[test]
