@@ -312,47 +312,6 @@ button:disabled {
   line-height: 1.55;
 }
 
-.environment-switcher {
-  display: inline-flex;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.3rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 0.25rem;
-  background: var(--soft);
-}
-
-.environment-switch,
-.environment-switcher button {
-  min-height: 36px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  padding: 0.5rem 0.75rem;
-  color: var(--muted);
-  background: transparent;
-  box-shadow: none;
-  font-size: 0.74rem;
-  font-weight: 650;
-}
-
-.environment-switch:hover:not(:disabled),
-.environment-switcher button:hover:not(:disabled) {
-  border-color: #d9dfeb;
-  color: var(--ink);
-  background: #fff;
-  box-shadow: none;
-}
-
-.environment-switch[aria-pressed="true"],
-.environment-switcher button[aria-pressed="true"] {
-  border-color: var(--line-strong);
-  color: var(--primary-dark);
-  background: var(--primary-soft);
-  box-shadow: 0 2px 8px rgb(21 83 255 / 12%);
-}
-
 .workspace-content > .notice {
   position: fixed;
   z-index: 40;
@@ -3102,33 +3061,6 @@ fieldset {
   background: var(--line);
 }
 
-.environment-console {
-  display: grid;
-  gap: 0.8rem;
-  margin-top: 1rem;
-  border-top: 1px solid var(--line);
-  padding-top: 1rem;
-}
-
-.environment-console-heading > div {
-  display: grid;
-  gap: 0.25rem;
-}
-
-.environment-console-heading strong {
-  color: var(--ink);
-  font-size: 0.78rem;
-}
-
-.environment-console-heading span {
-  color: var(--muted);
-  font-size: 0.66rem;
-}
-
-.environment-console-selects {
-  margin: 0;
-}
-
 .environment-operation-grid {
   display: flex;
   flex-wrap: wrap;
@@ -3137,64 +3069,6 @@ fieldset {
 
 .environment-operation-grid button {
   min-width: 92px;
-}
-
-.environment-evidence-boundary {
-  display: grid;
-  gap: 0.35rem;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0.7rem;
-}
-
-.environment-evidence-boundary p,
-.environment-evidence-boundary ul {
-  margin: 0;
-}
-
-.environment-evidence-boundary p,
-.environment-evidence-boundary li {
-  color: var(--muted);
-  font-size: 0.66rem;
-  line-height: 1.45;
-}
-
-.environment-evidence-boundary ul {
-  display: grid;
-  gap: 0.35rem;
-  padding: 0;
-  list-style: none;
-}
-
-.environment-evidence-boundary li {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.45rem;
-  align-items: start;
-}
-
-.environment-state {
-  border-radius: 999px;
-  padding: 0.08rem 0.38rem;
-  color: var(--muted);
-  background: var(--line);
-}
-
-.environment-state.verified {
-  color: var(--good);
-  background: var(--good-soft);
-}
-
-.environment-state.configured,
-.environment-state.guest_observed {
-  color: var(--warn);
-  background: var(--warn-soft);
-}
-
-.environment-state.missing,
-.environment-state.unavailable {
-  color: var(--danger);
-  background: #fff0f0;
 }
 
 .environment-action-message {
@@ -3215,100 +3089,10 @@ fieldset {
   background: #fff0f0;
 }
 
-.remote-status-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin: 0.8rem 0;
-}
-
-.remote-status-facts span {
-  border-radius: 999px;
-  padding: 0.3rem 0.55rem;
-  color: var(--muted);
-  background: #f0f2f7;
-  font-size: 0.62rem;
-  font-weight: 750;
-}
-
-.remote-endpoint-form {
-  grid-template-columns: minmax(280px, 1.4fr) minmax(170px, 0.7fr) minmax(
-      300px,
-      1.4fr
-    );
-}
-
-.remote-status-message {
-  margin: 0.25rem 0 0.8rem;
-  color: var(--muted);
-  font-size: 0.68rem;
-  line-height: 1.55;
-}
-
-.remote-endpoint-proof {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(320px, 1.5fr) minmax(
-      210px,
-      0.8fr
-    );
-  gap: 0.6rem;
-  margin-bottom: 0.85rem;
-}
-
-.remote-endpoint-proof > div {
-  display: grid;
-  gap: 0.28rem;
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0.65rem 0.7rem;
-  background: var(--surface);
-}
-
-.remote-endpoint-proof span,
-.remote-selected-heading span,
 .remote-result-card > div > span {
   color: var(--muted);
   font-size: 0.58rem;
   font-weight: 750;
-}
-
-.remote-endpoint-proof strong,
-.remote-endpoint-proof code {
-  overflow-wrap: anywhere;
-  color: var(--ink);
-  font-family: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
-  font-size: 0.66rem;
-}
-
-.remote-pairing-panel,
-.remote-rotation-panel,
-.remote-lifecycle-console {
-  display: grid;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  border-top: 1px solid var(--line);
-  padding-top: 1rem;
-}
-
-.remote-advanced {
-  margin-top: 1rem;
-  border-top: 1px solid var(--line);
-  padding-top: 0.85rem;
-}
-
-.remote-advanced > summary {
-  width: fit-content;
-  color: var(--primary-dark);
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 680;
-}
-
-.remote-advanced .remote-rotation-panel {
-  margin-top: 0.75rem;
-  border-top: 0;
-  padding-top: 0;
 }
 
 .browser-component-advanced {
@@ -3327,157 +3111,6 @@ fieldset {
   margin: 0.65rem 0 0;
 }
 
-.remote-rotation-boundary {
-  margin: 0;
-  border-left: 3px solid var(--primary);
-  padding: 0.55rem 0.7rem;
-  color: var(--primary-dark);
-  background: var(--soft);
-  font-size: 0.64rem;
-  line-height: 1.55;
-}
-
-.remote-rotation-confirmation {
-  border: 1px solid var(--line-strong);
-  background: var(--soft);
-}
-
-.remote-interaction-console {
-  display: grid;
-  gap: 0.8rem;
-  border-top: 1px solid #dfe4ef;
-  padding-top: 1rem;
-}
-
-.remote-interaction-section {
-  display: grid;
-  gap: 0.65rem;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  padding: 0.75rem;
-  background: var(--soft);
-}
-
-.remote-interaction-form {
-  grid-template-columns: minmax(190px, 0.7fr) minmax(280px, 1.3fr);
-  align-items: end;
-}
-
-.remote-interaction-form.automation {
-  grid-template-columns: minmax(190px, 0.8fr) repeat(2, minmax(180px, 1fr));
-  align-items: center;
-}
-
-.remote-control-form {
-  grid-template-columns: minmax(280px, 1.2fr) minmax(260px, 1fr);
-}
-
-.remote-inline-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: end;
-}
-
-.remote-inline-actions label {
-  min-width: 180px;
-}
-
-.remote-session-status {
-  align-self: center;
-  margin: 0;
-  color: var(--primary-dark);
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
-.remote-input-row {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto;
-  gap: 0.55rem;
-  align-items: end;
-}
-
-.remote-automation-panel {
-  margin-top: 0;
-}
-
-.remote-automation-actions label {
-  flex: 1 1 300px;
-}
-
-.remote-interaction-facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-  margin: 0;
-}
-
-.remote-interaction-facts > div {
-  display: grid;
-  gap: 0.2rem;
-  min-width: 0;
-  border-radius: 8px;
-  padding: 0.55rem 0.6rem;
-  background: var(--soft);
-}
-
-.remote-interaction-facts dt {
-  color: var(--muted);
-  font-size: 0.56rem;
-  font-weight: 750;
-}
-
-.remote-interaction-facts dd {
-  overflow-wrap: anywhere;
-  margin: 0;
-  color: var(--ink);
-  font-size: 0.64rem;
-}
-
-.remote-authorization-list {
-  display: grid;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.remote-authorization-list li {
-  display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) minmax(130px, 0.7fr) minmax(
-      150px,
-      0.8fr
-    );
-  gap: 0.5rem;
-  align-items: center;
-  border-radius: 8px;
-  padding: 0.5rem 0.6rem;
-  background: var(--soft);
-  font-size: 0.6rem;
-}
-
-.remote-authorization-list code {
-  overflow-wrap: anywhere;
-}
-
-.remote-authorization-list span {
-  color: var(--muted);
-}
-
-.remote-authorization-list strong {
-  color: var(--primary-dark);
-  font-size: 0.6rem;
-}
-
-.remote-interaction-note,
-.remote-screen-boundary {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.62rem;
-  line-height: 1.55;
-}
-
 .remote-recovery-warning {
   margin: 0;
   border-left: 3px solid var(--warn);
@@ -3486,111 +3119,6 @@ fieldset {
   background: var(--warn-soft);
   font-size: 0.66rem;
   line-height: 1.55;
-}
-
-.remote-screen-boundary {
-  border-left: 3px solid #7f8db3;
-  padding: 0.55rem 0.65rem;
-  color: var(--muted);
-  background: #f1f4fa;
-}
-
-.remote-pairing-form {
-  grid-template-columns: minmax(220px, 1fr) minmax(250px, 1.2fr) minmax(
-      210px,
-      0.85fr
-    );
-}
-
-.remote-rotation-form {
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-
-.remote-operation-form {
-  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
-}
-
-.remote-confirmation {
-  display: flex;
-  min-width: 0;
-  gap: 0.55rem;
-  align-items: flex-start;
-  border-radius: 10px;
-  padding: 0.65rem 0.75rem;
-  color: var(--ink);
-  background: #f4f6fb;
-  font-size: 0.75rem;
-  line-height: 1.52;
-  overflow-wrap: anywhere;
-}
-
-.remote-confirmation.compact {
-  padding: 0;
-  background: transparent;
-}
-
-.remote-confirmation input {
-  width: auto;
-  min-width: 0;
-  min-height: auto;
-  flex: 0 0 auto;
-  margin: 0.15rem 0 0;
-  padding: 0;
-  accent-color: var(--primary);
-}
-
-.remote-confirmation input[type="checkbox"] {
-  width: auto;
-  min-height: auto;
-  height: auto;
-  padding: 0;
-}
-
-.remote-cost-disclosure {
-  display: grid;
-  gap: 0.45rem;
-  border: 1px solid #f1cf91;
-  border-radius: 11px;
-  padding: 0.75rem;
-  background: #fff9ed;
-}
-
-.remote-cost-disclosure strong {
-  color: #7a4d00;
-  font-size: 0.7rem;
-}
-
-.remote-cost-disclosure p {
-  margin: 0;
-  color: #775b2d;
-  font-size: 0.65rem;
-  line-height: 1.5;
-}
-
-.remote-cost-facts {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.45rem;
-  margin: 0;
-}
-
-.remote-cost-facts > div {
-  display: grid;
-  gap: 0.16rem;
-  min-width: 0;
-}
-
-.remote-cost-facts dt {
-  color: #9a6b21;
-  font-size: 0.56rem;
-  font-weight: 750;
-}
-
-.remote-cost-facts dd {
-  overflow-wrap: anywhere;
-  margin: 0;
-  color: #684910;
-  font-size: 0.64rem;
 }
 
 .remote-operation-grid {
@@ -3606,58 +3134,14 @@ fieldset {
   background: var(--surface);
 }
 
-.remote-connection-actions {
-  justify-content: flex-end;
-  margin-top: 0.75rem;
-}
-
-.remote-connection-empty {
-  margin-top: 1rem;
-  border-color: var(--line);
-  background: var(--soft);
-}
-
-.remote-connection-empty p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.6;
-}
-
-.remote-selected-heading {
-  display: flex;
-  gap: 0.8rem;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.remote-selected-heading > div {
-  display: grid;
-  gap: 0.18rem;
-  min-width: 0;
-}
-
-.remote-selected-heading strong {
-  color: var(--ink);
-  font-size: 0.76rem;
-}
-
-.remote-selected-heading code {
-  overflow-wrap: anywhere;
-  color: var(--muted);
-  font-size: 0.6rem;
-}
-
-.remote-binding-facts,
-.remote-evidence-facts {
+.remote-binding-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
   margin: 0;
 }
 
-.remote-binding-facts > div,
-.remote-evidence-facts > div {
+.remote-binding-facts > div {
   display: grid;
   gap: 0.2rem;
   min-width: 0;
@@ -3666,15 +3150,13 @@ fieldset {
   background: #f1f3f8;
 }
 
-.remote-binding-facts dt,
-.remote-evidence-facts dt {
+.remote-binding-facts dt {
   color: var(--muted);
   font-size: 0.56rem;
   font-weight: 750;
 }
 
-.remote-binding-facts dd,
-.remote-evidence-facts dd {
+.remote-binding-facts dd {
   overflow-wrap: anywhere;
   margin: 0;
   color: var(--ink);
@@ -3696,56 +3178,6 @@ fieldset {
 .remote-result-card strong {
   color: var(--ink);
   font-size: 0.7rem;
-}
-
-.remote-deletion-state {
-  display: grid;
-  gap: 0.55rem;
-  margin: 0;
-  border-radius: 8px;
-  padding: 0.6rem;
-  color: var(--muted);
-  background: var(--soft);
-  font-size: 0.64rem;
-  line-height: 1.5;
-}
-
-.remote-deletion-state > strong {
-  color: var(--primary-dark);
-  font-size: 0.68rem;
-}
-
-.remote-deletion-state > p {
-  margin: 0;
-}
-
-.remote-deletion-state.invalid {
-  color: var(--danger);
-  background: #fff0f0;
-}
-
-.remote-resource-deletions {
-  display: grid;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.remote-resource-deletions li {
-  display: grid;
-  grid-template-columns: minmax(8rem, 0.8fr) minmax(8rem, 0.8fr) minmax(
-      0,
-      1.4fr
-    );
-  gap: 0.45rem;
-  align-items: center;
-  border-top: 1px solid #dfe2f5;
-  padding-top: 0.4rem;
-}
-
-.remote-resource-deletions code {
-  overflow-wrap: anywhere;
 }
 
 .remote-proof-recovery {
@@ -3789,101 +3221,8 @@ fieldset {
   line-height: 1.55;
 }
 
-.remote-force-detach .remote-confirmation {
-  color: #7a271a;
-}
-
 .remote-force-detach .button-danger {
   justify-self: start;
-}
-
-.remote-orphan-history {
-  display: grid;
-  gap: 0.7rem;
-  border: 1px solid #f0b7b7;
-  border-radius: 12px;
-  padding: 0.8rem;
-  background: #fff7f6;
-}
-
-.remote-orphan-history > div {
-  display: grid;
-  gap: 0.3rem;
-}
-
-.remote-orphan-history > div > strong {
-  color: #912018;
-  font-size: 0.72rem;
-}
-
-.remote-orphan-history > div > p,
-.remote-orphan-warning {
-  margin: 0;
-  color: #7a271a;
-  font-size: 0.63rem;
-  line-height: 1.55;
-}
-
-.remote-orphan-history ol {
-  display: grid;
-  gap: 0.65rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.remote-orphan-history li {
-  display: grid;
-  gap: 0.55rem;
-  border: 1px solid #f2d1cd;
-  border-radius: 9px;
-  padding: 0.65rem;
-  background: #fff;
-}
-
-.remote-orphan-heading {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  justify-content: space-between;
-}
-
-.remote-orphan-heading strong,
-.remote-orphan-heading span {
-  overflow-wrap: anywhere;
-  font-size: 0.62rem;
-}
-
-.remote-orphan-heading span {
-  color: #b42318;
-  font-weight: 750;
-}
-
-.remote-orphan-facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.45rem;
-  margin: 0;
-}
-
-.remote-orphan-facts > div {
-  min-width: 0;
-  border-radius: 7px;
-  padding: 0.5rem;
-  background: #fff4f2;
-}
-
-.remote-orphan-facts dt {
-  color: #b5473e;
-  font-size: 0.55rem;
-  font-weight: 750;
-}
-
-.remote-orphan-facts dd {
-  overflow-wrap: anywhere;
-  margin: 0.16rem 0 0;
-  color: #7a271a;
-  font-size: 0.61rem;
 }
 
 .remote-log-list {
@@ -4161,10 +3500,8 @@ code,
 pre,
 kbd,
 samp,
-.remote-token-expiry,
 .evidence-history-facts dd,
-.remote-binding-facts dd,
-.remote-evidence-facts dd {
+.remote-binding-facts dd {
   font-family: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
   font-variant-numeric: tabular-nums;
 }
@@ -4446,13 +3783,6 @@ footer {
     border-left: 0;
     padding: 0.7rem 0 0;
   }
-
-  .remote-endpoint-form,
-  .remote-endpoint-proof,
-  .remote-pairing-form,
-  .remote-orphan-facts {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 760px) {
@@ -4490,17 +3820,6 @@ footer {
     flex-direction: column;
     gap: 0.8rem;
     margin-top: 0.75rem;
-  }
-
-  .environment-switcher {
-    display: grid;
-    width: 100%;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  }
-
-  .environment-switch,
-  .environment-switcher button {
-    width: 100%;
   }
 
   .panel {
@@ -4581,14 +3900,7 @@ footer {
     grid-template-columns: 1fr;
   }
 
-  .remote-binding-facts,
-  .remote-evidence-facts,
-  .remote-cost-facts,
-  .remote-interaction-facts,
-  .remote-interaction-form,
-  .remote-interaction-form.automation,
-  .remote-control-form,
-  .remote-input-row {
+  .remote-binding-facts {
     grid-template-columns: 1fr;
   }
 
@@ -4598,10 +3910,6 @@ footer {
 
   .visibility-facts div:nth-child(even) {
     padding-left: 0;
-  }
-
-  .remote-authorization-list li {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -4653,8 +3961,6 @@ footer {
 /* Dense desktop controls stay compact without dropping below 12px. */
 .local-pill,
 .vault-pill,
-.environment-switch,
-.environment-switcher button,
 .eyebrow,
 .status-label,
 .status-card small,
@@ -4717,43 +4023,12 @@ footer {
 .provider-status-card small,
 .empty-provider-copy,
 .provider-health,
-.environment-console-heading span,
-.environment-evidence-boundary p,
-.environment-evidence-boundary li,
 .environment-action-message,
-.remote-status-facts span,
-.remote-status-message,
-.remote-endpoint-proof span,
-.remote-selected-heading span,
 .remote-result-card > div > span,
-.remote-endpoint-proof strong,
-.remote-endpoint-proof code,
-.remote-rotation-boundary,
-.remote-interaction-facts dt,
-.remote-interaction-facts dd,
-.remote-authorization-list li,
-.remote-authorization-list strong,
-.remote-interaction-note,
-.remote-screen-boundary,
-.remote-cost-disclosure p,
-.remote-cost-facts dt,
-.remote-cost-facts dd,
-.remote-selected-heading code,
 .remote-binding-facts dt,
-.remote-evidence-facts dt,
 .remote-binding-facts dd,
-.remote-evidence-facts dd,
-.remote-deletion-state,
-.remote-deletion-state > strong,
 .remote-proof-recovery > p,
 .remote-force-detach > p,
-.remote-orphan-history > div > strong,
-.remote-orphan-history > div > p,
-.remote-orphan-warning,
-.remote-orphan-heading strong,
-.remote-orphan-heading span,
-.remote-orphan-facts dt,
-.remote-orphan-facts dd,
 .remote-log-list span,
 .remote-log-list code,
 .evidence-rule > span,
@@ -4806,20 +4081,9 @@ footer {
 .provider-status-card p,
 .provider-status-card small,
 .empty-provider-copy,
-.environment-console-heading span,
-.environment-evidence-boundary p,
-.environment-evidence-boundary li,
 .environment-action-message,
-.remote-status-message,
-.remote-rotation-boundary,
-.remote-interaction-note,
-.remote-screen-boundary,
-.remote-cost-disclosure p,
-.remote-deletion-state,
 .remote-proof-recovery > p,
 .remote-force-detach > p,
-.remote-orphan-history > div > p,
-.remote-orphan-warning,
 .labs-silo-list small,
 .labs-empty-scope,
 .labs-limitations,
@@ -4835,7 +4099,6 @@ footer {
 .silo-facts dt,
 .silo-facts dd,
 .form-hint,
-.remote-cost-disclosure strong,
 .remote-result-card strong,
 .remote-force-detach > strong,
 .capability-row > p,
