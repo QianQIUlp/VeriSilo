@@ -423,6 +423,17 @@ def _copy_regular(source: Path, destination: Path) -> None:
     shutil.copyfile(source, destination)
 
 
+def _link_or_copy_staged_file(source: str, destination: str) -> str:
+    # Staging is deleted after publication, leaving the output's hard link as
+    # the sole name for these already-verified bytes. Cross-volume targets
+    # retain the old copy behavior.
+    try:
+        os.link(source, destination)
+    except OSError:
+        shutil.copy2(source, destination)
+    return destination
+
+
 def _build_pyinstaller(source: Path, python: str, work_root: Path) -> Path:
     version = subprocess.run(
         [python, "-m", "PyInstaller", "--version"],
@@ -825,7 +836,7 @@ def _stage(
         final_manifest = _read_formal_json(layout.root / PACKAGE_MANIFEST_NAME)
         validate_v3_manifest(final_manifest, allow_unsigned=not sign)
         recheck_formal_package(layout.root, final_manifest)
-        shutil.copytree(staging, out)
+        shutil.copytree(staging, out, copy_function=_link_or_copy_staged_file)
         # Keep unsigned canonical inputs beside (not inside) the package:
         # putting either in package-tree.json would create a hash cycle.  The
         # signer assigns keyId before producing its payload, so derive both
@@ -851,6 +862,14 @@ def _stage(
 def _self_test() -> int:
     with tempfile.TemporaryDirectory(prefix="verisilo-camoufox-package-self-test-") as temporary:
         root = Path(temporary)
+        staged = root / "staged"
+        (staged / "browser").mkdir(parents=True)
+        (staged / "browser" / "payload.bin").write_bytes(b"verified package bytes")
+        published = root / "published"
+        shutil.copytree(staged, published, copy_function=_link_or_copy_staged_file)
+        assert (published / "browser" / "payload.bin").read_bytes() == b"verified package bytes"
+        shutil.rmtree(staged)
+        assert (published / "browser" / "payload.bin").read_bytes() == b"verified package bytes"
         host = root / HOST_NAME
         host.write_bytes(b"host")
         tree = root / BROWSER_TREE_NAME
