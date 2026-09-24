@@ -948,6 +948,7 @@ def test_reparse_point_rejection() -> dict:
             ["cmd.exe", "/c", "mklink", "/J", str(junction), str(target)],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=30,
         )
         assert created.returncode == 0 and junction.exists(), created.stderr or created.stdout
@@ -970,7 +971,7 @@ def test_reparse_point_rejection() -> dict:
 
 def test_mount_point_rejection() -> dict:
     listing = subprocess.run(
-        ["mountvol.exe"], capture_output=True, text=True, timeout=30, check=True
+        ["mountvol.exe"], capture_output=True, text=True, errors="replace", timeout=30, check=True
     ).stdout
     volumes = []
     for line in listing.splitlines():
@@ -992,6 +993,7 @@ def test_mount_point_rejection() -> dict:
                 ["mountvol.exe", str(mount_point), volume],
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=30,
             )
             if result.returncode == 0:
@@ -1021,6 +1023,7 @@ def test_mount_point_rejection() -> dict:
                 ["mountvol.exe", str(mount_point), "/D"],
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=30,
             )
             if removed.returncode != 0:
