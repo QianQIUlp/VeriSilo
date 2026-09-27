@@ -140,6 +140,19 @@ describe("authoritative Vault lock UI cleanup", () => {
     ).toBeGreaterThanOrEqual(5);
     expect(appSource).toContain("unlockedOperationRef.current += 1");
     expect(appSource).toContain("networkRequestRef.current += 1");
+    expect(appSource).toContain("managedStatusRequestRef.current += 1");
+    const managedStatusRefresh = workspaceSource.slice(
+      workspaceSource.indexOf(
+        "const refreshManagedBrowserStatus = useCallback",
+      ),
+      workspaceSource.indexOf("void refreshManagedBrowserStatus();"),
+    );
+    expect(managedStatusRefresh).toContain(
+      "requestId === managedStatusRequestRef.current",
+    );
+    expect(managedStatusRefresh).toContain(
+      "vaultUiSessionRef.current.accepts(sessionEpoch)",
+    );
     // The Clash binding read guard invalidates in-flight reads on Vault lock.
     expect(appSource).toContain("invalidateClashBinding();");
     expect(appSource).toContain("operationId === unlockedOperationRef.current");

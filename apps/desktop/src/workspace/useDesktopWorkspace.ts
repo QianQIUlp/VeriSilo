@@ -202,6 +202,7 @@ export function useDesktopWorkspace() {
   const unlockedOperationRef = useRef(0);
   const vaultOperationRef = useRef(0);
   const networkRequestRef = useRef(0);
+  const managedStatusRequestRef = useRef(0);
   const vaultUiSessionRef = useRef(new VaultUiSession());
 
   useEffect(() => {
@@ -326,6 +327,7 @@ export function useDesktopWorkspace() {
       }
       unlockedOperationRef.current += 1;
       networkRequestRef.current += 1;
+      managedStatusRequestRef.current += 1;
       invalidateClashBinding();
       setUiVaultLocked(true);
       setVaultUiGeneration((generation) => generation + 1);
@@ -441,17 +443,33 @@ export function useDesktopWorkspace() {
   );
 
   const refreshManagedBrowserStatus = useCallback(async () => {
+    const sessionEpoch = vaultUiSessionRef.current.capture();
+    if (!vaultUiSessionRef.current.accepts(sessionEpoch)) {
+      return;
+    }
+    const requestId = ++managedStatusRequestRef.current;
+    const isCurrent = () =>
+      requestId === managedStatusRequestRef.current &&
+      vaultUiSessionRef.current.accepts(sessionEpoch);
     setManagedStatusBusy(true);
     setManagedStatusError(null);
     try {
-      setEngineStatuses(await desktopApi.listEngineAdapters());
+      const engines = await desktopApi.listEngineAdapters();
+      if (isCurrent()) {
+        setEngineStatuses(engines);
+      }
     } catch {
+      if (!isCurrent()) {
+        return;
+      }
       setEngineStatuses([]);
       setManagedStatusError(
         "托管身份浏览器的可用状态暂时无法读取，请稍后重试。",
       );
     } finally {
-      setManagedStatusBusy(false);
+      if (isCurrent()) {
+        setManagedStatusBusy(false);
+      }
     }
   }, []);
 

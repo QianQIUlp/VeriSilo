@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ManagedIdentityPreview } from "../../desktop-api.js";
 import { previewSilo, previewStatus } from "../../preview/fixtures.js";
-import { SiloList } from "./SiloList.js";
+import { SiloList, SiloScene } from "./SiloList.js";
 
 const identityPreview: ManagedIdentityPreview = {
   userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -196,31 +196,49 @@ describe("Silo list presentation", () => {
         ],
       },
     };
-    const rendered = renderToStaticMarkup(
-      createElement(SiloList, {
-        activation: managedSilo.id,
-        busy: false,
-        managedEngineReady: true,
-        networkEvidence: [],
-        identityPreviews: {},
-        storageUsage: {},
-        onArchive: noAction,
-        onCreate: noAction,
-        onEdit: noAction,
-        onLaunch: noAction,
-        onRebindMihomo: noAction,
-        onRecheckBrowser: noAction,
-        onRecheckRuntime: noAction,
-        onStop: noAction,
-        runtimeActivation: status,
-        runtimeState: "running" as const,
-        silos: [managedSilo],
-      }),
-    );
+    const sceneProps = {
+      index: 0,
+      selected: true,
+      isActive: true,
+      isLaunching: false,
+      runningSiloName: null,
+      identityPreview: undefined,
+      storageBytes: undefined,
+      lens: "identity" as const,
+      openLens: noAction,
+      closeLens: noAction,
+      choose: noAction,
+      busy: false,
+      managedEngineReady: true,
+      networkEvidence: [],
+      onArchive: noAction,
+      onEdit: noAction,
+      onLaunch: noAction,
+      onRebindMihomo: noAction,
+      onRecheckBrowser: noAction,
+      onRecheckRuntime: noAction,
+      onStop: noAction,
+      runtimeActivation: status,
+      runtimeState: "running" as const,
+      silo: managedSilo,
+    };
+    const rendered = renderToStaticMarkup(createElement(SiloScene, sceneProps));
     expect(rendered).toContain("Identity evidence");
     expect(rendered).toContain("Identity Matched");
     expect(rendered).toContain("时区");
     expect(rendered).not.toContain("Identity verified");
+
+    for (const state of [
+      { lens: null },
+      { selected: false },
+      { lens: "configuration" as const },
+    ]) {
+      const hiddenEvidence = renderToStaticMarkup(
+        createElement(SiloScene, { ...sceneProps, ...state }),
+      );
+      expect(hiddenEvidence).not.toContain("Identity evidence");
+      expect(hiddenEvidence).not.toContain("Identity Matched");
+    }
   });
 
   it("offers create-new-identity on managed silos only", () => {
