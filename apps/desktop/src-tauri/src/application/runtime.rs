@@ -89,52 +89,93 @@ pub(crate) fn desktop_status(state: &DesktopCore) -> Result<DesktopStatus, Strin
 }
 
 pub(crate) fn desktop_status_with(state: &DesktopCore) -> Result<DesktopStatus, String> {
+    desktop_status_with_refresh(state, RuntimeManager::activation)
+}
+
+pub(super) fn desktop_status_with_refresh(
+    state: &DesktopCore,
+    refresh: impl FnOnce(&mut RuntimeManager) -> RuntimeActivation,
+) -> Result<DesktopStatus, String> {
     let _local_reservation = state.local_control.reserve()?;
-    let mut vault = state
-        .vault
-        .lock()
-        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let mut runtime = state
-        .runtime
-        .lock()
-        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let mut vault_status = vault.status(&state.root);
-    let mut activation;
-    if matches!(vault_status.state, VaultLockState::Unlocked) {
-        activation = reconcile_runtime_if_possible(&mut vault, &mut runtime);
-        if let Some(silo_id) = activation
-            .identity_evidence
-            .as_ref()
-            .map(|evidence| evidence.silo_id)
-        {
-            if let Ok(silo) = vault.get_silo(silo_id) {
-                runtime.reconcile_identity_evidence(&silo);
-            } else {
-                runtime.mark_identity_evidence_stale("这份网站身份观察所属的 Silo 已不存在。");
-            }
-            activation = runtime.cached_activation();
-        }
-        // Reconciliation reads never renew activity, and may itself observe a
-        // deadline crossed after the first status snapshot.
-        vault_status = vault.status(&state.root);
-        if !matches!(vault_status.state, VaultLockState::Unlocked) {
-            activation = runtime.revoke_secrets_for_vault_lock();
-        }
-    } else {
-        activation = runtime.revoke_secrets_for_vault_lock();
-    }
-    let environment_silos = if matches!(vault_status.state, VaultLockState::Unlocked) {
-        vault
-            .list_active_silos()
-            .map_err(|error| error.to_string())?
-    } else {
-        Vec::new()
+    // Reserve lifecycle changes, but never hold Vault while waiting for the
+    // watchdog's Runtime lock or performing Host/proxy health I/O. Each guard
+    // is released before acquiring the other; the Vault -> Runtime order for
+    // operations that need both locks remains unchanged.
+    let reconciliation_id = {
+        let runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+        runtime
+            .needs_reconciliation()
+            .then(|| runtime.recorded_silo_id())
+            .flatten()
     };
-    drop(runtime);
-    drop(vault);
+    let (mut vault_status, reconciliation) = {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        let reconciliation = reconciliation_id.and_then(|silo_id| {
+            let silo = vault.get_silo(silo_id).ok()?;
+            let authentication = vault
+                .mihomo_controller_authentication_for_silo(silo_id)
+                .ok()
+                .flatten();
+            Some((silo, authentication))
+        });
+        (vault.status(&state.root), reconciliation)
+    };
+    let mut activation = {
+        let mut runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+        if matches!(vault_status.state, VaultLockState::Unlocked) {
+            if let Some((silo, authentication)) = reconciliation.filter(|(silo, _)| {
+                runtime.needs_reconciliation() && runtime.recorded_silo_id() == Some(silo.id)
+            }) {
+                runtime.reconcile_persisted(&silo, authentication)
+            } else {
+                refresh(&mut runtime)
+            }
+        } else {
+            // The shared pre-publication path below performs revocation;
+            // no locked snapshot is published from this provisional value.
+            runtime.cached_activation()
+        }
+    };
+    let environment_silos = {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        // Health checks can cross the auto-lock deadline. Reads do not renew it.
+        vault_status = vault.status(&state.root);
+        if matches!(vault_status.state, VaultLockState::Unlocked) {
+            vault
+                .list_active_silos()
+                .map_err(|error| error.to_string())?
+        } else {
+            Vec::new()
+        }
+    };
     if matches!(vault_status.state, VaultLockState::Unlocked) {
         reconcile_environment_runtime_if_needed(&state, &environment_silos)?;
-    } else {
+    }
+    // Inbox acceptance consumes this snapshot. Publish it only after revoking
+    // runtime secrets if health/provider reconciliation crossed auto-lock.
+    vault_status = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?
+        .status(&state.root);
+    if !matches!(vault_status.state, VaultLockState::Unlocked) {
+        activation = state
+            .runtime
+            .lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
+            .revoke_secrets_for_vault_lock();
         stop_environment_runtime_for_vault_lock(&state);
         let mut environment_runtime = state
             .environment_runtime
@@ -149,51 +190,84 @@ pub(crate) fn desktop_status_with(state: &DesktopCore) -> Result<DesktopStatus, 
     // core from reporting status or launching an otherwise valid Silo.
     let inbox = native_host::read_network_evidence_inbox(&state.root).unwrap_or_default();
     if !inbox.is_empty() {
-        // Preserve the global Vault → Runtime lock order while atomically
-        // importing encrypted history and updating the in-memory activation.
-        let mut vault = state
-            .vault
-            .lock()
-            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-        if vault
-            .import_network_evidence(&state.root, inbox.clone())
-            .is_ok()
-        {
-            let mut runtime = state
-                .runtime
+        // Commit history before applying/acknowledging it. Applying an entry
+        // also refreshes runtime health, so it must run after releasing Vault.
+        let imported = {
+            let mut vault = state
+                .vault
                 .lock()
-                .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+                .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+            let imported = vault
+                .import_network_evidence(&state.root, inbox.clone())
+                .is_ok();
             vault_status = vault.status(&state.root);
+            imported
+        };
+        if imported {
             if matches!(vault_status.state, VaultLockState::Unlocked) {
-                for entry in &inbox {
-                    activation = runtime.apply_network_evidence(entry);
-                }
-            } else {
-                activation = runtime.revoke_secrets_for_vault_lock();
-            }
-            drop(runtime);
-            drop(vault);
-            // Delete transport files only after the encrypted Vault commit (or
-            // a successful duplicate/no-longer-relevant decision).
-            let _ = native_host::acknowledge_network_evidence_inbox(&state.root, &inbox);
-            publish_runtime_status(&state, &activation, &vault_status);
-        } else {
-            vault_status = vault.status(&state.root);
-            if !matches!(vault_status.state, VaultLockState::Unlocked) {
                 let mut runtime = state
                     .runtime
                     .lock()
                     .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-                activation = runtime.revoke_secrets_for_vault_lock();
-                drop(runtime);
-                drop(vault);
-                publish_runtime_status(&state, &activation, &vault_status);
-            } else {
-                drop(vault);
+                for entry in &inbox {
+                    runtime.apply_network_evidence(entry);
+                }
             }
+            // Delete transport files only after the encrypted Vault commit (or
+            // a successful duplicate/no-longer-relevant decision).
+            let _ = native_host::acknowledge_network_evidence_inbox(&state.root, &inbox);
         }
     }
+    // Reconcile identity against current Vault metadata after all health and
+    // inbox work. Lifecycle reservation prevents an intervening Silo rebind.
+    let identity_silo_id = state
+        .runtime
+        .lock()
+        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
+        .cached_activation()
+        .identity_evidence
+        .map(|evidence| evidence.silo_id);
+    let identity_silo = {
+        let mut vault = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+        let silo = identity_silo_id.and_then(|silo_id| vault.get_silo(silo_id).ok());
+        vault_status = vault.status(&state.root);
+        silo
+    };
+    let mut website_identity = {
+        let mut runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+        if matches!(vault_status.state, VaultLockState::Unlocked) {
+            if let Some(silo) = identity_silo {
+                runtime.reconcile_identity_evidence(&silo);
+            } else if identity_silo_id.is_some() {
+                runtime.mark_identity_evidence_stale("这份网站身份观察所属的 Silo 已不存在。");
+            }
+            activation =
+                effective_runtime_activation(state, &vault_status, runtime.cached_activation())?;
+            runtime.hydrate_website_identity(activation.active_silo_id);
+            runtime.website_identity()
+        } else {
+            None
+        }
+    };
+    // Runtime contention or hydration may have crossed the deadline too.
+    vault_status = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?
+        .status(&state.root);
     if !matches!(vault_status.state, VaultLockState::Unlocked) {
+        activation = state
+            .runtime
+            .lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
+            .revoke_secrets_for_vault_lock();
+        website_identity = None;
         stop_environment_runtime_for_vault_lock(&state);
         let mut environment_runtime = state
             .environment_runtime
@@ -203,16 +277,6 @@ pub(crate) fn desktop_status_with(state: &DesktopCore) -> Result<DesktopStatus, 
     }
     activation = effective_runtime_activation(&state, &vault_status, activation)?;
     publish_runtime_status(&state, &activation, &vault_status);
-    let website_identity = if matches!(vault_status.state, VaultLockState::Unlocked) {
-        let mut runtime = state
-            .runtime
-            .lock()
-            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-        runtime.hydrate_website_identity(activation.active_silo_id);
-        runtime.website_identity()
-    } else {
-        None
-    };
     Ok(DesktopStatus {
         vault: vault_status,
         activation,
@@ -225,24 +289,30 @@ pub(crate) fn diagnostic_status_for_silo(
     silo_id: Uuid,
 ) -> Result<DesktopStatus, String> {
     {
-        let mut vault = state
-            .vault
-            .lock()
-            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-        let runtime = state
+        // Keep lifecycle attribution stable while taking short, independent
+        // snapshots. Waiting for the watchdog must not block Vault readers.
+        let _local_reservation = state.local_control.reserve()?;
+        let local_activation = state
             .runtime
             .lock()
-            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-        let environment = state
-            .environment_runtime
-            .lock()
-            .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
-        let vault_status = vault.status(&state.root);
-        let activation = if environment.has_active_silo() {
-            environment.activation.clone()
-        } else {
-            runtime.cached_activation()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
+            .cached_activation();
+        let activation = {
+            let environment = state
+                .environment_runtime
+                .lock()
+                .map_err(|_| "VeriSilo environment runtime state is unavailable.".to_owned())?;
+            if environment.has_active_silo() {
+                environment.activation.clone()
+            } else {
+                local_activation
+            }
         };
+        let vault_status = state
+            .vault
+            .lock()
+            .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?
+            .status(&state.root);
         if matches!(vault_status.state, VaultLockState::Unlocked)
             && activation.active_silo_id.is_some_and(|id| id != silo_id)
         {

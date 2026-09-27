@@ -418,6 +418,210 @@ fn global_status_stops_presenting_a_historical_observation_without_an_active_sil
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn status_health_releases_vault_and_rechecks_expiry_before_returning() {
+    use std::sync::{mpsc, Arc};
+    use std::thread;
+    use std::time::Duration;
+
+    use super::{initialize_vault_with, list_silos_with, DesktopCore};
+    use crate::domain::VaultLockState;
+
+    for expire_during_health in [false, true] {
+        let root = temporary_root("status-health-vault-contention");
+        fs::create_dir_all(&root).unwrap();
+        let core = Arc::new(DesktopCore::open(root.clone(), root.join("resources")));
+        core.vault.lock().unwrap().set_test_now(Utc::now());
+        let initial = initialize_vault_with(&core, "status health test passphrase").unwrap();
+        let deadline = initial.auto_lock_at.unwrap();
+        let observation_silo = Uuid::new_v4();
+        let session_dir = root
+            .join("silos")
+            .join(observation_silo.to_string())
+            .join("engine-state")
+            .join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        fs::create_dir_all(&session_dir).unwrap();
+        fs::write(
+            session_dir.join("observed.json"),
+            r#"{"generatedAtUtc":"2026-09-08T01:02:03Z","observedFull":{"userAgent":"Mozilla/5.0 test","language":"zh-CN","languages":["zh-CN"],"platform":"Win32","screen":{"width":1920,"height":1080,"colorDepth":24},"hardwareConcurrency":8,"webdriver":false,"session":{"timezone":"Asia/Shanghai"}}}"#,
+        )
+        .unwrap();
+        core.runtime
+            .lock()
+            .unwrap()
+            .hydrate_website_identity(Some(observation_silo));
+
+        let (health_started_tx, health_started) = mpsc::channel();
+        let (release_health, resume_health) = mpsc::channel();
+        let status_core = Arc::clone(&core);
+        let status_worker = thread::spawn(move || {
+            super::runtime::desktop_status_with_refresh(&status_core, |runtime| {
+                assert!(runtime.website_identity().is_some());
+                health_started_tx.send(()).unwrap();
+                resume_health.recv().unwrap();
+                runtime.activation()
+            })
+        });
+        health_started.recv_timeout(Duration::from_secs(2)).unwrap();
+        // The health call owns Runtime and the lifecycle reservation. A pure
+        // Vault read must still finish before that health call is released.
+        let lifecycle_reserved = matches!(
+            core.local_control.reservation.try_lock(),
+            Err(TryLockError::WouldBlock)
+        );
+        let (listed_tx, listed) = mpsc::channel();
+        let list_core = Arc::clone(&core);
+        let list_worker = thread::spawn(move || {
+            listed_tx.send(list_silos_with(&list_core)).unwrap();
+        });
+        let read_while_health_waits = listed.recv_timeout(Duration::from_secs(2));
+        if read_while_health_waits.is_ok() && expire_during_health {
+            core.vault.lock().unwrap().set_test_now(deadline);
+        }
+        // Always release the worker before asserting, including on failure.
+        release_health.send(()).unwrap();
+        let status = status_worker.join().unwrap().unwrap();
+        list_worker.join().unwrap();
+        assert!(lifecycle_reserved, "status must retain lifecycle ownership");
+        assert!(
+            read_while_health_waits.unwrap().unwrap().is_empty(),
+            "Vault reads must not wait for runtime health"
+        );
+        if expire_during_health {
+            assert!(matches!(status.vault.state, VaultLockState::Locked));
+            assert!(status.vault.auto_lock_at.is_none());
+            assert!(core.runtime.lock().unwrap().website_identity().is_none());
+            let snapshot: serde_json::Value = serde_json::from_slice(
+                &fs::read(root.join(crate::native_host::RUNTIME_STATUS_SNAPSHOT_FILE)).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(snapshot["vault"]["state"], "locked");
+            assert!(snapshot["vault"]["autoLockAt"].is_null());
+        } else {
+            assert!(matches!(status.vault.state, VaultLockState::Unlocked));
+            assert_eq!(status.vault.auto_lock_at, Some(deadline));
+        }
+        assert!(status.website_identity.is_none());
+        drop(core);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn status_marks_identity_evidence_stale_when_its_silo_was_deleted() {
+    use super::{desktop_status_with, initialize_vault_with, DesktopCore};
+    use crate::domain::IdentityEvidenceState;
+    use crate::launcher::RuntimeManager;
+
+    let root = temporary_root("status-deleted-identity");
+    fs::create_dir_all(&root).unwrap();
+    let core = DesktopCore::open(root.clone(), root.join("resources"));
+    initialize_vault_with(&core, "deleted identity test passphrase").unwrap();
+    let silo_id = Uuid::new_v4();
+    let record = serde_json::json!({
+        "siloId": silo_id,
+        "pid": 424242,
+        "startedAt": "2026-09-08T00:00:00Z",
+        "lastSeenAt": "2026-09-08T00:01:00Z",
+        "state": "stopped",
+        "identityEvidence": {
+            "siloId": silo_id,
+            "runtimeId": Uuid::new_v4(),
+            "sessionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "artifactId": "previous-artifact",
+            "artifactFileSha256": "a".repeat(64),
+            "engineAdapter": "camoufox",
+            "observedAt": "2026-09-08T00:01:00Z",
+            "state": "matched",
+            "signals": []
+        }
+    });
+    fs::create_dir_all(root.join("runtime")).unwrap();
+    fs::write(
+        root.join("runtime").join("browser-session.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+    *core.runtime.lock().unwrap() = RuntimeManager::open(&root);
+
+    let status = desktop_status_with(&core).unwrap();
+    let evidence = status.activation.identity_evidence.unwrap();
+    assert_eq!(evidence.silo_id, silo_id);
+    assert_eq!(evidence.state, IdentityEvidenceState::Stale);
+    assert!(status.website_identity.is_none());
+    drop(core);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn diagnostic_runtime_contention_does_not_hold_vault_or_probe_another_silo() {
+    use std::sync::{mpsc, Arc};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    use super::{initialize_vault_with, list_silos_with, DesktopCore};
+    use crate::domain::RuntimeState;
+
+    let root = temporary_root("diagnostic-runtime-vault-contention");
+    fs::create_dir_all(&root).unwrap();
+    let core = Arc::new(DesktopCore::open(root.clone(), root.join("resources")));
+    initialize_vault_with(&core, "diagnostic contention passphrase").unwrap();
+    let other_silo_id = Uuid::new_v4();
+    {
+        let mut environment = core.environment_runtime.lock().unwrap();
+        environment.activation.active_silo_id = Some(other_silo_id);
+        environment.activation.state = RuntimeState::RecoveryRequired;
+        environment.activation.message = Some("retain unrelated provider evidence".to_owned());
+    }
+    let runtime_guard = core.runtime.lock().unwrap();
+    let diagnostic_core = Arc::clone(&core);
+    let diagnostic_worker = thread::spawn(move || {
+        super::runtime::diagnostic_status_for_silo(&diagnostic_core, Uuid::new_v4())
+    });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let diagnostic_reserved = loop {
+        if matches!(
+            core.local_control.reservation.try_lock(),
+            Err(TryLockError::WouldBlock)
+        ) {
+            break true;
+        }
+        if Instant::now() >= deadline {
+            break false;
+        }
+        thread::park_timeout(Duration::from_millis(1));
+    };
+    let (listed_tx, listed) = mpsc::channel();
+    let list_core = Arc::clone(&core);
+    let list_worker = thread::spawn(move || {
+        listed_tx.send(list_silos_with(&list_core)).unwrap();
+    });
+    let read_while_runtime_waits = listed.recv_timeout(Duration::from_secs(2));
+    // Release even on regression, so failed assertions cannot strand workers.
+    drop(runtime_guard);
+    let diagnostic = diagnostic_worker.join().unwrap().unwrap();
+    list_worker.join().unwrap();
+
+    assert!(
+        diagnostic_reserved,
+        "diagnosis must reserve lifecycle attribution"
+    );
+    assert!(read_while_runtime_waits.unwrap().unwrap().is_empty());
+    assert_eq!(diagnostic.activation.active_silo_id, Some(other_silo_id));
+    assert_eq!(
+        core.environment_runtime
+            .lock()
+            .unwrap()
+            .activation
+            .message
+            .as_deref(),
+        Some("retain unrelated provider evidence"),
+        "diagnosis must not reconcile another Silo's provider"
+    );
+    drop(core);
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn wsl_silo(id: Uuid, distribution: &str) -> Silo {
     Silo {
         id,

@@ -37,7 +37,8 @@ use crate::{
     engine::{
         production_engine_adapter_for_silo, read_engine_bootstrap_ack_frame,
         read_engine_runtime_receipt_frame, strict_json_from_slice, write_engine_bootstrap_frame,
-        CamoufoxHostLaunch, CamoufoxHostRoots, EngineBootstrapAck, EngineBootstrapAckExpectation,
+        CamoufoxHostJobGuard, CamoufoxHostLaunch, CamoufoxHostRoots, EngineBootstrapAck,
+        EngineBootstrapAckExpectation,
         EngineBootstrapEnvelope, EngineCapabilityId, EngineCapabilityOperation,
         EngineCapabilityState, EngineControlExecution, EngineHealthState, EngineLaunchPlan,
         EngineLaunchRequest, EngineRuntimeReceiptExpectation, EngineRuntimeReceiptFrame,
@@ -155,48 +156,6 @@ pub struct RuntimeManager {
 
 pub(crate) struct VaultRestoreRuntimePreparation {
     _private: (),
-}
-
-/// Kernel-enforced cleanup for the Camoufox Host child, mirroring the isolated
-/// Mihomo runtime. On Windows this holds the handle of a Job Object created
-/// with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: the held handle keeps the job
-/// alive while VeriSilo runs, and if the VeriSilo process dies the kernel
-/// closes the handle and terminates the whole Host + browser tree — instead of
-/// leaving them alive until the Host's stale-snapshot self-check. The normal
-/// clean-stop path (protocol close, bounded exact-exit wait) never depends on
-/// the job; closing the handle after the exact child exit is a no-op.
-#[derive(Default)]
-struct CamoufoxHostJobGuard {
-    #[cfg(target_os = "windows")]
-    handle: isize,
-}
-
-impl CamoufoxHostJobGuard {
-    /// Attaches a kill-on-close Job Object to the freshly spawned Host child.
-    #[cfg(target_os = "windows")]
-    fn attach(child: &Child) -> Result<Self, std::io::Error> {
-        let handle = crate::mihomo::attach_kill_on_close_job(child)?;
-        Ok(Self { handle })
-    }
-
-    fn none() -> Self {
-        Self::default()
-    }
-}
-
-impl Drop for CamoufoxHostJobGuard {
-    #[cfg(target_os = "windows")]
-    fn drop(&mut self) {
-        use windows_sys::Win32::Foundation::CloseHandle;
-
-        if self.handle != 0 {
-            unsafe { CloseHandle(self.handle as _) };
-            self.handle = 0;
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn drop(&mut self) {}
 }
 
 struct RuntimeHealthContext {
@@ -3701,7 +3660,7 @@ fn spawn_engine_child(
             child,
             bootstrap_ack: None,
             runtime: None,
-            host_job: CamoufoxHostJobGuard::none(),
+            host_job: CamoufoxHostJobGuard::default(),
         });
     };
     let receiver = match start_engine_protocol_reader(&mut child, envelope) {
@@ -3739,7 +3698,7 @@ fn spawn_engine_child(
             receiver,
             execution,
         }),
-        host_job: CamoufoxHostJobGuard::none(),
+        host_job: CamoufoxHostJobGuard::default(),
     })
 }
 
@@ -3829,19 +3788,8 @@ fn spawn_camoufox_host(
     command.stderr(Stdio::null());
     command.env("VERISILO_INTERACTIVE", "1");
     configure_camoufox_host_process(&mut command);
-    let mut child = command.spawn().map_err(LauncherError::Spawn)?;
-    // The Host owns the whole managed browser tree. Bind it to a kill-on-close
-    // Job Object so a hard kill of VeriSilo cannot leave the Host and its
-    // browser running until the Host's stale-snapshot self-check. The normal
-    // clean-stop path is unaffected: the job only fires if VeriSilo dies.
-    let host_job = match CamoufoxHostJobGuard::attach(&child) {
-        Ok(host_job) => host_job,
-        Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(LauncherError::Spawn(error));
-        }
-    };
+    let (mut child, host_job) =
+        CamoufoxHostJobGuard::spawn(&mut command).map_err(LauncherError::Spawn)?;
     let mut transport = match CamoufoxHostTransport::attach(&mut child) {
         Ok(transport) => transport,
         Err(error) => {

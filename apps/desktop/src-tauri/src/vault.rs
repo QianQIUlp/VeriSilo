@@ -3,6 +3,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 use aes_gcm::{
@@ -2292,11 +2293,8 @@ impl VaultRuntime {
     ) -> Result<SiloStorageUsage, VaultError> {
         let profile_directory = self.silo_profile_directory(silo_id)?;
         verified_managed_silo_directory(root, silo_id, &profile_directory)?;
-        let bytes = if profile_directory.exists() {
-            directory_size_without_links(&profile_directory)?
-        } else {
-            0
-        };
+        let bytes =
+            directory_size_without_links(&profile_directory, &mut ProfileStorageScanBudget::new())?;
         Ok(SiloStorageUsage {
             silo_id,
             profile_directory: profile_directory.to_string_lossy().to_string(),
@@ -2532,7 +2530,7 @@ impl VaultRuntime {
     }
 
     #[cfg(test)]
-    fn set_test_now(&mut self, now: chrono::DateTime<Utc>) {
+    pub(crate) fn set_test_now(&mut self, now: chrono::DateTime<Utc>) {
         self.test_now = Some(now);
     }
 
@@ -2838,22 +2836,84 @@ fn browser_paths_match(stored: &str, resolved: &str) -> bool {
     }
 }
 
-pub(crate) fn directory_size_without_links(path: &Path) -> Result<u64, VaultError> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata_is_link_or_reparse(&metadata) {
-        return Ok(0);
-    }
-    if metadata.is_file() {
-        return Ok(metadata.len());
-    }
-    if !metadata.is_dir() {
-        return Ok(0);
+/// Display-only statistics share one budget across every Profile in a request.
+/// The deadline is checked between filesystem calls; it cannot interrupt an OS call.
+pub(crate) struct ProfileStorageScanBudget {
+    remaining_entries: usize,
+    deadline: Instant,
+}
+
+impl ProfileStorageScanBudget {
+    pub(crate) fn new() -> Self {
+        Self {
+            remaining_entries: 100_000,
+            deadline: Instant::now() + std::time::Duration::from_secs(2),
+        }
     }
 
-    let mut bytes = 0_u64;
-    for entry in fs::read_dir(path)? {
-        bytes = bytes.saturating_add(directory_size_without_links(&entry?.path())?);
+    fn exceeded() -> VaultError {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "Profile storage statistics exceeded the scan budget.",
+        )
+        .into()
     }
+
+    fn check_deadline(&self) -> Result<(), VaultError> {
+        if Instant::now() >= self.deadline {
+            return Err(Self::exceeded());
+        }
+        Ok(())
+    }
+
+    fn reserve_entry(&mut self) -> Result<(), VaultError> {
+        self.check_deadline()?;
+        self.remaining_entries = self
+            .remaining_entries
+            .checked_sub(1)
+            .ok_or_else(Self::exceeded)?;
+        Ok(())
+    }
+}
+
+pub(crate) fn directory_size_without_links(
+    path: &Path,
+    budget: &mut ProfileStorageScanBudget,
+) -> Result<u64, VaultError> {
+    budget.reserve_entry()?;
+    let mut pending = vec![path.to_path_buf()];
+    let mut bytes = 0_u64;
+    while let Some(path) = pending.pop() {
+        budget.check_deadline()?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if metadata_is_link_or_reparse(&metadata) {
+            continue;
+        }
+        if metadata.is_file() {
+            bytes = bytes.saturating_add(metadata.len());
+        } else if metadata.is_dir() {
+            budget.check_deadline()?;
+            let entries = match fs::read_dir(&path) {
+                Ok(entries) => entries,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            for entry in entries {
+                // Charge on discovery so a wide directory cannot fill an unbounded queue.
+                budget.reserve_entry()?;
+                match entry {
+                    Ok(entry) => pending.push(entry.path()),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
+    }
+    budget.check_deadline()?;
     Ok(bytes)
 }
 
@@ -4214,6 +4274,111 @@ mod tests {
 
     fn temporary_root() -> std::path::PathBuf {
         env::temp_dir().join(format!("verisilo-vault-test-{}", Uuid::new_v4()))
+    }
+
+    #[test]
+    fn profile_storage_scan_counts_exact_bytes_and_ignores_disappeared_entries() {
+        let root = temporary_root();
+        let cache = root.join("cache");
+        fs::create_dir_all(&cache).expect("create cache");
+        fs::write(root.join("preferences"), b"prefs").expect("write preferences");
+        fs::write(cache.join("data"), b"cached").expect("write cache data");
+        let disappeared = fs::read_dir(&cache)
+            .expect("list cache")
+            .next()
+            .expect("cache entry")
+            .expect("read cache entry")
+            .path();
+        fs::remove_file(&disappeared).expect("browser removes discovered cache entry");
+        let mut budget = super::ProfileStorageScanBudget::new();
+        assert_eq!(
+            super::directory_size_without_links(&disappeared, &mut budget)
+                .expect("a vanished cache entry contributes no bytes"),
+            0
+        );
+        fs::write(cache.join("new-data"), b"new cache").expect("write new cache data");
+        assert_eq!(
+            super::directory_size_without_links(&root, &mut budget)
+                .expect("measure nested profile"),
+            14
+        );
+        fs::remove_dir_all(root).expect("remove storage fixture");
+    }
+
+    #[test]
+    fn profile_storage_scan_budget_is_shared_and_never_returns_partial_bytes() {
+        let root = temporary_root();
+        let first = root.join("first");
+        let second = root.join("second");
+        fs::create_dir_all(&first).expect("create first profile");
+        fs::create_dir_all(&second).expect("create second profile");
+        fs::write(first.join("data"), b"first").expect("write first profile");
+        fs::write(second.join("data"), b"second").expect("write second profile");
+        let mut budget = super::ProfileStorageScanBudget {
+            remaining_entries: 3,
+            ..super::ProfileStorageScanBudget::new()
+        };
+        assert_eq!(
+            super::directory_size_without_links(&first, &mut budget).expect("first profile fits"),
+            5
+        );
+        assert!(matches!(
+            super::directory_size_without_links(&second, &mut budget),
+            Err(VaultError::Filesystem(error)) if error.kind() == std::io::ErrorKind::TimedOut
+        ));
+        let mut expired = super::ProfileStorageScanBudget {
+            deadline: std::time::Instant::now(),
+            ..super::ProfileStorageScanBudget::new()
+        };
+        assert!(matches!(
+            super::directory_size_without_links(&first, &mut expired),
+            Err(VaultError::Filesystem(error)) if error.kind() == std::io::ErrorKind::TimedOut
+        ));
+        fs::remove_dir_all(root).expect("remove storage fixture");
+    }
+
+    #[test]
+    #[cfg(any(unix, target_os = "windows"))]
+    fn profile_storage_scan_does_not_follow_links_or_junctions() {
+        let root = temporary_root();
+        let profile = root.join("profile");
+        let target = root.join("outside");
+        let link = profile.join("linked-cache");
+        fs::create_dir_all(&profile).expect("create profile");
+        fs::create_dir_all(&target).expect("create external target");
+        fs::write(profile.join("data"), b"own").expect("write profile data");
+        fs::write(target.join("data"), b"external bytes").expect("write external data");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).expect("create directory symlink");
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            let created = std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J"])
+                .arg(&link)
+                .arg(&target)
+                .creation_flags(0x0800_0000)
+                .output()
+                .expect("create cache junction");
+            assert!(created.status.success());
+        }
+        assert_eq!(
+            super::directory_size_without_links(
+                &profile,
+                &mut super::ProfileStorageScanBudget::new()
+            )
+            .expect("measure profile containing a link"),
+            3
+        );
+        #[cfg(unix)]
+        fs::remove_file(link).expect("remove symlink");
+        #[cfg(target_os = "windows")]
+        fs::remove_dir(link).expect("remove junction");
+        assert_eq!(
+            fs::read(target.join("data")).expect("external data"),
+            b"external bytes"
+        );
+        fs::remove_dir_all(root).expect("remove storage fixture");
     }
 
     #[test]
