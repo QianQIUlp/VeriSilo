@@ -3,7 +3,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Component, Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::Arc,
     thread,
     time::{Duration as StdDuration, Instant},
@@ -71,6 +71,42 @@ const ENGINE_BOOTSTRAP_FRAME_HEADER_BYTES: usize = 4;
 const ENGINE_RUNTIME_RECEIPT_LIFETIME_SECONDS: i64 = 30;
 const ENGINE_RUNTIME_RECEIPT_CLOCK_SKEW_SECONDS: i64 = 5;
 const MAX_RETAINED_ENGINE_FALLBACK_RECEIPTS: usize = 128;
+
+/// Holds the existing Windows kill-on-close job for either a browser Host or
+/// an identity provisioner. Both must exit if the desktop owner disappears.
+#[derive(Default)]
+pub(crate) struct CamoufoxHostJobGuard {
+    #[cfg(target_os = "windows")]
+    handle: isize,
+}
+
+impl CamoufoxHostJobGuard {
+    pub(crate) fn spawn(command: &mut Command) -> std::io::Result<(Child, Self)> {
+        #[allow(unused_mut)]
+        let mut child = command.spawn()?;
+        #[cfg(target_os = "windows")]
+        let job = match crate::mihomo::attach_kill_on_close_job(&child) {
+            Ok(handle) => Self { handle },
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
+        #[cfg(not(target_os = "windows"))]
+        let job = Self::default();
+        Ok((child, job))
+    }
+}
+
+impl Drop for CamoufoxHostJobGuard {
+    fn drop(&mut self) {
+        #[cfg(target_os = "windows")]
+        if self.handle != 0 {
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(self.handle as _) };
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -2837,7 +2873,7 @@ impl ExternalPackageEngineAdapter {
         command.stdout(Stdio::piped());
         command.stderr(Stdio::null());
         Self::configure_camoufox_host_process(&mut command);
-        let mut child = command.spawn()?;
+        let (mut child, _host_job) = CamoufoxHostJobGuard::spawn(&mut command)?;
         let mut request = serde_json::json!({
             "seed": BASE64_STANDARD.encode(seed),
             "preset": preset,
@@ -5767,6 +5803,43 @@ mod tests {
     };
 
     struct TestPackageVerifier;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn camoufox_host_job_stops_a_pending_provisioner_when_ownership_ends() {
+        use std::process::{Command, Stdio};
+        use std::time::{Duration, Instant};
+
+        // Wait on an open stdin pipe, as a Host waiting for its provision
+        // request does. No installed browser, package or user Vault is used.
+        let mut command = Command::new("cmd.exe");
+        command.args(["/D", "/Q", "/C", "set /p VERISILO_JOB_TEST="]);
+        command.stdin(Stdio::piped());
+        command.stdout(Stdio::null());
+        command.stderr(Stdio::null());
+        crate::domain::hide_windows_console(&mut command);
+        let (mut child, job) = super::CamoufoxHostJobGuard::spawn(&mut command)
+            .expect("start owned Host stand-in");
+        assert!(child.try_wait().unwrap().is_none());
+
+        // A hard desktop exit closes this same non-inherited job handle.
+        drop(job);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let exited = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break Some(status);
+            }
+            if Instant::now() >= deadline {
+                break None;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        if exited.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        assert!(exited.is_some(), "provisioner outlived its ownership guard");
+    }
 
     #[test]
     fn camoufox_runtime_load_skips_tree_rehash() {

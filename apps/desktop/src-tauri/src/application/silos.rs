@@ -15,7 +15,9 @@ use crate::domain::{
 use crate::environment::backend::{EnvironmentBackendId, EnvironmentOperation};
 use crate::environment::EnvironmentOperationRequest;
 use crate::launcher::profile_in_use;
-use crate::vault::{directory_size_without_links, StoredIdentityArtifact};
+use crate::vault::{
+    directory_size_without_links, ProfileStorageScanBudget, StoredIdentityArtifact,
+};
 use crate::{mihomo, native_host};
 use uuid::Uuid;
 
@@ -586,7 +588,7 @@ pub(crate) fn silo_storage_usage(
     silo_id: Uuid,
 ) -> Result<SiloStorageUsage, String> {
     // The Vault lock is taken only to resolve and verify the managed profile
-    // path. The recursive walk stays outside the lock: browser-owned profile
+    // path. The bounded walk stays outside the lock: browser-owned profile
     // trees can contain hundreds of thousands of changing cache entries.
     let profile_directory = {
         let mut vault = state
@@ -597,11 +599,9 @@ pub(crate) fn silo_storage_usage(
             .verified_silo_profile_directory(&state.root, silo_id)
             .map_err(|error| error.to_string())?
     };
-    let bytes = if profile_directory.exists() {
-        directory_size_without_links(&profile_directory).map_err(|error| error.to_string())?
-    } else {
-        0
-    };
+    let bytes =
+        directory_size_without_links(&profile_directory, &mut ProfileStorageScanBudget::new())
+            .map_err(|error| error.to_string())?;
     Ok(SiloStorageUsage {
         silo_id,
         profile_directory: profile_directory.to_string_lossy().to_string(),
@@ -613,7 +613,7 @@ pub(crate) fn silo_storage_usages(
     state: &DesktopCore,
 ) -> Result<Vec<SiloStorageUsageSummary>, String> {
     // The Vault lock is taken only to snapshot every managed profile path
-    // (active and archived Silos). All recursive walks then run outside the
+    // (active and archived Silos). All bounded walks then run outside the
     // lock, inside the single spawn_blocking body of the command.
     let silos = {
         let mut vault = state
@@ -625,12 +625,10 @@ pub(crate) fn silo_storage_usages(
             .map_err(|error| error.to_string())?
     };
     let mut usages = Vec::with_capacity(silos.len());
+    let mut budget = ProfileStorageScanBudget::new();
     for (silo_id, profile_directory) in silos {
-        let bytes = if profile_directory.exists() {
-            directory_size_without_links(&profile_directory).map_err(|error| error.to_string())?
-        } else {
-            0
-        };
+        let bytes = directory_size_without_links(&profile_directory, &mut budget)
+            .map_err(|error| error.to_string())?;
         usages.push(SiloStorageUsageSummary { silo_id, bytes });
     }
     Ok(usages)
