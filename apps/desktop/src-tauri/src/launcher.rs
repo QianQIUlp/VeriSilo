@@ -555,7 +555,7 @@ impl CamoufoxHostTransport {
                     "{command} request {request_id} timed out after {timeout:?}; the Host may still emit its response later, so frame correlation can no longer be proven"
                 ));
                 LauncherError::RuntimeReceipt(format!(
-                    "Camoufox Host response timeout/EOF: {error}"
+                    "Camoufox Host {command} response timeout/EOF: {error}"
                 ))
             })?
             .map_err(LauncherError::RuntimeReceipt)?;
@@ -6846,7 +6846,7 @@ for raw in sys.stdin.buffer:
                 )
                 .expect_err("the late page response must time out");
             assert!(
-                timeout_error.to_string().contains("response timeout/EOF"),
+                timeout_error.to_string().contains("page response timeout/EOF"),
                 "unexpected first error: {timeout_error}"
             );
             let desync_error = transport
@@ -8941,7 +8941,6 @@ for raw in sys.stdin.buffer:
     fn reobserve_binds_fresh_identity_evidence_to_the_active_session() {
         let (root, mut runtime, silo, runtime_id, launch_observed_at) =
             reobserve_fixture("normal");
-        let before_recheck = Utc::now();
         let fresh = runtime
             .reobserve_active_camoufox_identity(silo.id, runtime_id)
             .expect("fresh identity re-observation");
@@ -8956,7 +8955,13 @@ for raw in sys.stdin.buffer:
         assert_eq!(fresh.engine_adapter, EngineAdapterId::Camoufox);
         assert_eq!(fresh.state, IdentityEvidenceState::Matched);
         assert!(fresh.observed_at > launch_observed_at);
-        assert!(fresh.observed_at >= before_recheck);
+        // Only the fresh Host response contains this signal; the launch cache is empty.
+        assert!(fresh.signals.iter().any(|signal| {
+            signal.signal == "timezone"
+                && signal.expected.as_str() == Some("UTC")
+                && signal.observed.as_str() == Some("UTC")
+                && signal.state == IdentityEvidenceState::Matched
+        }));
         let Some(super::EngineRuntimeProtocol::CamoufoxHost(host)) =
             runtime.engine_runtime.as_ref()
         else {
@@ -8999,7 +9004,12 @@ for raw in sys.stdin.buffer:
         assert_eq!(evidence.silo_id, silo.id);
         assert_eq!(evidence.runtime_id, runtime_id);
         assert!(evidence.observed_at > launch_observed_at);
-        assert!(evidence.observed_at >= before_recheck);
+        assert!(evidence.signals.iter().any(|signal| {
+            signal.signal == "timezone"
+                && signal.expected.as_str() == Some("UTC")
+                && signal.observed.as_str() == Some("UTC")
+                && signal.state == IdentityEvidenceState::Matched
+        }));
         assert!(activation
             .message
             .as_deref()

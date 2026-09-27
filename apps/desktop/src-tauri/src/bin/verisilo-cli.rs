@@ -362,7 +362,7 @@ fn api(method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> 
     let mut raw = Vec::new();
     stream
         .read_to_end(&mut raw)
-        .map_err(|error| error.to_string())?;
+        .map_err(api_read_error)?;
     let text = String::from_utf8_lossy(&raw);
     let body = text
         .split("\r\n\r\n")
@@ -378,6 +378,14 @@ fn api(method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> 
             .and_then(Value::as_str)
             .unwrap_or("本机 API 请求失败。")
             .to_owned())
+    }
+}
+
+fn api_read_error(error: io::Error) -> String {
+    match error.kind() {
+        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock =>
+            "等待本机服务响应超时；后台操作可能仍在进行。请使用相同的 --vault 参数运行 verisilo-cli status，确认最终状态后再决定是否重试。".to_owned(),
+        _ => error.to_string(),
     }
 }
 
@@ -1005,6 +1013,22 @@ fn print_created(value: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use verisilo_desktop_lib::local_api::{LocalApiDiscovery, DISCOVERY_SCHEMA};
+
+    #[test]
+    fn api_read_timeout_explains_uncertain_outcome_and_status_check() {
+        for kind in [std::io::ErrorKind::TimedOut, std::io::ErrorKind::WouldBlock] {
+            let message = super::api_read_error(std::io::Error::from(kind));
+            assert!(message.contains("后台操作可能仍在进行"));
+            assert!(message.contains("相同的 --vault 参数运行 verisilo-cli status"));
+            assert!(message.contains("确认最终状态后再决定是否重试"));
+        }
+    }
+
+    #[test]
+    fn api_read_error_preserves_other_io_failures() {
+        let error = std::io::Error::new(std::io::ErrorKind::ConnectionReset, "connection reset");
+        assert_eq!(super::api_read_error(error), "connection reset");
+    }
 
     #[test]
     fn url_encode_preserves_id_and_encodes_names() {
