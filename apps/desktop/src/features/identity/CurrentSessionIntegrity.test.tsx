@@ -424,7 +424,7 @@ describe("current session claim boundaries", () => {
     expect(rendered).toContain("浏览器内检查断言");
   });
 
-  it("only renders the session summary for the active managed silo", () => {
+  it("defers the session summary until its detail pane is opened", () => {
     const baseProps = {
       busy: false,
       managedEngineReady: true,
@@ -450,8 +450,8 @@ describe("current session claim boundaries", () => {
         onCreateIdentity: () => {},
       }),
     );
-    expect(active).toContain("当前会话完整性");
-    expect(active).toContain("当前未发现异常");
+    expect(active).not.toContain("当前会话完整性");
+    expect(active).not.toContain("当前未发现异常");
     expect(active).toContain("重新检查");
     expect(active).toContain("创建新身份");
 

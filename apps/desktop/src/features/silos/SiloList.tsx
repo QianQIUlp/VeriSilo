@@ -43,7 +43,7 @@ const lensTitles: Record<LensKind, string> = {
  * polls, unrelated state) do not re-render every silo; props are per-silo
  * values plus stable callbacks.
  */
-const SiloScene = memo(function SiloScene({
+export const SiloScene = memo(function SiloScene({
   silo,
   index,
   selected,
@@ -129,7 +129,10 @@ const SiloScene = memo(function SiloScene({
           <span className={`running-badge ${isActive ? runtimeState : "idle"}`}>
             {isActive ? activationStatusLabel(runtimeState) : "未运行"}
           </span>
-          <h2 className={silo.name.length > 20 ? "long-name" : undefined} title={silo.name}>
+          <h2
+            className={silo.name.length > 20 ? "long-name" : undefined}
+            title={silo.name}
+          >
             {silo.name}
           </h2>
           <p>
@@ -179,8 +182,7 @@ const SiloScene = memo(function SiloScene({
               if (!drag.current) return;
               const delta = event.clientX - drag.current.start;
               dragged.current = drag.current.moved;
-              if (Math.abs(delta) > 65)
-                choose(index + (delta < 0 ? 1 : -1));
+              if (Math.abs(delta) > 65) choose(index + (delta < 0 ? 1 : -1));
               drag.current = null;
               event.currentTarget.classList.remove("is-dragging");
               event.currentTarget.style.setProperty("--drag-x", "0px");
@@ -389,8 +391,8 @@ const SiloScene = memo(function SiloScene({
           silo.executionTarget.kind === "local" &&
           silo.engine.adapter === "stock" ? (
             <p className="local-runtime-guidance">
-              用完后直接关掉这个浏览器窗口即可。不会动你其他的 Chrome 或
-              Edge 窗口。
+              用完后直接关掉这个浏览器窗口即可。不会动你其他的 Chrome 或 Edge
+              窗口。
             </p>
           ) : null}
           {blockedByRunning ? (
@@ -428,131 +430,139 @@ const SiloScene = memo(function SiloScene({
           </button>
         </header>
         <div className="lens-scroll" key={`${silo.id}:${lens}`}>
-          <div hidden={lens !== "identity"}>
-            {managedCamoufox ? (
-              <ManagedIdentityEvidence
-                activation={runtimeActivation}
-                silo={silo}
-              />
-            ) : (
-              <div className="standard-identity-note">
-                <h3>网站数据独立，设备身份跟随本机。</h3>
-                <p>
-                  Standard Silo 单独保存登录、Cookie
-                  与网站数据。系统浏览器不会换成另一套设备身份。
-                </p>
-                <CapabilityState state="inherit" />
-              </div>
-            )}
-          </div>
-          <div hidden={lens !== "session"}>
-            {managedCamoufox && isActive ? (
-              <CurrentSessionIntegrity
-                activation={runtimeActivation}
-                managedEngineReady={managedEngineReady}
-                silo={silo}
-              />
-            ) : (
-              <div className="session-resting">
-                <span aria-hidden="true">◎</span>
-                <h3>
-                  {isActive
-                    ? activationStatusLabel(runtimeState)
-                    : "这个身份还没有开始运行"}
-                </h3>
-                <p>
-                  {isActive
-                    ? "用完后关闭浏览器窗口。"
-                    : "打开浏览器后，在这里查看本次运行。"}
-                </p>
-              </div>
-            )}
-          </div>
-          <div hidden={lens !== "configuration"}>
-            <dl className="silo-facts">
-              <div>
-                <dt>网站数据</dt>
-                <dd>
-                  登录和 Cookie 单独保存
-                  {formatStorageSuffix(storageBytes)}
-                </dd>
-              </div>
-              <div>
-                <dt>运行位置</dt>
-                <dd>{siloExecutionTargetLabel(silo)}</dd>
-              </div>
-              <div>
-                <dt>对外身份</dt>
-                <dd>
-                  {siloWebsiteIdentityBoundary(silo, identityPreviewForSilo)}
-                </dd>
-              </div>
-              {identityPreviewForSilo !== undefined ? (
-                <ManagedIdentityFacts preview={identityPreviewForSilo} />
-              ) : null}
-              {silo.engine.adapter === "stock" ? (
-                <>
-                  <div>
-                    <dt>这台电脑</dt>
-                    <dd>
-                      <CapabilityState state="inherit" />
-                      指纹跟这台电脑上的 Chrome 或 Edge 一样
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>独立指纹</dt>
-                    <dd>
-                      <CapabilityState state="unavailable" />
-                      系统浏览器不会换成另一套设备身份
-                    </dd>
-                  </div>
-                </>
-              ) : null}
-              <div>
-                <dt>网络</dt>
-                <dd>{describeNetwork(silo.networkProfile)}</dd>
-              </div>
-              <div>
-                <dt>身份状态</dt>
-                <dd>
-                  <span
-                    className={`identity-lock-state${
-                      silo.identityLockedAt === null ? " pending" : " locked"
-                    }`}
-                  >
-                    {silo.identityLockedAt === null
-                      ? "打开成功后锁定，改指纹请新建"
-                      : "已锁定"}
-                  </span>
-                </dd>
-              </div>
-              {silo.networkProfile.mode === "fixed_proxy" &&
-              silo.networkProfile.credentialRef !== undefined ? (
-                <div>
-                  <dt>代理密码</dt>
-                  <dd>已加密保存在本机</dd>
+          {selected && lens === "identity" ? (
+            <div>
+              {managedCamoufox ? (
+                <ManagedIdentityEvidence
+                  activation={runtimeActivation}
+                  silo={silo}
+                />
+              ) : (
+                <div className="standard-identity-note">
+                  <h3>网站数据独立，设备身份跟随本机。</h3>
+                  <p>
+                    Standard Silo 单独保存登录、Cookie
+                    与网站数据。系统浏览器不会换成另一套设备身份。
+                  </p>
+                  <CapabilityState state="inherit" />
                 </div>
-              ) : null}
-            </dl>
-          </div>
-          <div hidden={lens !== "network"}>
-            <div className="network-policy-summary">
-              <span className="eyebrow">已配置的网络策略</span>
-              <p>{describeNetwork(silo.networkProfile)}</p>
-              <small>配置声明与实际出口观察分别呈现。</small>
+              )}
             </div>
-            {silo.engine.adapter !== "stock" ? (
-              <ManagedStatusGroups
-                activation={runtimeActivation}
-                evidence={networkEvidence}
-                engineHealthy={managedEngineReady}
-                runtimeState={isActive ? runtimeState : "idle"}
-                silo={silo}
-              />
-            ) : (
-              <p>在「本机工具」中查看浏览器侧取得的网络检查记录。</p>
-            )}
-          </div>
+          ) : null}
+          {selected && lens === "session" ? (
+            <div>
+              {managedCamoufox && isActive ? (
+                <CurrentSessionIntegrity
+                  activation={runtimeActivation}
+                  managedEngineReady={managedEngineReady}
+                  silo={silo}
+                />
+              ) : (
+                <div className="session-resting">
+                  <span aria-hidden="true">◎</span>
+                  <h3>
+                    {isActive
+                      ? activationStatusLabel(runtimeState)
+                      : "这个身份还没有开始运行"}
+                  </h3>
+                  <p>
+                    {isActive
+                      ? "用完后关闭浏览器窗口。"
+                      : "打开浏览器后，在这里查看本次运行。"}
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : null}
+          {selected && lens === "configuration" ? (
+            <div>
+              <dl className="silo-facts">
+                <div>
+                  <dt>网站数据</dt>
+                  <dd>
+                    登录和 Cookie 单独保存
+                    {formatStorageSuffix(storageBytes)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>运行位置</dt>
+                  <dd>{siloExecutionTargetLabel(silo)}</dd>
+                </div>
+                <div>
+                  <dt>对外身份</dt>
+                  <dd>
+                    {siloWebsiteIdentityBoundary(silo, identityPreviewForSilo)}
+                  </dd>
+                </div>
+                {identityPreviewForSilo !== undefined ? (
+                  <ManagedIdentityFacts preview={identityPreviewForSilo} />
+                ) : null}
+                {silo.engine.adapter === "stock" ? (
+                  <>
+                    <div>
+                      <dt>这台电脑</dt>
+                      <dd>
+                        <CapabilityState state="inherit" />
+                        指纹跟这台电脑上的 Chrome 或 Edge 一样
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>独立指纹</dt>
+                      <dd>
+                        <CapabilityState state="unavailable" />
+                        系统浏览器不会换成另一套设备身份
+                      </dd>
+                    </div>
+                  </>
+                ) : null}
+                <div>
+                  <dt>网络</dt>
+                  <dd>{describeNetwork(silo.networkProfile)}</dd>
+                </div>
+                <div>
+                  <dt>身份状态</dt>
+                  <dd>
+                    <span
+                      className={`identity-lock-state${
+                        silo.identityLockedAt === null ? " pending" : " locked"
+                      }`}
+                    >
+                      {silo.identityLockedAt === null
+                        ? "打开成功后锁定，改指纹请新建"
+                        : "已锁定"}
+                    </span>
+                  </dd>
+                </div>
+                {silo.networkProfile.mode === "fixed_proxy" &&
+                silo.networkProfile.credentialRef !== undefined ? (
+                  <div>
+                    <dt>代理密码</dt>
+                    <dd>已加密保存在本机</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </div>
+          ) : null}
+          {selected && lens === "network" ? (
+            <div>
+              <div className="network-policy-summary">
+                <span className="eyebrow">已配置的网络策略</span>
+                <p>{describeNetwork(silo.networkProfile)}</p>
+                <small>配置声明与实际出口观察分别呈现。</small>
+              </div>
+              {silo.engine.adapter !== "stock" ? (
+                <ManagedStatusGroups
+                  activation={runtimeActivation}
+                  evidence={networkEvidence}
+                  engineHealthy={managedEngineReady}
+                  runtimeState={isActive ? runtimeState : "idle"}
+                  silo={silo}
+                />
+              ) : (
+                <p>在「本机工具」中查看浏览器侧取得的网络检查记录。</p>
+              )}
+            </div>
+          ) : null}
         </div>
       </aside>
     </article>
