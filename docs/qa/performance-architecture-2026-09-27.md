@@ -61,6 +61,8 @@
 
 因此，本次保留的是**与运行目录相关的未解释限制**。尚无足够证据指定 ACL、Defender、路径长度、某个 DLL 或 OS 版本为根因；不据此削弱浏览器沙箱或 Job，不把整台宿主机断言为不可运行。静态 PE 检查未发现常规/延迟导入缺失或非 API-set 导出缺失；它不能排除动态装载问题。本轮 launch Job 只是既有逻辑搬移，没有增加层数或限制。
 
+**后续状态（2026-09-27）：**[目录 ACL 因果对照](managed-engine-directory-acl-2026-09-27.md)已把上述“未解释限制”收敛为当前 Codex sandbox/worktree 的继承 DACL 开发限制；同一路径、同一 owner、相同 504 个文件仅改 DACL 后，建页由 60 秒失败变为 5.344 秒成功。仍未识别具体 ACE、Windows API 错误或更深层机制。正常用户上下文的独立 LocalAppData 产品路径通过，本问题不作为当前产品 blocker 或后续默认调查任务。
+
 一次迁移后的启动仍引用旧 Vault 注册的工作树 package 路径，不能计为新目录失败。后续新 Vault 的 driver 日志明确记录实际新路径；在本机 Codex 的 MSIX 环境中，它解析到 `Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/VeriSiloDev/performance-37abe4`。验证迁移应先核对真实引擎绑定，不能仅凭桌面 exe 所在位置判断包路径。
 
 失败原始日志及结果保留在本 worktree 的忽略目录 `artifacts/performance-goal/`；成功证据见上表。没有把这些限制伪装成通用环境修复，也没有为本次局部目录问题新增永久诊断框架。

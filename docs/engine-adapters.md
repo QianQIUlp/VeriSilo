@@ -20,7 +20,7 @@ assembled by `scripts/build-camoufox-host-package.py` and
 
 ## Camoufox integration boundary
 
-The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) accepted the connection between a schema-v3 Host package, the dedicated `camoufox-host-jsonl-v1` transport, `EngineAdapter`, and `RuntimeManager` at checkpoint `e96ef3f`. Later implementation added the production package builder, Formal-v3 detached CMS signing, the Desktop signer pin, the production adapter path, Managed Silo product flow, and current-user NSIS packaging. These are implemented; the current-source rc2 package and installed lifecycle have now also been accepted in the exact pristine Windows Sandbox evidence environment. Strict non-admin semantics, broader Windows compatibility, and public release remain separate boundaries.
+The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) accepted the connection between a schema-v3 Host package, the dedicated `camoufox-host-jsonl-v1` transport, `EngineAdapter`, and `RuntimeManager` at checkpoint `e96ef3f`. Later implementation added the production package builder, Formal-v3 detached CMS signing, the Desktop signer pin, the production adapter path, Managed Silo product flow, and current-user NSIS packaging. These are implemented; the fixed rc2 package and installed lifecycle passed in the exact pristine Windows Sandbox evidence environment. `v0.1.0-rc4` is the current public prerelease; strict non-admin semantics and broader Windows compatibility remain separate evidence boundaries.
 
 Native Windows M2-W has accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. The M3-0 contract remains the historical boundary for the fake-Host slice and its honest evidence semantics; the current production adapter consumes the signed schema-v3 package and still keeps `verified: false` evidence below `verified` until direct product evidence exists. See [the Camoufox program status](camoufox-program-status.md).
 
@@ -32,7 +32,7 @@ host, with `verified: false`; FP4 means bounded ordinary-site product
 compatibility, not anti-detection, universal compatibility, or desktop product
 acceptance. Clean M3-WI Attempt 4 then passed its test-only two-cycle
 qualification. These historical qualification results do not create an FP5;
-the current-source rc2 installed acceptance is a separate, bounded product
+the fixed rc2 installed acceptance is a separate, bounded product
 evidence layer recorded in the status page.
 
 For Camoufox, the Resolved Identity Artifact is the sole runtime identity
@@ -291,7 +291,7 @@ constraints, strict evidence phases, and site fallback.
 
 The remaining product/release boundaries are strict unelevated standard-user
 install/reinstall/uninstall semantics, broader Windows hardware/edition
-compatibility, public promotion and outer Authenticode signing, and additional
+compatibility, outer Authenticode signing, and additional
 compatibility beyond the frozen FP4 matrix. Canvas/WebGL/font observations
 beyond the accepted bounded candidate, TLS ClientHello captures, direct QUIC
 observations, license review, and signer lifecycle operations remain separate
@@ -301,5 +301,5 @@ never be presented as those runtime facts.
 The historical RC1 artifact is superseded for current acceptance. Its internal
 CMS package/signature and the current production adapter implementation are
 real release inputs, but they do not turn the historical artifact into the
-current-source rc2 candidate. The rc2 candidate remains local-only: no Git tag,
-GitHub Release, or public promotion exists.
+fixed rc2 candidate. rc2 was published as a GitHub prerelease and has since been
+superseded by the current `v0.1.0-rc4` prerelease.

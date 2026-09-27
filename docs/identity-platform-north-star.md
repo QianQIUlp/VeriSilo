@@ -153,12 +153,12 @@ Durable evidence 现状与路线：**expected-vs-observed reconciliation 已经�
 
 长期产品顺序仍然是 Standard、Managed、Isolated 三层并存。2026-08 的风险优先阶段完成了 Camoufox standalone、Artifact、原生 Windows Host 和 M3-0 contract 接缝；FP1–FP4 以及 clean M3-WI Attempt 4 随后完成了各自冻结边界内的资格链。这里的历史结果不改变三层产品模型，也不把任一层的证据扩大为整体产品或发布验收。
 
-当前 source/package/installed acceptance 主线已经完成到公开的 `v0.1.0-rc3` prerelease
-（tag `v0.1.0-rc3`，source `407c501741c1be3444bfa607c7e693ecc7324409`），rc3 release gate 已关闭；
+当前公开版本为 `v0.1.0-rc4` prerelease
+（tag `v0.1.0-rc4`，source `68e21c3d601e1df3699f1b21431cc23da873e546`），release gate 已关闭；
 其前的 `v0.1.0-rc2`（source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`）已在 pristine Windows
-Sandbox 完成安装后生命周期验收。两者都是 `PUBLIC_GITHUB_PRERELEASE`，不是 Windows
-Authenticode signed release；strict standard-user 语义仍未
-证明。当前阶段是 post-rc3 product development，canonical development source 是
+Sandbox 完成安装后生命周期验收。rc2、rc3 与 rc4 都是 `PUBLIC_GITHUB_PRERELEASE`；这些已记录证据不证明
+Windows Authenticode 签名或 strict standard-user 语义。后者仍未
+证明。当前阶段是 post-rc4 normal product development，canonical development source 是
 `origin/baseline/dev`，默认方向是 accepted differentiated roadmap，优先推进五项 integrity/evidence
 能力；真实回归、新产品代码、新 candidate 或新的 release Gate 才重新触发对应 QA/build/
 acceptance。旧 RC1、FP1–FP4 和 M3-WI 合同只作为历史证据。

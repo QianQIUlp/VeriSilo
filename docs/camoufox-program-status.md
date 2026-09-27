@@ -1,12 +1,12 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**当前路由页**
-- 更新日期：2026-09-14
+- 更新日期：2026-09-27
 - 当前稳定产品分支：`codex/camoufox-m3-engine-adapter`
 - 当前 canonical development source：`origin/baseline/dev`（本地工作引用为 `baseline/dev`，正常时两者精确相等）
-- 当前公开版本：**v0.1.0-rc3**（`PUBLIC_GITHUB_PRERELEASE`；tag `v0.1.0-rc3`，rc3 release gate 已关闭）
-- `RC3_SOURCE_SHA`：`407c501741c1be3444bfa607c7e693ecc7324409`
-- 当前工程阶段：**post-rc3 product development / roadmap reentry**；新任务从 `origin/baseline/dev` 分叉
+- 当前公开版本：**v0.1.0-rc4**（`PUBLIC_GITHUB_PRERELEASE`；tag `v0.1.0-rc4`，release gate 已关闭）
+- `RC4_SOURCE_SHA`：`68e21c3d601e1df3699f1b21431cc23da873e546`；这是固定 release source，不是开发基线
+- 当前工程阶段：**post-rc4 normal product development**；新任务从最新 `origin/baseline/dev` 分叉（2026-09-27 远端核对为 `4aee8ef83f4bfeed617fdc902be8b9c6fa00608a`）
 - 历史 rc2 candidate：source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256
   `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；文档变化不改变其 source binding
 
@@ -32,23 +32,25 @@ Silo = Persistent Profile
 
 Standard Silo 长期保留。Camoufox Managed Engine 的 standalone、资格链、生产 package/
 adapter、Managed Silo 产品路径、current-user NSIS、rc2 的 packaged runtime 和 Windows
-Sandbox 安装验收，以及 v0.1.0-rc3 公开 prerelease，均已达到各自文档边界。Profile、
+Sandbox 安装验收，以及 v0.1.0-rc4 公开 prerelease，均已达到各自文档边界。Profile、
 Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、`observed`、
 `verified` 与 `unavailable` 不混用。
 
-rc2→rc3 的 source/package/installed acceptance 主线已经完成：
+rc2→rc4 的 source/package/installed acceptance 与公开发布主线已经完成：
 
 ```text
 source stabilization → rc2 build → package verification → packaged runtime
-→ pristine Windows Sandbox installed lifecycle → v0.1.0-rc3 public prerelease
-→ rc3 release gate closed
+→ pristine Windows Sandbox installed lifecycle → v0.1.0-rc3 → v0.1.0-rc4 public prerelease
+→ rc4 release gate closed
 ```
 
-当前阶段是 **post-rc3 product development**：canonical development source 是
-`origin/baseline/dev`，默认方向是 accepted differentiated roadmap，优先增强
-identity/execution/network integrity、runtime evidence 与 attribution；只有真实回归、
-新产品代码、新 candidate 或新的 release Gate 才重新触发相应 QA/build/acceptance。当前
-不创建 FP5，不重跑输入未变化的 FP1–FP4，也不自动开启 rc4。
+当前阶段是 **post-rc4 normal product development**：canonical development source 是
+`origin/baseline/dev`，`main` 不因落后而自动推进。近期性能与响应性工作已经收口，并在原生
+Windows Managed 开发实例中取得有限生命周期证据；工作树 Camoufox 启动差异已定位为当前
+Codex sandbox/worktree 的继承 DACL 开发限制，正常用户上下文的独立 LocalAppData 产品路径通过。
+详见[性能任务处置](qa/performance-architecture-2026-09-27.md)和
+[目录 ACL 因果对照](qa/managed-engine-directory-acl-2026-09-27.md)。这些结果不构成普遍性能保证或安装验收。
+当前没有待集成的产品任务分支，也没有活动中的 fingerprint、QA 或 release Gate。
 
 ## v0.1.0-rc2 current-source installed acceptance（历史记录）
 
@@ -104,7 +106,7 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
   response 120 秒后失败；没有重试、没有 evidence manifest、没有 Accepted commit。
 - 该历史 investigation 当时的主脑终局为 **M3-WI failed**，Camoufox Windows Managed
   productionization 在该 checkpoint 暂停，且不再创建 R3/R4 或新的 test-only 子 Gate；后续
-  Formal-v3、FP1–FP4 与 clean M3-WI Attempt 4 已改变当前状态，以“当前 Gate”为准。
+  Formal-v3、FP1–FP4 与 clean M3-WI Attempt 4 已改变当前状态，以本文开头的当前状态为准。
 
 ## Standard Silo Windows preview 首次执行
 
@@ -136,7 +138,7 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
 - Standard/Profile Isolation 只包含独立 Profile、网站状态持久化、单活 ownership 和本机
   Chrome/Edge 生命周期。它不包含 Managed Identity、设备或浏览器指纹虚拟化、代理隔离、
   WSL/Remote/Hyper-V 或整机虚拟化。
-- Camoufox 仍在独立 Managed Engine 工作树继续调查，不进入这条产品集成链。Profile
+- 在该历史 checkpoint，Camoufox 仍在独立 Managed Engine 工作树调查，不进入这条产品集成链。Profile
   隔离层从本 checkpoint 起冻结；除真实回归缺陷外不再扩张。
 
 ## 已关闭 Gate 与当前 release-readiness 状态
@@ -161,21 +163,21 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
 | clean M3-WI | **Passed on this native Windows host** at Attempt 4；真实 Desktop RuntimeManager / test-only adapter / Host / Browser 两周期闭合，`verified:false` |
 | production package/signing/UI/S1 stabilization | **Implemented/build closed** in the current source；内部 CMS 签名 package、Desktop public pin、production adapter、Managed Silo UI/network/run path、outer-unsigned current-user NSIS，以及 S1 的 Create Silo UX、reconcile-stopped lifecycle、BUG-01 和 acceptance-driver 修复已进入当前源码 |
 | Managed Font Isolation | **Closed on this native Windows host**；生产预设统一采用 `managed` 模式，Windows 未声明宿主字体 masking 经 rendering oracle 与 fail-closed 静态/运行时双重验证（commit `1b41b81`）；跨主机字形渲染的一致性（cross-host hermeticity）未声明 |
-| Window Geometry Coherence | **source fix closed / real-browser post-fix acceptance pending**；根因（BrowserForge 跨屏大坐标生成与仅缩放尺寸导致 `screenX > screen.width`）已在源码闭合；artifact provisioning 与 interactive window override 均强制实施 virtual screen bounds clamp，保持历史磁盘文件不变；真实浏览器 post-fix 验收因宿主环境阻断暂未执行（`CURRENT_HOST_RUNTIME_ENVIRONMENT_BROKEN`，详见 `docs/qa/window-geometry-runtime-acceptance/STATUS.md`） |
-| Evidence Coverage Closure II (WebGL2 + Accept-Encoding) | **Closed in current source / harness repaired / runtime acceptance pending**；WebGL2 (vendor/renderer) 与 Request Header (Accept-Encoding) 正式纳入 Configured → Applied → Observed → Reconciled 证据链路，Observed 来自真实浏览器 loopback HTTP 观察，ObservedWebsiteDigest v2 保持兼容；真实 runtime acceptance harness 已修复并通过回归单测，真实 runtime 验收待运行环境就绪（`MANAGED_RUNTIME_ENVIRONMENT_BLOCKED`，详见 `docs/qa/managed-runtime-proof-repair/STATUS.md`） |
+| Window Geometry Coherence | **ACCEPTED_IN_WINDOWS_SANDBOX**；源码 clamp 与真实浏览器四场景验收已完成，详见 [Packaged-Host 验收](qa/packaged-host-sandbox-runtime-acceptance/STATUS.md)；旧环境阻断记录仅是当时的历史状态 |
+| Evidence Coverage Closure II (WebGL2 + Accept-Encoding) | **ACCEPTED_IN_WINDOWS_SANDBOX**；真实浏览器 WebGL2、请求头与 Fresh Recheck 对账已通过，详见 [Packaged-Host 验收](qa/packaged-host-sandbox-runtime-acceptance/STATUS.md)；旧 harness pending 记录已被取代 |
 | Transport Coherence | **Observed Coherent**；QA 诊断（commit `94a3641`）在真实 Managed session 上直接观察到 TLS ClientHello 与 HTTP/2 行为与 Firefox 152 NSS 自洽，观察到 QUIC v1 Initial 握手尝试；formal verifier 仍 unavailable，保持诚实未声称 |
 | WebGPU Boundary | **Policy Boundary Open / No Leak Observed**（分类 `WEBGPU_NO_LEAK_OBSERVED_BUT_POLICY_BOUNDARY_STILL_OPEN`）；pinned Camoufox 152 无 WebGPU 伪装原语，安全上下文中 `requestAdapter()` 在本虚拟/无独显环境返回 `null`，未观察到真实硬件泄露；禁用将造成 `navigator.gpu` 缺失反常，需底层 Gecko 补丁 |
 | Historical local `v0.1.0-rc1` artifact | **Historical candidate / superseded / never runtime-accepted**；source `6497828aa0643f94fed3ae708734eef6b85f8305`, dirty `true`, verifier passed for 1403 files, acceptance `Pending`, `verified:false`, `runtimeAcceptance:null` |
-| v0.1.0-rc2 current-source candidate | **PUBLIC_GITHUB_PRERELEASE（已被 rc3 取代为公开版本）**；Current-source installed product accepted in pristine Windows Sandbox；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3` |
+| v0.1.0-rc2 historical candidate | **PUBLIC_GITHUB_PRERELEASE（已被 rc4 取代为当前公开版本）**；该固定候选在 pristine Windows Sandbox 完成安装后生命周期验收；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3` |
 | v0.1.0-rc3 public prerelease | **PUBLIC_GITHUB_PRERELEASE；release gate 已关闭**；tag `v0.1.0-rc3`，source `407c501741c1be3444bfa607c7e693ecc7324409` |
-| Current source release readiness | **post-rc3 product development**；rc2 已在 exact Windows Sandbox 完成安装后生命周期验收，rc3 公开 prerelease 已发布且 gate 关闭；strict standard-user install/reinstall/uninstall semantics 仍 `NOT_PROVEN`，外层 Authenticode 仍 unsigned |
+| v0.1.0-rc4 current public prerelease | **PUBLIC_GITHUB_PRERELEASE；release gate 已关闭**；tag `v0.1.0-rc4`，source `68e21c3d601e1df3699f1b21431cc23da873e546` |
+| Current source release readiness | **post-rc4 normal product development**；当前没有活动中的 QA/release Gate；strict standard-user install/reinstall/uninstall semantics 仍 `NOT_PROVEN`，不要将旧候选验收外推至所有环境 |
 
 ## 当前未证明的边界
 
 - 生产预设已采用 `fontMode=managed`，Windows 宿主未声明字体遮蔽已通过渲染神谕与 fail-closed 验证生效（commit `1b41b81`），但跨主机字形渲染的完全一致性（cross-host hermeticity）仍未声明（仍依赖宿主可用字体库与字体回退规则）；
 - 传输层与反检测：TLS ClientHello、HTTP/2 特征与 QUIC v1 已在受控测试中直接观察到自洽（QA commit `94a3641`），但 formal transport verifier 仍 unavailable，不声明绝对“不可检测”；
 - WebGPU 边界：分类为 `WEBGPU_NO_LEAK_OBSERVED_BUT_POLICY_BOUNDARY_STILL_OPEN`。安全上下文暴露 `navigator.gpu`，`requestAdapter()` 在当前环境下返回 `null`，无硬件直接泄漏；禁用 WebGPU 会导致 API 缺失异常，尚无针对 WebGPU adapter info 的伪装原语；
-- 窗口几何一致性与运行时证明：source fix closed / real-browser post-fix acceptance pending（已在 provisioning 与 interactive launch 强制 virtual screen bounds clamp；当前原生 Windows 11 Build 26200 宿主遭遇子进程 0xc06d007e 崩溃，处于 `CURRENT_HOST_RUNTIME_ENVIRONMENT_BROKEN`，Windows Sandbox 处于 `ALTERNATE_ENVIRONMENT_TEST_TOOLCHAIN_BLOCKED`，综合环境判定 `MANAGED_RUNTIME_ENVIRONMENT_BLOCKED`）；
 - FP3 不证明 Camoufox 原生 Geolocation provider 或 exhaustive native address inventory；
 - FP4 只覆盖冻结的 V5 live-site matrix，不声明 universal compatibility；login、payment 与 CAPTCHA 未测试；
 - clean M3-WI 的既有 Attempt 4 仍只证明当时的 test-only adapter 路径；rc2 已另外在 pristine
@@ -185,8 +187,8 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
   standard-user install/reinstall/uninstall semantics 仍为 `NOT_PROVEN`，这是 future public-release /
   promotion boundary，而不是 installer lifecycle failure；
 - rc2 与 rc3 的 Desktop/NSIS 外层均为 `authenticode=false` / unsigned；内部 engine detached CMS
-  signature、approved signer/public pin 与外层 Windows Authenticode 是不同边界；rc2 与 rc3 的
-  发布状态均为 `PUBLIC_GITHUB_PRERELEASE`；
+  signature、approved signer/public pin 与外层 Windows Authenticode 是不同边界；这些历史候选的签名状态
+  不自动证明 rc4 或未来候选的签名状态；
 - Formal-v3 runtime observation 只覆盖 rc2 在本次 Sandbox 中绑定的 candidate/Artifacts；
   Voices 只覆盖 A1、A2、B1 各自三秒 top-window trace，不是 exhaustive exclusion；FP4 及现有安装验收
   仍不声明 universal site compatibility、undetectability、login/payment/CAPTCHA、完整 TLS ClientHello、
@@ -194,49 +196,13 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
 
 ## 当前下一任务
 
-### post-rc3 product development（roadmap reentry）
+当前没有预选的 Camoufox、fingerprint、QA 或 release Gate，也没有已知待集成的产品代码分支。新工程任务从最新 `origin/baseline/dev` 开始，由用户提出的产品需求、真实体验问题或新的直接证据驱动；`main` 与历史 task branch 不是新任务的开发起点。
 
-当前 canonical development source 是 `origin/baseline/dev`（本地工作引用为 `baseline/dev`，
-正常时两者精确相等），新任务从这里分叉。`c1688d5a392ffa69ae77c246bcb4bb78b083e26f` 是
-rc2 的固定 source binding，`407c501741c1be3444bfa607c7e693ecc7324409` 是 v0.1.0-rc3 的
-固定 source binding；两者都是历史锚点，不是会随开发继续推进的 canonical ref。
+不要默认重跑 FP1–FP4、开启 FP5、继续当前 Codex worktree 的 ACL 深挖、重跑已完成的性能/Managed 生命周期验收，或启动 rc5、installed-candidate acceptance 与 reassurance QA。未来若正常产品目录和正常用户上下文出现同类启动故障，再对那个确切环境采集原生证据；旧工作树失败不是当前产品 blocker。
 
-**Surface Truth Matrix 审计**：QA commit `96543d7`（branch `origin/agent/qa/fingerprint-surface-52ebde`）在基线 `0d74290` 对 Managed Identity 四层指纹表面（Configured / Applied / Observed / Reconciled）完成了全面审计。结论：所有已核对核心表面完全匹配，零跨 Realm 漂移，零 `CONTROL_GAP`；当时确定的剩余缺口为 WebGPU 与 Window Geometry；字体部分已由 `1b41b81` 取代；传输部分已由 `94a3641` 补充。
+近期性能与响应性工作已完成：[处置和原生 Windows 开发生命周期证据](qa/performance-architecture-2026-09-27.md)记录 Managed 创建 2.952/1.136 秒、创建期间 Vault 读取 25.9 毫秒、两次启动 25.171/13.920 秒、reobserve 1.873 秒、stop 约 1 秒，及页面 ready、122 秒存活、最终 owned processes 0。这些是有边界的开发运行证据，不是普遍性能保证或 rc4 安装验收。[目录 ACL 对照](qa/managed-engine-directory-acl-2026-09-27.md)证明继承 DACL 对当前工作树启动失败的因果作用；尚未识别具体 ACE、Windows API 错误或更深层机制。
 
-**Fresh Identity Recheck 源码与包更新**：运行中的 Managed Identity Silo 支持在活动 session 上通过 Host `reobserve_identity` 命令重新读取 observation，生成新的 Runtime Identity Evidence，且不破坏当前页面。该能力在 Host 与 Desktop Core 源码及测试中已完整实现。QA 运行中观察到的失败属于测试暂存环境中的 engine package freshness gap（packaged Host exe 未更新），而非源码缺口。
-
-**Transport Coherence 直接观察**：QA 诊断（commit `94a3641`，branch `origin/agent/qa/transport-fingerprint-d96e42`）在真实 Managed session 验证了 TLS/HTTP2/QUIC 观察链。ClientHello 与 Firefox 152 NSS 自洽，HTTP/2 SETTINGS 与伪头顺序稳定且呈 Gecko 形态，QUIC v1 Initial 握手尝试已观察，代理路径保持端到端 TLS 且域名委托正确。结论为 `TRANSPORT_COHERENCE_NO_CONTROL_BLOCKER_FOUND`；formal verifier 保持 unavailable。
-
-**Fingerprint Coherence Closure I**：
-- **窗口几何一致性（Window Geometry Coherence）**：`ACCEPTED_IN_WINDOWS_SANDBOX`。BrowserForge 越界坐标（如 `screenX=2232, screen.width=1280`）的虚拟屏幕有效边界裁剪（`[availLeft, availLeft + max(0, availWidth - outerWidth)]`）与历史 Artifact 不改写保证已在健康 Windows Sandbox 中完成 1280x800、1024x768、冷重启与 Legacy 越界 Artifact（2232 裁剪至 114）四重场景的真实浏览器验收（详见 `docs/qa/packaged-host-sandbox-runtime-acceptance/STATUS.md`）。
-- **WebGPU 边界与策略定级**：官方分类确立为 `WEBGPU_NO_LEAK_OBSERVED_BUT_POLICY_BOUNDARY_STILL_OPEN`。Camoufox 152 引擎无 WebGPU 伪装配置，安全上下文中 `navigator.gpu` 存在但 `requestAdapter()` 返回 `null`（当前环境下无真实硬件信息泄露）。直接关闭 `dom.webgpu.enabled` 会导致 `navigator.gpu` 缺失产生反常指纹；伪装需等待 Gecko 源码级补丁。
-
-**Evidence Coverage Closure II（源码闭合，Windows Sandbox 真实运行时验收通过）**：
-- **WebGL2 证据闭环**：WebGL2 vendor/renderer 正式纳入 Runtime Identity Evidence 观察与对账。复用同一 expected GPU identity（`webglVendor` / `webglRenderer`），不扩张 Artifact schema。renderer 若含 `, or similar` 严格保持 `unavailable`，不伪造 exact match；WebGPU 策略边界继续保持 `WEBGPU_NO_LEAK_OBSERVED_BUT_POLICY_BOUNDARY_STILL_OPEN`。在真实浏览器中 `webgl2Vendor` 匹配（Google Inc. (Intel)），`webgl2Renderer` 判定 `unavailableCorrect: true`。
-- **Request Header（Accept-Encoding）真实观察闭环**：`headers.Accept-Encoding` 正式纳入 formal observation 与 reconciliation。Host loopback probe server 在真实浏览器 HTTP 请求到达时直接捕获请求头，已在真实运行中验证与预期一致（`gzip, deflate, br, zstd`）。
-- **ObservedWebsiteDigest 稳定性**：保持 `verisilo-camoufox-observed-website/v2` 规范与既有字段集合不变，新表面仅作为 formal evidence signal 呈现，完全不破坏历史 digest 兼容性。
-- **Fresh Recheck 一致性**：活动 session 的 `reobserve_identity` 在临时页面上重新进行真实 WebGL2 与 loopback HTTP 请求头观察，生成新的 `observedAt`，且严格验证了活跃页面 Sentinel 与 URL 的完好保持（`sentinelIntact=true, urlIntact=true`）。
-- **Packaged-Host 真实运行时验收闭环**：使用当前源码打包的自包含 Dev Engine Package 在原生 Windows Sandbox 中通过全套 4 会话验收矩阵与进程清理（详见 `docs/qa/packaged-host-sandbox-runtime-acceptance/STATUS.md`，判定 `CURRENT_SOURCE_PACKAGED_HOST_RUNTIME_ACCEPTED_IN_WINDOWS_SANDBOX`）。
-
-**Create New Identity From This Silo 已进入 source**：Managed Identity Silo 可以把当前
-安全可复用的 identity/network 配置作为新建模板，创建新的 Silo、Profile、seed 和
-Artifact；不会复制浏览器 session/state 或 Vault 明文凭据。
-
-**Current Session Integrity 已进入 source**：运行中的 Managed Identity Silo 卡片现在
-提供「当前会话完整性」结构化摘要，从既有 Runtime Identity / Engine / Network evidence
-与 attribution 派生身份、引擎、网络、运行归属四个状态，并如实利用 identity
-`observedAt` 与 network `expiresAt` 表达新鲜度。它是派生摘要，不新增证据等级或
-verification score；`Matched` 仍只是 expected-vs-observed reconciliation 结果。
-
-下一个 product slice **尚未由用户冻结**。不要自动开始 rc4 或其他未批准方向。也不要
-自动重跑输入未变化的 FP1–FP4、创建 FP5。当前公开版本保持 **v0.1.0-rc3**，release gate 保持 CLOSED。
-
-历史 `artifacts/release/managed-browser/v0.1.0-rc1` 仍保留为 superseded、从未 runtime-accepted
-的候选记录；其原始 source、dirty 状态、installer hash、verifier 和 Pending acceptance 不变。
-
-rc2 的 Sandbox 验收与 rc3 公开 prerelease 是各自边界的直接证据；它们不证明 strict
-non-admin、所有 Windows hardware、universal site compatibility 或未列明的浏览器/网络能力。
-rc4 / release gate 必须由用户通过新指令显式打开。
+rc2/rc3/rc4 各有固定 source binding；它们不是随开发移动的 ref。rc4 公开 prerelease 已发布且 release gate 关闭。新的 release Gate 只由用户明确指令打开。
 
 ## 历史资格链与后续发布路径
 
@@ -251,13 +217,13 @@ Formal-v3 build/provenance
 → v0.1.0-rc2 source-bound freeze
 → package verification + packaged runtime
 → pristine Windows Sandbox installed acceptance
-→ v0.1.0-rc3 public prerelease（release gate closed）
-→ post-rc3 product development（canonical: origin/baseline/dev）
+→ v0.1.0-rc3 → v0.1.0-rc4 public prerelease（release gate closed）
+→ post-rc4 normal product development（canonical: origin/baseline/dev）
 ```
 
 前半段是已经闭合的资格链，中段记录 rc2 的 source-bound candidate、package/runtime 与
-pristine Windows Sandbox 安装验收，随后记录 rc3 公开 prerelease 与当前 post-rc3 开发阶段；
-rc2 与 rc3 的发布状态均为 `PUBLIC_GITHUB_PRERELEASE`，且都没有 strict standard-user 证明。
+pristine Windows Sandbox 安装验收，随后记录 rc3、rc4 公开 prerelease 与当前 post-rc4 开发阶段；
+rc2、rc3、rc4 均为 `PUBLIC_GITHUB_PRERELEASE`，既有验收没有证明 strict standard-user 语义。
 这条记录不构成新的研究 Gate，也不把历史 RC1 变成当前候选。
 
 ## 关键证据索引
@@ -283,9 +249,12 @@ rc2 与 rc3 的发布状态均为 `PUBLIC_GITHUB_PRERELEASE`，且都没有 stri
 | clean M3-WI input contract | `docs/camoufox-m3-wi-clean-contract.md`；SHA-256 `acdc725dbbb1ccb0c39571cea43f6eb7ef3137429f4f8b256ec764f3be20af74`；Attempts 1–3 immutable Failed，Attempt 4 Passed |
 | clean M3-WI Attempt 4 | `artifacts/camoufox-m3-wi-clean-attempt-4/run-report.json`；SHA-256 `edd08b83497e09a73a0a0e29203475f1e9163b20366b2dd7c899aea8634262fe`；native evidence SHA-256 `2f292585a010dbdc3cad35bfcf26b14800bad402ed4a160c5123f41005c972ad`；revision `26ded609bf5bf52882c9ba37496f783ab2b01681`；**Passed on this native Windows host**，`verified:false` |
 | Historical RC1 release artifact | `artifacts/release/managed-browser/v0.1.0-rc1`；source revision `6497828aa0643f94fed3ae708734eef6b85f8305`；source dirty `true`；installer SHA-256 `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`；verifier `Managed-browser release verification passed for 1403 files.`；acceptance `Pending`、`verified:false`、`runtimeAcceptance:null`；historical candidate, superseded, never runtime-accepted |
-| v0.1.0-rc2 source-bound candidate | `PUBLIC_GITHUB_PRERELEASE`（已被 rc3 取代为公开版本）；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`；installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；current-source locally accepted installed candidate；外层 Authenticode unsigned，内部 engine CMS signature/public pin 分开 |
+| v0.1.0-rc2 source-bound candidate | `PUBLIC_GITHUB_PRERELEASE`（已被 rc4 取代为当前公开版本）；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`；installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；在其固定边界内完成 installed acceptance；外层 Authenticode unsigned，内部 engine CMS signature/public pin 分开 |
 | v0.1.0-rc2 Windows Sandbox installed acceptance | QA branch `origin/agent/qa/v0-1-0-rc2-installed-69d6d6`；evidence tip `df1b82fe3ca2f071a4b6676adc92db046558cdd3`；Windows 11 Enterprise `10.0.26100` / AMD64 / pristine disposable Sandbox；`CURRENT_SOURCE_INSTALLED_PRODUCT_ACCEPTED_IN_WINDOWS_SANDBOX`；strict standard-user semantics `NOT_PROVEN`；验收期间的 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE` 观察项已由后续 source 修复关闭 |
 | v0.1.0-rc3 public prerelease | tag `v0.1.0-rc3`（commit `407c501741c1be3444bfa607c7e693ecc7324409`）；`PUBLIC_GITHUB_PRERELEASE`；rc3 release gate 已关闭；strict standard-user 与外层 Authenticode 边界不变 |
+| v0.1.0-rc4 current public prerelease | tag `v0.1.0-rc4`（commit `68e21c3d601e1df3699f1b21431cc23da873e546`）；`PUBLIC_GITHUB_PRERELEASE`；release gate 已关闭 |
+| Recent performance and Managed development lifecycle | [性能任务处置](qa/performance-architecture-2026-09-27.md)；原生 Windows 独立 LocalAppData 开发路径有限生命周期通过，非 universal performance / installed-candidate claim |
+| Codex worktree inherited-DACL limitation | [目录 ACL 因果对照](qa/managed-engine-directory-acl-2026-09-27.md)；504 文件 hash 相同、同一 executable/owner、仅改 DACL 后 60 秒失败转为 5.344 秒建页；非已证实产品 blocker |
 | Surface Truth Matrix 审计 | QA branch `origin/agent/qa/fingerprint-surface-52ebde`；commit `96543d74e34089c8d3f0b6199aaa974a2cff9922`；四层能力审计，基线 `0d74290`，零 CONTROL_GAP |
 | 传输层自洽性诊断 | QA branch `origin/agent/qa/transport-fingerprint-d96e42`；commit `94a364143f68f270597f86baf9ce735573632aff`；TLS ClientHello / HTTP2 / QUIC v1 观察自洽，`TRANSPORT_COHERENCE_NO_CONTROL_BLOCKER_FOUND` |
 | Managed Font Isolation | commit `1b41b812f3d10bdb2dc6543ea4a740a665f8d7c9`；`fontMode=managed` 成为生产预设，Windows 宿主未声明字体遮蔽经 oracle 验证 |

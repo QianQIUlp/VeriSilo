@@ -4,12 +4,14 @@
 
 The current canonical development source is `origin/baseline/dev` (with local
 `baseline/dev` required to match it exactly); fixed revisions are documented
-checkpoints, not moving source refs. The current source-bound candidate is
-**v0.1.0-rc2**, `PUBLIC_GITHUB_PRERELEASE`, locally
-accepted through packaged runtime and installed lifecycle in the exact pristine
-Windows Sandbox recorded in [the Camoufox program status](camoufox-program-status.md).
-The outer Desktop/NSIS
-binaries remain unsigned for Authenticode; the internal engine detached CMS
+checkpoints, not moving source refs. The current public release is
+**v0.1.0-rc4**, `PUBLIC_GITHUB_PRERELEASE`, tagged at
+`68e21c3d601e1df3699f1b21431cc23da873e546`; its release gate is closed.
+The historical, fixed **v0.1.0-rc2** candidate was accepted through packaged
+runtime and installed lifecycle in the exact pristine Windows Sandbox recorded
+in [the Camoufox program status](camoufox-program-status.md).
+The rc2 outer Desktop/NSIS
+binaries were unsigned for Authenticode; the internal engine detached CMS
 signature and public signer pin are a separate trust boundary. Strict
 unelevated standard-user install/reinstall/uninstall semantics remain
 unproven.
@@ -24,13 +26,13 @@ historical candidate and must not be used as the current product candidate:
 - acceptance: `Pending`, `verified:false`, `runtimeAcceptance:null`;
 - classification: historical candidate, superseded for current acceptance, never runtime-accepted.
 
-No additional RC version is chosen here. Any future candidate requires a new
+No subsequent RC version is chosen here. Any future candidate requires a new
 source binding and an explicit release-readiness decision on one canonical
 baseline.
 
-## Current v0.1.0-rc2 candidate
+## Historical v0.1.0-rc2 candidate
 
-The current candidate is bound to:
+That fixed candidate is bound to:
 
 - source revision: `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`;
 - installer SHA-256: `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`;
@@ -48,10 +50,10 @@ The installed acceptance evidence is indexed by QA branch
 `df1b82fe3ca2f071a4b6676adc92db046558cdd3`. Its `WDAGUtilityAccount` is an
 administrator, so the strict standard-user boundary is `NOT_PROVEN`, not a
 lifecycle failure. The low-severity
-`MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE` remains a documented,
-non-blocking UX observation; it is not claimed fixed here.
+`MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE` was a documented,
+non-blocking UX observation at that candidate; subsequent source closed it.
 
-This candidate is publicly available as a GitHub pre-release. The
+This historical candidate was published as a GitHub pre-release. The
 release architecture and build semantics below remain valid, while the
 historical RC1-specific profile must not be read as rc2's acceptance state.
 
