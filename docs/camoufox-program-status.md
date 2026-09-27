@@ -6,7 +6,7 @@
 - 当前 canonical development source：`origin/baseline/dev`（本地工作引用为 `baseline/dev`，正常时两者精确相等）
 - 当前公开版本：**v0.1.0-rc4**（`PUBLIC_GITHUB_PRERELEASE`；tag `v0.1.0-rc4`，release gate 已关闭）
 - `RC4_SOURCE_SHA`：`68e21c3d601e1df3699f1b21431cc23da873e546`；这是固定 release source，不是开发基线
-- 当前工程阶段：**post-rc4 normal product development**；新任务从最新 `origin/baseline/dev` 分叉（2026-09-27 远端核对为 `4aee8ef83f4bfeed617fdc902be8b9c6fa00608a`）
+- 当前工程阶段：**post-rc4 normal product development**；新任务从最新 `origin/baseline/dev` 分叉
 - 历史 rc2 candidate：source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256
   `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；文档变化不改变其 source binding
 
