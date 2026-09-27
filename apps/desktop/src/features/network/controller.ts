@@ -1,4 +1,8 @@
-import { type MihomoSnapshot, desktopApi } from "../../desktop-api.js";
+import {
+  type MihomoControllerError,
+  type MihomoSnapshot,
+  desktopApi,
+} from "../../desktop-api.js";
 
 import {
   isClashPipeController,
@@ -10,6 +14,21 @@ import {
   userFacingErrorMessage,
   truncateErrorDetail,
 } from "../../user-errors.js";
+
+function canRediscoverController(
+  error: unknown,
+): error is MihomoControllerError {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const { code, message } = error as Partial<MihomoControllerError>;
+  return (
+    typeof message === "string" &&
+    (code === "controller_unreachable" ||
+      code === "controller_transport" ||
+      code === "mixed_port")
+  );
+}
 
 export async function readMihomoGroups(
   controllerUrl: string,
@@ -50,16 +69,10 @@ export async function readMihomoGroups(
     try {
       return await inspect(trimmed);
     } catch (error) {
-      const text = userFacingErrorMessage(error);
-      if (
-        !text.includes("没有可用的 Clash 控制口") &&
-        !text.includes("无法连接本机") &&
-        !text.includes("积极拒绝") &&
-        !text.includes("是 Clash 给浏览器走流量的代理端口")
-      ) {
+      if (!canRediscoverController(error)) {
         throw error;
       }
-      directInspectFailure = truncateErrorDetail(text);
+      directInspectFailure = truncateErrorDetail(userFacingErrorMessage(error));
     }
   }
   const probe = await desktopApi.probeLocalClash(secret);

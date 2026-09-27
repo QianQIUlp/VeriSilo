@@ -177,6 +177,17 @@ export interface MihomoControllerInput {
   secret: string;
 }
 
+/** Rejected value from inspect_mihomo_controller; messages are display-only. */
+export interface MihomoControllerError {
+  code:
+    | "controller_unreachable"
+    | "controller_transport"
+    | "mixed_port"
+    | "controller_rejected"
+    | "controller_internal";
+  message: string;
+}
+
 export interface MihomoNode {
   name: string;
   proxyType: string | null;

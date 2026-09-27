@@ -1,5 +1,6 @@
 use crate::application::{
-    DesktopStatus, EngineAdapterStatus, LegacyEnvironmentArtifact, RemoteEnvironmentStatus,
+    DesktopStatus, EngineAdapterStatus, LegacyEnvironmentArtifact, MihomoControllerError,
+    RemoteEnvironmentStatus,
 };
 use crate::domain::{
     BrowserCandidate, BrowserVerification, CreateManagedSiloInput, CreateSiloInput,
@@ -539,10 +540,10 @@ pub(crate) async fn cleanup_legacy_environment_artifact(
 #[tauri::command]
 pub(crate) async fn inspect_mihomo_controller(
     input: MihomoControllerInput,
-) -> Result<MihomoSnapshot, String> {
+) -> Result<MihomoSnapshot, MihomoControllerError> {
     tauri::async_runtime::spawn_blocking(move || application::inspect_mihomo_controller(input))
         .await
-        .unwrap_or_else(|error| Err(error.to_string()))
+        .map_err(|error| MihomoControllerError::worker_failed(error.to_string()))?
 }
 
 #[tauri::command]

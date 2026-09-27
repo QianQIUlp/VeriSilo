@@ -57,7 +57,7 @@ pub(crate) use vault::{
 };
 
 mod network;
-pub(crate) use network::{inspect_mihomo_controller, probe_local_clash};
+pub(crate) use network::{inspect_mihomo_controller, probe_local_clash, MihomoControllerError};
 
 mod identity;
 pub(crate) use identity::{
