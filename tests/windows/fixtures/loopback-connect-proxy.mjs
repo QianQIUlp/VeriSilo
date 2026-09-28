@@ -1,6 +1,6 @@
 // Controlled HTTP CONNECT upstream for native Managed concurrency acceptance.
-// Bind to loopback; only the local test site and Managed provisioning's
-// existing ipwho.is lookup can leave this process.
+// Bind to loopback; only the local test site and the Managed Host's fixed
+// exit-observation endpoints can leave this process.
 import { createServer } from "node:http";
 import { connect } from "node:net";
 
@@ -12,10 +12,18 @@ function argument(name) {
 const port = Number(argument("--port"));
 const sitePort = Number(argument("--site-port"));
 const token = argument("--token");
-const allowIpwhois = process.argv.includes("--allow-ipwhois");
+const allowExitObservation = process.argv.includes("--allow-exit-observation");
+const exitObservationTargets = new Set(["ipwho.is:443", "api.ipify.org:443", "api.ip.sb:443"]);
 if (![port, sitePort].every((value) => Number.isInteger(value) && value > 0 && value <= 65535) ||
     !/^[0-9a-f]{64}$/.test(token ?? "")) {
-  throw new Error("Usage: node loopback-connect-proxy.mjs --port <port> --site-port <port> --token <64 hex> [--allow-ipwhois]");
+  throw new Error("Usage: node loopback-connect-proxy.mjs --port <port> --site-port <port> --token <64 hex> [--allow-exit-observation]");
+}
+
+function destination(target) {
+  if (target === `198.51.100.9:${sitePort}`) return { host: "127.0.0.1", port: sitePort, site: true };
+  if (allowExitObservation && exitObservationTargets.has(target))
+    return { host: target.slice(0, -4), port: 443, site: false };
+  return null;
 }
 
 const events = [];
@@ -30,6 +38,9 @@ const server = createServer((request, response) => {
       .end(`${JSON.stringify({ schema: "urn:verisilo:loopback-connect-proxy:1", sitePort })}\n`);
   } else if (request.method === "GET" && url.pathname === "/__events") {
     response.writeHead(200, { "content-type": "application/json" }).end(`${JSON.stringify(events)}\n`);
+  } else if (request.method === "GET" && url.pathname === "/__allowed") {
+    response.writeHead(200, { "content-type": "application/json" })
+      .end(`${JSON.stringify({ allowed: destination(url.searchParams.get("target")) !== null })}\n`);
   } else if (request.method === "POST" && url.pathname === "/__reset") {
     events.length = 0;
     response.writeHead(204).end();
@@ -42,15 +53,14 @@ server.on("connect", (request, client, head) => {
   const target = request.url ?? "";
   // A reserved test address prevents Firefox's implicit localhost proxy bypass.
   // The proxy maps it to the loopback site; no packet goes to that address.
-  const site = target === `198.51.100.9:${sitePort}`;
-  const ipwhois = allowIpwhois && target === "ipwho.is:443";
-  if (!site && !ipwhois) {
+  const route = destination(target);
+  if (!route) {
     client.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
     return;
   }
   const event = { target, operationTokens: [] };
   events.push(event);
-  const upstream = connect(ipwhois ? 443 : sitePort, ipwhois ? "ipwho.is" : "127.0.0.1");
+  const upstream = connect(route.port, route.host);
   let established = false;
   upstream.once("connect", () => {
     established = true;
@@ -67,7 +77,7 @@ server.on("connect", (request, client, head) => {
       }
       tail = content.slice(-64);
     };
-    if (site) {
+    if (route.site) {
       if (head.length) observe(head);
       client.on("data", observe);
     }

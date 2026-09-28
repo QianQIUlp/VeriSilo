@@ -18,10 +18,12 @@ const cli = option("--cli");
 const sourceSha = option("--source-sha");
 const uiCheckpoint = arguments_.includes("--ui-checkpoint");
 const continuationPath = option("--continue-after-direct");
+const continuationAfterBackupPath = option("--continue-after-backup");
 if (!cli || !existsSync(cli) || !/^[0-9a-f]{40}$/.test(sourceSha ?? "")) {
-  throw new Error("Usage: node managed-concurrency-acceptance.mjs --cli <independent normal-user verisilo-cli.exe> --source-sha <committed SHA> [--output-dir <new directory>] [--ui-checkpoint] [--continue-after-direct <prior failed result.json>]");
+  throw new Error("Usage: node managed-concurrency-acceptance.mjs --cli <independent normal-user verisilo-cli.exe> --source-sha <committed SHA> [--output-dir <new directory>] [--ui-checkpoint] [--continue-after-direct <prior failed result.json> | --continue-after-backup <prior failed result.json>]");
 }
-if (continuationPath && uiCheckpoint) throw new Error("Continuation keeps UI verification separate from backend acceptance.");
+if ((continuationPath && continuationAfterBackupPath) || (continuationPath && uiCheckpoint))
+  throw new Error("Choose one continuation; direct-stage backend acceptance does not wait for UI.");
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 function git(...args) {
   const result = spawnSync("git", ["-C", repoRoot, ...args], { encoding: "utf8", windowsHide: true });
@@ -183,7 +185,7 @@ async function launchSite() {
 async function launchProxy(name) {
   const port = await freePort();
   const child = await launchChild("loopback-connect-proxy.mjs", ["--port", String(port),
-    "--site-port", String(report.fixturePort), "--token", fixtureToken, "--allow-ipwhois"],
+    "--site-port", String(report.fixturePort), "--token", fixtureToken, "--allow-exit-observation"],
   `http://127.0.0.1:${port}/__health?harnessToken=${fixtureToken}`,
   "urn:verisilo:loopback-connect-proxy:1");
   proxies.set(name, { port, child });
@@ -248,7 +250,8 @@ async function waitForUiCheckpoint(aId, bId) {
     createdAt: new Date().toISOString(), continuePath,
   }, null, 2)}\n`, { flag: "wx" });
   step("UI checkpoint ready: switch A/B selection in the live desktop", { checkpointPath, continuePath });
-  const deadline = Date.now() + 10 * 60_000;
+  process.stdout.write(`UI checkpoint: vault=${vault} A=${aId} B=${bId} path=${checkpointPath}\n`);
+  const deadline = Date.now() + (continuationAfterBackupPath ? 90_000 : 10 * 60_000);
   let continuation;
   while (Date.now() < deadline) {
     if (existsSync(continuePath)) {
@@ -258,7 +261,8 @@ async function waitForUiCheckpoint(aId, bId) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   assert.equal(continuation?.schema, "verisilo-managed-concurrency-ui-continue/v1",
-    "UI checkpoint was not completed within 10 minutes");
+    continuationAfterBackupPath ? "UI checkpoint was not completed within 90 seconds"
+      : "UI checkpoint was not completed within 10 minutes");
   assert.equal(continuation.checkpointId, checkpointId, "UI continuation did not match this run");
   assert.equal(continuation.result, "passed", "UI selection check did not pass");
   const after = await Promise.all([runtime(aId), runtime(bId)]);
@@ -266,6 +270,7 @@ async function waitForUiCheckpoint(aId, bId) {
     "UI selection changed a browser's running identity");
   await assertRunning(aId, bId);
   step("live UI selection left both runtime identities unchanged", { checkpointPath, continuePath });
+  return { aId, bId, runtimeIds, checkpointPath, continuePath };
 }
 async function readDiscovery() {
   discovery = JSON.parse(await readFile(path.join(vaultRoot, "local-api.json"), "utf8"));
@@ -281,15 +286,20 @@ try {
     .update(await readFile(path.join(packageRoot, "engine-package.json"))).digest("hex");
   assert.equal(report.enginePackageManifestSha256, fixedEngineManifestSha256,
     "Native acceptance must use the previously verified fixed Engine package");
-  if (continuationPath) {
-    const previousPath = path.resolve(continuationPath);
+  if (continuationPath || continuationAfterBackupPath) {
+    const previousPath = path.resolve(continuationAfterBackupPath ?? continuationPath);
     const previousBytes = await readFile(previousPath);
     const previous = JSON.parse(previousBytes.toString("utf8"));
     assert.equal(previous.schema, report.schema);
     assert.equal(previous.result, "failed");
-    assert.match(previous.failure?.message ?? "", /^UI checkpoint was not completed within 10 minutes/);
-    assert.ok(previous.steps?.some((entry) => entry.name === "two Direct Managed browsers and Profiles isolated"),
-      "Previous attempt must contain the completed direct A/B evidence");
+    const completedStep = continuationAfterBackupPath
+      ? "A cold backup and explicit restore completed while B ran"
+      : "two Direct Managed browsers and Profiles isolated";
+    assert.match(previous.failure?.message ?? "", continuationAfterBackupPath
+      ? /^managed_browser_open_failed:.*network_exit_unavailable/
+      : /^UI checkpoint was not completed within 10 minutes/);
+    assert.ok(previous.steps?.some((entry) => entry.name === completedStep),
+      `Previous attempt must contain completed evidence: ${completedStep}`);
     assert.equal(previous.desktopSha256, report.desktopSha256, "Desktop binary changed since direct A/B evidence");
     assert.equal(previous.cliSha256, report.cliSha256, "CLI binary changed since direct A/B evidence");
     assert.equal(previous.enginePackageManifestSha256, report.enginePackageManifestSha256,
@@ -297,7 +307,8 @@ try {
     report.continuedFrom = { resultPath: previousPath,
       resultSha256: createHash("sha256").update(previousBytes).digest("hex"),
       runId: previous.runId, sourceSha: previous.sourceSha,
-      completedStep: "two Direct Managed browsers and Profiles isolated" };
+      productionSourceSha: previous.continuedFrom?.sourceSha ?? previous.sourceSha,
+      completedStep };
   }
   cliStatus();
   await readDiscovery();
@@ -311,7 +322,9 @@ try {
     name: `${name}-${runId}`, color: "#5b5ce2", identityPreset: "balanced-en-us",
     followNetworkExit: false, networkProfile: { mode: "direct", proxyRequired: false },
   });
-  const a = await createDirect("managed-A");
+  let a;
+  if (!continuationAfterBackupPath) {
+  a = await createDirect("managed-A");
   const b = await createDirect("managed-B");
   const c = await createDirect("managed-third");
   assert.equal(new Set([a.id, b.id, c.id]).size, 3);
@@ -324,11 +337,6 @@ try {
     await assertRunning(a.id, b.id);
     step("A/B fixture ready for remaining acceptance; prior direct isolation evidence reused",
       { aId: a.id, bId: b.id, thirdId: c.id });
-    const opened = spawnSync(cli, ["--vault", vault, "app", "open"],
-      { encoding: "utf8", timeout: 30_000, windowsHide: true });
-    report.nonblockingUiOpen = { success: opened.status === 0,
-      error: opened.status === 0 ? null : redact(opened.stderr?.trim() || opened.error?.message) };
-    process.stdout.write(`UI selection fixture (nonblocking): vault=${vault} A=${a.id} B=${b.id}\n`);
   } else {
     assert.equal((await api("GET", "/v1/status")).activation.activeSiloId, a.id);
     assert.equal(cliStatus().activation.activeSiloId, a.id);
@@ -412,6 +420,10 @@ try {
 
   await stop(a.id);
   await stop(b.id);
+  } else {
+    a = await createDirect("managed-A");
+    step("Direct fixture reserved for remaining proxy and global acceptance", { aId: a.id });
+  }
   const pPort = await launchProxy("P");
   const qPort = await launchProxy("Q");
   const createProxy = (name, port) => api("POST", "/v1/silos", {
@@ -424,6 +436,14 @@ try {
   const q = await createProxy("managed-proxy-Q", qPort);
   await start(p.id);
   await start(q.id);
+  if (continuationAfterBackupPath && uiCheckpoint) {
+    try {
+      report.uiSelection = { result: "passed", ...await waitForUiCheckpoint(p.id, q.id) };
+    } catch (error) {
+      report.uiSelection = { result: "unconfirmed", message: redact(error.message) };
+      step("UI selection unconfirmed; backend acceptance continues");
+    }
+  }
   const pToken = await fixturePage(p.id, "198.51.100.9", { op: "write", value: markers.P });
   const qToken = await fixturePage(q.id, "198.51.100.9", { op: "write", value: markers.Q });
   const pEvents = await events(pPort);
@@ -461,7 +481,9 @@ try {
 
   await stop(p.id);
   await start(a.id);
-  await fixturePage(a.id, "127.0.0.1", { op: "read-persistent", expectedPersistent: markers.A });
+  await fixturePage(a.id, "127.0.0.1", continuationAfterBackupPath
+    ? { op: "write", value: markers.A }
+    : { op: "read-persistent", expectedPersistent: markers.A });
   const qMixedToken = await fixturePage(q.id, "198.51.100.9",
     { op: "read-persistent", expectedPersistent: markers.Q });
   assertRoute(await events(qPort), qMixedToken, "Q with Direct A running");

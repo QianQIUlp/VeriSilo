@@ -45,7 +45,8 @@ test("loopback CONNECT proxy maps only the reserved test address and records rou
   const proxyPort = await freePort();
   const token = randomBytes(32).toString("hex");
   const proxy = spawn(process.execPath, [fileURLToPath(new URL("./loopback-connect-proxy.mjs", import.meta.url)),
-    "--port", String(proxyPort), "--site-port", String(sitePort), "--token", token],
+    "--port", String(proxyPort), "--site-port", String(sitePort), "--token", token,
+    "--allow-exit-observation"],
   { stdio: "ignore", windowsHide: true });
   after(() => proxy.kill());
   const control = `http://127.0.0.1:${proxyPort}`;
@@ -64,6 +65,12 @@ test("loopback CONNECT proxy maps only the reserved test address and records rou
     `GET /?operationToken=${operationToken} HTTP/1.1\r\nHost: ${target}\r\nConnection: close\r\n\r\n`),
   /fixture-ok/);
   assert.match(await tunnel(proxyPort, "example.com:80"), /^HTTP\/1\.1 403/);
+  const allowed = async (target) => (await (await fetch(
+    `${control}/__allowed?harnessToken=${token}&target=${encodeURIComponent(target)}`)).json()).allowed;
+  for (const observation of ["ipwho.is:443", "api.ipify.org:443", "api.ip.sb:443"])
+    assert.equal(await allowed(observation), true, `${observation} is an existing Host check`);
+  for (const forbidden of ["api.ipify.org:80", "api.ip.sb:80", "example.com:443"])
+    assert.equal(await allowed(forbidden), false, `${forbidden} must remain blocked`);
   const events = await (await fetch(`${control}/__events?harnessToken=${token}`)).json();
   assert.deepEqual(events, [{ target, operationTokens: [operationToken] }]);
 });
