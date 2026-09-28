@@ -19,6 +19,8 @@ pub mod engine;
 pub mod environment;
 #[path = "../../../apps/desktop/src-tauri/src/launcher.rs"]
 pub mod launcher;
+#[path = "../../../apps/desktop/src-tauri/src/managed_backup.rs"]
+pub mod managed_backup;
 #[path = "../../../apps/desktop/src-tauri/src/mihomo.rs"]
 pub mod mihomo;
 #[path = "../../../apps/desktop/src-tauri/src/native_host.rs"]

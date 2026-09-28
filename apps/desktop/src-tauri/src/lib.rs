@@ -11,6 +11,7 @@ pub mod engine;
 pub mod environment;
 pub mod launcher;
 pub mod local_api;
+pub mod managed_backup;
 pub mod mihomo;
 pub mod native_host;
 pub mod proxy_relay;
