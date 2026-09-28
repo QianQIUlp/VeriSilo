@@ -198,7 +198,9 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
 
 本轮正常产品开发已完成三项能力：统一当前身份/网络证据的解释与差异定位、Managed 创建后的解析结果确认、每个本机 Standard/Managed Silo 的一条加密最近运行记录。最近记录始终表示历史/最后已知状态，不提供当前运行验证；匹配、无法验证和过期边界保持独立。实现范围和组合验证结果见[产品完整性切片记录](product-integrity-slices-2026-09-28.md)。
 
-随后已完成 [Managed Silo 冷备份与原身份恢复 v1](managed-silo-cold-backup-v1.md)：停止后的 Profile、原始 Artifact、身份/引擎绑定和必要网络配置一起加密保存，通过检查摘要与明确覆盖确认恢复原身份。范围限定同一 Windows、同一系统用户、同一 Vault 路径及兼容引擎；原 Silo 元数据须存在，缺失时先恢复 Vault 配置备份。[本轮原生开发验收](qa/managed-cold-backup-2026-09-28.md)直接证明 A 的持久 Cookie、LocalStorage、IndexedDB 经改写和恢复后读回原值，Artifact 绑定保持且 B 不受影响；错误口令/摘要被拒绝。恢复后重新取得当前证据，不能把旧记录当成当前验证。有限多 Silo 并发仍未实现，不因本轮备份完成而自动开启；这些开发变化未进入 rc4 安装包。
+随后已完成 [Managed Silo 冷备份与原身份恢复 v1](managed-silo-cold-backup-v1.md)：停止后的 Profile、原始 Artifact、身份/引擎绑定和必要网络配置一起加密保存，通过检查摘要与明确覆盖确认恢复原身份。范围限定同一 Windows、同一系统用户、同一 Vault 路径及兼容引擎；原 Silo 元数据须存在，缺失时先恢复 Vault 配置备份。[冷备份原生开发验收](qa/managed-cold-backup-2026-09-28.md)直接证明 A 的持久 Cookie、LocalStorage、IndexedDB 经改写和恢复后读回原值，Artifact 绑定保持且 B 不受影响；错误口令/摘要被拒绝。恢复后重新取得当前证据，不能把旧记录当成当前验证。
+
+用户随后授权的[本地 Managed Silo 有限并发 v1](managed-silo-concurrency-v1.md)现已实现：同一实例和 Vault 最多两个本地 Camoufox Managed，会话各自管理进程、Profile、代理中继、健康、runtimeId、证据和恢复记录。支持 Direct 与现有固定代理组合，其他引擎、运行位置及 Clash/Mihomo 仍保持单会话边界。[原生证据](qa/managed-concurrency-2026-09-28.md)覆盖 A/B 同站存储隔离、独立重观察/停止/重启、B 运行时 A 冷恢复、本地固定代理路由与单侧失败关闭、锁定及退出/重启归属。UI Preview 覆盖目标、独立 busy、迟到响应和错误；真实窗口已核对 P/Q 选择与双运行显示，90 秒自动 runtimeId 后置对照超时仍记未确认，详见[UI 记录](qa/managed-concurrency-ui-2026-09-28.md)。本地代理实验不推导公网出口或完整无泄漏；这些开发变化未进入 rc4 安装包。
 
 当前没有预选的 Camoufox、fingerprint、QA 或 release Gate，也没有已知待集成的产品代码分支。新工程任务从最新 `origin/baseline/dev` 开始，由用户提出的产品需求、真实体验问题或新的直接证据驱动；`main` 与历史 task branch 不是新任务的开发起点。
 
