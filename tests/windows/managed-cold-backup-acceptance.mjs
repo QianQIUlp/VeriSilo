@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes, createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -221,7 +221,7 @@ try {
     destinationPath: archive, passphrase,
   });
   assert.equal(receipt.siloId, a.id);
-  assert.equal(path.resolve(receipt.destinationPath), archive);
+  assert.equal(realpathSync.native(receipt.destinationPath), realpathSync.native(archive));
   assert.ok(receipt.bytes > 0 && receipt.profileBytes > 0 && receipt.fileCount > 0);
   const inspect = await api("POST", `/v1/silos/${a.id}/backup-inspect`, { sourcePath: archive, passphrase });
   assert.match(inspect.archiveSha256, /^[0-9a-f]{64}$/);
