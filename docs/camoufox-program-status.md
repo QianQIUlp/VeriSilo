@@ -4,9 +4,9 @@
 - 更新日期：2026-09-28
 - 当前稳定产品分支：`codex/camoufox-m3-engine-adapter`
 - 当前 canonical development source：`origin/baseline/dev`（本地工作引用为 `baseline/dev`，正常时两者精确相等）
-- 当前公开版本：**v0.1.0-rc4**（`PUBLIC_GITHUB_PRERELEASE`；tag `v0.1.0-rc4`，release gate 已关闭）
-- `RC4_SOURCE_SHA`：`68e21c3d601e1df3699f1b21431cc23da873e546`；这是固定 release source，不是开发基线
-- 当前工程阶段：**post-rc4 normal product development**；新任务从最新 `origin/baseline/dev` 分叉
+- 当前公开版本：**v0.1.0-rc5**（`PUBLIC_GITHUB_PRERELEASE`；tag `v0.1.0-rc5`，release gate 已关闭）
+- `RC5_SOURCE_SHA`：`7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027`；这是固定 release source，不是开发基线
+- 当前工程阶段：**post-rc5 normal product development**；新任务从最新 `origin/baseline/dev` 分叉
 - 历史 rc2 candidate：source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256
   `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；文档变化不改变其 source binding
 
@@ -32,19 +32,21 @@ Silo = Persistent Profile
 
 Standard Silo 长期保留。Camoufox Managed Engine 的 standalone、资格链、生产 package/
 adapter、Managed Silo 产品路径、current-user NSIS、rc2 的 packaged runtime 和 Windows
-Sandbox 安装验收，以及 v0.1.0-rc4 公开 prerelease，均已达到各自文档边界。Profile、
+Sandbox 安装验收，以及 v0.1.0-rc5 公开 prerelease，均已达到各自文档边界。Profile、
 Artifact、Engine、Network 与 Evidence 不合并，`configured`、`applied`、`observed`、
 `verified` 与 `unavailable` 不混用。
 
-rc2→rc4 的 source/package/installed acceptance 与公开发布主线已经完成：
+rc2→rc4 的历史资格与公开发布序列、rc5 的 source-bound 发布已经完成；
+rc5 安装证据只按其单独的 bounded report 分类：
 
 ```text
 source stabilization → rc2 build → package verification → packaged runtime
 → pristine Windows Sandbox installed lifecycle → v0.1.0-rc3 → v0.1.0-rc4 public prerelease
-→ rc4 release gate closed
+→ rc4 release gate closed → post-rc4 product development → v0.1.0-rc5 public prerelease
+→ rc5 release gate closed
 ```
 
-当前阶段是 **post-rc4 normal product development**：canonical development source 是
+当前阶段是 **post-rc5 normal product development**：canonical development source 是
 `origin/baseline/dev`，`main` 不因落后而自动推进。近期性能与响应性工作已经收口，并在原生
 Windows Managed 开发实例中取得有限生命周期证据；工作树 Camoufox 启动差异已定位为当前
 Codex sandbox/worktree 的继承 DACL 开发限制，正常用户上下文的独立 LocalAppData 产品路径通过。
@@ -168,10 +170,11 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
 | Transport Coherence | **Observed Coherent**；QA 诊断（commit `94a3641`）在真实 Managed session 上直接观察到 TLS ClientHello 与 HTTP/2 行为与 Firefox 152 NSS 自洽，观察到 QUIC v1 Initial 握手尝试；formal verifier 仍 unavailable，保持诚实未声称 |
 | WebGPU Boundary | **Policy Boundary Open / No Leak Observed**（分类 `WEBGPU_NO_LEAK_OBSERVED_BUT_POLICY_BOUNDARY_STILL_OPEN`）；pinned Camoufox 152 无 WebGPU 伪装原语，安全上下文中 `requestAdapter()` 在本虚拟/无独显环境返回 `null`，未观察到真实硬件泄露；禁用将造成 `navigator.gpu` 缺失反常，需底层 Gecko 补丁 |
 | Historical local `v0.1.0-rc1` artifact | **Historical candidate / superseded / never runtime-accepted**；source `6497828aa0643f94fed3ae708734eef6b85f8305`, dirty `true`, verifier passed for 1403 files, acceptance `Pending`, `verified:false`, `runtimeAcceptance:null` |
-| v0.1.0-rc2 historical candidate | **PUBLIC_GITHUB_PRERELEASE（已被 rc4 取代为当前公开版本）**；该固定候选在 pristine Windows Sandbox 完成安装后生命周期验收；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3` |
+| v0.1.0-rc2 historical candidate | **PUBLIC_GITHUB_PRERELEASE（已被 rc5 取代为当前公开版本）**；该固定候选在 pristine Windows Sandbox 完成安装后生命周期验收；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`，installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3` |
 | v0.1.0-rc3 public prerelease | **PUBLIC_GITHUB_PRERELEASE；release gate 已关闭**；tag `v0.1.0-rc3`，source `407c501741c1be3444bfa607c7e693ecc7324409` |
-| v0.1.0-rc4 current public prerelease | **PUBLIC_GITHUB_PRERELEASE；release gate 已关闭**；tag `v0.1.0-rc4`，source `68e21c3d601e1df3699f1b21431cc23da873e546` |
-| Current source release readiness | **post-rc4 normal product development**；当前没有活动中的 QA/release Gate；strict standard-user install/reinstall/uninstall semantics 仍 `NOT_PROVEN`，不要将旧候选验收外推至所有环境 |
+| v0.1.0-rc4 historical public prerelease | **PUBLIC_GITHUB_PRERELEASE；release gate 已关闭**；tag `v0.1.0-rc4`，source `68e21c3d601e1df3699f1b21431cc23da873e546` |
+| v0.1.0-rc5 current public prerelease | **PUBLIC_GITHUB_PRERELEASE；release gate 已关闭**；tag `v0.1.0-rc5`，source `7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027`；单独 bounded installed report：`INCONCLUSIVE — installed files matched; Managed runtime/repair/uninstall flow not completed`；完整旧合同 `windows-acceptance-report.json` 仍为 `Pending` / `verified:false` / `runtimeAcceptance:null` |
+| Current source release readiness | **post-rc5 normal product development**；当前没有活动中的 QA/release Gate；strict standard-user install/reinstall/uninstall semantics 仍 `NOT_PROVEN`，不要将 bounded RC5 安装检查外推至完整旧合同矩阵或所有环境 |
 
 ## 当前未证明的边界
 
@@ -188,7 +191,7 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
   promotion boundary，而不是 installer lifecycle failure；
 - rc2 与 rc3 的 Desktop/NSIS 外层均为 `authenticode=false` / unsigned；内部 engine detached CMS
   signature、approved signer/public pin 与外层 Windows Authenticode 是不同边界；这些历史候选的签名状态
-  不自动证明 rc4 或未来候选的签名状态；
+  不自动证明 rc4、rc5 或未来候选的签名状态；
 - Formal-v3 runtime observation 只覆盖 rc2 在本次 Sandbox 中绑定的 candidate/Artifacts；
   Voices 只覆盖 A1、A2、B1 各自三秒 top-window trace，不是 exhaustive exclusion；FP4 及现有安装验收
   仍不声明 universal site compatibility、undetectability、login/payment/CAPTCHA、完整 TLS ClientHello、
@@ -200,15 +203,15 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
 
 随后已完成 [Managed Silo 冷备份与原身份恢复 v1](managed-silo-cold-backup-v1.md)：停止后的 Profile、原始 Artifact、身份/引擎绑定和必要网络配置一起加密保存，通过检查摘要与明确覆盖确认恢复原身份。范围限定同一 Windows、同一系统用户、同一 Vault 路径及兼容引擎；原 Silo 元数据须存在，缺失时先恢复 Vault 配置备份。[冷备份原生开发验收](qa/managed-cold-backup-2026-09-28.md)直接证明 A 的持久 Cookie、LocalStorage、IndexedDB 经改写和恢复后读回原值，Artifact 绑定保持且 B 不受影响；错误口令/摘要被拒绝。恢复后重新取得当前证据，不能把旧记录当成当前验证。
 
-用户随后授权的[本地 Managed Silo 有限并发 v1](managed-silo-concurrency-v1.md)现已实现：同一实例和 Vault 最多两个本地 Camoufox Managed，会话各自管理进程、Profile、代理中继、健康、runtimeId、证据和恢复记录。支持 Direct 与现有固定代理组合，其他引擎、运行位置及 Clash/Mihomo 仍保持单会话边界。[原生证据](qa/managed-concurrency-2026-09-28.md)覆盖 A/B 同站存储隔离、独立重观察/停止/重启、B 运行时 A 冷恢复、本地固定代理路由与单侧失败关闭、锁定及退出/重启归属。UI Preview 覆盖目标、独立 busy、迟到响应和错误；真实窗口已核对 P/Q 选择与双运行显示，90 秒自动 runtimeId 后置对照超时仍记未确认，详见[UI 记录](qa/managed-concurrency-ui-2026-09-28.md)。本地代理实验不推导公网出口或完整无泄漏；这些开发变化未进入 rc4 安装包。
+用户随后授权的[本地 Managed Silo 有限并发 v1](managed-silo-concurrency-v1.md)现已实现：同一实例和 Vault 最多两个本地 Camoufox Managed，会话各自管理进程、Profile、代理中继、健康、runtimeId、证据和恢复记录。支持 Direct 与现有固定代理组合，其他引擎、运行位置及 Clash/Mihomo 仍保持单会话边界。[原生证据](qa/managed-concurrency-2026-09-28.md)覆盖 A/B 同站存储隔离、独立重观察/停止/重启、B 运行时 A 冷恢复、本地固定代理路由与单侧失败关闭、锁定及退出/重启归属。UI Preview 覆盖目标、独立 busy、迟到响应和错误；真实窗口已核对 P/Q 选择与双运行显示，90 秒自动 runtimeId 后置对照超时仍记未确认，详见[UI 记录](qa/managed-concurrency-ui-2026-09-28.md)。本地代理实验不推导公网出口或完整无泄漏；这些开发变化未进入 rc4 安装包；rc5 固定候选包含这些能力。
 
-2026-09-28 用户明确要求“直接开新的 rc 然后更新 release”，因此当前活动任务是 [RC5 发布](acceptance/managed-browser-rc5.md)，从 `86ee698e5d7d7838b29478625be71a0d905885c6` 开始。这次授权包括固定候选打包、必要安装验收和公开 prerelease；尚未发布的 RC5 不能作为当前公开版本。没有新 fingerprint Gate，也没有已知待集成的产品代码分支。
+2026-09-28 用户授权的 [RC5 发布](acceptance/managed-browser-rc5.md)已完成：从 `86ee698e5d7d7838b29478625be71a0d905885c6` 开始，固定候选 source `7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027` 并公开 prerelease。单独的 bounded installed report 记录 `INCONCLUSIVE — installed files matched; Managed runtime/repair/uninstall flow not completed`，范围见 [RC5 smoke procedure](qa/rc5-installed-smoke.md)；完整旧合同 `windows-acceptance-report.json` 保持 `Pending`。当前没有活动中的 RC Gate、fingerprint Gate 或已知待集成的产品代码分支；下一产品任务尚未指定。
 
 本次 RC5 继承未受影响的产品证据，只对实际候选增加有边界的安装检查。不要默认重跑 FP1–FP4、开启 FP5、继续当前 Codex worktree 的 ACL 深挖或重跑已完成的性能/Managed 生命周期验收。未来若正常产品目录和正常用户上下文出现同类启动故障，再对那个确切环境采集原生证据；旧工作树失败不是当前产品 blocker。
 
-近期性能与响应性工作已完成：[处置和原生 Windows 开发生命周期证据](qa/performance-architecture-2026-09-27.md)记录 Managed 创建 2.952/1.136 秒、创建期间 Vault 读取 25.9 毫秒、两次启动 25.171/13.920 秒、reobserve 1.873 秒、stop 约 1 秒，及页面 ready、122 秒存活、最终 owned processes 0。这些是有边界的开发运行证据，不是普遍性能保证或 rc4 安装验收。[目录 ACL 对照](qa/managed-engine-directory-acl-2026-09-27.md)证明继承 DACL 对当前工作树启动失败的因果作用；尚未识别具体 ACE、Windows API 错误或更深层机制。
+近期性能与响应性工作已完成：[处置和原生 Windows 开发生命周期证据](qa/performance-architecture-2026-09-27.md)记录 Managed 创建 2.952/1.136 秒、创建期间 Vault 读取 25.9 毫秒、两次启动 25.171/13.920 秒、reobserve 1.873 秒、stop 约 1 秒，及页面 ready、122 秒存活、最终 owned processes 0。这些是有边界的开发运行证据，不是普遍性能保证或 rc5 安装验收。[目录 ACL 对照](qa/managed-engine-directory-acl-2026-09-27.md)证明继承 DACL 对当前工作树启动失败的因果作用；尚未识别具体 ACE、Windows API 错误或更深层机制。
 
-rc2/rc3/rc4 各有固定 source binding；它们不是随开发移动的 ref。rc4 公开 prerelease 已发布且 release gate 关闭。新的 release Gate 只由用户明确指令打开。
+rc2/rc3/rc4/rc5 各有固定 source binding；它们不是随开发移动的 ref。rc5 公开 prerelease 已发布且 release gate 关闭。新的 release Gate 只由用户明确指令打开。
 
 ## 历史资格链与后续发布路径
 
@@ -224,12 +227,13 @@ Formal-v3 build/provenance
 → package verification + packaged runtime
 → pristine Windows Sandbox installed acceptance
 → v0.1.0-rc3 → v0.1.0-rc4 public prerelease（release gate closed）
-→ post-rc4 normal product development（canonical: origin/baseline/dev）
+→ post-rc4 product development → v0.1.0-rc5 public prerelease（release gate closed）
+→ post-rc5 normal product development（canonical: origin/baseline/dev）
 ```
 
 前半段是已经闭合的资格链，中段记录 rc2 的 source-bound candidate、package/runtime 与
-pristine Windows Sandbox 安装验收，随后记录 rc3、rc4 公开 prerelease 与当前 post-rc4 开发阶段；
-rc2、rc3、rc4 均为 `PUBLIC_GITHUB_PRERELEASE`，既有验收没有证明 strict standard-user 语义。
+pristine Windows Sandbox 安装验收，随后记录 rc3、rc4、rc5 公开 prerelease 与当前 post-rc5 开发阶段；
+rc2、rc3、rc4、rc5 均为 `PUBLIC_GITHUB_PRERELEASE`，既有验收没有证明 strict standard-user 语义。
 这条记录不构成新的研究 Gate，也不把历史 RC1 变成当前候选。
 
 ## 关键证据索引
@@ -255,10 +259,11 @@ rc2、rc3、rc4 均为 `PUBLIC_GITHUB_PRERELEASE`，既有验收没有证明 str
 | clean M3-WI input contract | `docs/camoufox-m3-wi-clean-contract.md`；SHA-256 `acdc725dbbb1ccb0c39571cea43f6eb7ef3137429f4f8b256ec764f3be20af74`；Attempts 1–3 immutable Failed，Attempt 4 Passed |
 | clean M3-WI Attempt 4 | `artifacts/camoufox-m3-wi-clean-attempt-4/run-report.json`；SHA-256 `edd08b83497e09a73a0a0e29203475f1e9163b20366b2dd7c899aea8634262fe`；native evidence SHA-256 `2f292585a010dbdc3cad35bfcf26b14800bad402ed4a160c5123f41005c972ad`；revision `26ded609bf5bf52882c9ba37496f783ab2b01681`；**Passed on this native Windows host**，`verified:false` |
 | Historical RC1 release artifact | `artifacts/release/managed-browser/v0.1.0-rc1`；source revision `6497828aa0643f94fed3ae708734eef6b85f8305`；source dirty `true`；installer SHA-256 `ea1108e7623118df6b45b7ceb570a4481fc3a030c32b64747395551efd7ce7df`；verifier `Managed-browser release verification passed for 1403 files.`；acceptance `Pending`、`verified:false`、`runtimeAcceptance:null`；historical candidate, superseded, never runtime-accepted |
-| v0.1.0-rc2 source-bound candidate | `PUBLIC_GITHUB_PRERELEASE`（已被 rc4 取代为当前公开版本）；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`；installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；在其固定边界内完成 installed acceptance；外层 Authenticode unsigned，内部 engine CMS signature/public pin 分开 |
+| v0.1.0-rc2 source-bound candidate | `PUBLIC_GITHUB_PRERELEASE`（已被 rc5 取代为当前公开版本）；source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`；installer SHA-256 `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`；在其固定边界内完成 installed acceptance；外层 Authenticode unsigned，内部 engine CMS signature/public pin 分开 |
 | v0.1.0-rc2 Windows Sandbox installed acceptance | QA branch `origin/agent/qa/v0-1-0-rc2-installed-69d6d6`；evidence tip `df1b82fe3ca2f071a4b6676adc92db046558cdd3`；Windows 11 Enterprise `10.0.26100` / AMD64 / pristine disposable Sandbox；`CURRENT_SOURCE_INSTALLED_PRODUCT_ACCEPTED_IN_WINDOWS_SANDBOX`；strict standard-user semantics `NOT_PROVEN`；验收期间的 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAGE` 观察项已由后续 source 修复关闭 |
 | v0.1.0-rc3 public prerelease | tag `v0.1.0-rc3`（commit `407c501741c1be3444bfa607c7e693ecc7324409`）；`PUBLIC_GITHUB_PRERELEASE`；rc3 release gate 已关闭；strict standard-user 与外层 Authenticode 边界不变 |
-| v0.1.0-rc4 current public prerelease | tag `v0.1.0-rc4`（commit `68e21c3d601e1df3699f1b21431cc23da873e546`）；`PUBLIC_GITHUB_PRERELEASE`；release gate 已关闭 |
+| v0.1.0-rc4 historical public prerelease | tag `v0.1.0-rc4`（commit `68e21c3d601e1df3699f1b21431cc23da873e546`）；`PUBLIC_GITHUB_PRERELEASE`；release gate 已关闭 |
+| v0.1.0-rc5 current public prerelease | tag `v0.1.0-rc5`（commit `7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027`）；`PUBLIC_GITHUB_PRERELEASE`；bounded installed report `INCONCLUSIVE — installed files matched; Managed runtime/repair/uninstall flow not completed`，完整旧合同报告仍 `Pending`；release gate 已关闭 |
 | Recent performance and Managed development lifecycle | [性能任务处置](qa/performance-architecture-2026-09-27.md)；原生 Windows 独立 LocalAppData 开发路径有限生命周期通过，非 universal performance / installed-candidate claim |
 | Codex worktree inherited-DACL limitation | [目录 ACL 因果对照](qa/managed-engine-directory-acl-2026-09-27.md)；504 文件 hash 相同、同一 executable/owner、仅改 DACL 后 60 秒失败转为 5.344 秒建页；非已证实产品 blocker |
 | Surface Truth Matrix 审计 | QA branch `origin/agent/qa/fingerprint-surface-52ebde`；commit `96543d74e34089c8d3f0b6199aaa974a2cff9922`；四层能力审计，基线 `0d74290`，零 CONTROL_GAP |

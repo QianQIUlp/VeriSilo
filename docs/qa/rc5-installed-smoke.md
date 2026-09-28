@@ -1,18 +1,10 @@
-# RC5 exact-candidate installed smoke
+# RC5 installed verification boundary
 
-Status: **not run**. This page records the bounded RC5 installer check; it is not the historical complete `windows-acceptance-report.json` contract. That report stays `Pending`.
+Source: `7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027`.
+Installer SHA-256: `b1459b2305fe58e5d1370d591434d0e67ff14f7cadc0f9c56eacf414ca99aaca`.
 
-Run from the frozen RC5 source worktree, after the signed Engine package and NSIS candidate have passed release verification:
+The required automated integration matrix and release verification passed. All 14 package/audit attachments have matching local and GitHub SHA-256 digests. The installer completed in Windows Sandbox. Installed Desktop, CLI and Engine manifest bytes matched the actual installer payload.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/windows/Invoke-VeriSiloRc5Installed.ps1 -SelfTest
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/windows/Invoke-VeriSiloRc5Installed.ps1 `
-  -ReleaseDirectory artifacts/release/managed-browser/v0.1.0-rc5 `
-  -ExpectedSourceSha <full-frozen-commit-sha>
-```
+**Installed Managed runtime acceptance remains inconclusive.** Attempt 1 stopped at an incorrect comparison between the loose Desktop and its NSIS-marked variant. Actual extraction and installed-byte checks proved only the expected three-byte Tauri bundle marker difference. Attempt 2 passed installation/hash checks but the harness waited after initial CLI bootstrap; a separate read-only CLI status returned success with an uninitialized Vault and no Managed browsers. No A/B runtime, repair or uninstall/reinstall pass is claimed for this RC. After the user requested that this remain a bounded artifact publication, further acceptance work stopped. Both test Sandbox instances were cleaned up.
 
-The runner hashes the exact installer, Desktop and CLI executables, and Engine manifest against the candidate checksum list and checks the provenance revision. It stages the installer in a unique temporary directory, maps input read-only and evidence writable into one fresh Windows Sandbox, then writes `artifacts/qa/rc5-installed-<random>/result.json`. It does not stop other Sandbox instances, change host ACLs, or overwrite earlier evidence. If the guest cannot read or write its mapped folders, the run is blocked; do not reuse an unchanged failed attempt.
-
-The guest requires an empty product install/data path and uses a fresh named Vault. It installs the NSIS package, checks the installed Desktop, CLI, and Engine hashes, starts two Managed Direct Silos and rejects a third, then checks separate Profile paths and synthetic same-site Cookie and localStorage state through the installed CLI. After stopping A, it confirms B remains running with its own state, then stops B. It restarts the service, repairs the same version, uninstalls while preserving the encrypted Vault bytes, reinstalls, reopens the Vault and reads both Profiles again. It reports cleanup of owned product processes. No Node, repository source, real account, proxy credential, or personal browser Profile is used in the guest.
-
-Prior native Windows concurrency evidence from source `043821b69699ecff6c739175f25607b37709b49f` remains applicable where frozen RC5 Desktop/Host product code is unchanged: IndexedDB isolation, independent reobservation, network routing/fail-closed behavior, cold recovery, lock, and restart attribution are not rerun here. This installed smoke covers packaging and lifecycle at the exact new candidate. A Windows Sandbox `WDAGUtilityAccount` is an administrator, so a pass does not prove strict unelevated standard-user install, repair, or uninstall semantics. It also does not claim the full historical proxy and lifecycle acceptance matrix or promote the complete report from `Pending`.
+Previously committed native Windows cold-backup/concurrency and UI evidence is inherited only for unchanged product code. The complete historical `windows-acceptance-report` remains `Pending`, `verified:false`, `runtimeAcceptance:null`. This pre-release does not prove strict unelevated standard-user installation, arbitrary website compatibility, or complete leak prevention. The engine is internally CMS-signed; Desktop/CLI/installer remain unsigned for outer Authenticode.

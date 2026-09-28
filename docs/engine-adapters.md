@@ -20,7 +20,7 @@ assembled by `scripts/build-camoufox-host-package.py` and
 
 ## Camoufox integration boundary
 
-The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) accepted the connection between a schema-v3 Host package, the dedicated `camoufox-host-jsonl-v1` transport, `EngineAdapter`, and `RuntimeManager` at checkpoint `e96ef3f`. Later implementation added the production package builder, Formal-v3 detached CMS signing, the Desktop signer pin, the production adapter path, Managed Silo product flow, and current-user NSIS packaging. These are implemented; the fixed rc2 package and installed lifecycle passed in the exact pristine Windows Sandbox evidence environment. `v0.1.0-rc4` is the current public prerelease; strict non-admin semantics and broader Windows compatibility remain separate evidence boundaries.
+The accepted standalone Camoufox Host, v3 Identity Artifact, and Linux/native-Windows M0–M2-W evidence entered `main` through [PR #10](https://github.com/QianQIUlp/VeriSilo/pull/10). [M3-0](camoufox-m3-engine-adapter-task.md) accepted the connection between a schema-v3 Host package, the dedicated `camoufox-host-jsonl-v1` transport, `EngineAdapter`, and `RuntimeManager` at checkpoint `e96ef3f`. Later implementation added the production package builder, Formal-v3 detached CMS signing, the Desktop signer pin, the production adapter path, Managed Silo product flow, and current-user NSIS packaging. These are implemented; the fixed rc2 package and installed lifecycle passed in the exact pristine Windows Sandbox evidence environment. `v0.1.0-rc5` is the current public prerelease; strict non-admin semantics and broader Windows compatibility remain separate evidence boundaries.
 
 Native Windows M2-W has accepted Artifact replay, Persistent Profile continuity, file locking, Job Object ownership, reparse-point handling, and binary stdio. The M3-0 contract remains the historical boundary for the fake-Host slice and its honest evidence semantics; the current production adapter consumes the signed schema-v3 package and still keeps `verified: false` evidence below `verified` until direct product evidence exists. See [the Camoufox program status](camoufox-program-status.md).
 
@@ -302,4 +302,4 @@ The historical RC1 artifact is superseded for current acceptance. Its internal
 CMS package/signature and the current production adapter implementation are
 real release inputs, but they do not turn the historical artifact into the
 fixed rc2 candidate. rc2 was published as a GitHub prerelease and has since been
-superseded by the current `v0.1.0-rc4` prerelease.
+superseded by the current `v0.1.0-rc5` prerelease.

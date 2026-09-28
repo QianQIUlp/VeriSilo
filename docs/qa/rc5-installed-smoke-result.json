@@ -1,0 +1,69 @@
+{
+  "schema": "verisilo-rc5-installed-summary/v1",
+  "verdict": "inconclusive",
+  "candidate": {
+    "releaseVersion": "v0.1.0-rc5",
+    "sourceSha": "7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027",
+    "installerSha256": "b1459b2305fe58e5d1370d591434d0e67ff14f7cadc0f9c56eacf414ca99aaca",
+    "looseDesktopSha256": "03c1ea0d739116d6cd11b9ab695a6f24670691e61a9e3f62d66023bdf96420b7",
+    "installedDesktopSha256": "fdb17f78dc770c3572e198f092b501fd889fa5b14ea7518f1f55e36e6b6cba44",
+    "cliSha256": "7acfbf03387ac1b46f0236a36ff96a322a65fd74af7c5f718529a1642b36ce78",
+    "packageManifestSha256": "a8b589995951d26065739c3bbd0b687c485e4519f017793c9368b14bea2bccb9"
+  },
+  "installation": "NSIS completed; installed Desktop, CLI and Engine manifest matched the exact candidate payload.",
+  "runtimeAcceptance": "NOT_COMPLETED",
+  "attempt1": {
+    "schema": "verisilo-rc5-installed-smoke/v1",
+    "verdict": "failed",
+    "candidate": {
+      "releaseVersion": "v0.1.0-rc5",
+      "sourceSha": "7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027",
+      "installerSha256": "b1459b2305fe58e5d1370d591434d0e67ff14f7cadc0f9c56eacf414ca99aaca",
+      "desktopSha256": "03c1ea0d739116d6cd11b9ab695a6f24670691e61a9e3f62d66023bdf96420b7",
+      "cliSha256": "7acfbf03387ac1b46f0236a36ff96a322a65fd74af7c5f718529a1642b36ce78",
+      "packageManifestSha256": "a8b589995951d26065739c3bbd0b687c485e4519f017793c9368b14bea2bccb9"
+    },
+    "environment": {
+      "os": "10.0.26100.0",
+      "architecture": "AMD64",
+      "accountIsAdministrator": true
+    },
+    "steps": {
+      "preflight": "PASS",
+      "processCleanup": "PASS"
+    },
+    "startedAtUtc": "2026-09-28T10:00:34.5677273Z",
+    "failedStage": "install",
+    "failure": "Installed Desktop differs from candidate.",
+    "finishedAtUtc": "2026-09-28T10:03:20.4520607Z"
+  },
+  "bundleMarkerDiagnosis": {
+    "verdict": "passed",
+    "looseSha256": "03c1ea0d739116d6cd11b9ab695a6f24670691e61a9e3f62d66023bdf96420b7",
+    "installerPayloadSha256": "fdb17f78dc770c3572e198f092b501fd889fa5b14ea7518f1f55e36e6b6cba44",
+    "tokenCount": 1,
+    "tokenOffset": 18126856,
+    "differentByteOffsets": [
+      18126880,
+      18126881,
+      18126882
+    ],
+    "explanation": "Exact Tauri 2.11.4 NSIS bundle marker replacement; no other byte difference."
+  },
+  "attempt2": {
+    "verdict": "inconclusive",
+    "lastStage": "two-managed-sessions",
+    "vaultInitialized": false,
+    "subsequentCliStatusExitCode": 0,
+    "observedManagedBrowsers": 0,
+    "reason": "Initial CLI bootstrap was followed by a harness wait. No Managed runtime pass is claimed. Further acceptance work stopped after the user directed the task back to publishing the already-verified artifact."
+  },
+  "cleanup": "The two test Sandbox instances were stopped by their exact IDs; no Sandbox remains.",
+  "inheritedEvidence": [
+    "docs/qa/managed-cold-backup-2026-09-28.md",
+    "docs/qa/managed-concurrency-2026-09-28.md",
+    "docs/qa/managed-concurrency-ui-2026-09-28.md"
+  ],
+  "legacyReport": "Pending; verified:false; runtimeAcceptance:null",
+  "strictStandardUser": "NOT_PROVEN"
+}
