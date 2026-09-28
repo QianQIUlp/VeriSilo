@@ -17,9 +17,11 @@ function option(name) {
 const cli = option("--cli");
 const sourceSha = option("--source-sha");
 const uiCheckpoint = arguments_.includes("--ui-checkpoint");
+const continuationPath = option("--continue-after-direct");
 if (!cli || !existsSync(cli) || !/^[0-9a-f]{40}$/.test(sourceSha ?? "")) {
-  throw new Error("Usage: node managed-concurrency-acceptance.mjs --cli <independent normal-user verisilo-cli.exe> --source-sha <committed SHA> [--output-dir <new directory>] [--ui-checkpoint]");
+  throw new Error("Usage: node managed-concurrency-acceptance.mjs --cli <independent normal-user verisilo-cli.exe> --source-sha <committed SHA> [--output-dir <new directory>] [--ui-checkpoint] [--continue-after-direct <prior failed result.json>]");
 }
+if (continuationPath && uiCheckpoint) throw new Error("Continuation keeps UI verification separate from backend acceptance.");
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 function git(...args) {
   const result = spawnSync("git", ["-C", repoRoot, ...args], { encoding: "utf8", windowsHide: true });
@@ -279,6 +281,24 @@ try {
     .update(await readFile(path.join(packageRoot, "engine-package.json"))).digest("hex");
   assert.equal(report.enginePackageManifestSha256, fixedEngineManifestSha256,
     "Native acceptance must use the previously verified fixed Engine package");
+  if (continuationPath) {
+    const previousPath = path.resolve(continuationPath);
+    const previousBytes = await readFile(previousPath);
+    const previous = JSON.parse(previousBytes.toString("utf8"));
+    assert.equal(previous.schema, report.schema);
+    assert.equal(previous.result, "failed");
+    assert.match(previous.failure?.message ?? "", /^UI checkpoint was not completed within 10 minutes/);
+    assert.ok(previous.steps?.some((entry) => entry.name === "two Direct Managed browsers and Profiles isolated"),
+      "Previous attempt must contain the completed direct A/B evidence");
+    assert.equal(previous.desktopSha256, report.desktopSha256, "Desktop binary changed since direct A/B evidence");
+    assert.equal(previous.cliSha256, report.cliSha256, "CLI binary changed since direct A/B evidence");
+    assert.equal(previous.enginePackageManifestSha256, report.enginePackageManifestSha256,
+      "Engine package changed since direct A/B evidence");
+    report.continuedFrom = { resultPath: previousPath,
+      resultSha256: createHash("sha256").update(previousBytes).digest("hex"),
+      runId: previous.runId, sourceSha: previous.sourceSha,
+      completedStep: "two Direct Managed browsers and Profiles isolated" };
+  }
   cliStatus();
   await readDiscovery();
   serviceRunning = true;
@@ -297,38 +317,51 @@ try {
   assert.equal(new Set([a.id, b.id, c.id]).size, 3);
   assert.notEqual(a.profileDirectory, b.profileDirectory);
   const aFirst = await start(a.id);
-  assert.equal((await api("GET", "/v1/status")).activation.activeSiloId, a.id);
-  assert.equal(cliStatus().activation.activeSiloId, a.id);
   await fixturePage(a.id, "127.0.0.1", { op: "write", value: markers.A });
-  let bFinished = false;
-  const bStart = start(b.id).finally(() => { bFinished = true; });
-  const probeStarted = Date.now();
-  const aDuringB = await Promise.race([
-    Promise.all([runtime(a.id), page(a.id, { action: "snapshot" })]),
-    new Promise((_, reject) => setTimeout(() => reject(new Error("A became unresponsive during B launch")), 8000)),
-  ]);
-  const probeMs = Date.now() - probeStarted;
-  const aProbeFinishedBeforeB = !bFinished;
-  assert.equal(aDuringB[0].activation.state, "running");
-  assert.match(aDuringB[1].title ?? "", /^VERISILO_E2E:PASS:/);
-  await bStart;
-  await fixturePage(b.id, "127.0.0.1", { op: "write", value: markers.B });
-  const statusPair = await api("GET", "/v1/status");
-  assert.equal(statusPair.managedSessionLimit, 2);
-  assert.ok(![a.id, b.id].includes(statusPair.activation?.activeSiloId),
-    "legacy activation cannot select an arbitrary session while A/B both run");
-  assert.ok(![a.id, b.id].includes(cliStatus().activation?.activeSiloId),
-    "legacy CLI status cannot select an arbitrary session while A/B both run");
-  await assertRunning(a.id, b.id);
-  assert.equal((await api("GET", `/v1/silos/${a.id}/diagnose`)).active, true);
-  assert.equal((await api("GET", `/v1/silos/${b.id}/diagnose`)).active, true);
-  assert.notEqual((await runtime(a.id)).activation.networkEvidence?.runtimeId,
-    (await runtime(b.id)).activation.networkEvidence?.runtimeId);
-  await fixturePage(a.id, "127.0.0.1", { op: "read-persistent", expectedPersistent: markers.A });
-  await fixturePage(b.id, "127.0.0.1", { op: "read-persistent", expectedPersistent: markers.B });
-  step("two Direct Managed browsers and Profiles isolated", { aId: a.id, bId: b.id,
-    thirdId: c.id, aProbeDuringBMs: probeMs, aProbeFinishedBeforeB });
-  await waitForUiCheckpoint(a.id, b.id);
+  if (continuationPath) {
+    await start(b.id);
+    await fixturePage(b.id, "127.0.0.1", { op: "write", value: markers.B });
+    await assertRunning(a.id, b.id);
+    step("A/B fixture ready for remaining acceptance; prior direct isolation evidence reused",
+      { aId: a.id, bId: b.id, thirdId: c.id });
+    const opened = spawnSync(cli, ["--vault", vault, "app", "open"],
+      { encoding: "utf8", timeout: 30_000, windowsHide: true });
+    report.nonblockingUiOpen = { success: opened.status === 0,
+      error: opened.status === 0 ? null : redact(opened.stderr?.trim() || opened.error?.message) };
+    process.stdout.write(`UI selection fixture (nonblocking): vault=${vault} A=${a.id} B=${b.id}\n`);
+  } else {
+    assert.equal((await api("GET", "/v1/status")).activation.activeSiloId, a.id);
+    assert.equal(cliStatus().activation.activeSiloId, a.id);
+    let bFinished = false;
+    const bStart = start(b.id).finally(() => { bFinished = true; });
+    const probeStarted = Date.now();
+    const aDuringB = await Promise.race([
+      Promise.all([runtime(a.id), page(a.id, { action: "snapshot" })]),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("A became unresponsive during B launch")), 8000)),
+    ]);
+    const probeMs = Date.now() - probeStarted;
+    const aProbeFinishedBeforeB = !bFinished;
+    assert.equal(aDuringB[0].activation.state, "running");
+    assert.match(aDuringB[1].title ?? "", /^VERISILO_E2E:PASS:/);
+    await bStart;
+    await fixturePage(b.id, "127.0.0.1", { op: "write", value: markers.B });
+    const statusPair = await api("GET", "/v1/status");
+    assert.equal(statusPair.managedSessionLimit, 2);
+    assert.ok(![a.id, b.id].includes(statusPair.activation?.activeSiloId),
+      "legacy activation cannot select an arbitrary session while A/B both run");
+    assert.ok(![a.id, b.id].includes(cliStatus().activation?.activeSiloId),
+      "legacy CLI status cannot select an arbitrary session while A/B both run");
+    await assertRunning(a.id, b.id);
+    assert.equal((await api("GET", `/v1/silos/${a.id}/diagnose`)).active, true);
+    assert.equal((await api("GET", `/v1/silos/${b.id}/diagnose`)).active, true);
+    assert.notEqual((await runtime(a.id)).activation.networkEvidence?.runtimeId,
+      (await runtime(b.id)).activation.networkEvidence?.runtimeId);
+    await fixturePage(a.id, "127.0.0.1", { op: "read-persistent", expectedPersistent: markers.A });
+    await fixturePage(b.id, "127.0.0.1", { op: "read-persistent", expectedPersistent: markers.B });
+    step("two Direct Managed browsers and Profiles isolated", { aId: a.id, bId: b.id,
+      thirdId: c.id, aProbeDuringBMs: probeMs, aProbeFinishedBeforeB });
+    await waitForUiCheckpoint(a.id, b.id);
+  }
 
   await rejected("POST", `/v1/silos/${a.id}/start`, undefined, "duplicate A start rejected");
   await rejected("POST", `/v1/silos/${c.id}/start`, undefined, "third Managed start rejected");

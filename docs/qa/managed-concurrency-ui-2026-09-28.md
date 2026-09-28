@@ -10,6 +10,8 @@
 | 单侧失败 | `concurrent-fault` 中，B 的重新检查模拟代理故障并释放 B 的当前会话。B 显示“检查未通过”，当前身份观察为 Unavailable，重新打开和浏览器检查可操作；A 继续显示运行。提示明确说 B 浏览器已关闭，不再要求点击不存在的“结束会话”。这不验证真实网络路由或无泄漏。 |
 | 全局锁定 | A/B 显示同时运行时点击锁定，界面进入 Vault 锁定页，当前会话与敏感界面状态从 UI 清除。进程清理由原生验收验证。 |
 
+原生 UI 选择核验**未完成**。在 `managed-concurrency-043821b` 的双活 checkpoint，Windows Computer Use 的只读 `list_apps`/`list_windows` 返回一个本轮独立开发包的 `VeriSilo` 窗口和两个带 A/B 验收标记的 Camoufox 窗口。随后的 `get_window`、`activate_window`、`get_window_state` 调用未返回界面状态，约 317 秒后被中断；没有取得 VeriSilo 截图或可访问性树，也没有点击 A/B。checkpoint 随后超时并由原生执行器清理。由此不能判断 WebView 是否空白，也不能声称真实 UI 切换不改变 A/B 的 runtimeId；该项仍待与长原生执行器解耦的最小核验。1420 的普通 UI HMR 曾返回 HTTP 200，这只证明前端服务可访问。
+
 实现上，界面用 `DesktopStatus.sessions` 的 `siloId` wrapper 给每张 Silo 卡、身份详情、停止、重新观察和冷恢复定目标；`focusedSiloId` 只控制选中状态。单 Silo 操作各自标记 busy；Vault 锁定使所有未完成 UI 回调失效。无残留占用的失败记录显示失败但不占并发名额，仍由后端作最终启动守卫。`activation` 为多会话时的 `null`，界面不从集合取第一条冒充唯一会话。Preview A/B/C 使用不同的模拟 Profile 目录、Seed 和 Artifact 摘要。
 
 最后一轮受影响验证：`pnpm --filter @verisilo/desktop check` 通过；focused Vitest 包含 `app-copy`、`formatters`、`runtime-status`、`SiloList`、`CurrentSessionIntegrity`，5 个文件、63 项通过。Preview 没有检查真实 Cookie、localStorage、IndexedDB、代理端点、Host 健康监视、恢复文件或应用退出；这些结论只从同任务的 CLI/API 与原生 Windows 浏览器证据取得。
