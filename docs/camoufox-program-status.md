@@ -198,6 +198,8 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
 
 本轮正常产品开发已完成三项能力：统一当前身份/网络证据的解释与差异定位、Managed 创建后的解析结果确认、每个本机 Standard/Managed Silo 的一条加密最近运行记录。最近记录始终表示历史/最后已知状态，不提供当前运行验证；匹配、无法验证和过期边界保持独立。实现范围和组合验证结果见[产品完整性切片记录](product-integrity-slices-2026-09-28.md)。
 
+随后已完成 [Managed Silo 冷备份与原身份恢复 v1](managed-silo-cold-backup-v1.md)：停止后的 Profile、原始 Artifact、身份/引擎绑定和必要网络配置一起加密保存，通过检查摘要与明确覆盖确认恢复原身份。范围限定同一 Windows、同一系统用户、同一 Vault 路径及兼容引擎；原 Silo 元数据须存在，缺失时先恢复 Vault 配置备份。[本轮原生开发验收](qa/managed-cold-backup-2026-09-28.md)直接证明 A 的持久 Cookie、LocalStorage、IndexedDB 经改写和恢复后读回原值，Artifact 绑定保持且 B 不受影响；错误口令/摘要被拒绝。恢复后重新取得当前证据，不能把旧记录当成当前验证。有限多 Silo 并发仍未实现，不因本轮备份完成而自动开启；这些开发变化未进入 rc4 安装包。
+
 当前没有预选的 Camoufox、fingerprint、QA 或 release Gate，也没有已知待集成的产品代码分支。新工程任务从最新 `origin/baseline/dev` 开始，由用户提出的产品需求、真实体验问题或新的直接证据驱动；`main` 与历史 task branch 不是新任务的开发起点。
 
 不要默认重跑 FP1–FP4、开启 FP5、继续当前 Codex worktree 的 ACL 深挖、重跑已完成的性能/Managed 生命周期验收，或启动 rc5、installed-candidate acceptance 与 reassurance QA。未来若正常产品目录和正常用户上下文出现同类启动故障，再对那个确切环境采集原生证据；旧工作树失败不是当前产品 blocker。

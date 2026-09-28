@@ -225,6 +225,7 @@ try {
   assert.ok(receipt.bytes > 0 && receipt.profileBytes > 0 && receipt.fileCount > 0);
   const inspect = await api("POST", `/v1/silos/${a.id}/backup-inspect`, { sourcePath: archive, passphrase });
   assert.match(inspect.archiveSha256, /^[0-9a-f]{64}$/);
+  assert.equal(inspect.archiveSha256, createHash("sha256").update(await readFile(archive)).digest("hex"));
   assert.equal(inspect.siloId, a.id);
   assert.equal(inspect.siloName, a.name);
   assert.equal(inspect.artifactId, originalA.identityEvidence.artifactId);

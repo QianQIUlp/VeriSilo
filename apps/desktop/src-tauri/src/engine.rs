@@ -5308,6 +5308,8 @@ impl Sha256State {
                 let block = self.buffer;
                 sha256_compress(&mut self.state, &block);
                 self.buffer_len = 0;
+            } else {
+                return;
             }
         }
         while bytes.len() >= 64 {
@@ -7207,6 +7209,33 @@ mod tests {
             .capabilities
             .iter()
             .all(|capability| capability.operation == EngineCapabilityOperation::NotConfigured));
+    }
+
+    #[test]
+    fn sha256_preserves_partial_blocks_across_short_and_empty_updates() {
+        for (input, expected) in [
+            (
+                b"abc".as_slice(),
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+            (
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq".as_slice(),
+                "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+            ),
+            (
+                &[b'a'; 100],
+                "2816597888e4a0d3a36b82b83316ab32680eb8f00f8cd3b904d681246d285a0e",
+            ),
+        ] {
+            for chunk_size in 1..=input.len() {
+                let mut hash = super::Sha256State::new();
+                for chunk in input.chunks(chunk_size) {
+                    hash.update(chunk);
+                    hash.update(&[]);
+                }
+                assert_eq!(hex_lower(&hash.finalize()), expected);
+            }
+        }
     }
 
     #[test]

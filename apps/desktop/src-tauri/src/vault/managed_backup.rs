@@ -1526,6 +1526,10 @@ mod tests {
         assert_eq!(inspection.silo_id, a.id);
         assert_eq!(inspection.profile_bytes, receipt.profile_bytes);
         let raw = fs::read(&archive).unwrap();
+        assert_eq!(
+            inspection.archive_sha256,
+            crate::engine::sha256_hex_bytes(&raw)
+        );
         fs::write(root.join("truncated.vsm"), &raw[..raw.len() - 1]).unwrap();
         assert!(vault
             .inspect_managed_silo_backup(
