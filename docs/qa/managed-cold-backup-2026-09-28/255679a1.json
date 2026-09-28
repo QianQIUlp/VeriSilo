@@ -1,0 +1,28 @@
+{
+  "schema": "verisilo-managed-cold-backup-acceptance/v1",
+  "runId": "255679a1",
+  "sourceSha": "4936292c94e9d5a58661ff984818006f2dad2826",
+  "account": "telecaster\\qiu",
+  "vault": "coldbk-255679a1",
+  "appRoot": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloDev\\managed-cold-backup-880904",
+  "packageRoot": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloDev\\managed-cold-backup-880904\\managed-browser\\engine-package",
+  "outputDir": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloAcceptance\\cold-backup-255679a1",
+  "vaultRoot": "C:\\Users\\qiu\\AppData\\Local\\io.verisilo.app\\vaults\\coldbk-255679a1",
+  "startedAt": "2026-09-28T05:39:59.966Z",
+  "steps": [
+    {
+      "name": "normal-user development service started",
+      "at": "2026-09-28T05:40:32.560Z",
+      "servicePid": 24220
+    }
+  ],
+  "result": "failed",
+  "cliSha256": "4851079316fa194168b38afc69e1bb22f11a82a0af2e1907d4fec940f76a3b79",
+  "desktopSha256": "2abe748b5d0c31a79de7674644242df668f220f065c11ffb96ed2230de070b7f",
+  "enginePackageManifestSha256": "7bfb701935221b523027738d0c7abaa386851471e99f08eec7eb2bf09917278e",
+  "failure": {
+    "name": "TypeError",
+    "message": "fetch failed"
+  },
+  "finishedAt": "2026-09-28T05:40:32.791Z"
+}

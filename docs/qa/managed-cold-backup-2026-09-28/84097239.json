@@ -1,0 +1,43 @@
+{
+  "schema": "verisilo-managed-cold-backup-acceptance/v1",
+  "runId": "84097239",
+  "sourceSha": "d242c4cea22d65125efa670384924e5d9aa6a53f",
+  "account": "telecaster\\qiu",
+  "vault": "coldbk-84097239",
+  "appRoot": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloDev\\managed-cold-backup-880904",
+  "packageRoot": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloDev\\managed-cold-backup-880904\\managed-browser\\engine-package",
+  "outputDir": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloAcceptance\\cold-backup-84097239",
+  "vaultRoot": "C:\\Users\\qiu\\AppData\\Local\\io.verisilo.app\\vaults\\coldbk-84097239",
+  "startedAt": "2026-09-28T05:28:44.334Z",
+  "steps": [
+    {
+      "name": "normal-user development service started",
+      "at": "2026-09-28T05:29:16.905Z",
+      "servicePid": 20844
+    },
+    {
+      "name": "isolated Vault and loopback fixture ready",
+      "at": "2026-09-28T05:29:17.646Z"
+    },
+    {
+      "name": "Managed A and B created",
+      "at": "2026-09-28T05:29:21.351Z",
+      "aId": "b849a991-a3df-4627-ba43-f78c8d797f8d",
+      "bId": "ee68f492-2b1a-4b00-9874-1031a28d264e"
+    },
+    {
+      "name": "A and B original browser markers persisted",
+      "at": "2026-09-28T05:30:02.430Z"
+    }
+  ],
+  "result": "failed",
+  "cliSha256": "c9bc704b28e14d0e3a5c27b3df48744ee99fe26a0c6f53787f2e9121cf79a630",
+  "desktopSha256": "dadc542b5fdc7a7f4c900b842cf2b172abb9aa39dff7bd7982daac3e6d94c7cc",
+  "enginePackageManifestSha256": "7bfb701935221b523027738d0c7abaa386851471e99f08eec7eb2bf09917278e",
+  "fixturePort": 65506,
+  "failure": {
+    "name": "AssertionError",
+    "message": "Expected values to be strictly equal:\n+ actual - expected\n\n+ '\\\\\\\\?\\\\C:\\\\Users\\\\qiu\\\\AppData\\\\Local\\\\Packages\\\\OpenAI.Codex_2p2nqsd0c76g0\\\\LocalCache\\\\Local\\\\VeriSiloAcceptance\\\\cold-backup-84097239\\\\managed-A.backup'\n- 'C:\\\\Users\\\\qiu\\\\AppData\\\\Local\\\\VeriSiloAcceptance\\\\cold-backup-84097239\\\\managed-A.backup'\n"
+  },
+  "finishedAt": "2026-09-28T05:30:10.346Z"
+}

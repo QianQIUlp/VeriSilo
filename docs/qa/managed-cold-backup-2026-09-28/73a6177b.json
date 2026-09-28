@@ -1,0 +1,78 @@
+{
+  "schema": "verisilo-managed-cold-backup-acceptance/v1",
+  "runId": "73a6177b",
+  "sourceSha": "2353571da2646e2032c80c14e791a0ac8f40526d",
+  "account": "telecaster\\qiu",
+  "vault": "coldbk-73a6177b",
+  "appRoot": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloDev\\managed-cold-backup-880904",
+  "packageRoot": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloDev\\managed-cold-backup-880904\\managed-browser\\engine-package",
+  "outputDir": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloAcceptance\\cold-backup-73a6177b",
+  "vaultRoot": "C:\\Users\\qiu\\AppData\\Local\\io.verisilo.app\\vaults\\coldbk-73a6177b",
+  "startedAt": "2026-09-28T05:44:24.821Z",
+  "steps": [
+    {
+      "name": "normal-user development service started",
+      "at": "2026-09-28T05:44:54.870Z",
+      "servicePid": 23764
+    },
+    {
+      "name": "normal-user development service ready",
+      "at": "2026-09-28T05:44:54.917Z"
+    },
+    {
+      "name": "isolated Vault and loopback fixture ready",
+      "at": "2026-09-28T05:44:55.410Z"
+    },
+    {
+      "name": "Managed A and B created",
+      "at": "2026-09-28T05:44:57.394Z",
+      "aId": "0b7aad19-27f1-4258-a226-88d2730f477a",
+      "bId": "794c1bfd-ed84-436f-b8ec-5ae21b6ef31f"
+    },
+    {
+      "name": "A and B original browser markers persisted",
+      "at": "2026-09-28T05:45:16.729Z"
+    },
+    {
+      "name": "stopped A backed up and inspected",
+      "at": "2026-09-28T05:45:27.686Z",
+      "archiveSha256": "ffaaaf282c285519018ba9b06bdbabbab31533800a919ef7fe2bb87b9135adf3",
+      "artifactId": "identity-0e19c22895d6399bcddc689e",
+      "artifactSha256": "c6708f7e8cf16b219a9ef6f05ac9b566a6440a6f1d8cd540ec1fb153903c7212",
+      "engineVersion": "152.0.4-beta.28",
+      "backupBytes": 32256758,
+      "profileBytes": 32195329,
+      "fileCount": 66
+    },
+    {
+      "name": "wrong archive hash rejected",
+      "at": "2026-09-28T05:45:51.980Z",
+      "status": 400,
+      "code": "operation_failed"
+    },
+    {
+      "name": "wrong passphrase rejected",
+      "at": "2026-09-28T05:45:52.574Z",
+      "status": 400,
+      "code": "operation_failed"
+    },
+    {
+      "name": "rejections preserved mutated A and untouched B metadata",
+      "at": "2026-09-28T05:46:03.509Z"
+    },
+    {
+      "name": "original A Profile, Artifact binding, and configuration restored",
+      "at": "2026-09-28T05:46:24.327Z"
+    },
+    {
+      "name": "B remained unchanged after A restore",
+      "at": "2026-09-28T05:46:35.364Z"
+    }
+  ],
+  "result": "passed",
+  "cliSha256": "4851079316fa194168b38afc69e1bb22f11a82a0af2e1907d4fec940f76a3b79",
+  "desktopSha256": "2abe748b5d0c31a79de7674644242df668f220f065c11ffb96ed2230de070b7f",
+  "enginePackageManifestSha256": "7bfb701935221b523027738d0c7abaa386851471e99f08eec7eb2bf09917278e",
+  "fixturePort": 64208,
+  "finishedAt": "2026-09-28T05:46:35.516Z"
+}

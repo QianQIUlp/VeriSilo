@@ -1,0 +1,74 @@
+{
+  "schema": "verisilo-managed-cold-backup-acceptance/v1",
+  "runId": "7ccdc3f8",
+  "sourceSha": "1e6e6af541ddd7d6e6a199adf19ab65e64d8ae8b",
+  "account": "telecaster\\qiu",
+  "vault": "coldbk-7ccdc3f8",
+  "appRoot": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloDev\\managed-cold-backup-880904",
+  "packageRoot": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloDev\\managed-cold-backup-880904\\managed-browser\\engine-package",
+  "outputDir": "C:\\Users\\qiu\\AppData\\Local\\VeriSiloAcceptance\\cold-backup-7ccdc3f8",
+  "vaultRoot": "C:\\Users\\qiu\\AppData\\Local\\io.verisilo.app\\vaults\\coldbk-7ccdc3f8",
+  "startedAt": "2026-09-28T05:32:51.801Z",
+  "steps": [
+    {
+      "name": "normal-user development service started",
+      "at": "2026-09-28T05:33:21.850Z",
+      "servicePid": 21124
+    },
+    {
+      "name": "isolated Vault and loopback fixture ready",
+      "at": "2026-09-28T05:33:22.362Z"
+    },
+    {
+      "name": "Managed A and B created",
+      "at": "2026-09-28T05:33:24.345Z",
+      "aId": "0d761058-0164-402c-9b8b-1c878b6d9f60",
+      "bId": "fca1ea9a-d5db-4dbd-b0fa-32dd0abcc728"
+    },
+    {
+      "name": "A and B original browser markers persisted",
+      "at": "2026-09-28T05:33:44.940Z"
+    },
+    {
+      "name": "stopped A backed up and inspected",
+      "at": "2026-09-28T05:33:55.786Z",
+      "archiveSha256": "a41e7df54985bb207a6d4404152f7e098af6266d1e973e68b09c09fa8b34dde0",
+      "artifactId": "identity-8889d0b653a41f2b30e313c7",
+      "artifactSha256": "2eccc83000a3d898ba4efa759d01c3263d0a9a6fa7f421f1793adaab5da6f91c",
+      "engineVersion": "152.0.4-beta.28",
+      "backupBytes": 32257379,
+      "profileBytes": 32195160,
+      "fileCount": 66
+    },
+    {
+      "name": "wrong archive hash rejected",
+      "at": "2026-09-28T05:34:14.481Z",
+      "status": 400,
+      "code": "operation_failed"
+    },
+    {
+      "name": "wrong passphrase rejected",
+      "at": "2026-09-28T05:34:14.930Z",
+      "status": 400,
+      "code": "operation_failed"
+    },
+    {
+      "name": "rejections preserved mutated A and untouched B metadata",
+      "at": "2026-09-28T05:34:26.960Z"
+    },
+    {
+      "name": "original A Profile, Artifact binding, and configuration restored",
+      "at": "2026-09-28T05:34:44.649Z"
+    },
+    {
+      "name": "B remained unchanged after A restore",
+      "at": "2026-09-28T05:34:54.980Z"
+    }
+  ],
+  "result": "passed",
+  "cliSha256": "c9bc704b28e14d0e3a5c27b3df48744ee99fe26a0c6f53787f2e9121cf79a630",
+  "desktopSha256": "dadc542b5fdc7a7f4c900b842cf2b172abb9aa39dff7bd7982daac3e6d94c7cc",
+  "enginePackageManifestSha256": "7bfb701935221b523027738d0c7abaa386851471e99f08eec7eb2bf09917278e",
+  "fixturePort": 61318,
+  "finishedAt": "2026-09-28T05:34:55.131Z"
+}
