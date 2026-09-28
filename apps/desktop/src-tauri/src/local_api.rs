@@ -26,6 +26,9 @@ use crate::application::{
     page_action_with, recheck_silo_runtime, stop_silo_with, unlock_vault_with, DesktopCore,
 };
 use crate::domain::{active_vault_name, app_data_root, CreateManagedSiloInput, CreateSiloInput};
+use crate::managed_backup::{
+    ManagedSiloBackupInput, ManagedSiloBackupSourceInput, ManagedSiloRestoreInput,
+};
 use crate::mihomo::diagnose_local_clash;
 use crate::vault::VaultError;
 
@@ -595,6 +598,37 @@ fn dispatch_silo(
             Ok(id) => map_result(stop_silo_with(state, id)),
             Err(error) => api_error_status(error),
         },
+        ("POST", Some(action @ ("backup" | "backup-inspect" | "backup-restore"))) => {
+            let id = match resolve_silo_id(state, spec) {
+                Ok(id) => id,
+                Err(error) => return api_error_status(error),
+            };
+            match action {
+                "backup" => match serde_json::from_slice::<ManagedSiloBackupInput>(body) {
+                    Ok(input) => {
+                        map_result(crate::application::backup_managed_silo(state, id, input))
+                    }
+                    Err(_) => (400, error_body("Managed 备份参数无效。")),
+                },
+                "backup-inspect" => {
+                    match serde_json::from_slice::<ManagedSiloBackupSourceInput>(body) {
+                        Ok(input) => map_result(crate::application::inspect_managed_silo_backup(
+                            state, id, input,
+                        )),
+                        Err(_) => (400, error_body("Managed 备份检查参数无效。")),
+                    }
+                }
+                _ => match serde_json::from_slice::<ManagedSiloRestoreInput>(body) {
+                    Ok(input) => map_result(crate::application::restore_managed_silo_backup(
+                        state, id, input,
+                    )),
+                    Err(_) => (
+                        400,
+                        error_body("Managed 恢复需要备份路径、密码、已检查摘要和明确覆盖确认。"),
+                    ),
+                },
+            }
+        }
         ("DELETE", None) => match serde_json::from_slice::<PermanentDeleteInput>(body) {
             Ok(input) if input.confirm_permanent => match resolve_silo_id(state, spec) {
                 Ok(id) => map_result(delete_silo_with(state, id, true)),

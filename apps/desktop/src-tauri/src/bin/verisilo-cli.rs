@@ -16,7 +16,7 @@ use verisilo_desktop_lib::domain::{
     active_vault_name, available_vault_names, select_vault_name, DEFAULT_VAULT_NAME,
 };
 use verisilo_desktop_lib::local_api::load_discovery;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 fn main() -> ExitCode {
     match run(env::args().skip(1).collect()) {
@@ -99,8 +99,69 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         "create-batch" => create_batch(&args, json_out),
         "page" => page_command(&args, json_out),
+        "backup" | "backup-inspect" | "backup-restore" => managed_backup_command(&args, json_out),
         other => Err(format!("未知命令 `{other}`。运行 verisilo-cli help。")),
     }
+}
+
+fn managed_backup_command(args: &[String], json_out: bool) -> Result<(), String> {
+    let command = args[0].as_str();
+    let spec = require_spec(args, command)?;
+    let file = args
+        .get(2)
+        .filter(|value| !value.is_empty() && !value.starts_with("--"))
+        .ok_or_else(|| format!("用法：verisilo-cli {command} <Silo名称或id> <备份路径>"))?;
+    // The service may have a different working directory from this client.
+    let file = std::path::absolute(file).map_err(|error| error.to_string())?;
+    let mut body = if command == "backup" {
+        json!({"destinationPath": file})
+    } else {
+        json!({"sourcePath": file})
+    };
+    if command == "backup-restore" {
+        let digest = args
+            .iter()
+            .position(|arg| arg == "--sha256")
+            .and_then(|index| args.get(index + 1))
+            .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .ok_or_else(|| {
+                "先运行 backup-inspect，然后用 --sha256 <archiveSha256> 指定已检查的备份。"
+                    .to_owned()
+            })?;
+        if !args.iter().any(|arg| arg == "--yes") {
+            return Err(
+                "恢复会覆盖原 Silo 的网站数据和备份中的配置，需要 --yes 明确确认。".to_owned(),
+            );
+        }
+        body["expectedArchiveSha256"] = json!(digest);
+        body["confirmOverwrite"] = json!(true);
+    }
+    let mut passphrase = Zeroizing::new(read_secret("备份密码：")?);
+    if command == "backup" {
+        let mut confirmation = read_secret("再次输入备份密码：")?;
+        let matches = confirmation == *passphrase;
+        confirmation.zeroize();
+        if !matches {
+            passphrase.zeroize();
+            return Err("两次输入的备份密码不一致。".to_owned());
+        }
+    }
+    body["passphrase"] = Value::String(std::mem::take(&mut *passphrase));
+    let result = api(
+        "POST",
+        &format!("/v1/silos/{}/{command}", url_encode(&spec)),
+        Some(&body),
+    );
+    if let Some(Value::String(secret)) = body.get_mut("passphrase") {
+        secret.zeroize();
+    }
+    print_value(result?, json_out, |value| {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(value).map_err(|error| error.to_string())?
+        );
+        Ok(())
+    })
 }
 
 fn app_command(args: &[String], json_out: bool) -> Result<(), String> {
@@ -315,6 +376,9 @@ VeriSilo 本机命令行（需要时自动在后台启动本机服务）
   verisilo-cli recheck <名称或id>
   verisilo-cli stop <名称或id>
   verisilo-cli delete <名称或id> --yes
+  verisilo-cli backup <名称或id> <备份路径>             # 停止后完整加密备份；密码从隐藏输入读取
+  verisilo-cli backup-inspect <名称或id> <备份路径>     # 校验并显示恢复范围及 archiveSha256
+  verisilo-cli backup-restore <名称或id> <备份路径> --sha256 <已检查摘要> --yes
   verisilo-cli create --name <名称> [--network direct|clash] [--mixed-port 7897] [--group 组] [--node 节点] [--preset balanced-zh-cn]
   verisilo-cli create --standard --name <名称> --browser-kind chrome|edge --executable-path <路径> [--network direct|clash]
   verisilo-cli create --request                         # 从 stdin 读取 Managed JSON；Standard 字段会自动选择
@@ -360,9 +424,7 @@ fn api(method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> 
     write_result.map_err(|error| error.to_string())?;
     stream.flush().map_err(|error| error.to_string())?;
     let mut raw = Vec::new();
-    stream
-        .read_to_end(&mut raw)
-        .map_err(api_read_error)?;
+    stream.read_to_end(&mut raw).map_err(api_read_error)?;
     let text = String::from_utf8_lossy(&raw);
     let body = text
         .split("\r\n\r\n")
@@ -1034,6 +1096,24 @@ mod tests {
     fn url_encode_preserves_id_and_encodes_names() {
         assert_eq!(super::url_encode("shop-1"), "shop-1");
         assert!(super::url_encode("美国").contains('%'));
+    }
+
+    #[test]
+    fn managed_restore_requires_review_digest_and_confirmation_before_prompting() {
+        let mut args = vec![
+            "backup-restore".to_owned(),
+            "identity-a".to_owned(),
+            "backup.vsilo".to_owned(),
+            "--yes".to_owned(),
+        ];
+        assert!(super::managed_backup_command(&args, true)
+            .unwrap_err()
+            .contains("backup-inspect"));
+        args.pop();
+        args.extend(["--sha256".to_owned(), "a".repeat(64)]);
+        assert!(super::managed_backup_command(&args, true)
+            .unwrap_err()
+            .contains("--yes"));
     }
 
     #[test]

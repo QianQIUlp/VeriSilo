@@ -38,6 +38,9 @@ use crate::engine::{
 };
 use crate::native_host::{validate_network_evidence_inbox_entry, NativeNetworkEvidenceInboxEntry};
 
+#[path = "vault/managed_backup.rs"]
+mod managed_backup;
+
 const AUTO_LOCK_MINUTES: i64 = 15;
 const VAULT_FILE_NAME: &str = "vault.json";
 const VAULT_ENVELOPE_VERSION: u32 = 2;
@@ -638,6 +641,7 @@ impl VaultRuntime {
 
     pub fn unlock(&mut self, root: &Path, passphrase: &str) -> Result<(), VaultError> {
         validate_passphrase(passphrase)?;
+        managed_backup::recover_interrupted_managed_restore(root)?;
         recover_interrupted_write(root)?;
         let raw = fs::read(vault_path(root)).map_err(|error| match error.kind() {
             std::io::ErrorKind::NotFound => VaultError::NotInitialized,

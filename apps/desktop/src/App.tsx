@@ -553,6 +553,8 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                 <VaultAndDataPanel
                   feedback={workspaceNotice}
                   busy={busy}
+                  silos={[...activeSilos, ...archivedSilos]}
+                  activeSiloId={status.activation.activeSiloId}
                   onNotice={setNotice}
                   onRefresh={refresh}
                   onVaultRestored={finishVaultRestore}

@@ -10,10 +10,14 @@ import { UserFacingError } from "../../user-errors.js";
 import { desktopApi } from "../../desktop-api.js";
 
 import { formatBytes } from "../../shared/presentation.js";
+import { ManagedSiloBackupPanel } from "./ManagedSiloBackupPanel.js";
+import type { Silo } from "@verisilo/contracts";
 
 export function VaultAndDataPanel({
   feedback,
   busy,
+  silos,
+  activeSiloId,
   onNotice,
   onRefresh,
   onVaultRestored,
@@ -21,7 +25,9 @@ export function VaultAndDataPanel({
 }: {
   feedback?: ReactNode;
   busy: boolean;
-  onNotice: (notice: Notice) => void;
+  silos: Silo[];
+  activeSiloId: string | null;
+  onNotice: (notice: Notice | null) => void;
   onRefresh: () => Promise<unknown>;
   onVaultRestored: () => Promise<void>;
   runBusy: (
@@ -233,6 +239,15 @@ export function VaultAndDataPanel({
           <small>验证后替换当前记录</small>
           <i aria-hidden="true">↗</i>
         </button>
+        <ManagedSiloBackupPanel
+          activeSiloId={activeSiloId}
+          busy={busy}
+          feedback={feedback}
+          onNotice={onNotice}
+          onRefresh={onRefresh}
+          runBusy={runBusy}
+          silos={silos}
+        />
       </div>
       <p className="chamber-boundary">
         <span aria-hidden="true">◌</span> 浏览器登录、Cookie

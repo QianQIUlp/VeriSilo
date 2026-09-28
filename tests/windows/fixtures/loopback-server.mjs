@@ -110,6 +110,13 @@ function page() {
         await indexedDbValue(),
       ];
       finish(actual.every((item) => item === expected), actual.join(","));
+    } else if (operation === "read-persistent") {
+      const persistent = [
+        localStorage.getItem("marker") ?? "",
+        cookies().verisilo_e2e_persistent ?? "",
+        await indexedDbValue(),
+      ];
+      finish(persistent.every((item) => item === expectedPersistent), persistent.join(","));
     } else if (operation === "read-lifecycle") {
       const persistent = [
         localStorage.getItem("marker") ?? "",

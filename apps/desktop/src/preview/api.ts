@@ -31,6 +31,7 @@ export function installPreviewApi(scenario: string) {
     scenario === "empty"
       ? []
       : [structuredClone(previewSilo), structuredClone(previewManagedSilo)];
+  const managedBackups = new Map<string, { silo: Silo; passphrase: string; createdAt: string }>();
   if (scenario === "long-name") {
     silos[1]!.name =
       "北美业务 · 长期协作与研究专用身份空间 / Research & Operations";
@@ -186,6 +187,46 @@ export function installPreviewApi(scenario: string) {
       unlocked();
       if (scenario === "error") throw new Error("模拟：备份无法写入。");
       return { destinationPath, bytes: 4096 };
+    },
+    backupManagedSilo: async (siloId: string, destinationPath: string, passphrase: string) => {
+      unlocked();
+      const silo = silos.find((entry) => entry.id === siloId);
+      if (!silo || silo.engine.adapter !== "camoufox") throw new Error("找不到原 Managed Silo。");
+      if (status.activation.activeSiloId === siloId) throw new Error("请先停止此 Silo。");
+      if (Array.from(passphrase).length < 12) throw new Error("备份口令至少需要 12 个字符。");
+      if (!destinationPath.trim()) throw new Error("请选择备份文件路径。");
+      managedBackups.set(destinationPath, { silo: structuredClone(silo), passphrase, createdAt: new Date().toISOString() });
+      return { siloId, destinationPath, bytes: 24576000, profileBytes: 24000000, fileCount: 42 };
+    },
+    inspectManagedSiloBackup: async (siloId: string, sourcePath: string, passphrase: string) => {
+      unlocked();
+      const archive = managedBackups.get(sourcePath);
+      if (!archive || archive.passphrase !== passphrase) throw new Error("备份文件或口令不正确。");
+      if (archive.silo.id !== siloId) throw new Error("此备份属于另一个 Silo。");
+      if (status.activation.activeSiloId === siloId) throw new Error("请先停止此 Silo。");
+      return {
+        siloId,
+        siloName: archive.silo.name,
+        createdAt: archive.createdAt,
+        artifactId: archive.silo.engine.adapter === "camoufox" ? archive.silo.engine.artifactBinding?.artifactId ?? "" : "",
+        artifactSha256: "b".repeat(64),
+        engineVersion: "preview",
+        profileBytes: 24000000,
+        fileCount: 42,
+        archiveSha256: "d".repeat(64),
+        networkSummary: archive.silo.networkProfile.mode === "fixed_proxy" ? "固定代理（示例）" : "直连（示例）",
+      };
+    },
+    restoreManagedSiloBackup: async (siloId: string, sourcePath: string, passphrase: string, expectedArchiveSha256: string, confirmOverwrite: boolean) => {
+      unlocked();
+      const archive = managedBackups.get(sourcePath);
+      if (!archive || archive.passphrase !== passphrase) throw new Error("备份文件或口令不正确。");
+      if (archive.silo.id !== siloId || expectedArchiveSha256 !== "d".repeat(64) || !confirmOverwrite) throw new Error("备份检查结果已变化，请重新检查。");
+      if (status.activation.activeSiloId === siloId) throw new Error("请先停止此 Silo。");
+      const index = silos.findIndex((entry) => entry.id === siloId);
+      if (index < 0) throw new Error("找不到原 Silo 元数据；请先恢复 Vault 配置备份。");
+      silos[index] = { ...structuredClone(archive.silo), archivedAt: silos[index]!.archivedAt };
+      return structuredClone(silos[index]!);
     },
     listManagedIdentityPreviews: async () => structuredClone(previews),
     listLegacyEnvironmentArtifacts: async () => [],

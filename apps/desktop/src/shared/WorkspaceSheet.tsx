@@ -5,11 +5,13 @@ export function WorkspaceSheet({
   onClose,
   children,
   variant = "side",
+  closeDisabled = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   variant?: "side" | "console";
+  closeDisabled?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
@@ -24,10 +26,10 @@ export function WorkspaceSheet({
       aria-label={title}
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        if (!closeDisabled) onClose();
       }}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (!closeDisabled && event.target === event.currentTarget) onClose();
       }}
     >
       <div className="sheet-surface">
@@ -40,6 +42,7 @@ export function WorkspaceSheet({
             type="button"
             className="button-secondary"
             aria-label={`关闭${title}`}
+            disabled={closeDisabled}
             onClick={onClose}
           >
             收起 ↗

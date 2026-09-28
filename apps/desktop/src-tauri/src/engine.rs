@@ -5272,7 +5272,7 @@ fn hex_lower(bytes: &[u8]) -> String {
     value
 }
 
-struct Sha256State {
+pub(crate) struct Sha256State {
     state: [u32; 8],
     buffer: [u8; 64],
     buffer_len: usize,
@@ -5280,7 +5280,7 @@ struct Sha256State {
 }
 
 impl Sha256State {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             state: [
                 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
@@ -5292,7 +5292,7 @@ impl Sha256State {
         }
     }
 
-    fn update(&mut self, mut bytes: &[u8]) {
+    pub(crate) fn update(&mut self, mut bytes: &[u8]) {
         self.message_len = self
             .message_len
             .checked_add(bytes.len() as u64)
@@ -5321,7 +5321,7 @@ impl Sha256State {
         self.buffer_len = bytes.len();
     }
 
-    fn finalize(mut self) -> [u8; 32] {
+    pub(crate) fn finalize(mut self) -> [u8; 32] {
         let bit_len = self
             .message_len
             .checked_mul(8)

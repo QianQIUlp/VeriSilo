@@ -68,3 +68,23 @@ pub struct ManagedSiloBackupInspection {
     /// Human-readable policy summary; credentials never leave the backend.
     pub network_summary: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ManagedSiloRestoreInput;
+
+    #[test]
+    fn restore_contract_requires_reviewed_archive_and_explicit_confirmation() {
+        let mut input = serde_json::json!({
+            "sourcePath": "backup.vsilo",
+            "passphrase": "test-backup-passphrase"
+        });
+        assert!(serde_json::from_value::<ManagedSiloRestoreInput>(input.clone()).is_err());
+        input["expectedArchiveSha256"] = serde_json::json!("a".repeat(64));
+        assert!(serde_json::from_value::<ManagedSiloRestoreInput>(input.clone()).is_err());
+        input["confirmOverwrite"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<ManagedSiloRestoreInput>(input.clone()).is_ok());
+        input["newSiloId"] = serde_json::json!(uuid::Uuid::new_v4());
+        assert!(serde_json::from_value::<ManagedSiloRestoreInput>(input).is_err());
+    }
+}

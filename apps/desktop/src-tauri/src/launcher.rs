@@ -1024,6 +1024,21 @@ impl RuntimeManager {
             .map(|record| record.silo_id)
     }
 
+    /// A restored Profile starts a new evidence epoch for this one Silo.
+    /// Another Silo's live runtime and record stay untouched.
+    pub(crate) fn invalidate_restored_silo(&mut self, silo_id: Uuid) -> RuntimeActivation {
+        self.refresh();
+        if self.recorded_silo_id() == Some(silo_id)
+            && !self.activation.as_ref().and_then(|activation| activation.active_silo_id)
+                .is_some_and(|active| active == silo_id) {
+            self.record = None;
+            self.website_identity = None;
+            if let Some(path) = self.record_path.as_ref() { let _ = fs::remove_file(path); }
+            self.activation = Some(RuntimeActivation::idle());
+        }
+        self.activation.clone().unwrap_or_else(RuntimeActivation::idle)
+    }
+
     pub fn needs_reconciliation(&self) -> bool {
         self.child.is_none()
             && self

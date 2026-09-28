@@ -13,6 +13,10 @@ use crate::environment::backend::{
     EnvironmentActionReceipt, EnvironmentBackendId, EnvironmentBackendStatus,
 };
 use crate::environment::{EnvironmentOperationRequest, WslStatus};
+use crate::managed_backup::{
+    ManagedSiloBackupInput, ManagedSiloBackupInspection, ManagedSiloBackupReceipt,
+    ManagedSiloBackupSourceInput, ManagedSiloRestoreInput,
+};
 use crate::mihomo::{LocalClashProbe, MihomoControllerInput, MihomoSnapshot};
 use crate::native_host;
 use crate::vault::VaultBackupReceipt;
@@ -440,6 +444,42 @@ pub(crate) async fn backup_vault(
     })
     .await
     .unwrap_or_else(|error| Err(error.to_string()))
+}
+
+#[tauri::command]
+pub(crate) async fn backup_managed_silo(
+    app: AppHandle,
+    silo_id: Uuid,
+    input: ManagedSiloBackupInput,
+) -> Result<ManagedSiloBackupReceipt, String> {
+    run_blocking(app, move |state| {
+        application::backup_managed_silo(state, silo_id, input)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn inspect_managed_silo_backup(
+    app: AppHandle,
+    silo_id: Uuid,
+    input: ManagedSiloBackupSourceInput,
+) -> Result<ManagedSiloBackupInspection, String> {
+    run_blocking(app, move |state| {
+        application::inspect_managed_silo_backup(state, silo_id, input)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn restore_managed_silo_backup(
+    app: AppHandle,
+    silo_id: Uuid,
+    input: ManagedSiloRestoreInput,
+) -> Result<Silo, String> {
+    run_blocking(app, move |state| {
+        application::restore_managed_silo_backup(state, silo_id, input)
+    })
+    .await
 }
 
 #[tauri::command]

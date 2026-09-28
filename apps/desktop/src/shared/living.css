@@ -515,7 +515,7 @@
 }
 .vault-action-backup {
   right: 9%;
-  top: 24%;
+  top: 10%;
 }
 .vault-action-restore {
   left: 17%;
@@ -545,6 +545,110 @@
 .chamber-boundary > span {
   color: var(--primary);
   margin-right: 8px;
+}
+.managed-backup-entry {
+  position: absolute;
+  right: 0;
+  bottom: 2%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: clamp(220px, 24vw, 300px);
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--surface);
+}
+.managed-backup-entry > div:first-child {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+.managed-backup-entry .eyebrow {
+  margin-bottom: 5px !important;
+}
+.managed-backup-entry h2 {
+  margin: 0 0 5px;
+  font-size: 14px;
+}
+.managed-backup-entry p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.managed-backup-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.managed-backup-entry-actions button {
+  min-height: 36px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.managed-backup-entry .managed-backup-empty {
+  flex-basis: 100%;
+}
+.managed-backup-target {
+  display: grid;
+  gap: 7px;
+  margin: 18px 0;
+  color: var(--ink);
+  font-weight: 700;
+}
+.managed-backup-pending {
+  margin: 14px 0;
+  color: var(--primary-dark) !important;
+}
+.managed-backup-inspection {
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--soft);
+}
+.managed-backup-inspection h3 {
+  margin: 0 0 14px;
+  font-size: 16px;
+}
+.managed-backup-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+  margin: 0;
+}
+.managed-backup-facts div {
+  min-width: 0;
+}
+.managed-backup-facts dt {
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.managed-backup-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 12px;
+}
+.managed-backup-digest {
+  grid-column: 1 / -1;
+}
+.managed-backup-consequence {
+  margin: 18px 0 12px !important;
+  color: var(--ink) !important;
+  font-size: 12px;
+}
+.managed-backup-inspection > button {
+  margin-top: 14px;
+}
+@media (max-width: 900px) {
+  .vault-object-stage .vault-action-backup {
+    top: 0;
+  }
 }
 .sheet-console {
   inset: auto 0 28px;
@@ -601,6 +705,20 @@
   margin-top: 24px;
   border-radius: 24px;
   min-width: 180px;
+}
+@media (max-width: 560px) {
+  .managed-backup-facts {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 680px) {
+  .vault-object-stage .managed-backup-entry {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: 100%;
+    margin-top: 390px;
+  }
 }
 @keyframes console-rise {
   from {

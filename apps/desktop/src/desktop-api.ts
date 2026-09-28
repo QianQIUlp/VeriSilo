@@ -646,20 +646,40 @@ export const desktopApi = {
     }),
   backupVault: (destinationPath: string) =>
     invoke<VaultBackupReceipt>("backup_vault", { destinationPath }),
-  backupManagedSilo: (siloId: string, destinationPath: string, passphrase: string) =>
+  backupManagedSilo: (
+    siloId: string,
+    destinationPath: string,
+    passphrase: string,
+  ) =>
     invoke<ManagedSiloBackupReceipt>("backup_managed_silo", {
-      siloId, input: { destinationPath, passphrase },
+      siloId,
+      input: { destinationPath, passphrase },
     }),
-  inspectManagedSiloBackup: (siloId: string, sourcePath: string, passphrase: string) =>
+  inspectManagedSiloBackup: (
+    siloId: string,
+    sourcePath: string,
+    passphrase: string,
+  ) =>
     invoke<ManagedSiloBackupInspection>("inspect_managed_silo_backup", {
-      siloId, input: { sourcePath, passphrase },
+      siloId,
+      input: { sourcePath, passphrase },
     }),
   restoreManagedSiloBackup: (
-    siloId: string, sourcePath: string, passphrase: string,
-    expectedArchiveSha256: string, confirmOverwrite: boolean,
-  ) => invoke<Silo>("restore_managed_silo_backup", {
-    siloId, input: { sourcePath, passphrase, expectedArchiveSha256, confirmOverwrite },
-  }),
+    siloId: string,
+    sourcePath: string,
+    passphrase: string,
+    expectedArchiveSha256: string,
+    confirmOverwrite: boolean,
+  ) =>
+    invoke<Silo>("restore_managed_silo_backup", {
+      siloId,
+      input: {
+        sourcePath,
+        passphrase,
+        expectedArchiveSha256,
+        confirmOverwrite,
+      },
+    }),
   restoreVault: (
     sourcePath: string,
     passphrase: string,

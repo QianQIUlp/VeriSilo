@@ -65,6 +65,9 @@ pub(crate) use identity::{
     update_managed_identity,
 };
 
+mod managed_backup;
+pub(crate) use managed_backup::{backup_managed_silo, inspect_managed_silo_backup, restore_managed_silo_backup};
+
 pub(crate) struct DesktopCore {
     pub(crate) root: PathBuf,
     pub(crate) resource_root: PathBuf,
