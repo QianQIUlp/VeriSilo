@@ -1,11 +1,13 @@
-import type { RecentRunRecord, Silo } from "@verisilo/contracts";
+import type { RecentRunRecord, RuntimeActivation, Silo } from "@verisilo/contracts";
 import {
   desktopApi,
   type CreateManagedSiloInput,
   type CreateSiloInput,
   type DesktopStatus,
   type ManagedIdentityPreview,
+  type RuntimeSessionStatus,
 } from "../desktop-api.js";
+import { sessionNeedsManagement } from "../runtime-status.js";
 import { defaultTimezoneForPreset } from "../timezone-presets.js";
 import {
   previewEngineStatuses,
@@ -27,10 +29,41 @@ export function installPreviewApi(scenario: string) {
         ? "uninitialized"
         : "unlocked",
   );
-  let silos =
-    scenario === "empty"
-      ? []
-      : [structuredClone(previewSilo), structuredClone(previewManagedSilo)];
+  const concurrent = scenario.startsWith("concurrent");
+  const concurrentSilo = (id: string, name: string): Silo => {
+    const silo = structuredClone(previewManagedSilo);
+    silo.id = id;
+    silo.name = name;
+    silo.profileDirectory = `C:\\Preview\\profiles\\${id}`;
+    silo.seedReference = id;
+    if (silo.engine.adapter === "camoufox") {
+      silo.engine.artifactBinding!.artifactId = `identity-${id.slice(0, 8)}`;
+      silo.engine.artifactBinding!.artifactFileSha256 = id.replaceAll("-", "").repeat(2);
+    }
+    return silo;
+  };
+  let silos = scenario === "empty" ? [] : concurrent
+    ? [
+      structuredClone(previewManagedSilo),
+      concurrentSilo("a2222222-2222-4222-8222-222222222222", "托管空间 B（示例）"),
+      concurrentSilo("a3333333-3333-4333-8333-333333333333", "托管空间 C（示例）"),
+    ]
+    : [structuredClone(previewSilo), structuredClone(previewManagedSilo)];
+  const currentSession = (siloId: string) =>
+    status.sessions.find((session) => session.siloId === siloId);
+  const activeSessions = () => status.sessions.filter(sessionNeedsManagement);
+  const syncLegacyProjection = () => {
+    const current = activeSessions();
+    status.activation = current.length > 1 ? null
+      : current[0]?.activation ?? previewStatus().activation;
+  };
+  const setSession = (siloId: string, activation: RuntimeActivation) => {
+    status.sessions = [
+      ...status.sessions.filter((session) => session.siloId !== siloId),
+      { siloId, activation },
+    ];
+    syncLegacyProjection();
+  };
   const managedBackups = new Map<string, { silo: Silo; passphrase: string; createdAt: string }>();
   if (scenario === "long-name") {
     silos[1]!.name =
@@ -41,8 +74,8 @@ export function installPreviewApi(scenario: string) {
       scenario,
     )
   ) {
-    status.activation = previewRuntimeActivation(previewManagedSilo);
-    status.activation.identityEvidence = previewIdentityEvidence(
+    const activation = previewRuntimeActivation(previewManagedSilo);
+    activation.identityEvidence = previewIdentityEvidence(
       previewManagedSilo,
       scenario === "mismatched" ||
         scenario === "unavailable" ||
@@ -50,34 +83,43 @@ export function installPreviewApi(scenario: string) {
         ? scenario
         : "matched",
     );
+    setSession(previewManagedSilo.id, activation);
   }
   if (scenario === "complex-mismatch") {
-    status.activation.identityEvidence!.state = "mismatched";
-    status.activation.identityEvidence!.signals.push({
+    currentSession(previewManagedSilo.id)!.activation.identityEvidence!.state = "mismatched";
+    currentSession(previewManagedSilo.id)!.activation.identityEvidence!.signals.push({
       signal: "voices", state: "mismatched",
       expected: [{ name: "Voice A", lang: "en-US", default: true }],
       observed: [{ name: "Voice B", lang: "en-US", default: true }],
     });
   }
   if (scenario === "network-expired") {
-    status.activation.networkEvidence!.observedAt = new Date(Date.now() - 600000).toISOString();
-    status.activation.networkEvidence!.expiresAt = new Date(Date.now() - 60000).toISOString();
+    currentSession(previewManagedSilo.id)!.activation.networkEvidence!.observedAt = new Date(Date.now() - 600000).toISOString();
+    currentSession(previewManagedSilo.id)!.activation.networkEvidence!.expiresAt = new Date(Date.now() - 60000).toISOString();
   }
   if (scenario === "history-save-failed") status.recentRunsWarning = "save_failed";
   if (scenario === "binding-mismatch") {
-    status.activation.networkEvidence!.runtimeId = "33333333-3333-4333-8333-333333333333";
+    currentSession(previewManagedSilo.id)!.activation.networkEvidence!.runtimeId = "33333333-3333-4333-8333-333333333333";
   }
   if (scenario === "running") {
-    status.activation.activeSiloId = previewSilo.id;
-    status.activation.state = "running";
+    setSession(previewSilo.id, previewRuntimeActivation(previewSilo));
+  }
+  if (concurrent) {
+    setSession(previewManagedSilo.id, previewRuntimeActivation(previewManagedSilo));
   }
   const previews: Record<string, ManagedIdentityPreview> = {
     [previewManagedSilo.id]: structuredClone(previewManagedIdentity),
   };
+  if (concurrent) {
+    for (const silo of silos.slice(1)) {
+      previews[silo.id] = structuredClone(previewManagedIdentity);
+    }
+  }
   const recentRuns: Record<string, RecentRunRecord> = {};
   const saveRecent = (siloId: string, freshRun = false) => {
     const silo = silos.find((entry) => entry.id === siloId)!;
-    const activation = status.activation;
+    const activation = currentSession(siloId)?.activation;
+    if (!activation) return;
     if (activation.identityEvidence !== null && activation.networkEvidence !== null &&
         activation.identityEvidence.runtimeId !== activation.networkEvidence.runtimeId) return;
     const previous = freshRun ? undefined : recentRuns[siloId];
@@ -101,14 +143,16 @@ export function installPreviewApi(scenario: string) {
       networkEvidence: structuredClone(activation.networkEvidence),
     };
   };
-  if (status.activation.activeSiloId !== null) saveRecent(status.activation.activeSiloId);
+  for (const session of activeSessions()) saveRecent(session.siloId);
   if (scenario === "recent-run" || scenario === "history-error") {
     for (const silo of silos) {
-      status.activation = previewRuntimeActivation(silo);
-      status.activation.state = "stopped";
+      const activation = previewRuntimeActivation(silo);
+      activation.state = "stopped";
+      activation.activeSiloId = null;
+      setSession(silo.id, activation);
       saveRecent(silo.id);
     }
-    status.activation = previewStatus().activation;
+    syncLegacyProjection();
   }
   for (const operation of Object.keys(desktopApi)) {
     Object.defineProperty(desktopApi, operation, {
@@ -127,6 +171,12 @@ export function installPreviewApi(scenario: string) {
       scenario === "loading"
         ? new Promise<DesktopStatus>(() => {})
         : structuredClone(status),
+    listRuntimeSessions: async () => structuredClone(status.sessions),
+    getSiloRuntime: async (siloId: string): Promise<RuntimeSessionStatus> => {
+      const session = currentSession(siloId);
+      if (!session) throw new Error("此 Silo 没有当前运行记录。");
+      return structuredClone(session);
+    },
     initializeVault: async () => {
       status.vault.state = "unlocked";
       return structuredClone(status.vault);
@@ -137,6 +187,8 @@ export function installPreviewApi(scenario: string) {
     },
     lockVault: async () => {
       status.vault.state = "locked";
+      status.sessions = [];
+      syncLegacyProjection();
       return structuredClone(status.vault);
     },
     discoverBrowsers: async () => [
@@ -192,7 +244,7 @@ export function installPreviewApi(scenario: string) {
       unlocked();
       const silo = silos.find((entry) => entry.id === siloId);
       if (!silo || silo.engine.adapter !== "camoufox") throw new Error("找不到原 Managed Silo。");
-      if (status.activation.activeSiloId === siloId) throw new Error("请先停止此 Silo。");
+      if (currentSession(siloId) && sessionNeedsManagement(currentSession(siloId)!)) throw new Error("请先停止此 Silo。");
       if (Array.from(passphrase).length < 12) throw new Error("备份口令至少需要 12 个字符。");
       if (!destinationPath.trim()) throw new Error("请选择备份文件路径。");
       managedBackups.set(destinationPath, { silo: structuredClone(silo), passphrase, createdAt: new Date().toISOString() });
@@ -203,7 +255,7 @@ export function installPreviewApi(scenario: string) {
       const archive = managedBackups.get(sourcePath);
       if (!archive || archive.passphrase !== passphrase) throw new Error("备份文件或口令不正确。");
       if (archive.silo.id !== siloId) throw new Error("此备份属于另一个 Silo。");
-      if (status.activation.activeSiloId === siloId) throw new Error("请先停止此 Silo。");
+      if (currentSession(siloId) && sessionNeedsManagement(currentSession(siloId)!)) throw new Error("请先停止此 Silo。");
       return {
         siloId,
         siloName: archive.silo.name,
@@ -222,7 +274,7 @@ export function installPreviewApi(scenario: string) {
       const archive = managedBackups.get(sourcePath);
       if (!archive || archive.passphrase !== passphrase) throw new Error("备份文件或口令不正确。");
       if (archive.silo.id !== siloId || expectedArchiveSha256 !== "d".repeat(64) || !confirmOverwrite) throw new Error("备份检查结果已变化，请重新检查。");
-      if (status.activation.activeSiloId === siloId) throw new Error("请先停止此 Silo。");
+      if (currentSession(siloId) && sessionNeedsManagement(currentSession(siloId)!)) throw new Error("请先停止此 Silo。");
       const index = silos.findIndex((entry) => entry.id === siloId);
       if (index < 0) throw new Error("找不到原 Silo 元数据；请先恢复 Vault 配置备份。");
       silos[index] = { ...structuredClone(archive.silo), archivedAt: silos[index]!.archivedAt };
@@ -304,12 +356,32 @@ export function installPreviewApi(scenario: string) {
       unlocked();
       if (scenario === "error")
         throw new Error("模拟启动失败：浏览器当前不可用。");
-      if (status.activation.activeSiloId !== null) throw new Error("已有一个 Silo 正在运行。");
       const silo = silos.find((s) => s.id === siloId)!;
-      status.activation = previewRuntimeActivation(silo);
+      if (currentSession(siloId) && sessionNeedsManagement(currentSession(siloId)!)) {
+        throw new Error("此 Silo 已有当前会话，不能重复启动。");
+      }
+      const existing = activeSessions();
+      if (existing.length > 0) {
+        const concurrentReady = (candidate: Silo) =>
+          candidate.executionTarget.kind === "local" &&
+          candidate.engine.adapter === "camoufox" &&
+          (candidate.networkProfile.mode === "direct" ||
+            candidate.networkProfile.mode === "fixed_proxy" && candidate.networkProfile.externalMihomo === undefined);
+        if (!concurrentReady(silo) || existing.some((session) => {
+          const peer = silos.find((candidate) => candidate.id === session.siloId);
+          return peer === undefined || !concurrentReady(peer);
+        })) {
+          throw new Error("当前组合不能并行；仅支持本地 Managed 的 Direct 或固定代理（不含 Clash/Mihomo）。");
+        }
+        if (existing.length >= status.managedSessionLimit) {
+          throw new Error(`本地 Managed 同时运行最多 ${status.managedSessionLimit} 个。`);
+        }
+      }
+      const activation = previewRuntimeActivation(silo, crypto.randomUUID());
+      setSession(siloId, activation);
       silo.identityLockedAt ??= new Date().toISOString();
       saveRecent(siloId, true);
-      return structuredClone(status.activation);
+      return structuredClone(activation);
     },
     restoreArchivedSilo: async (id: string) => {
       unlocked();
@@ -322,14 +394,16 @@ export function installPreviewApi(scenario: string) {
       delete recentRuns[id];
       delete previews[id];
     },
-    stopSilo: async () => {
+    stopSilo: async (siloId: string) => {
       unlocked();
-      const stoppedSiloId = status.activation.activeSiloId;
-      status.activation.state = "stopped";
-      status.activation.updatedAt = new Date().toISOString();
-      if (stoppedSiloId !== null) saveRecent(stoppedSiloId);
-      status.activation.activeSiloId = null;
-      return structuredClone(status.activation);
+      const session = currentSession(siloId);
+      if (!session || !sessionNeedsManagement(session)) throw new Error("此 Silo 没有当前会话。");
+      session.activation.state = "stopped";
+      session.activation.updatedAt = new Date().toISOString();
+      session.activation.activeSiloId = null;
+      saveRecent(siloId);
+      syncLegacyProjection();
+      return structuredClone(session.activation);
     },
     archiveSilo: async (id: string) => {
       unlocked();
@@ -339,18 +413,35 @@ export function installPreviewApi(scenario: string) {
     },
     recheckSiloRuntime: async (siloId: string) => {
       unlocked();
-      if (siloId !== status.activation.activeSiloId) throw new Error("该 Silo 没有可重新检查的活动会话。");
-      if (status.activation.identityEvidence) {
+      const session = currentSession(siloId);
+      if (!session || session.activation.state !== "running") throw new Error("该 Silo 没有可重新检查的活动会话。");
+      if (scenario === "concurrent-slow" && siloId === previewManagedSilo.id) {
+        await new Promise((resolve) => window.setTimeout(resolve, 4000));
+      }
+      if (scenario === "concurrent-fault" && siloId === silos[1]?.id) {
+        session.activation.state = "verification_failed";
+        session.activation.activeSiloId = null;
+        session.activation.message = "模拟：此 Silo 的代理连接失败，已按原规则关闭该侧。";
+        session.activation.updatedAt = new Date().toISOString();
+        session.activation.identityEvidence = null;
+        session.activation.networkEvidence = null;
+        session.websiteIdentity = null;
+        saveRecent(siloId);
+        syncLegacyProjection();
+        return structuredClone(session.activation);
+      }
+      if (session.activation.identityEvidence) {
         if (scenario === "recheck-failed") {
-          status.activation.identityEvidence.state = "unavailable";
-          status.activation.identityEvidence.reason = "模拟：本次身份复核未能重新观察网站身份。";
+          session.activation.identityEvidence.state = "unavailable";
+          session.activation.identityEvidence.reason = "模拟：本次身份复核未能重新观察网站身份。";
         } else {
-          status.activation.identityEvidence.observedAt = new Date().toISOString();
+          session.activation.identityEvidence.observedAt = new Date().toISOString();
         }
       }
-      status.activation.updatedAt = new Date().toISOString();
+      session.activation.updatedAt = new Date().toISOString();
       saveRecent(siloId);
-      return structuredClone(status.activation);
+      syncLegacyProjection();
+      return structuredClone(session.activation);
     },
   } satisfies Partial<typeof desktopApi>);
 }

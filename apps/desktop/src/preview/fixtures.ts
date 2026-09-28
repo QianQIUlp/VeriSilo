@@ -1,4 +1,4 @@
-import type { Silo } from "@verisilo/contracts";
+import type { RuntimeActivation, Silo } from "@verisilo/contracts";
 import type {
   DesktopStatus,
   EngineAdapterStatus,
@@ -124,6 +124,8 @@ export function previewStatus(
       networkEvidence: null,
       identityEvidence: null,
     },
+    sessions: [],
+    managedSessionLimit: 2,
   };
 }
 
@@ -131,10 +133,11 @@ export function previewStatus(
 export function previewIdentityEvidence(
   silo: Silo,
   state: "matched" | "mismatched" | "unavailable" | "stale" = "matched",
-): NonNullable<DesktopStatus["activation"]["identityEvidence"]> {
+  runtimeId = "22222222-2222-4222-8222-222222222222",
+): NonNullable<RuntimeActivation["identityEvidence"]> {
   return {
     siloId: silo.id,
-    runtimeId: "22222222-2222-4222-8222-222222222222",
+    runtimeId,
     sessionId: "preview-session",
     artifactId:
       silo.engine.adapter === "camoufox"
@@ -204,14 +207,17 @@ export function previewIdentityEvidence(
 }
 
 /** Consistent synthetic bindings for product interaction checks only. */
-export function previewRuntimeActivation(silo: Silo): DesktopStatus["activation"] {
+export function previewRuntimeActivation(
+  silo: Silo,
+  runtimeId = "22222222-2222-4222-8222-222222222222",
+): RuntimeActivation {
   const now = new Date().toISOString();
   const managed = silo.engine.adapter === "camoufox";
   const adapter = managed ? "camoufox" : silo.browser?.kind === "edge" ? "stock-edge" : "stock-chrome";
   const proxy = silo.networkProfile.mode !== "direct";
   return {
     activeSiloId: silo.id, state: "running", updatedAt: now, message: null,
-    identityEvidence: managed ? previewIdentityEvidence(silo) : null,
+    identityEvidence: managed ? previewIdentityEvidence(silo, "matched", runtimeId) : null,
     engineEvidence: {
       configuredAdapter: adapter, launchedAdapter: adapter, verifiedAdapter: null,
       packageVerification: managed ? "configured" : "not_applicable",
@@ -221,7 +227,7 @@ export function previewRuntimeActivation(silo: Silo): DesktopStatus["activation"
       capabilities: [], phaseReceipts: [], fallbackReceipts: [],
     },
     networkEvidence: {
-      runtimeId: "22222222-2222-4222-8222-222222222222",
+      runtimeId,
       evidenceId: "44444444-4444-4444-8444-444444444444",
       observedAt: now, expiresAt: new Date(Date.now() + 300000).toISOString(),
       provenance: "desktop_control_plane",

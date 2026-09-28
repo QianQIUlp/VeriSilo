@@ -88,6 +88,7 @@ import {
 } from "../features/network/useClashBinding.js";
 
 import { truncateErrorDetail } from "../user-errors.js";
+import { activationForSilo, sessionNeedsManagement } from "../runtime-status.js";
 
 export function useDesktopWorkspace() {
   const [view, setView] = useState<View>("overview");
@@ -199,11 +200,16 @@ export function useDesktopWorkspace() {
   );
   const [networkBusy, setNetworkBusy] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [launchingSiloId, setLaunchingSiloId] = useState<string | null>(null);
+  const [siloBusyIds, setSiloBusyIds] = useState<Set<string>>(() => new Set());
+  const [launchingSiloIds, setLaunchingSiloIds] = useState<Set<string>>(() => new Set());
   const [vaultBusy, setVaultBusy] = useState(false);
   const [closeHintVisible, setCloseHintVisible] = useState(false);
   const refreshRequestRef = useRef(0);
+  const statusRequestRef = useRef(0);
+  const statusPollInFlightRef = useRef(false);
   const unlockedOperationRef = useRef(0);
+  const siloOperationsRef = useRef(new Map<string, number>());
+  const siloOperationSerialRef = useRef(0);
   const vaultOperationRef = useRef(0);
   const networkRequestRef = useRef(0);
   const managedStatusRequestRef = useRef(0);
@@ -287,7 +293,9 @@ export function useDesktopWorkspace() {
     setNetworkResult(null);
     setNetworkBusy(false);
     setBusy(false);
-    setLaunchingSiloId(null);
+    siloOperationsRef.current.clear();
+    setSiloBusyIds(new Set());
+    setLaunchingSiloIds(new Set());
     setNotice(null);
     setStatus((currentStatus) => scrubDesktopStatusForLockedUi(currentStatus));
     setView((currentView) =>
@@ -333,6 +341,7 @@ export function useDesktopWorkspace() {
         vaultUiSessionRef.current.invalidate();
       }
       unlockedOperationRef.current += 1;
+      statusRequestRef.current += 1;
       networkRequestRef.current += 1;
       managedStatusRequestRef.current += 1;
       invalidateClashBinding();
@@ -346,6 +355,7 @@ export function useDesktopWorkspace() {
   const refresh = useCallback(
     async (includeStorageUsage = true): Promise<VaultRefreshResult> => {
       const requestId = ++refreshRequestRef.current;
+      const statusRequestId = ++statusRequestRef.current;
       let nextStatus: DesktopStatus;
       try {
         nextStatus = await desktopApi.status();
@@ -355,7 +365,7 @@ export function useDesktopWorkspace() {
         }
         throw error;
       }
-      if (requestId !== refreshRequestRef.current) {
+      if (requestId !== refreshRequestRef.current || statusRequestId !== statusRequestRef.current) {
         return "stale";
       }
 
@@ -529,45 +539,52 @@ export function useDesktopWorkspace() {
   }, [refresh]);
 
   const pollLocalRuntimeStatus = useCallback(async () => {
+    if (statusPollInFlightRef.current) {
+      return;
+    }
     const sessionEpoch = vaultUiSessionRef.current.capture();
     if (!vaultUiSessionRef.current.accepts(sessionEpoch)) {
       return;
     }
-    const nextStatus = await desktopApi.status();
-    if (!vaultUiSessionRef.current.accepts(sessionEpoch)) {
-      return;
-    }
-    const lockTransition = vaultUiSessionRef.current.observe(
-      nextStatus.vault.state,
-    );
-    const scrubbedStatus =
-      nextStatus.vault.state === "unlocked"
-        ? nextStatus
-        : scrubDesktopStatusForLockedUi(nextStatus);
-    // Only re-render when the snapshot actually changed; the 2s poll would
-    // otherwise hand fresh-but-identical objects to every consumer.
-    setStatus((currentStatus) =>
-      JSON.stringify(currentStatus) === JSON.stringify(scrubbedStatus)
-        ? currentStatus
-        : scrubbedStatus,
-    );
-    if (nextStatus.vault.state === "unlocked") {
-      setUiVaultLocked(false);
-    } else if (lockTransition) {
-      applyVaultUiLock(false);
-    } else {
-      setUiVaultLocked(true);
+    statusPollInFlightRef.current = true;
+    try {
+      const requestId = ++statusRequestRef.current;
+      const nextStatus = await desktopApi.status();
+      if (requestId !== statusRequestRef.current || !vaultUiSessionRef.current.accepts(sessionEpoch)) {
+        return;
+      }
+      const lockTransition = vaultUiSessionRef.current.observe(
+        nextStatus.vault.state,
+      );
+      const scrubbedStatus =
+        nextStatus.vault.state === "unlocked"
+          ? nextStatus
+          : scrubDesktopStatusForLockedUi(nextStatus);
+      // Only re-render when the snapshot actually changed; the 2s poll would
+      // otherwise hand fresh-but-identical objects to every consumer.
+      setStatus((currentStatus) =>
+        JSON.stringify(currentStatus) === JSON.stringify(scrubbedStatus)
+          ? currentStatus
+          : scrubbedStatus,
+      );
+      if (nextStatus.vault.state === "unlocked") {
+        setUiVaultLocked(false);
+      } else if (lockTransition) {
+        applyVaultUiLock(false);
+      } else {
+        setUiVaultLocked(true);
+      }
+    } finally {
+      statusPollInFlightRef.current = false;
     }
   }, [applyVaultUiLock]);
 
   const localRuntimeActive =
-    (status?.activation.activeSiloId ?? null) !== null &&
-    silos.some(
-      (silo) =>
-        silo.id === status?.activation.activeSiloId &&
-        silo.executionTarget.kind === "local" &&
-        silo.engine.adapter === "stock",
-    );
+    status?.sessions.some((session) =>
+      sessionNeedsManagement(session) && silos.some((silo) =>
+        silo.id === session.siloId &&
+        silo.executionTarget.kind === "local",
+      )) ?? false;
 
   useEffect(() => {
     if (!localRuntimeActive) {
@@ -732,6 +749,39 @@ export function useDesktopWorkspace() {
       } finally {
         if (operationId === unlockedOperationRef.current) {
           setBusy(false);
+        }
+      }
+    },
+    [],
+  );
+
+  const withSiloBusy = useCallback(
+    async (silo: Silo, action: (isCurrent: () => boolean) => Promise<void>) => {
+      const sessionEpoch = vaultUiSessionRef.current.capture();
+      if (!vaultUiSessionRef.current.accepts(sessionEpoch) || siloOperationsRef.current.has(silo.id)) {
+        return;
+      }
+      const operationId = ++siloOperationSerialRef.current;
+      siloOperationsRef.current.set(silo.id, operationId);
+      const isCurrent = () =>
+        siloOperationsRef.current.get(silo.id) === operationId &&
+        vaultUiSessionRef.current.accepts(sessionEpoch);
+      setSiloBusyIds((current) => new Set(current).add(silo.id));
+      try {
+        await action(isCurrent);
+      } catch (error) {
+        if (isCurrent()) {
+          const failure = errorNotice(error);
+          setNotice({ ...failure, message: `「${silo.name}」：${failure.message}` });
+        }
+      } finally {
+        if (siloOperationsRef.current.get(silo.id) === operationId) {
+          siloOperationsRef.current.delete(silo.id);
+          setSiloBusyIds((current) => {
+            const next = new Set(current);
+            next.delete(silo.id);
+            return next;
+          });
         }
       }
     },
@@ -998,8 +1048,8 @@ export function useDesktopWorkspace() {
 
   const launchSilo = useCallback(
     (silo: Silo) =>
-      withBusy(async (isCurrent) => {
-        setLaunchingSiloId(silo.id);
+      withSiloBusy(silo, async (isCurrent) => {
+        setLaunchingSiloIds((current) => new Set(current).add(silo.id));
         try {
           const activation = await desktopApi.launchSilo(silo.id);
           if (!isCurrent()) {
@@ -1027,7 +1077,7 @@ export function useDesktopWorkspace() {
                 : truncateErrorDetail(activation.message);
             setNotice({
               tone: activationNoticeTone(activation),
-              message,
+              message: `「${silo.name}」：${message}`,
               ...(detail !== null && detail !== "" && detail !== message
                 ? { detail }
                 : {}),
@@ -1035,76 +1085,81 @@ export function useDesktopWorkspace() {
           }
           await refresh();
         } finally {
-          setLaunchingSiloId((current) => (current === silo.id ? null : current));
+          if (isCurrent()) {
+            setLaunchingSiloIds((current) => {
+              const next = new Set(current);
+              next.delete(silo.id);
+              return next;
+            });
+          }
         }
       }),
-    [refresh, withBusy],
+    [refresh, withSiloBusy],
   );
 
   const stopSilo = useCallback(
     (silo: Silo) =>
-      withBusy(async (isCurrent) => {
+      withSiloBusy(silo, async (isCurrent) => {
         const activation = await desktopApi.stopSilo(silo.id);
         if (!isCurrent()) {
           return;
         }
         setNotice({
           tone: activationNoticeTone(activation),
-          message: describeActivation(activation),
+          message: `「${silo.name}」：${describeActivation(activation)}`,
         });
         await refresh();
       }),
-    [refresh, withBusy],
+    [refresh, withSiloBusy],
   );
 
   const recheckSiloBrowser = useCallback(
     (silo: Silo) =>
-      withBusy(async (isCurrent) => {
+      withSiloBusy(silo, async (isCurrent) => {
         const verification = await desktopApi.recheckSiloBrowser(silo.id);
         if (!isCurrent()) {
           return;
         }
         setNotice({
           tone: verification.state === "verified" ? "success" : "error",
-          message: browserVerificationMessage(verification),
+          message: `「${silo.name}」：${browserVerificationMessage(verification)}`,
         });
         await refresh();
       }),
-    [refresh, withBusy],
+    [refresh, withSiloBusy],
   );
 
   const recheckSiloRuntime = useCallback(
     (silo: Silo) =>
-      withBusy(async (isCurrent) => {
-        const beforeEvidence = status?.activation.activeSiloId === silo.id
-          ? status.activation.identityEvidence : null;
+      withSiloBusy(silo, async (isCurrent) => {
+        const beforeEvidence = status === null ? null : activationForSilo(status, silo.id).identityEvidence;
         const activation = await desktopApi.recheckSiloRuntime(silo.id);
         if (!isCurrent()) {
           return;
         }
         setNotice({
           tone: activation.state === "running" ? "info" : "error",
-          message: describeIdentityRecheck(activation, beforeEvidence),
+          message: `「${silo.name}」：${describeIdentityRecheck(activation, beforeEvidence)}`,
         });
         await refresh(false);
       }),
-    [refresh, status, withBusy],
+    [refresh, status, withSiloBusy],
   );
 
   const rebindSiloMihomo = useCallback(
     (silo: Silo) =>
-      withBusy(async (isCurrent) => {
+      withSiloBusy(silo, async (isCurrent) => {
         const activation = await desktopApi.rebindSiloMihomo(silo.id);
         if (!isCurrent()) {
           return;
         }
         setNotice({
           tone: activation.state === "running" ? "success" : "error",
-          message: describeActivation(activation),
+          message: `「${silo.name}」：${describeActivation(activation)}`,
         });
         await refresh(false);
       }),
-    [refresh, withBusy],
+    [refresh, withSiloBusy],
   );
 
   const archiveSilo = useCallback(
@@ -1247,7 +1302,7 @@ export function useDesktopWorkspace() {
     const report = buildLocalSiloReport({
       generatedAt: new Date().toISOString(),
       silo,
-      activation: status.activation,
+      activation: activationForSilo(status, silo.id),
       vaultEvidence: networkEvidenceHistory,
     });
     const content =
@@ -1420,7 +1475,8 @@ export function useDesktopWorkspace() {
     submitVault,
     activeSilos,
     busy,
-    launchingSiloId,
+    siloBusyIds,
+    launchingSiloIds,
     lockVault,
     identityPreviews,
     recentRuns,
@@ -1456,6 +1512,7 @@ export function useDesktopWorkspace() {
     refresh,
     finishVaultRestore,
     withBusy,
+    withSiloBusy,
     vaultUiGeneration,
   };
 }

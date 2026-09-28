@@ -1,11 +1,8 @@
-import { type DesktopStatus } from "../../desktop-api.js";
-
-import { type Silo } from "@verisilo/contracts";
+import { type RuntimeActivation, type Silo } from "@verisilo/contracts";
 
 import { formatDate } from "../../shared/presentation.js";
 import { identityEvidenceContext, safeEvidenceReason } from "./evidence-diagnostics.js";
 
-type RuntimeActivation = DesktopStatus["activation"];
 type RuntimeNetworkEvidence = NonNullable<
   RuntimeActivation["networkEvidence"]
 >;
@@ -281,7 +278,9 @@ function deriveEngineRow(
       "engine",
       "引擎",
       "已结束",
-      activation.message ?? "这次运行已结束；请点「结束会话」后再打开浏览器。",
+      activation.message ?? (activation.activeSiloId === null
+        ? "这次运行的检查未通过，浏览器已关闭；请检查原因后重新打开。"
+        : "这次运行已结束；请点「结束会话」后再打开浏览器。"),
       "warn",
       "attention",
     );
@@ -555,7 +554,11 @@ export function deriveCurrentSessionSummary(input: {
         activation.message ??
         (state === "failed"
           ? "浏览器没有打开成功。"
-          : "这次运行已结束；请点「结束会话」。"),
+          : state === "stopped"
+            ? "浏览器已停止；旧运行证据仅供回看。"
+          : state === "verification_failed" && activation.activeSiloId === null
+            ? "这次运行的检查未通过，浏览器已关闭；可重新打开。"
+            : "这次运行已结束；请点「结束会话」。"),
       rows,
     };
   }

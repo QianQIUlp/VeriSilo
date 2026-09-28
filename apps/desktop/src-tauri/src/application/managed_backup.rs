@@ -1,7 +1,7 @@
 use super::environments::environment_runtime_is_active;
 use super::runtime::publish_runtime_status;
 use super::DesktopCore;
-use crate::domain::{RuntimeState, Silo};
+use crate::domain::{RuntimeActivation, Silo};
 use crate::engine::{production_engine_adapter_for_silo, EngineHealthState};
 use crate::managed_backup::{
     ManagedSiloBackupInput, ManagedSiloBackupInspection, ManagedSiloBackupReceipt,
@@ -29,18 +29,7 @@ fn engine_version(vault: &mut VaultRuntime, id: Uuid) -> Result<String, String> 
 }
 
 fn ensure_stopped(state: &DesktopCore, id: Uuid) -> Result<(), String> {
-    let mut runtime = state
-        .runtime
-        .lock()
-        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let active = runtime.is_active(id);
-    let unresolved_record = runtime.recorded_silo_id() == Some(id)
-        && (runtime.needs_reconciliation()
-            || !matches!(
-                runtime.activation().state,
-                RuntimeState::Idle | RuntimeState::Stopped
-            ));
-    if active || unresolved_record || environment_runtime_is_active(state, id)? {
+    if state.local_runtimes.is_in_use(id) || environment_runtime_is_active(state, id)? {
         return Err("Stop the Managed Silo before backing up or restoring it.".to_owned());
     }
     Ok(())
@@ -51,7 +40,7 @@ pub(crate) fn backup_managed_silo(
     id: Uuid,
     input: ManagedSiloBackupInput,
 ) -> Result<ManagedSiloBackupReceipt, String> {
-    let _reservation = state.local_control.reserve()?;
+    let _reservation = state.local_control.reserve_silo(id)?;
     ensure_stopped(state, id)?;
     let mut vault = state
         .vault
@@ -74,7 +63,7 @@ pub(crate) fn inspect_managed_silo_backup(
     id: Uuid,
     input: ManagedSiloBackupSourceInput,
 ) -> Result<ManagedSiloBackupInspection, String> {
-    let _reservation = state.local_control.reserve()?;
+    let _reservation = state.local_control.reserve_silo(id)?;
     ensure_stopped(state, id)?;
     let mut vault = state
         .vault
@@ -97,7 +86,7 @@ pub(crate) fn restore_managed_silo_backup(
     id: Uuid,
     input: ManagedSiloRestoreInput,
 ) -> Result<Silo, String> {
-    let _reservation = state.local_control.reserve()?;
+    let _reservation = state.local_control.reserve_silo(id)?;
     ensure_stopped(state, id)?;
     let mut vault = state
         .vault
@@ -116,12 +105,15 @@ pub(crate) fn restore_managed_silo_backup(
         )
         .map_err(|error| error.to_string())?;
     let status = vault.status(&state.root);
-    let activation = state
-        .runtime
-        .lock()
-        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
-        .invalidate_restored_silo(id);
     drop(vault);
+    let activation = if let Some(handle) = state.local_runtimes.get(id) {
+        let mut runtime = handle.lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+        runtime.invalidate_restored_silo(id)
+    } else {
+        RuntimeActivation::idle()
+    };
+    state.local_runtimes.update(id, activation.clone(), None);
     publish_runtime_status(state, &activation, &status);
     Ok(restored)
 }

@@ -41,8 +41,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "vault" => vault_command(&args, json_out),
         "app" => app_command(&args, json_out),
         "service" => service_command(&args, json_out),
-        "status" => print_value(api("GET", "/v1/status", None)?, json_out, print_status),
-        "identity" => print_value(api("GET", "/v1/status", None)?, json_out, print_identity),
+        "status" => print_value(api("GET", &runtime_query_path(args.get(1)), None)?, json_out, print_status),
+        "identity" => print_value(api("GET", &runtime_query_path(args.get(1)), None)?, json_out, print_identity),
+        "sessions" => print_value(api("GET", "/v1/sessions", None)?, json_out, print_sessions),
         "silos" => print_value(api("GET", "/v1/silos", None)?, json_out, print_silos),
         "clash" => print_value(api("GET", "/v1/clash", None)?, json_out, print_clash),
         "diagnose" => {
@@ -360,6 +361,7 @@ fn read_secret(prompt: &str) -> Result<String, String> {
 }
 
 fn print_help() {
+    println!("会话查询：status [Silo名称或id] · identity [Silo名称或id] · sessions");
     println!(
         "\
 VeriSilo 本机命令行（需要时自动在后台启动本机服务）
@@ -832,7 +834,30 @@ fn print_value(
     }
 }
 
+fn runtime_query_path(spec: Option<&String>) -> String {
+    spec.map(|spec| format!("/v1/silos/{}/runtime", url_encode(spec)))
+        .unwrap_or_else(|| "/v1/status".to_owned())
+}
+
+fn print_sessions(value: &Value) -> Result<(), String> {
+    if let Some(sessions) = value.as_array() {
+        for session in sessions {
+            println!("{}：{}", session.get("siloId").and_then(Value::as_str).unwrap_or("unknown"),
+                session.pointer("/activation/state").and_then(Value::as_str).unwrap_or("unknown"));
+        }
+    }
+    Ok(())
+}
+
 fn print_status(value: &Value) -> Result<(), String> {
+    if value.get("activation").is_some_and(Value::is_null) {
+        println!("多个运行会话；用 status <Silo名称或id> 查询指定身份。");
+        return print_sessions(&value["sessions"]);
+    }
+    if value.get("siloId").is_some() {
+        println!("Silo：{}", value["siloId"].as_str().unwrap_or("unknown"));
+        return print_activation(&value["activation"]);
+    }
     let vault = value
         .pointer("/vault/state")
         .and_then(Value::as_str)
@@ -938,6 +963,9 @@ fn print_page(value: &Value) -> Result<(), String> {
 }
 
 fn print_identity(value: &Value) -> Result<(), String> {
+    if value.get("activation").is_some_and(Value::is_null) {
+        return Err("多个运行会话；用 identity <Silo名称或id> 查询指定身份。".to_owned());
+    }
     let Some(identity) = value.get("websiteIdentity") else {
         println!("还没有页面读到的结果。先打开一次独立浏览器。");
         return Ok(());

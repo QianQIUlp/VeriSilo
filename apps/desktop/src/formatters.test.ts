@@ -23,6 +23,20 @@ describe("desktop formatters", () => {
     ).toContain("结束会话");
   });
 
+  it("does not ask to stop a failed session that has already released its browser", () => {
+    const message = describeActivation({
+      activeSiloId: null,
+      state: "verification_failed",
+      updatedAt: "2026-09-28T12:00:00.000Z",
+      message: null,
+      engineEvidence: null,
+      networkEvidence: null,
+      identityEvidence: null,
+    });
+    expect(message).toContain("浏览器已关闭");
+    expect(message).not.toContain("结束会话");
+  });
+
   it("never forwards a native activation message into the product UI", () => {
     expect(
       describeActivation({

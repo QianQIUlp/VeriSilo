@@ -1,11 +1,10 @@
 import {
-  type DesktopStatus,
   type ManagedIdentityPreview,
+  type RuntimeSessionStatus,
   type SiloNetworkEvidence,
-  type WebsiteIdentityObservation,
 } from "../../desktop-api.js";
 
-import { type Silo } from "@verisilo/contracts";
+import { type RuntimeActivation, type Silo } from "@verisilo/contracts";
 
 import { useState } from "react";
 
@@ -50,10 +49,10 @@ export function ManagedStatusGroups({
   silo,
   now = Date.now(),
 }: {
-  activation: DesktopStatus["activation"];
+  activation: RuntimeActivation;
   evidence: SiloNetworkEvidence[];
   engineHealthy: boolean;
-  runtimeState: DesktopStatus["activation"]["state"];
+  runtimeState: RuntimeActivation["state"];
   silo: Silo;
   now?: number;
 }) {
@@ -148,20 +147,18 @@ export function ManagedStatusGroups({
 }
 
 export function IdentityInspectPanel({
-  activeSiloId,
-  activation,
+  preferredSiloId,
+  sessions,
   silos,
 }: {
-  activeSiloId: string | null;
-  activation?: DesktopStatus["activation"];
-  identityPreviews?: Record<string, ManagedIdentityPreview>;
-  observation?: WebsiteIdentityObservation | null;
+  preferredSiloId?: string | undefined;
+  sessions: RuntimeSessionStatus[];
   silos: Silo[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const silo =
     silos.find((candidate) => candidate.id === selectedId) ??
-    silos.find((candidate) => candidate.id === activeSiloId) ??
+    silos.find((candidate) => candidate.id === preferredSiloId) ??
     silos.find((candidate) => candidate.engine.adapter === "camoufox") ??
     silos[0];
 
@@ -181,6 +178,7 @@ export function IdentityInspectPanel({
     );
   }
 
+  const activation = sessions.find((session) => session.siloId === silo.id)?.activation;
   const context = activation === undefined ? null : identityEvidenceContext(activation, silo);
   const evidence = context?.evidence ?? null;
 
@@ -279,7 +277,7 @@ export function ManagedIdentityEvidence({
   activation,
   silo,
 }: {
-  activation: DesktopStatus["activation"];
+  activation: RuntimeActivation;
   silo: Silo;
 }) {
   const context = identityEvidenceContext(activation, silo);

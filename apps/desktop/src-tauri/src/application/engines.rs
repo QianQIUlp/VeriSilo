@@ -29,6 +29,10 @@ pub(crate) fn summarize_engine(adapter: &dyn EngineAdapter) -> EngineAdapterStat
 pub(crate) fn list_engine_adapters(
     state: &DesktopCore,
 ) -> Result<Vec<EngineAdapterStatus>, String> {
+    // Discovery can initialize the bundled package only while every runtime is
+    // quiescent. A read during another Silo's launch remains read-only.
+    let maintenance = state.local_control.reservation.try_write().ok()
+        .filter(|_| ensure_engine_maintenance_quiescent(state).is_ok());
     let mut statuses = Vec::new();
     for id in [
         engine::EngineAdapterId::ControlledChromium,
@@ -36,7 +40,7 @@ pub(crate) fn list_engine_adapters(
     ] {
         let mut adapter = ExternalPackageEngineAdapter::production_prototype(id)
             .map_err(|error| error.to_string())?;
-        if id == EngineAdapterId::Camoufox {
+        if id == EngineAdapterId::Camoufox && maintenance.is_some() {
             if let Err(error) =
                 adapter.ensure_builtin_package(&managed_browser_package_root(&state))
             {
@@ -66,6 +70,8 @@ pub(crate) fn install_engine_package(
     adapter_id: EngineAdapterId,
     request: EnginePackageRequest,
 ) -> Result<EngineMaintenanceReceipt, String> {
+    let _reservation = state.local_control.reserve()?;
+    ensure_engine_maintenance_quiescent(state)?;
     if adapter_id == EngineAdapterId::Camoufox {
         let mut adapter = production_external_engine(adapter_id)?;
         return adapter
@@ -82,6 +88,8 @@ pub(crate) fn update_engine_package(
     adapter_id: EngineAdapterId,
     request: EnginePackageRequest,
 ) -> Result<EngineMaintenanceReceipt, String> {
+    let _reservation = state.local_control.reserve()?;
+    ensure_engine_maintenance_quiescent(state)?;
     if adapter_id == EngineAdapterId::Camoufox {
         let mut adapter = production_external_engine(adapter_id)?;
         return adapter
@@ -94,18 +102,24 @@ pub(crate) fn update_engine_package(
 }
 
 pub(crate) fn rollback_engine_package(
+    state: &DesktopCore,
     adapter_id: EngineAdapterId,
 ) -> Result<EngineMaintenanceReceipt, String> {
+    let _reservation = state.local_control.reserve()?;
+    ensure_engine_maintenance_quiescent(state)?;
     production_external_engine(adapter_id)?
         .rollback()
         .map_err(|error| error.to_string())
 }
 
 pub(crate) fn set_engine_emergency_disabled(
+    state: &DesktopCore,
     adapter_id: EngineAdapterId,
     disabled: bool,
     reason: Option<String>,
 ) -> Result<EngineAdapterStatus, String> {
+    let _reservation = state.local_control.reserve()?;
+    ensure_engine_maintenance_quiescent(state)?;
     let mut adapter = production_external_engine(adapter_id)?;
     adapter
         .set_emergency_disabled(disabled, reason)
@@ -115,4 +129,14 @@ pub(crate) fn set_engine_emergency_disabled(
 
 pub(crate) fn discover_browsers() -> Vec<BrowserCandidate> {
     discover_installed_browsers()
+}
+
+fn ensure_engine_maintenance_quiescent(state: &DesktopCore) -> Result<(), String> {
+    if state.local_runtimes.has_occupied()
+        || state.runtime.try_lock().map_err(|_| "A runtime operation is still in progress.".to_owned())?.has_runtime_ownership()
+        || super::environments::environment_runtime_has_active_silo(state)?
+    {
+        return Err("Stop all Silos and resolve runtime recovery before maintaining a shared engine.".to_owned());
+    }
+    Ok(())
 }

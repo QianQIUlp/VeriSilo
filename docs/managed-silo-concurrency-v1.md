@@ -10,7 +10,7 @@
 - `DesktopStatus.sessions` 为 `{ siloId, activation, websiteIdentity? }[]`，归属不依赖停止后会清空的 `activeSiloId`；`managedSessionLimit` 为集中上限。旧 `activation` 在唯一需管理会话时保持原对象，多会话时为 `null`，不得取第一条冒充唯一状态。无会话时保留 idle/旧单会话结束语义。
 - 新增 Tauri `list_runtime_sessions` / `get_silo_runtime`，HTTP `GET /v1/sessions` / `GET /v1/silos/{id}/runtime`；启动、停止、重新观察和页面操作始终指定目标。CLI 支持集合及目标查询。Native Host/Companion 的无目标唯一查询在歧义时明确不可用，目标查询按 Silo/runtime 绑定，不接收错误归属的证据。
 - UI 选择独立于运行集合，按 Silo 跟踪 busy 和异步响应；切换选择不改运行身份。Vault 锁定清所有敏感 UI 状态。
-- 现有全局生命周期 reservation 变为全局写屏障/目标读屏障，目标对象自身串行操作。Vault 锁定、整库恢复、引擎维护和退出处理全部会话；单 Silo 冷备份只检查目标停机与占用，运行 B 时恢复 A 不能清除 B。备份格式和密码学不变。
+- 现有全局生命周期 reservation 变为全局写屏障/目标读屏障，目标对象自身串行操作。Vault 锁定、整库恢复、引擎维护和退出处理全部会话；单 Silo 冷备份只检查目标停机与占用，运行 B 时恢复 A 不能清除 B。备份格式和密码学不变。Vault 锁定沿用既有语义：全部会话撤销解密凭据和当前页面观察，依赖代理中继的会话失败关闭，Direct 浏览器不承诺强制关闭；锁定后页面 API 不可用。退出则关闭全部本地 Managed 会话。
 
 ## 验收与边界
 

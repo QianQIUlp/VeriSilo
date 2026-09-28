@@ -29,6 +29,8 @@ pub mod native_host;
 pub mod proxy_relay;
 #[path = "../../../apps/desktop/src-tauri/src/runtime_watchdog.rs"]
 pub mod runtime_watchdog;
+#[path = "../../../apps/desktop/src-tauri/src/local_runtimes.rs"]
+pub mod local_runtimes;
 #[path = "../../../apps/desktop/src-tauri/src/vault.rs"]
 pub mod vault;
 #[path = "../../../apps/desktop/src-tauri/src/website_identity.rs"]

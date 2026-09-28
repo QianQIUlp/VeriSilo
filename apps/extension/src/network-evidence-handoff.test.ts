@@ -56,6 +56,13 @@ describe("network evidence handoff eligibility", () => {
   });
 
   it("rejects stale, locked, idle and mismatched status responses", () => {
+    expect(eligibleSiloForNetworkEvidence({
+      type: "error",
+      protocolVersion: PROTOCOL_VERSION,
+      requestId,
+      code: "unavailable",
+      message: "Multiple sessions require a Silo target.",
+    }, requestId, now)).toBeNull();
     expect(
       eligibleSiloForNetworkEvidence(
         runtimeStatus({ snapshotWrittenAt: "2026-07-28T11:59:00.000Z" }),

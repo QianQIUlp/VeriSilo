@@ -1,12 +1,13 @@
 import { memo, useCallback, useRef, useState } from "react";
 import { IdentityMark } from "../../shared/IdentityMark.js";
 import {
-  type DesktopStatus,
   type ManagedIdentityPreview,
+  type RuntimeSessionStatus,
   type SiloNetworkEvidence,
 } from "../../desktop-api.js";
+import { idleRuntimeActivation, sessionNeedsManagement } from "../../runtime-status.js";
 
-import { type RecentRunRecord, type Silo } from "@verisilo/contracts";
+import { type RecentRunRecord, type RuntimeActivation, type Silo } from "@verisilo/contracts";
 
 import {
   formatDate,
@@ -42,6 +43,13 @@ const lensTitles: Record<LensKind, string> = {
   configuration: "身份与配置",
 };
 
+function canRunBesideManaged(silo: Silo): boolean {
+  return silo.executionTarget.kind === "local" &&
+    silo.engine.adapter === "camoufox" &&
+    (silo.networkProfile.mode === "direct" ||
+      silo.networkProfile.mode === "fixed_proxy" && silo.networkProfile.externalMihomo === undefined);
+}
+
 /**
  * One per-silo scene. Memoized so unrelated workspace renders (notices,
  * polls, unrelated state) do not re-render every silo; props are per-silo
@@ -52,7 +60,7 @@ export const SiloScene = memo(function SiloScene({
   index,
   selected,
   isActive,
-  runningSiloName,
+  launchBlockReason,
   runtimeActivation,
   runtimeState,
   busy,
@@ -80,9 +88,9 @@ export const SiloScene = memo(function SiloScene({
   index: number;
   selected: boolean;
   isActive: boolean;
-  runningSiloName: string | null;
-  runtimeActivation: DesktopStatus["activation"];
-  runtimeState: DesktopStatus["activation"]["state"];
+  launchBlockReason: string | null;
+  runtimeActivation: RuntimeActivation;
+  runtimeState: RuntimeActivation["state"];
   busy: boolean;
   isLaunching: boolean;
   managedEngineReady: boolean;
@@ -108,8 +116,9 @@ export const SiloScene = memo(function SiloScene({
   const drag = useRef<{ start: number; moved: boolean } | null>(null);
   const dragged = useRef(false);
   const managedCamoufox = silo.engine.adapter === "camoufox";
+  const showRuntimeState = isActive || ["verification_failed", "failed"].includes(runtimeState);
   const identityPreviewForSilo = identityPreview;
-  const blockedByRunning = runningSiloName !== null;
+  const blockedByRunning = launchBlockReason !== null;
   const canStop =
     isActive &&
     runtimeState === "running" &&
@@ -126,15 +135,15 @@ export const SiloScene = memo(function SiloScene({
     : evidenceContext.current ? evidence.state : "stale";
   return (
     <article
-      className={`silo-scene ${isActive ? `is-active state-${runtimeState}` : "state-idle"}`}
+      className={`silo-scene ${isActive ? "is-active " : ""}state-${showRuntimeState ? runtimeState : "idle"}`}
       id={`silo-${silo.id}`}
       aria-label={silo.name}
       hidden={!selected}
     >
       <div className="scene-world">
         <div className="scene-copy">
-          <span className={`running-badge ${isActive ? runtimeState : "idle"}`}>
-            {isActive ? activationStatusLabel(runtimeState) : "未运行"}
+          <span className={`running-badge ${showRuntimeState ? runtimeState : "idle"}`}>
+            {showRuntimeState ? activationStatusLabel(runtimeState) : "未运行"}
           </span>
           <h2
             className={silo.name.length > 20 ? "long-name" : undefined}
@@ -307,7 +316,7 @@ export const SiloScene = memo(function SiloScene({
                 choose(index);
                 void (canStop || canClear ? onStop(silo) : onLaunch(silo));
               }}
-              title={blockedByRunning ? "一次只能打开一个 Silo" : undefined}
+              title={launchBlockReason ?? undefined}
               type="button"
             >
               {isLaunching
@@ -338,7 +347,7 @@ export const SiloScene = memo(function SiloScene({
             ) : (
               <button
                 className="button-secondary"
-                disabled={busy || runtimeState === "verification_failed"}
+                disabled={busy}
                 onClick={() => void onRecheckBrowser(silo)}
                 type="button"
               >
@@ -407,8 +416,7 @@ export const SiloScene = memo(function SiloScene({
           ) : null}
           {blockedByRunning ? (
             <p className="mutex-note" role="note">
-              「{runningSiloName}」正在运行。一次只能打开一个
-              Silo——先关闭它的浏览器窗口，再回来打开这个。
+              {launchBlockReason}
             </p>
           ) : null}
         </div>
@@ -587,11 +595,12 @@ export const SiloScene = memo(function SiloScene({
 });
 
 export function SiloList({
-  activation,
   focusedSiloId,
   onFocusSilo,
   busy,
-  launchingSiloId = null,
+  siloBusyIds,
+  launchingSiloIds,
+  managedSessionLimit,
   managedEngineReady,
   networkEvidence,
   onArchive,
@@ -603,20 +612,19 @@ export function SiloList({
   onRecheckBrowser,
   onRecheckRuntime,
   onStop,
-  runtimeActivation,
-  runtimeState,
+  sessions,
   silos,
   identityPreviews,
   recentRuns = {},
   recentRunsError = null,
   storageUsage,
 }: {
-  activation: string | null;
   focusedSiloId?: string | undefined;
   onFocusSilo?: (id: string) => void;
   busy: boolean;
-  /** The Silo whose launch invoke is currently in flight. */
-  launchingSiloId?: string | null;
+  siloBusyIds: Set<string>;
+  launchingSiloIds: Set<string>;
+  managedSessionLimit: number;
   managedEngineReady: boolean;
   networkEvidence: SiloNetworkEvidence[];
   onArchive: (silo: Silo) => Promise<void>;
@@ -628,8 +636,7 @@ export function SiloList({
   onRecheckBrowser: (silo: Silo) => Promise<void>;
   onRecheckRuntime: (silo: Silo) => Promise<void>;
   onStop: (silo: Silo) => Promise<void>;
-  runtimeActivation: DesktopStatus["activation"];
-  runtimeState: DesktopStatus["activation"]["state"];
+  sessions: RuntimeSessionStatus[];
   silos: Silo[];
   identityPreviews: Record<string, ManagedIdentityPreview>;
   recentRuns?: Record<string, RecentRunRecord>;
@@ -641,9 +648,9 @@ export function SiloList({
   const lensTrigger = useRef<HTMLButtonElement | null>(null);
   const selected =
     silos.find((silo) => silo.id === (focusedSiloId ?? selectedId))?.id ??
-    silos.find((silo) => silo.id === activation)?.id ??
     silos[0]?.id;
   const selectedIndex = silos.findIndex((silo) => silo.id === selected);
+  const currentSessions = sessions.filter(sessionNeedsManagement);
   const openLens = useCallback(
     (next: LensKind, trigger: HTMLButtonElement) => {
       lensTrigger.current = trigger;
@@ -740,22 +747,31 @@ export function SiloList({
         <>
           <div className="scene-stack">
             {silos.map((silo, index) => {
-              const runningSiloName =
-                activation !== null && activation !== silo.id
-                  ? (silos.find((candidate) => candidate.id === activation)
-                      ?.name ?? "另一个 Silo")
-                  : null;
+              const session = sessions.find((entry) => entry.siloId === silo.id);
+              const runtimeActivation = session?.activation ?? idleRuntimeActivation;
+              const isActive = session !== undefined && sessionNeedsManagement(session);
+              const others = currentSessions.filter((entry) => entry.siloId !== silo.id);
+              const peersSupported = canRunBesideManaged(silo) && others.every((entry) => {
+                const peer = silos.find((candidate) => candidate.id === entry.siloId);
+                return peer !== undefined && canRunBesideManaged(peer);
+              });
+              const launchBlockReason = isActive || others.length === 0 ? null
+                : !peersSupported
+                  ? "此 Silo 与当前会话不能并行。并发仅支持本地 Managed 的 Direct 或固定代理（不含 Clash/Mihomo）。"
+                  : currentSessions.length >= managedSessionLimit
+                    ? `本地 Managed 同时运行已达 ${managedSessionLimit} 个上限。请先停止其中一个。`
+                    : null;
               return (
                 <SiloScene
-                  busy={busy}
+                  busy={busy || siloBusyIds.has(silo.id)}
                   choose={choose}
                   closeLens={closeLens}
                   identityPreview={identityPreviews[silo.id]}
                   recentRun={recentRuns[silo.id] ?? null}
                   recentRunsError={recentRunsError}
                   index={index}
-                  isActive={activation === silo.id}
-                  isLaunching={launchingSiloId === silo.id}
+                  isActive={isActive}
+                  isLaunching={launchingSiloIds.has(silo.id)}
                   key={silo.id}
                   lens={lens}
                   managedEngineReady={managedEngineReady}
@@ -769,9 +785,9 @@ export function SiloList({
                   onRecheckRuntime={onRecheckRuntime}
                   onStop={onStop}
                   openLens={openLens}
-                  runningSiloName={runningSiloName}
+                  launchBlockReason={launchBlockReason}
                   runtimeActivation={runtimeActivation}
-                  runtimeState={runtimeState}
+                  runtimeState={runtimeActivation.state}
                   selected={selected === silo.id}
                   silo={silo}
                   storageBytes={storageUsage[silo.id]}
@@ -802,7 +818,11 @@ export function SiloList({
                 );
               }}
             >
-              {silos.map((silo) => (
+              {silos.map((silo) => {
+                const session = sessions.find((entry) => entry.siloId === silo.id);
+                const isActive = session !== undefined && sessionNeedsManagement(session);
+                const showRuntimeState = isActive || ["verification_failed", "failed"].includes(session?.activation.state ?? "idle");
+                return (
                 <button
                   type="button"
                   id={`identity-choice-${silo.id}`}
@@ -824,22 +844,23 @@ export function SiloList({
                           ? "MANAGED"
                           : "CONTROLLED"}{" "}
                       ·{" "}
-                      {activation === silo.id
-                        ? activationStatusLabel(runtimeState)
+                      {showRuntimeState
+                        ? activationStatusLabel(session!.activation.state)
                         : "未运行"}
                     </small>
                   </span>
-                  {activation === silo.id && (
+                  {showRuntimeState && (
                     <i
                       aria-hidden="true"
-                      className={`token-state ${runtimeState}`}
+                      className={`token-state ${session!.activation.state}`}
                     />
                   )}
                 </button>
-              ))}
+                );
+              })}
             </div>
             <span className="recognition-note">
-              轮廓用于辨认，状态来自证据。一次只打开一个 Silo。
+              轮廓用于辨认，状态来自证据。切换选择不改变正在运行的身份。
             </span>
           </div>
         </>

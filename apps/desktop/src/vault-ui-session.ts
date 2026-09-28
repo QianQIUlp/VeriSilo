@@ -26,6 +26,7 @@ export function scrubDesktopStatusForLockedUi(
   }
   return {
     vault: status.vault,
+    managedSessionLimit: status.managedSessionLimit,
     activation: {
       activeSiloId: null,
       state: "idle",
@@ -35,6 +36,7 @@ export function scrubDesktopStatusForLockedUi(
       networkEvidence: null,
       identityEvidence: null,
     },
+    sessions: [],
     websiteIdentity: null,
   };
 }

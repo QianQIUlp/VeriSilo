@@ -35,7 +35,7 @@ describe("identity evidence diagnostics", () => {
       ],
     };
     const markup = renderToStaticMarkup(createElement(IdentityInspectPanel, {
-      activeSiloId: silo.id, activation, silos: [silo],
+      preferredSiloId: silo.id, sessions: [{ siloId: silo.id, activation }], silos: [silo],
     }));
     expect(markup).toContain("身份 Mismatched");
     expect(markup).toContain("语音名称和语言不同");

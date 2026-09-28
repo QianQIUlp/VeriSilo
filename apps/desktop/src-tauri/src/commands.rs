@@ -4,7 +4,7 @@ use crate::application::{
 };
 use crate::domain::{
     BrowserCandidate, BrowserVerification, CreateManagedSiloInput, CreateSiloInput,
-    ManagedIdentityPreview, RecentRunRecord, RuntimeActivation, Silo, SiloStorageUsage,
+    ManagedIdentityPreview, RecentRunRecord, RuntimeActivation, RuntimeSessionStatus, Silo, SiloStorageUsage,
     SiloStorageUsageSummary, UpdateManagedIdentityInput, UpdateSiloEngineInput, UpdateSiloInput,
     UpdateSiloNetworkInput, VaultStatus,
 };
@@ -85,24 +85,21 @@ pub(crate) async fn update_engine_package(
 
 #[tauri::command]
 pub(crate) async fn rollback_engine_package(
+    app: AppHandle,
     adapter_id: EngineAdapterId,
 ) -> Result<EngineMaintenanceReceipt, String> {
-    tauri::async_runtime::spawn_blocking(move || application::rollback_engine_package(adapter_id))
+    run_blocking(app, move |core| application::rollback_engine_package(core, adapter_id))
         .await
-        .unwrap_or_else(|error| Err(error.to_string()))
 }
 
 #[tauri::command]
 pub(crate) async fn set_engine_emergency_disabled(
+    app: AppHandle,
     adapter_id: EngineAdapterId,
     disabled: bool,
     reason: Option<String>,
 ) -> Result<EngineAdapterStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        application::set_engine_emergency_disabled(adapter_id, disabled, reason)
-    })
-    .await
-    .unwrap_or_else(|error| Err(error.to_string()))
+    run_blocking(app, move |core| application::set_engine_emergency_disabled(core, adapter_id, disabled, reason)).await
 }
 
 #[tauri::command]
@@ -887,4 +884,14 @@ pub(crate) async fn launch_silo(
     })
     .await
     .unwrap_or_else(|error| Err(error.to_string().into()))
+}
+
+#[tauri::command]
+pub(crate) async fn list_runtime_sessions(app: AppHandle) -> Result<Vec<RuntimeSessionStatus>, String> {
+    run_blocking(app, application::list_runtime_sessions).await
+}
+
+#[tauri::command]
+pub(crate) async fn get_silo_runtime(app: AppHandle, silo_id: Uuid) -> Result<RuntimeSessionStatus, String> {
+    run_blocking(app, move |core| application::get_silo_runtime(core, silo_id)).await
 }

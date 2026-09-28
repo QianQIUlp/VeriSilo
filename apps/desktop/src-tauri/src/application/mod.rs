@@ -2,6 +2,7 @@
 
 use crate::environment::EnvironmentManager;
 use crate::launcher::RuntimeManager;
+use crate::local_runtimes::LocalRuntimeSet;
 use crate::native_host;
 use crate::runtime_watchdog::RuntimeWatchdog;
 use crate::vault::VaultRuntime;
@@ -19,8 +20,10 @@ pub(crate) use environments::{
 mod runtime;
 pub(crate) use runtime::{
     desktop_status, desktop_status_with, launch_silo_with, rebind_silo_mihomo,
-    recheck_silo_browser, recheck_silo_runtime, stop_silo_with, DesktopStatus, LaunchFailure,
+    recheck_silo_browser, recheck_silo_runtime, stop_silo_with, get_silo_runtime,
+    list_runtime_sessions, DesktopStatus, LaunchFailure,
 };
+pub(super) use runtime::reconcile_local_runtimes_if_possible;
 
 mod silos;
 pub(crate) use silos::{
@@ -78,6 +81,8 @@ pub(crate) struct DesktopCore {
     pub(crate) local_control: LocalEnvironmentControl,
     pub(crate) vault: Mutex<VaultRuntime>,
     pub(crate) runtime: Arc<Mutex<RuntimeManager>>,
+    pub(crate) local_runtimes: LocalRuntimeSet,
+    pub(crate) runtime_status_publish: Mutex<()>,
     pub(crate) runtime_watchdog: RuntimeWatchdog,
     pub(crate) environments: Mutex<EnvironmentManager>,
     pub(crate) environment_runtime: Mutex<EnvironmentRuntimeState>,
@@ -90,6 +95,7 @@ pub(crate) struct DesktopCore {
 impl DesktopCore {
     pub(crate) fn open(root: PathBuf, resource_root: PathBuf) -> Self {
         let runtime = Arc::new(Mutex::new(RuntimeManager::open(&root)));
+        let local_runtimes = LocalRuntimeSet::open(&root, Arc::clone(&runtime));
         let runtime_watchdog =
             RuntimeWatchdog::start(&runtime).expect("VeriSilo needs a native runtime watchdog");
         let environments = EnvironmentManager::new(root.clone(), resource_root.clone())
@@ -101,6 +107,8 @@ impl DesktopCore {
             local_control: LocalEnvironmentControl::default(),
             vault: Mutex::new(VaultRuntime::default()),
             runtime,
+            local_runtimes,
+            runtime_status_publish: Mutex::new(()),
             runtime_watchdog,
             environments: Mutex::new(environments),
             environment_runtime: Mutex::new(environment_runtime),

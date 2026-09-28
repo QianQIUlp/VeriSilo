@@ -4,7 +4,9 @@ import type { Silo } from "@verisilo/contracts";
 import {
   desktopApi,
   type ManagedSiloBackupInspection,
+  type RuntimeSessionStatus,
 } from "../../desktop-api.js";
+import { sessionNeedsManagement } from "../../runtime-status.js";
 import { formatBytes } from "../../shared/presentation.js";
 import { type Notice } from "../../shared/notice.js";
 import { WorkspaceSheet } from "../../shared/WorkspaceSheet.js";
@@ -15,20 +17,23 @@ type Inspection = ManagedSiloBackupInspection & { sourcePath: string };
 
 export function ManagedSiloBackupPanel({
   silos,
-  activeSiloId,
+  sessions,
+  siloBusyIds,
   busy,
   feedback,
   onNotice,
   onRefresh,
-  runBusy,
+  runSiloBusy,
 }: {
   silos: Silo[];
-  activeSiloId: string | null;
+  sessions: RuntimeSessionStatus[];
+  siloBusyIds: Set<string>;
   busy: boolean;
   feedback?: ReactNode;
   onNotice: (notice: Notice | null) => void;
   onRefresh: () => Promise<unknown>;
-  runBusy: (
+  runSiloBusy: (
+    silo: Silo,
     action: (isCurrent: () => boolean) => Promise<void>,
   ) => Promise<void>;
 }) {
@@ -50,7 +55,9 @@ export function ManagedSiloBackupPanel({
   const generation = useRef(0);
   const mounted = useRef(true);
   const selectedSilo = managedSilos.find((silo) => silo.id === siloId) ?? managedSilos[0];
-  const running = selectedSilo?.id === activeSiloId;
+  const running = sessions.some((session) =>
+    session.siloId === selectedSilo?.id && sessionNeedsManagement(session));
+  const targetBusy = busy || (selectedSilo !== undefined && siloBusyIds.has(selectedSilo.id));
   const backupPassphraseCharacters = Array.from(backupPassphrase).length;
 
   useEffect(() => {
@@ -87,12 +94,12 @@ export function ManagedSiloBackupPanel({
     kind: "backup" | "inspect" | "restore",
     action: (isCurrent: () => boolean, silo: Silo) => Promise<void>,
   ) => {
-    if (busy || inFlight.current || !selectedSilo || running) return;
+    if (targetBusy || inFlight.current || !selectedSilo || running) return;
     inFlight.current = true;
     setPending(kind);
     onNotice(null);
     const currentGeneration = generation.current;
-    void runBusy(async (sessionCurrent) => {
+    void runSiloBusy(selectedSilo, async (sessionCurrent) => {
       const isCurrent = () =>
         sessionCurrent() &&
         mounted.current &&
@@ -223,7 +230,7 @@ export function ManagedSiloBackupPanel({
             <label className="managed-backup-target">
               目标 Managed Silo
               <select
-                disabled={busy || pending !== null}
+                disabled={targetBusy || pending !== null}
                 onChange={(event) => {
                   setSiloId(event.target.value);
                   clearInputs();
@@ -238,7 +245,7 @@ export function ManagedSiloBackupPanel({
               </select>
             </label>
             {running ? (
-              <p className="field-error" role="alert">此 Silo 正在运行。请先停止它，等浏览器数据释放后再操作。</p>
+              <p className="field-error" role="alert">此 Silo 仍有当前会话或恢复工作。请先结束目标会话，等浏览器数据释放后再操作。</p>
             ) : null}
             {pending !== null ? (
               <p className="managed-backup-pending" role="status">
@@ -252,7 +259,7 @@ export function ManagedSiloBackupPanel({
                     保存到
                     <input
                       autoComplete="off"
-                      disabled={busy || pending !== null}
+                      disabled={targetBusy || pending !== null}
                       onChange={(event) => setBackupPath(event.target.value)}
                       placeholder="C:\\Users\\你\\Documents\\managed-silo.backup"
                       spellCheck={false}
@@ -263,7 +270,7 @@ export function ManagedSiloBackupPanel({
                     独立备份口令（至少 12 个字符）
                     <input
                       autoComplete="new-password"
-                      disabled={busy || pending !== null}
+                      disabled={targetBusy || pending !== null}
                       minLength={12}
                       onChange={(event) => setBackupPassphrase(event.target.value)}
                       type="password"
@@ -274,7 +281,7 @@ export function ManagedSiloBackupPanel({
                     再输一次备份口令
                     <input
                       autoComplete="new-password"
-                      disabled={busy || pending !== null}
+                      disabled={targetBusy || pending !== null}
                       minLength={12}
                       onChange={(event) => setConfirmPassphrase(event.target.value)}
                       type="password"
@@ -283,7 +290,7 @@ export function ManagedSiloBackupPanel({
                   </label>
                 </div>
                 <button
-                  disabled={busy || pending !== null || running || backupPath.trim().length === 0 || backupPassphraseCharacters < 12 || backupPassphrase !== confirmPassphrase}
+                  disabled={targetBusy || pending !== null || running || backupPath.trim().length === 0 || backupPassphraseCharacters < 12 || backupPassphrase !== confirmPassphrase}
                   onClick={backup}
                   type="button"
                 >
@@ -297,7 +304,7 @@ export function ManagedSiloBackupPanel({
                     完整备份文件
                     <input
                       autoComplete="off"
-                      disabled={busy || pending !== null}
+                      disabled={targetBusy || pending !== null}
                       onChange={(event) => {
                         setSourcePath(event.target.value);
                         generation.current += 1;
@@ -312,7 +319,7 @@ export function ManagedSiloBackupPanel({
                     该备份的独立口令
                     <input
                       autoComplete="off"
-                      disabled={busy || pending !== null}
+                      disabled={targetBusy || pending !== null}
                       onChange={(event) => {
                         setRestorePassphrase(event.target.value);
                         generation.current += 1;
@@ -326,7 +333,7 @@ export function ManagedSiloBackupPanel({
                 </div>
                 <button
                   className="button-secondary"
-                  disabled={busy || pending !== null || running || sourcePath.trim().length === 0 || restorePassphrase.length === 0}
+                  disabled={targetBusy || pending !== null || running || sourcePath.trim().length === 0 || restorePassphrase.length === 0}
                   onClick={inspect}
                   type="button"
                 >
@@ -351,7 +358,7 @@ export function ManagedSiloBackupPanel({
                     <label className="check-field">
                       <input
                         checked={confirmOverwrite}
-                        disabled={busy || pending !== null || running}
+                        disabled={targetBusy || pending !== null || running}
                         onChange={(event) => setConfirmOverwrite(event.target.checked)}
                         type="checkbox"
                       />
@@ -359,7 +366,7 @@ export function ManagedSiloBackupPanel({
                     </label>
                     <button
                       className="button-danger"
-                      disabled={busy || pending !== null || running || !confirmOverwrite}
+                      disabled={targetBusy || pending !== null || running || !confirmOverwrite}
                       onClick={restore}
                       type="button"
                     >

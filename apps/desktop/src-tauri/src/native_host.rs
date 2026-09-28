@@ -18,7 +18,8 @@ use uuid::Uuid;
 
 use crate::domain::{
     app_data_root, RuntimeActivation, RuntimeEvidenceState, RuntimeNetworkEvidence,
-    RuntimeNetworkProvider, RuntimeState, VaultLockState, VaultStatus,
+    RuntimeNetworkProvider, RuntimeSessionStatus, RuntimeState, VaultLockState, VaultStatus,
+    LOCAL_MANAGED_SESSION_LIMIT,
 };
 
 pub const PROTOCOL_VERSION: u32 = 2;
@@ -79,6 +80,8 @@ enum NativeRequest {
     GetRuntimeStatus {
         protocol_version: u32,
         request_id: Uuid,
+        #[serde(default)]
+        silo_id: Option<Uuid>,
     },
     OpenDesktop {
         protocol_version: u32,
@@ -174,7 +177,16 @@ struct RuntimeStatusSnapshot {
     protocol_version: u32,
     written_at: DateTime<Utc>,
     activation: SnapshotActivation,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sessions: Vec<SnapshotSession>,
     vault: SnapshotVault,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SnapshotSession {
+    silo_id: Uuid,
+    activation: SnapshotActivation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -442,12 +454,34 @@ pub fn write_runtime_status_snapshot(
     activation: &RuntimeActivation,
     vault: &VaultStatus,
 ) -> Result<(), NativeHostError> {
+    write_runtime_sessions_snapshot(root, Some(activation), &[], vault)
+}
+
+/// Publish sanitized current ownership. Stopped historical slots belong in
+/// encrypted recent runs, not in the Native Host's short-lived current view.
+pub fn write_runtime_sessions_snapshot(
+    root: &Path,
+    activation: Option<&RuntimeActivation>,
+    sessions: &[RuntimeSessionStatus],
+    vault: &VaultStatus,
+) -> Result<(), NativeHostError> {
     fs::create_dir_all(root)?;
     let snapshot = RuntimeStatusSnapshot {
         schema_version: RUNTIME_STATUS_SCHEMA_VERSION,
         protocol_version: PROTOCOL_VERSION,
         written_at: Utc::now(),
-        activation: SnapshotActivation::from(activation),
+        activation: SnapshotActivation::from(activation.unwrap_or(&RuntimeActivation::idle())),
+        sessions: sessions
+            .iter()
+            .filter(|session| {
+                session.activation.active_silo_id == Some(session.silo_id)
+                    || session.activation.state == RuntimeState::RecoveryRequired
+            })
+            .map(|session| SnapshotSession {
+                silo_id: session.silo_id,
+                activation: SnapshotActivation::from(&session.activation),
+            })
+            .collect(),
         vault: SnapshotVault::from(vault),
     };
     validate_snapshot(&snapshot)?;
@@ -968,13 +1002,55 @@ fn snapshot_authorizes_runtime(
             .vault
             .auto_lock_at
             .is_some_and(|deadline| deadline > now)
-        && matches!(snapshot.activation.state, SnapshotRuntimeState::Running)
-        && snapshot.activation.active_silo_id == Some(silo_id)
-        && snapshot
-            .activation
+        && if snapshot.sessions.is_empty() {
+            activation_authorizes_runtime(&snapshot.activation, silo_id, runtime_id)
+        } else {
+            snapshot.sessions.iter().any(|session| {
+                session.silo_id == silo_id
+                    && activation_authorizes_runtime(&session.activation, silo_id, runtime_id)
+            })
+        }
+}
+
+fn activation_authorizes_runtime(
+    activation: &SnapshotActivation,
+    silo_id: Uuid,
+    runtime_id: Uuid,
+) -> bool {
+    matches!(activation.state, SnapshotRuntimeState::Running)
+        && activation.active_silo_id == Some(silo_id)
+        && activation
             .network_evidence
             .as_ref()
             .is_some_and(|evidence| evidence.runtime_id == runtime_id)
+}
+
+fn select_runtime_activation(
+    snapshot: &RuntimeStatusSnapshot,
+    silo_id: Option<Uuid>,
+) -> Result<SnapshotActivation, NativeHostError> {
+    if let Some(silo_id) = silo_id {
+        return snapshot
+            .sessions
+            .iter()
+            .find(|session| session.silo_id == silo_id)
+            .map(|session| session.activation.clone())
+            .or_else(|| {
+                (snapshot.activation.active_silo_id == Some(silo_id))
+                    .then(|| snapshot.activation.clone())
+            })
+            .ok_or(NativeHostError::InvalidSnapshot);
+    }
+    match snapshot.sessions.as_slice() {
+        [] => Ok(snapshot.activation.clone()),
+        [session]
+            if snapshot.activation.active_silo_id.is_none()
+                || snapshot.activation.active_silo_id == Some(session.silo_id) =>
+        {
+            Ok(session.activation.clone())
+        }
+        _ => Err(NativeHostError::InvalidSnapshot),
+    }
 }
 
 fn valid_optional_text(value: &Option<String>, maximum_length: usize) -> bool {
@@ -1109,23 +1185,28 @@ fn handle_request(request: NativeRequest) -> NativeResponse {
             request_id,
             product: "VeriSilo",
         },
-        NativeRequest::GetRuntimeStatus { request_id, .. } => {
-            match load_runtime_status_snapshot() {
-                Ok(snapshot) => NativeResponse::RuntimeStatus {
-                    protocol_version: PROTOCOL_VERSION,
-                    request_id,
-                    snapshot_written_at: snapshot.written_at,
-                    activation: snapshot.activation,
-                    vault: snapshot.vault,
-                },
-                Err(_) => NativeResponse::Error {
-                    protocol_version: PROTOCOL_VERSION,
-                    request_id: Some(request_id),
-                    code: "unavailable",
-                    message: "A fresh, non-sensitive desktop runtime snapshot is unavailable.",
-                },
-            }
-        }
+        NativeRequest::GetRuntimeStatus {
+            request_id,
+            silo_id,
+            ..
+        } => match load_runtime_status_snapshot().and_then(|snapshot| {
+            let activation = select_runtime_activation(&snapshot, silo_id)?;
+            Ok((snapshot, activation))
+        }) {
+            Ok((snapshot, activation)) => NativeResponse::RuntimeStatus {
+                protocol_version: PROTOCOL_VERSION,
+                request_id,
+                snapshot_written_at: snapshot.written_at,
+                activation,
+                vault: snapshot.vault,
+            },
+            Err(_) => NativeResponse::Error {
+                protocol_version: PROTOCOL_VERSION,
+                request_id: Some(request_id),
+                code: "unavailable",
+                message: "A fresh, non-sensitive desktop runtime snapshot is unavailable.",
+            },
+        },
         NativeRequest::OpenDesktop { request_id, .. } => match open_desktop_application() {
             Ok(()) => NativeResponse::DesktopOpened {
                 protocol_version: PROTOCOL_VERSION,
@@ -1201,6 +1282,7 @@ fn read_runtime_status_snapshot(root: &Path) -> Result<RuntimeStatusSnapshot, Na
 fn validate_snapshot(snapshot: &RuntimeStatusSnapshot) -> Result<(), NativeHostError> {
     if snapshot.schema_version != RUNTIME_STATUS_SCHEMA_VERSION
         || snapshot.protocol_version != PROTOCOL_VERSION
+        || snapshot.sessions.len() > LOCAL_MANAGED_SESSION_LIMIT
     {
         return Err(NativeHostError::InvalidSnapshot);
     }
@@ -1209,8 +1291,6 @@ fn validate_snapshot(snapshot: &RuntimeStatusSnapshot) -> Result<(), NativeHostE
     let age = now.signed_duration_since(snapshot.written_at);
     if age > Duration::seconds(SNAPSHOT_MAX_AGE_SECONDS)
         || age < Duration::seconds(-SNAPSHOT_CLOCK_SKEW_SECONDS)
-        || snapshot.activation.updated_at
-            > snapshot.written_at + Duration::seconds(SNAPSHOT_CLOCK_SKEW_SECONDS)
     {
         return Err(NativeHostError::InvalidSnapshot);
     }
@@ -1230,18 +1310,38 @@ fn validate_snapshot(snapshot: &RuntimeStatusSnapshot) -> Result<(), NativeHostE
         return Err(NativeHostError::InvalidSnapshot);
     }
 
-    if matches!(
-        &snapshot.activation.state,
-        SnapshotRuntimeState::Preflight
-            | SnapshotRuntimeState::Launching
-            | SnapshotRuntimeState::Running
-    ) && snapshot.activation.active_silo_id.is_none()
+    validate_snapshot_activation(&snapshot.activation, snapshot.written_at)?;
+    for (index, session) in snapshot.sessions.iter().enumerate() {
+        if snapshot.sessions[..index]
+            .iter()
+            .any(|previous| previous.silo_id == session.silo_id)
+            || session
+                .activation
+                .active_silo_id
+                .is_some_and(|id| id != session.silo_id)
+        {
+            return Err(NativeHostError::InvalidSnapshot);
+        }
+        validate_snapshot_activation(&session.activation, snapshot.written_at)?;
+    }
+    Ok(())
+}
+
+fn validate_snapshot_activation(
+    activation: &SnapshotActivation,
+    written_at: DateTime<Utc>,
+) -> Result<(), NativeHostError> {
+    if activation.updated_at > written_at + Duration::seconds(SNAPSHOT_CLOCK_SKEW_SECONDS)
+        || (matches!(
+            &activation.state,
+            SnapshotRuntimeState::Preflight
+                | SnapshotRuntimeState::Launching
+                | SnapshotRuntimeState::Running
+        ) && activation.active_silo_id.is_none())
     {
         return Err(NativeHostError::InvalidSnapshot);
     }
-
-    if snapshot
-        .activation
+    if activation
         .network_evidence
         .as_ref()
         .is_some_and(|evidence| {
@@ -1533,7 +1633,8 @@ mod tests {
     use serde_json::json;
 
     use crate::domain::{
-        RuntimeActivation, RuntimeNetworkEvidence, RuntimeState, VaultLockState, VaultStatus,
+        RuntimeActivation, RuntimeNetworkEvidence, RuntimeSessionStatus, RuntimeState,
+        VaultLockState, VaultStatus,
     };
 
     use super::{
@@ -1541,12 +1642,13 @@ mod tests {
         desktop_executable_from_host_path, drain_network_evidence_inbox, extension_id_from_origin,
         network_evidence_has_public_ip_observation, read_frame, read_network_evidence_inbox,
         read_runtime_status_snapshot, validate_live_evidence_entry,
-        validate_network_evidence_inbox_entry, write_runtime_status_snapshot, NativeDnsObservation,
-        NativeDnsState, NativeDnssecState, NativeHostError, NativeIpExitObservation,
-        NativeIpVersion, NativeNetworkCheckResult, NativeNetworkEvidenceCoverage,
-        NativeNetworkHint, NativeReputationObservation, NativeReputationState, NativeRequest,
-        NativeResponse, EVIDENCE_INBOX_DIRECTORY, MAX_MESSAGE_BYTES,
-        NETWORK_REPUTATION_EXPLANATION, PROTOCOL_VERSION, RUNTIME_STATUS_SNAPSHOT_FILE,
+        validate_network_evidence_inbox_entry, write_runtime_sessions_snapshot,
+        write_runtime_status_snapshot, NativeDnsObservation, NativeDnsState, NativeDnssecState,
+        NativeHostError, NativeIpExitObservation, NativeIpVersion, NativeNetworkCheckResult,
+        NativeNetworkEvidenceCoverage, NativeNetworkHint, NativeReputationObservation,
+        NativeReputationState, NativeRequest, NativeResponse, EVIDENCE_INBOX_DIRECTORY,
+        MAX_MESSAGE_BYTES, NETWORK_REPUTATION_EXPLANATION, PROTOCOL_VERSION,
+        RUNTIME_STATUS_SNAPSHOT_FILE,
     };
 
     #[test]
@@ -1583,6 +1685,16 @@ mod tests {
             "unexpected": true
         });
         assert!(serde_json::from_value::<NativeRequest>(request).is_err());
+        let targeted = json!({
+            "type": "get_runtime_status",
+            "protocolVersion": PROTOCOL_VERSION,
+            "requestId": "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
+            "siloId": "0f8fad5b-d9cb-469f-a165-70867728950e"
+        });
+        assert!(serde_json::from_value::<NativeRequest>(targeted.clone()).is_ok());
+        let mut unknown = targeted;
+        unknown["unexpected"] = json!(true);
+        assert!(serde_json::from_value::<NativeRequest>(unknown).is_err());
     }
 
     #[test]
@@ -1633,8 +1745,101 @@ mod tests {
         let parsed = read_runtime_status_snapshot(&root).expect("read snapshot");
         assert!(parsed.activation.network_evidence.is_some());
         let raw = fs::read_to_string(root.join(RUNTIME_STATUS_SNAPSHOT_FILE)).expect("snapshot");
+        assert!(
+            !raw.contains("sessions"),
+            "old single-session snapshot stays readable"
+        );
         assert!(!raw.contains("must not cross"));
         assert!(!raw.contains("private-proxy"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn concurrent_snapshot_requires_a_target_and_authorizes_exact_runtime() {
+        let root = test_root("concurrent-snapshot");
+        let a = uuid::Uuid::new_v4();
+        let b = uuid::Uuid::new_v4();
+        let a_runtime = uuid::Uuid::new_v4();
+        let b_runtime = uuid::Uuid::new_v4();
+        let vault = VaultStatus {
+            state: VaultLockState::Unlocked,
+            auto_lock_at: Some(Utc::now() + Duration::minutes(15)),
+        };
+        let sessions = vec![
+            RuntimeSessionStatus {
+                silo_id: a,
+                activation: running_activation(a, a_runtime),
+                website_identity: None,
+            },
+            RuntimeSessionStatus {
+                silo_id: b,
+                activation: running_activation(b, b_runtime),
+                website_identity: None,
+            },
+        ];
+        write_runtime_sessions_snapshot(&root, None, &sessions, &vault).expect("write A/B");
+        let snapshot = read_runtime_status_snapshot(&root).expect("read A/B");
+        assert!(super::select_runtime_activation(&snapshot, None).is_err());
+        assert_eq!(
+            super::select_runtime_activation(&snapshot, Some(a))
+                .unwrap()
+                .active_silo_id,
+            Some(a)
+        );
+        assert_eq!(
+            super::select_runtime_activation(&snapshot, Some(b))
+                .unwrap()
+                .active_silo_id,
+            Some(b)
+        );
+        assert!(super::select_runtime_activation(&snapshot, Some(uuid::Uuid::new_v4())).is_err());
+        assert!(matches!(
+            accept_network_evidence_at(
+                &root,
+                uuid::Uuid::new_v4(),
+                a,
+                b_runtime,
+                test_coverage(),
+                test_network_check()
+            ),
+            Err(NativeHostError::EvidenceRejected)
+        ));
+        accept_network_evidence_at(
+            &root,
+            uuid::Uuid::new_v4(),
+            a,
+            a_runtime,
+            test_coverage(),
+            test_network_check(),
+        )
+        .expect("A evidence");
+        accept_network_evidence_at(
+            &root,
+            uuid::Uuid::new_v4(),
+            b,
+            b_runtime,
+            test_coverage(),
+            test_network_check(),
+        )
+        .expect("B evidence");
+
+        let mut stopped_a = sessions.clone();
+        stopped_a[0].activation.active_silo_id = None;
+        stopped_a[0].activation.state = RuntimeState::Stopped;
+        write_runtime_sessions_snapshot(&root, None, &stopped_a, &vault).expect("stop only A");
+        let pending = read_network_evidence_inbox(&root).expect("read attributed inbox");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].silo_id, b);
+
+        let mut invalid =
+            serde_json::to_value(read_runtime_status_snapshot(&root).unwrap()).unwrap();
+        invalid["sessions"][0]["unexpected"] = json!(true);
+        fs::write(
+            root.join(RUNTIME_STATUS_SNAPSHOT_FILE),
+            serde_json::to_vec(&invalid).unwrap(),
+        )
+        .unwrap();
+        assert!(read_runtime_status_snapshot(&root).is_err());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1889,23 +2094,7 @@ mod tests {
         runtime_id: uuid::Uuid,
         unlocked: bool,
     ) {
-        let mut network_evidence = RuntimeNetworkEvidence::configured(
-            &crate::domain::NetworkProfile::Direct {
-                proxy_required: false,
-            },
-            false,
-        );
-        network_evidence.runtime_id = runtime_id;
-        let activation = RuntimeActivation {
-            active_silo_id: Some(silo_id),
-            state: RuntimeState::Running,
-            updated_at: Utc::now(),
-            message: None,
-            browser_verification: None,
-            engine_evidence: None,
-            network_evidence: Some(network_evidence),
-            identity_evidence: None,
-        };
+        let activation = running_activation(silo_id, runtime_id);
         let vault = VaultStatus {
             state: if unlocked {
                 VaultLockState::Unlocked
@@ -1915,6 +2104,26 @@ mod tests {
             auto_lock_at: unlocked.then(|| Utc::now() + Duration::minutes(15)),
         };
         write_runtime_status_snapshot(root, &activation, &vault).expect("publish snapshot");
+    }
+
+    fn running_activation(silo_id: uuid::Uuid, runtime_id: uuid::Uuid) -> RuntimeActivation {
+        let mut network_evidence = RuntimeNetworkEvidence::configured(
+            &crate::domain::NetworkProfile::Direct {
+                proxy_required: false,
+            },
+            false,
+        );
+        network_evidence.runtime_id = runtime_id;
+        RuntimeActivation {
+            active_silo_id: Some(silo_id),
+            state: RuntimeState::Running,
+            updated_at: Utc::now(),
+            message: None,
+            browser_verification: None,
+            engine_evidence: None,
+            network_evidence: Some(network_evidence),
+            identity_evidence: None,
+        }
     }
 
     fn test_coverage() -> NativeNetworkEvidenceCoverage {

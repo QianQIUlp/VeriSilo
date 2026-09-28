@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::sync::{Mutex, MutexGuard};
+use std::collections::HashSet;
+use std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 
 pub(crate) const ENVIRONMENT_RUNTIME_RECORD_FILE: &str = "environment-runtime.json";
@@ -33,14 +34,41 @@ pub(crate) struct LegacyEnvironmentArtifact {
 
 #[derive(Default)]
 pub(crate) struct LocalEnvironmentControl {
-    pub(crate) reservation: Mutex<()>,
+    pub(crate) reservation: RwLock<()>,
+    targets: Mutex<HashSet<Uuid>>,
+}
+
+pub(crate) struct SiloReservation<'a> {
+    _global: RwLockReadGuard<'a, ()>,
+    control: &'a LocalEnvironmentControl,
+    silo_id: Uuid,
+}
+
+impl Drop for SiloReservation<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut targets) = self.control.targets.lock() {
+            targets.remove(&self.silo_id);
+        }
+    }
 }
 
 impl LocalEnvironmentControl {
-    pub(crate) fn reserve(&self) -> Result<MutexGuard<'_, ()>, String> {
+    pub(crate) fn reserve(&self) -> Result<RwLockWriteGuard<'_, ()>, String> {
         self.reservation
-            .lock()
+            .write()
             .map_err(|_| "VeriSilo local environment reservation is unavailable.".to_owned())
+    }
+
+    pub(crate) fn reserve_silo(&self, silo_id: Uuid) -> Result<SiloReservation<'_>, String> {
+        let global = self.reservation
+            .read()
+            .map_err(|_| "VeriSilo local environment reservation is unavailable.".to_owned())?;
+        let mut targets = self.targets.lock()
+            .map_err(|_| "VeriSilo local operation state is unavailable.".to_owned())?;
+        if !targets.insert(silo_id) {
+            return Err("This Silo already has an operation in progress.".to_owned());
+        }
+        Ok(SiloReservation { _global: global, control: self, silo_id })
     }
 }
 
@@ -797,11 +825,11 @@ pub(crate) fn execute_environment_backend(
                 .to_owned(),
         );
     }
-    let mut runtime = state
+    let runtime = state
         .runtime
         .lock()
         .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    if runtime.activation().active_silo_id.is_some() {
+    if state.local_runtimes.has_occupied() || runtime.has_runtime_ownership() {
         return Err(
             "Close the active stock browser Silo before operating a VM, WSL, or Sandbox backend."
                 .to_owned(),

@@ -4,12 +4,12 @@ import {
   type EnvironmentNetworkProfile,
   type EnvironmentOperation,
   type NetworkCheckResult,
+  type RuntimeActivation,
   type Silo,
 } from "@verisilo/contracts";
 
 import {
   type BrowserVerification,
-  type DesktopStatus,
   type EngineAdapterStatus,
   type ManagedIdentityPreset,
   type ManagedIdentityPreview,
@@ -59,7 +59,7 @@ export function browserVerificationMessage(
 }
 
 export function activationNoticeTone(
-  activation: DesktopStatus["activation"],
+  activation: RuntimeActivation,
 ): "error" | "success" | "info" {
   if (activation.state === "running") {
     return "success";
@@ -70,7 +70,7 @@ export function activationNoticeTone(
 }
 
 export function activationStatusTone(
-  activation: DesktopStatus["activation"],
+  activation: RuntimeActivation,
 ): "good" | "warn" | "neutral" {
   if (activation.state === "running") {
     return "good";

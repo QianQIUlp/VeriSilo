@@ -454,7 +454,7 @@ pub(crate) fn update_managed_identity(
     silo_id: Uuid,
     input: UpdateManagedIdentityInput,
 ) -> Result<Silo, String> {
-    let _local_reservation = state.local_control.reserve()?;
+    let _local_reservation = state.local_control.reserve_silo(silo_id)?;
     // Phase 1: read every Vault input for provisioning under the lock, then
     // release it. The Host provisioning subprocess (up to the 120 s bound)
     // must not hold the global Vault Mutex.
@@ -463,13 +463,8 @@ pub(crate) fn update_managed_identity(
             .vault
             .lock()
             .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-        let mut runtime = state
-            .runtime
-            .lock()
-            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-        let is_active =
-            runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
-        drop(runtime);
+        let is_active = state.local_runtimes.is_in_use(silo_id)
+            || environment_runtime_is_active(state, silo_id)?;
         if is_active {
             return Err("managed_silo_active".to_owned());
         }
@@ -537,12 +532,8 @@ pub(crate) fn update_managed_identity(
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let mut runtime = state
-        .runtime
-        .lock()
-        .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-    let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
-    drop(runtime);
+    let is_active = state.local_runtimes.is_in_use(silo_id)
+        || environment_runtime_is_active(state, silo_id)?;
     if is_active {
         return Err("managed_silo_active".to_owned());
     }

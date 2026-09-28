@@ -42,7 +42,10 @@ const requestBaseSchema = z.object({
 
 export const nativeMessageSchema = z.discriminatedUnion("type", [
   requestBaseSchema.extend({ type: z.literal("handshake") }).strict(),
-  requestBaseSchema.extend({ type: z.literal("get_runtime_status") }).strict(),
+  requestBaseSchema.extend({
+    type: z.literal("get_runtime_status"),
+    siloId: z.string().uuid().optional(),
+  }).strict(),
   requestBaseSchema.extend({ type: z.literal("open_desktop") }).strict(),
   requestBaseSchema
     .extend({

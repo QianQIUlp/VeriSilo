@@ -99,12 +99,26 @@ describe("scrubDesktopStatusForLockedUi", () => {
           networkEvidence: null,
           identityEvidence: null,
         },
+        sessions: [{
+          siloId: "5b611c8e-1640-4d80-99da-dd2bb9003302",
+          activation: {
+            activeSiloId: "5b611c8e-1640-4d80-99da-dd2bb9003302",
+            state: "running",
+            updatedAt: "2026-07-28T12:00:00.000Z",
+            message: "sensitive runtime detail",
+            engineEvidence: null,
+            networkEvidence: null,
+            identityEvidence: null,
+          },
+        }],
+        managedSessionLimit: 2,
       },
       "2026-07-28T12:15:00.000Z",
     );
 
     expect(scrubbed).toEqual({
       vault: { state: "locked", autoLockAt: null },
+      managedSessionLimit: 2,
       activation: {
         activeSiloId: null,
         state: "idle",
@@ -114,6 +128,7 @@ describe("scrubDesktopStatusForLockedUi", () => {
         networkEvidence: null,
         identityEvidence: null,
       },
+      sessions: [],
       websiteIdentity: null,
     });
   });

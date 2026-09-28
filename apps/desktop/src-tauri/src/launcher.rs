@@ -38,12 +38,11 @@ use crate::{
         production_engine_adapter_for_silo, read_engine_bootstrap_ack_frame,
         read_engine_runtime_receipt_frame, strict_json_from_slice, write_engine_bootstrap_frame,
         CamoufoxHostJobGuard, CamoufoxHostLaunch, CamoufoxHostRoots, EngineBootstrapAck,
-        EngineBootstrapAckExpectation,
-        EngineBootstrapEnvelope, EngineCapabilityId, EngineCapabilityOperation,
-        EngineCapabilityState, EngineControlExecution, EngineHealthState, EngineLaunchPlan,
-        EngineLaunchRequest, EngineRuntimeReceiptExpectation, EngineRuntimeReceiptFrame,
-        EngineTransport, IdentityDerivationContext, IdentityTokenDeriver,
-        CAMOUFOX_FORMAL_V3_ENGINE_REVISION, CAMOUFOX_HOST_PROTOCOL,
+        EngineBootstrapAckExpectation, EngineBootstrapEnvelope, EngineCapabilityId,
+        EngineCapabilityOperation, EngineCapabilityState, EngineControlExecution,
+        EngineHealthState, EngineLaunchPlan, EngineLaunchRequest, EngineRuntimeReceiptExpectation,
+        EngineRuntimeReceiptFrame, EngineTransport, IdentityDerivationContext,
+        IdentityTokenDeriver, CAMOUFOX_FORMAL_V3_ENGINE_REVISION, CAMOUFOX_HOST_PROTOCOL,
         DEFAULT_SESSION_TOKEN_LIFETIME_MINUTES, MAX_CAMOUFOX_HOST_FRAME_BYTES,
     },
     mihomo,
@@ -60,6 +59,12 @@ use crate::{
 
 const RUNTIME_RECORD_DIRECTORY: &str = "runtime";
 const RUNTIME_RECORD_FILE: &str = "browser-session.json";
+pub(crate) const LOCAL_RUNTIME_RECORD_PREFIX: &str = "browser-session-";
+
+pub(crate) fn local_runtime_record_path(root: &Path, silo_id: Uuid) -> PathBuf {
+    root.join(RUNTIME_RECORD_DIRECTORY)
+        .join(format!("{LOCAL_RUNTIME_RECORD_PREFIX}{silo_id}.json"))
+}
 #[cfg(test)]
 const ENGINE_BOOTSTRAP_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 #[cfg(not(test))]
@@ -147,6 +152,7 @@ pub struct RuntimeManager {
     pending_stock_profile_release: Option<PathBuf>,
     record_path: Option<PathBuf>,
     record: Option<RuntimeRecord>,
+    record_unreadable: bool,
     website_identity: Option<WebsiteIdentityObservation>,
     #[cfg(test)]
     test_engine_adapter: Option<Box<dyn EngineAdapter>>,
@@ -623,6 +629,8 @@ fn read_camoufox_host_frame<R: Read>(reader: &mut R) -> Result<Option<Vec<u8>>, 
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RuntimeRecord {
     silo_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runtime_id: Option<Uuid>,
     pid: u32,
     started_at: DateTime<Utc>,
     last_seen_at: DateTime<Utc>,
@@ -665,13 +673,30 @@ pub enum LauncherError {
 
 impl RuntimeManager {
     pub fn open(root: &Path) -> Self {
-        let record_path = root
-            .join(RUNTIME_RECORD_DIRECTORY)
-            .join(RUNTIME_RECORD_FILE);
+        Self::open_at_record_path(
+            root.join(RUNTIME_RECORD_DIRECTORY)
+                .join(RUNTIME_RECORD_FILE),
+            None,
+        )
+    }
+
+    pub(crate) fn open_for_silo(root: &Path, silo_id: Uuid) -> Self {
+        Self::open_at_record_path(local_runtime_record_path(root, silo_id), Some(silo_id))
+    }
+
+    fn open_at_record_path(record_path: PathBuf, expected_silo_id: Option<Uuid>) -> Self {
         let (record, read_error) = match read_runtime_record(&record_path) {
+            Ok(Some(record)) if expected_silo_id.is_some_and(|id| id != record.silo_id) => (
+                None,
+                Some(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "runtime record Silo ID does not match its file name",
+                )),
+            ),
             Ok(record) => (record, None),
             Err(error) => (None, Some(error)),
         };
+        let record_unreadable = read_error.is_some();
         let activation = read_error.map(|error| RuntimeActivation {
             active_silo_id: None,
             state: RuntimeState::Failed,
@@ -709,8 +734,29 @@ impl RuntimeManager {
             record_path: Some(record_path),
             record,
             activation,
+            record_unreadable,
             ..Self::default()
         }
+    }
+
+    pub(crate) fn record_unreadable(&self) -> bool {
+        self.record_unreadable
+    }
+
+    /// A cheap ownership check for admission and target guards. Health I/O is
+    /// intentionally left to this session's watchdog or an explicit recheck.
+    pub(crate) fn has_runtime_ownership(&self) -> bool {
+        self.record_unreadable
+            || self.needs_reconciliation()
+            || self.child.is_some()
+            || self.proxy_relay.is_some()
+            || self.health_context.is_some()
+            || self.engine_runtime.is_some()
+            || self.profile_lease.is_some()
+            || self
+                .activation
+                .as_ref()
+                .is_some_and(|activation| activation.active_silo_id.is_some())
     }
 
     fn camoufox_host_roots(&self, silo_id: Uuid) -> Option<CamoufoxHostRoots> {
@@ -1013,6 +1059,10 @@ impl RuntimeManager {
         self.record.as_ref().map(|record| record.silo_id)
     }
 
+    pub(crate) fn recorded_runtime_id(&self) -> Option<Uuid> {
+        self.record.as_ref().and_then(|record| record.runtime_id)
+    }
+
     /// Silo id of the persisted record only while it documents a stopped
     /// session. This is the only durable attribution for the global no-active
     /// activation: `active_silo_id == None` alone never proves that the
@@ -1029,14 +1079,22 @@ impl RuntimeManager {
     pub(crate) fn invalidate_restored_silo(&mut self, silo_id: Uuid) -> RuntimeActivation {
         self.refresh();
         if self.recorded_silo_id() == Some(silo_id)
-            && !self.activation.as_ref().and_then(|activation| activation.active_silo_id)
-                .is_some_and(|active| active == silo_id) {
+            && !self
+                .activation
+                .as_ref()
+                .and_then(|activation| activation.active_silo_id)
+                .is_some_and(|active| active == silo_id)
+        {
             self.record = None;
             self.website_identity = None;
-            if let Some(path) = self.record_path.as_ref() { let _ = fs::remove_file(path); }
+            if let Some(path) = self.record_path.as_ref() {
+                let _ = fs::remove_file(path);
+            }
             self.activation = Some(RuntimeActivation::idle());
         }
-        self.activation.clone().unwrap_or_else(RuntimeActivation::idle)
+        self.activation
+            .clone()
+            .unwrap_or_else(RuntimeActivation::idle)
     }
 
     pub fn needs_reconciliation(&self) -> bool {
@@ -1070,6 +1128,7 @@ impl RuntimeManager {
             return self.activation();
         };
         let persisted_identity_evidence = record.identity_evidence.clone();
+        let persisted_runtime_id = record.runtime_id;
         if record.silo_id != silo.id {
             self.activation = Some(RuntimeActivation {
                 active_silo_id: None,
@@ -1201,7 +1260,8 @@ impl RuntimeManager {
                 }
             }
         }
-        let runtime_id = evidence.runtime_id;
+        let runtime_id = persisted_runtime_id.unwrap_or(evidence.runtime_id);
+        evidence.runtime_id = runtime_id;
         let compromised = state == RuntimeState::VerificationFailed;
         if compromised {
             invalidate_network_evidence(
@@ -1732,6 +1792,16 @@ impl RuntimeManager {
 
         let mut runtime_profile_directories = managed_profile_directories.to_vec();
         if configured_adapter == crate::engine::EngineAdapterId::Camoufox {
+            // Each concurrent Host owns only its own Profile lease. Keep the
+            // Vault membership check before reducing the lock set so a caller
+            // cannot pass an arbitrary browser-data directory.
+            if !managed_profile_directories
+                .iter()
+                .any(|directory| directory == Path::new(&silo.profile_directory))
+            {
+                return Err(LauncherError::ProfileUnmanaged);
+            }
+            runtime_profile_directories = vec![PathBuf::from(&silo.profile_directory)];
             if let Some(roots) = self.camoufox_host_roots(silo.id) {
                 for root in [&roots.artifact_root, &roots.profile_root, &roots.state_root] {
                     fs::create_dir_all(root).map_err(LauncherError::Spawn)?;
@@ -2377,6 +2447,7 @@ impl RuntimeManager {
         });
         self.record = Some(RuntimeRecord {
             silo_id: silo.id,
+            runtime_id: Some(runtime_id),
             pid,
             started_at,
             last_seen_at: started_at,
@@ -2543,11 +2614,10 @@ impl RuntimeManager {
                 Err(error) => {
                     identity_note =
                         "网站可见身份重新观察失败；本次没有取得新的身份证据。".to_owned();
-                    let reason: String =
-                        format!("本次身份复核未能重新观察网站身份：{error}")
-                            .chars()
-                            .take(480)
-                            .collect();
+                    let reason: String = format!("本次身份复核未能重新观察网站身份：{error}")
+                        .chars()
+                        .take(480)
+                        .collect();
                     identity_evidence = identity_evidence.map(|mut evidence| {
                         evidence.state = IdentityEvidenceState::Unavailable;
                         evidence.reason = Some(reason);
@@ -2628,7 +2698,9 @@ impl RuntimeManager {
             || reobserve.state != "running"
             || reobserve.artifact_id != binding.artifact_id
             || reobserve.artifact_file_sha256 != binding.artifact_file_sha256
-            || reobserve.profile_id.is_some_and(|id| id != binding.profile_id)
+            || reobserve
+                .profile_id
+                .is_some_and(|id| id != binding.profile_id)
         {
             return Err(LauncherError::RuntimeReceipt(
                 "Camoufox Host identity re-observation did not bind to the exact active session"
@@ -3399,6 +3471,13 @@ impl RuntimeManager {
         };
         record.last_seen_at = Utc::now();
         record.state = state;
+        if record.runtime_id.is_none() {
+            record.runtime_id = self
+                .activation
+                .as_ref()
+                .and_then(|activation| activation.network_evidence.as_ref())
+                .map(|evidence| evidence.runtime_id);
+        }
         record.identity_evidence = self
             .activation
             .as_ref()
@@ -6522,6 +6601,7 @@ process.stdin.on('end', () => {
         let evidence = RuntimeEngineEvidence::configured(EngineAdapterId::Camoufox, true);
         let runtime_record = RuntimeRecord {
             silo_id: Uuid::new_v4(),
+            runtime_id: None,
             pid: 1234,
             started_at: Utc::now(),
             last_seen_at: Utc::now(),
@@ -6861,7 +6941,9 @@ for raw in sys.stdin.buffer:
                 )
                 .expect_err("the late page response must time out");
             assert!(
-                timeout_error.to_string().contains("page response timeout/EOF"),
+                timeout_error
+                    .to_string()
+                    .contains("page response timeout/EOF"),
                 "unexpected first error: {timeout_error}"
             );
             let desync_error = transport
@@ -7986,6 +8068,7 @@ for raw in sys.stdin.buffer:
         let now = Utc::now();
         let record = RuntimeRecord {
             silo_id,
+            runtime_id: None,
             pid,
             started_at: now,
             last_seen_at: now,
@@ -8197,6 +8280,7 @@ for raw in sys.stdin.buffer:
         let now = Utc::now();
         let record = RuntimeRecord {
             silo_id: Uuid::new_v4(),
+            runtime_id: None,
             pid: std::process::id(),
             started_at: now,
             last_seen_at: now,
@@ -8240,6 +8324,7 @@ for raw in sys.stdin.buffer:
             &root.join("runtime").join("browser-session.json"),
             &RuntimeRecord {
                 silo_id: silo.id,
+                runtime_id: None,
                 pid: std::process::id(),
                 started_at: now,
                 last_seen_at: now,
@@ -8272,6 +8357,7 @@ for raw in sys.stdin.buffer:
             &root.join("runtime").join("browser-session.json"),
             &RuntimeRecord {
                 silo_id: silo.id,
+                runtime_id: None,
                 pid: u32::MAX,
                 started_at: now,
                 last_seen_at: now,
@@ -8325,6 +8411,7 @@ for raw in sys.stdin.buffer:
             &root.join("runtime").join("browser-session.json"),
             &RuntimeRecord {
                 silo_id: silo.id,
+                runtime_id: None,
                 pid: u32::MAX,
                 started_at: now,
                 last_seen_at: now,
@@ -8372,6 +8459,7 @@ for raw in sys.stdin.buffer:
             &root.join("runtime").join("browser-session.json"),
             &RuntimeRecord {
                 silo_id: silo.id,
+                runtime_id: None,
                 pid: std::process::id(),
                 started_at: now,
                 last_seen_at: now,
@@ -8434,6 +8522,7 @@ for raw in sys.stdin.buffer:
             activation: Some(RuntimeActivation::idle()),
             record: Some(RuntimeRecord {
                 silo_id: Uuid::new_v4(),
+                runtime_id: None,
                 pid: u32::MAX,
                 started_at: now,
                 last_seen_at: now,
@@ -8473,6 +8562,7 @@ for raw in sys.stdin.buffer:
         let now = Utc::now();
         let record = RuntimeRecord {
             silo_id: Uuid::new_v4(),
+            runtime_id: None,
             pid: u32::MAX,
             started_at: now,
             last_seen_at: now,
@@ -8546,6 +8636,7 @@ for raw in sys.stdin.buffer:
             &root.join("runtime").join("browser-session.json"),
             &RuntimeRecord {
                 silo_id: silo.id,
+                runtime_id: None,
                 pid: std::process::id(),
                 started_at: now,
                 last_seen_at: now,
@@ -8954,8 +9045,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn reobserve_binds_fresh_identity_evidence_to_the_active_session() {
-        let (root, mut runtime, silo, runtime_id, launch_observed_at) =
-            reobserve_fixture("normal");
+        let (root, mut runtime, silo, runtime_id, launch_observed_at) = reobserve_fixture("normal");
         let fresh = runtime
             .reobserve_active_camoufox_identity(silo.id, runtime_id)
             .expect("fresh identity re-observation");
@@ -8984,7 +9074,9 @@ for raw in sys.stdin.buffer:
         };
         assert!(host.identity_evidence.is_some());
         assert_eq!(
-            host.identity_evidence.as_ref().map(|evidence| evidence.observed_at),
+            host.identity_evidence
+                .as_ref()
+                .map(|evidence| evidence.observed_at),
             Some(fresh.observed_at)
         );
         let _ = fs::remove_dir_all(root);
@@ -9006,8 +9098,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn recheck_active_reobserves_fresh_identity_for_the_running_managed_silo() {
-        let (root, mut runtime, silo, runtime_id, launch_observed_at) =
-            reobserve_fixture("normal");
+        let (root, mut runtime, silo, runtime_id, launch_observed_at) = reobserve_fixture("normal");
         let before_recheck = Utc::now();
         let activation = runtime
             .recheck_active(&silo, None, None)
@@ -9397,6 +9488,7 @@ for raw in sys.stdin.buffer:
             // reconciliation fixture deterministic and process-free.
             runtime.record = Some(RuntimeRecord {
                 silo_id: silo.id,
+                runtime_id: None,
                 pid: 0xFFFF_FFFE,
                 started_at: Utc::now() - ChronoDuration::hours(1),
                 last_seen_at: Utc::now() - ChronoDuration::hours(1),

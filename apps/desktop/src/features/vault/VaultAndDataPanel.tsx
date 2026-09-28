@@ -7,7 +7,7 @@ import { WorkspaceSheet } from "../../shared/WorkspaceSheet.js";
 
 import { UserFacingError } from "../../user-errors.js";
 
-import { desktopApi } from "../../desktop-api.js";
+import { desktopApi, type RuntimeSessionStatus } from "../../desktop-api.js";
 
 import { formatBytes } from "../../shared/presentation.js";
 import { ManagedSiloBackupPanel } from "./ManagedSiloBackupPanel.js";
@@ -17,20 +17,27 @@ export function VaultAndDataPanel({
   feedback,
   busy,
   silos,
-  activeSiloId,
+  sessions,
+  siloBusyIds,
   onNotice,
   onRefresh,
   onVaultRestored,
   runBusy,
+  runSiloBusy,
 }: {
   feedback?: ReactNode;
   busy: boolean;
   silos: Silo[];
-  activeSiloId: string | null;
+  sessions: RuntimeSessionStatus[];
+  siloBusyIds: Set<string>;
   onNotice: (notice: Notice | null) => void;
   onRefresh: () => Promise<unknown>;
   onVaultRestored: () => Promise<void>;
   runBusy: (
+    action: (isCurrent: () => boolean) => Promise<void>,
+  ) => Promise<void>;
+  runSiloBusy: (
+    silo: Silo,
     action: (isCurrent: () => boolean) => Promise<void>,
   ) => Promise<void>;
 }) {
@@ -240,12 +247,13 @@ export function VaultAndDataPanel({
           <i aria-hidden="true">↗</i>
         </button>
         <ManagedSiloBackupPanel
-          activeSiloId={activeSiloId}
           busy={busy}
           feedback={feedback}
           onNotice={onNotice}
           onRefresh={onRefresh}
-          runBusy={runBusy}
+          runSiloBusy={runSiloBusy}
+          sessions={sessions}
+          siloBusyIds={siloBusyIds}
           silos={silos}
         />
       </div>

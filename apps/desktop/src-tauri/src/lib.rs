@@ -16,6 +16,7 @@ pub mod mihomo;
 pub mod native_host;
 pub mod proxy_relay;
 mod runtime_watchdog;
+mod local_runtimes;
 pub mod vault;
 pub mod website_identity;
 
@@ -87,11 +88,22 @@ fn exit_from_tray<R: Runtime>(app: &AppHandle<R>) {
             return;
         }
     };
-    let can_exit = match runtime.active_managed_camoufox_silo_id() {
+    let mut can_exit = match runtime.active_managed_camoufox_silo_id() {
         Some(silo_id) => runtime.stop_managed_camoufox(silo_id).is_ok(),
         None => true,
     };
     drop(runtime);
+    for (id, handle) in state.core.local_runtimes.entries() {
+        match handle.lock() {
+            Ok(mut runtime) => {
+                if runtime.active_managed_camoufox_silo_id().is_some() {
+                    can_exit &= runtime.stop_managed_camoufox(id).is_ok();
+                }
+                state.core.local_runtimes.update(id, runtime.cached_activation(), None);
+            }
+            Err(_) => can_exit = false,
+        }
+    }
     drop(local_reservation);
     if can_exit {
         let _ = native_host::clear_runtime_status_snapshot(&state.core.root);
@@ -254,6 +266,8 @@ pub fn run() {
             commands::clear_network_evidence,
             commands::recheck_silo_browser,
             commands::recheck_silo_runtime,
+            commands::list_runtime_sessions,
+            commands::get_silo_runtime,
             commands::stop_silo,
             commands::rebind_silo_mihomo,
             commands::launch_silo,

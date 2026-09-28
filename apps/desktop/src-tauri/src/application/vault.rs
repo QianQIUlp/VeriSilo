@@ -32,6 +32,7 @@ pub(crate) fn initialize_vault_with(
     let activation = reconcile_runtime_if_possible(&mut vault, &mut runtime);
     drop(runtime);
     drop(vault);
+    super::reconcile_local_runtimes_if_possible(state);
     publish_runtime_status(&state, &activation, &vault_status);
     Ok(vault_status)
 }
@@ -59,6 +60,7 @@ pub(crate) fn unlock_vault_with(
     let activation = reconcile_runtime_if_possible(&mut vault, &mut runtime);
     drop(runtime);
     drop(vault);
+    super::reconcile_local_runtimes_if_possible(state);
     publish_runtime_status(&state, &activation, &vault_status);
     Ok(vault_status)
 }
@@ -87,6 +89,12 @@ pub(crate) fn lock_vault_with(state: &DesktopCore) -> Result<VaultStatus, String
     let activation = runtime.revoke_secrets_for_vault_lock();
     drop(runtime);
     drop(vault);
+    for (id, handle) in state.local_runtimes.entries() {
+        let activation = handle.lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
+            .revoke_secrets_for_vault_lock();
+        state.local_runtimes.update(id, activation, None);
+    }
     publish_runtime_status(state, &activation, &vault_status);
     Ok(vault_status)
 }
@@ -141,6 +149,17 @@ pub(crate) fn restore_vault(
         .remote_control
         .lock()
         .map_err(|_| "VeriSilo remote control state is unavailable.".to_owned())?;
+    if !state.local_runtimes.all_quiescent() {
+        return Err("Stop or recover every local Silo before restoring the Vault.".to_owned());
+    }
+    let mut session_preparations = Vec::new();
+    for (id, handle) in state.local_runtimes.entries() {
+        let preparation = handle.lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
+            .prepare_for_vault_restore()
+            .ok_or_else(|| "Resolve every Silo runtime before restoring the Vault.".to_owned())?;
+        session_preparations.push((id, handle, preparation));
+    }
     let mut vault = state
         .vault
         .lock()
@@ -190,6 +209,12 @@ pub(crate) fn restore_vault(
     drop(environments);
     drop(runtime);
     drop(vault);
+    for (id, handle, preparation) in session_preparations {
+        let activation = handle.lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
+            .complete_successful_vault_restore(preparation);
+        state.local_runtimes.update(id, activation, None);
+    }
     publish_runtime_status(&state, &activation, &vault_status);
     Ok(vault_status)
 }

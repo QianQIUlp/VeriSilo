@@ -2,7 +2,7 @@ import { type ComponentProps, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ManagedIdentityPreview } from "../../desktop-api.js";
-import { previewSilo, previewStatus } from "../../preview/fixtures.js";
+import { previewManagedSilo, previewRuntimeActivation, previewSilo, previewStatus } from "../../preview/fixtures.js";
 import { SiloList, SiloScene } from "./SiloList.js";
 
 const identityPreview: ManagedIdentityPreview = {
@@ -26,7 +26,10 @@ describe("Silo list presentation", () => {
   it("renders empty and occupied workspaces without a desktop runtime", () => {
     const noAction = async () => {};
     const props = {
-      activation: null,
+      sessions: [],
+      managedSessionLimit: 2,
+      siloBusyIds: new Set<string>(),
+      launchingSiloIds: new Set<string>(),
       busy: false,
       managedEngineReady: false,
       networkEvidence: [],
@@ -40,8 +43,6 @@ describe("Silo list presentation", () => {
       onRecheckBrowser: noAction,
       onRecheckRuntime: noAction,
       onStop: noAction,
-      runtimeActivation: previewStatus().activation,
-      runtimeState: "idle" as const,
     };
     const empty = renderToStaticMarkup(
       createElement(SiloList, { ...props, silos: [] }),
@@ -56,7 +57,7 @@ describe("Silo list presentation", () => {
     const missingActive = renderToStaticMarkup(
       createElement(SiloList, {
         ...props,
-        activation: "removed-silo",
+        sessions: [{ siloId: "removed-silo", activation: previewRuntimeActivation({ ...previewSilo, id: "removed-silo" }) }],
         silos: [previewSilo],
       }),
     );
@@ -69,7 +70,10 @@ describe("Silo list presentation", () => {
   it("shows 正在打开… on the launching silo only", () => {
     const noAction = async () => {};
     const base = {
-      activation: null,
+      sessions: [],
+      managedSessionLimit: 2,
+      siloBusyIds: new Set<string>(),
+      launchingSiloIds: new Set<string>(),
       busy: false,
       managedEngineReady: false,
       networkEvidence: [],
@@ -83,13 +87,11 @@ describe("Silo list presentation", () => {
       onRecheckBrowser: noAction,
       onRecheckRuntime: noAction,
       onStop: noAction,
-      runtimeActivation: previewStatus().activation,
-      runtimeState: "idle" as const,
     };
     const launching = renderToStaticMarkup(
       createElement(SiloList, {
         ...base,
-        launchingSiloId: previewSilo.id,
+        launchingSiloIds: new Set([previewSilo.id]),
         silos: [previewSilo],
       }),
     );
@@ -117,7 +119,10 @@ describe("Silo list presentation", () => {
     };
     const populated = renderToStaticMarkup(
       createElement(SiloList, {
-        activation: runningSilo.id,
+        sessions: [{ siloId: runningSilo.id, activation: previewRuntimeActivation(runningSilo) }],
+        managedSessionLimit: 2,
+        siloBusyIds: new Set<string>(),
+        launchingSiloIds: new Set<string>(),
         focusedSiloId: waitingSilo.id,
         busy: false,
         managedEngineReady: false,
@@ -132,13 +137,10 @@ describe("Silo list presentation", () => {
         onRecheckBrowser: noAction,
         onRecheckRuntime: noAction,
         onStop: noAction,
-        runtimeActivation: previewStatus().activation,
-        runtimeState: "running" as const,
         silos: [runningSilo, waitingSilo],
       }),
     );
-    expect(populated).toContain("」正在运行。一次只能打开一个");
-    expect(populated).toContain("「正在用的空间」");
+    expect(populated).toContain("此 Silo 与当前会话不能并行");
     const sceneTags = populated.match(/<article[^>]*>/gu) ?? [];
     expect(
       sceneTags.find((tag) => tag.includes(`id="silo-${waitingSilo.id}"`)),
@@ -150,7 +152,78 @@ describe("Silo list presentation", () => {
       /<button[^>]*disabled=""[^>]*>打开浏览器<\/button>/u,
     );
     expect(launch).not.toBeNull();
-    expect(populated).toContain("先关闭它的浏览器窗口");
+    expect(populated).toContain("并发仅支持本地 Managed");
+  });
+
+  it("shows two Managed sessions independently while a third sees the shared limit", () => {
+    const noAction = async () => {};
+    const a = previewManagedSilo;
+    const b = { ...previewManagedSilo, id: "a2222222-2222-4222-8222-222222222222", name: "托管 B" };
+    const c = { ...previewManagedSilo, id: "a3333333-3333-4333-8333-333333333333", name: "托管 C" };
+    const markup = renderToStaticMarkup(createElement(SiloList, {
+      focusedSiloId: b.id,
+      busy: false,
+      siloBusyIds: new Set([a.id]),
+      launchingSiloIds: new Set<string>(),
+      managedSessionLimit: 2,
+      managedEngineReady: true,
+      networkEvidence: [],
+      identityPreviews: {},
+      storageUsage: {},
+      onArchive: noAction,
+      onCreate: noAction,
+      onEdit: noAction,
+      onLaunch: noAction,
+      onRebindMihomo: noAction,
+      onRecheckBrowser: noAction,
+      onRecheckRuntime: noAction,
+      onStop: noAction,
+      sessions: [
+        { siloId: a.id, activation: previewRuntimeActivation(a, "11111111-1111-4111-8111-111111111111") },
+        { siloId: b.id, activation: previewRuntimeActivation(b, "22222222-2222-4222-8222-222222222222") },
+      ],
+      silos: [a, b, c],
+    }));
+    expect(markup.match(/class="token-state running"/gu)).toHaveLength(2);
+    expect(markup.match(/<article[^>]*>/gu)?.find((tag) => tag.includes(`silo-${b.id}`))).not.toContain('hidden=""');
+    expect(markup).toContain("本地 Managed 同时运行已达 2 个上限");
+    expect(markup).toContain("托管 B");
+  });
+
+  it("shows a closed verification failure without occupying the second Managed slot", () => {
+    const noAction = async () => {};
+    const a = previewManagedSilo;
+    const b = { ...previewManagedSilo, id: "a2222222-2222-4222-8222-222222222222", name: "托管 B" };
+    const failed = { ...previewRuntimeActivation(b), activeSiloId: null, state: "verification_failed" as const,
+      identityEvidence: null, networkEvidence: null };
+    const markup = renderToStaticMarkup(createElement(SiloList, {
+      focusedSiloId: b.id,
+      busy: false,
+      siloBusyIds: new Set<string>(),
+      launchingSiloIds: new Set<string>(),
+      managedSessionLimit: 2,
+      managedEngineReady: true,
+      networkEvidence: [],
+      identityPreviews: {},
+      storageUsage: {},
+      onArchive: noAction,
+      onCreate: noAction,
+      onEdit: noAction,
+      onLaunch: noAction,
+      onRebindMihomo: noAction,
+      onRecheckBrowser: noAction,
+      onRecheckRuntime: noAction,
+      onStop: noAction,
+      sessions: [
+        { siloId: a.id, activation: previewRuntimeActivation(a) },
+        { siloId: b.id, activation: failed },
+      ],
+      silos: [a, b],
+    }));
+    expect(markup).toContain("托管 B");
+    expect(markup).toContain("检查未通过");
+    expect(markup).toContain(">打开浏览器</button>");
+    expect(markup).not.toContain("个上限");
   });
 
   it("shows reconciled identity evidence without calling it verified", () => {
@@ -167,7 +240,7 @@ describe("Silo list presentation", () => {
       },
     };
     const status = {
-      ...previewStatus().activation,
+      ...previewStatus().activation!,
       activeSiloId: managedSilo.id,
       state: "running" as const,
       identityEvidence: {
@@ -201,7 +274,7 @@ describe("Silo list presentation", () => {
       selected: true,
       isActive: true,
       isLaunching: false,
-      runningSiloName: null,
+      launchBlockReason: null,
       identityPreview: undefined,
       storageBytes: undefined,
       lens: "identity" as const,
@@ -258,7 +331,10 @@ describe("Silo list presentation", () => {
     const onCreateIdentity = () => {};
     const managed = renderToStaticMarkup(
       createElement(SiloList, {
-        activation: null,
+        sessions: [],
+        managedSessionLimit: 2,
+        siloBusyIds: new Set<string>(),
+        launchingSiloIds: new Set<string>(),
         busy: false,
         managedEngineReady: true,
         networkEvidence: [],
@@ -273,8 +349,6 @@ describe("Silo list presentation", () => {
         onRecheckBrowser: noAction,
         onRecheckRuntime: noAction,
         onStop: noAction,
-        runtimeActivation: previewStatus().activation,
-        runtimeState: "idle" as const,
         silos: [managedSilo],
       }),
     );
@@ -282,7 +356,10 @@ describe("Silo list presentation", () => {
 
     const standard = renderToStaticMarkup(
       createElement(SiloList, {
-        activation: null,
+        sessions: [],
+        managedSessionLimit: 2,
+        siloBusyIds: new Set<string>(),
+        launchingSiloIds: new Set<string>(),
         busy: false,
         managedEngineReady: true,
         networkEvidence: [],
@@ -297,8 +374,6 @@ describe("Silo list presentation", () => {
         onRecheckBrowser: noAction,
         onRecheckRuntime: noAction,
         onStop: noAction,
-        runtimeActivation: previewStatus().activation,
-        runtimeState: "idle" as const,
         silos: [previewSilo],
       }),
     );
@@ -321,7 +396,10 @@ describe("Silo list presentation", () => {
     };
     const rendered = renderToStaticMarkup(
       createElement(SiloList, {
-        activation: managedSilo.id,
+        sessions: [{ siloId: managedSilo.id, activation: previewRuntimeActivation(managedSilo) }],
+        managedSessionLimit: 2,
+        siloBusyIds: new Set<string>(),
+        launchingSiloIds: new Set<string>(),
         busy: false,
         managedEngineReady: true,
         networkEvidence: [],
@@ -336,8 +414,6 @@ describe("Silo list presentation", () => {
         onRecheckBrowser: noAction,
         onRecheckRuntime: noAction,
         onStop: noAction,
-        runtimeActivation: previewStatus().activation,
-        runtimeState: "running" as const,
         silos: [managedSilo],
       }),
     );
@@ -350,8 +426,8 @@ describe("recent-run integration", () => {
   const noAction = async () => {};
   const scene: ComponentProps<typeof SiloScene> = {
     silo: previewSilo, index: 0, selected: true, isActive: false,
-    isLaunching: false, runningSiloName: null,
-    runtimeActivation: previewStatus().activation, runtimeState: "idle",
+    isLaunching: false, launchBlockReason: null,
+    runtimeActivation: previewStatus().activation!, runtimeState: "idle",
     busy: false, managedEngineReady: true, networkEvidence: [],
     identityPreview: undefined, storageBytes: undefined, lens: "session",
     openLens: noAction, closeLens: noAction, choose: noAction,

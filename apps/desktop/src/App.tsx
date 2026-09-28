@@ -34,13 +34,10 @@ import { ArchivedSiloList, SiloList } from "./features/silos/SiloList.js";
 
 import { LegacyEnvironmentRecoveryPanel } from "./features/environments/LegacyRecovery.js";
 
-import {
-  activationStatusLabel,
-  describeActivation,
-  describeVault,
-} from "./formatters.js";
+import { describeVault } from "./formatters.js";
 
-import { activationStatusTone, formatDate } from "./shared/presentation.js";
+import { formatDate } from "./shared/presentation.js";
+import { sessionNeedsManagement } from "./runtime-status.js";
 
 import { NetworkCheckCard } from "./features/network/NetworkCheckCard.js";
 
@@ -82,7 +79,8 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
     submitVault,
     activeSilos,
     busy,
-    launchingSiloId,
+    siloBusyIds,
+    launchingSiloIds,
     lockVault,
     identityPreviews,
     recentRuns,
@@ -118,6 +116,7 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
     refresh,
     finishVaultRestore,
     withBusy,
+    withSiloBusy,
     vaultUiGeneration,
   } = useDesktopWorkspace();
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -181,6 +180,11 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
   const createdSilo = activeSilos.find((silo) => silo.id === createdSiloId);
   const hasInspectableIdentity = activeSilos.some(
     (silo) => silo.engine.adapter !== "stock",
+  );
+  const currentSessions = status.sessions.filter(sessionNeedsManagement);
+  const runningSessions = currentSessions.filter((session) => session.activation.state === "running");
+  const sessionsNeedingRecovery = currentSessions.filter((session) =>
+    ["recovery_required", "verification_failed", "failed"].includes(session.activation.state),
   );
 
   const toolsVisible =
@@ -435,9 +439,11 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                     <CreatedSiloSummary
                       silo={createdSilo}
                       preview={identityPreviews[createdSilo.id]}
-                      busy={busy}
-                      launching={launchingSiloId === createdSilo.id}
-                      launchBlocked={status.activation.activeSiloId !== null}
+                      busy={busy || siloBusyIds.has(createdSilo.id)}
+                      launching={launchingSiloIds.has(createdSilo.id)}
+                      launchBlocked={status.sessions.some((session) =>
+                        session.siloId === createdSilo.id && sessionNeedsManagement(session))}
+                      launchBlockedReason="此 Silo 已有当前会话，请先处理该会话。"
                       onInspect={() => { dismissCreatedSilo(); editSilo(createdSilo); }}
                       onLaunch={() => void launchSilo(createdSilo)}
                       onDismiss={dismissCreatedSilo}
@@ -446,9 +452,10 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                   <SiloList
                     focusedSiloId={focusedSiloId}
                     onFocusSilo={setFocusedSiloId}
-                    activation={status.activation.activeSiloId}
                     busy={busy}
-                    launchingSiloId={launchingSiloId}
+                    siloBusyIds={siloBusyIds}
+                    launchingSiloIds={launchingSiloIds}
+                    managedSessionLimit={status.managedSessionLimit}
                     onArchive={archiveSilo}
                     onCreate={showCreate}
                     onCreateIdentity={createIdentityFromSilo}
@@ -458,8 +465,7 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                     onRecheckBrowser={recheckSiloBrowser}
                     onRecheckRuntime={recheckSiloRuntime}
                     onStop={stopSilo}
-                    runtimeActivation={status.activation}
-                    runtimeState={status.activation.state}
+                    sessions={status.sessions}
                     silos={activeSilos}
                     recentRuns={recentRuns}
                     recentRunsError={recentRunsError}
@@ -519,10 +525,8 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                 <>
                   {inspectIdentity && editingSilo.engine.adapter !== "stock" ? (
                     <IdentityInspectPanel
-                      activeSiloId={status.activation.activeSiloId}
-                      activation={status.activation}
-                      identityPreviews={identityPreviews}
-                      observation={status.websiteIdentity ?? null}
+                      preferredSiloId={editingSilo.id}
+                      sessions={status.sessions}
                       silos={[editingSilo]}
                     />
                   ) : null}
@@ -554,11 +558,13 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                   feedback={workspaceNotice}
                   busy={busy}
                   silos={[...activeSilos, ...archivedSilos]}
-                  activeSiloId={status.activation.activeSiloId}
+                  sessions={status.sessions}
+                  siloBusyIds={siloBusyIds}
                   onNotice={setNotice}
                   onRefresh={refresh}
                   onVaultRestored={finishVaultRestore}
                   runBusy={withBusy}
+                  runSiloBusy={withSiloBusy}
                 />
               )
             ) : null}
@@ -618,10 +624,14 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                       value="已解锁"
                     />
                     <StatusCard
-                      detail={describeActivation(status.activation)}
+                      detail={sessionsNeedingRecovery.length > 0
+                        ? `${sessionsNeedingRecovery.map((session) => activeSilos.find((silo) => silo.id === session.siloId)?.name ?? session.siloId).join("、")}需要处理残留或失败状态。`
+                        : runningSessions.length > 0
+                          ? runningSessions.map((session) => activeSilos.find((silo) => silo.id === session.siloId)?.name ?? session.siloId).join("、")
+                          : "现在没有打开的浏览器"}
                       eyebrow="浏览器"
-                      tone={activationStatusTone(status.activation)}
-                      value={activationStatusLabel(status.activation.state)}
+                      tone={sessionsNeedingRecovery.length > 0 ? "warn" : runningSessions.length > 0 ? "good" : "neutral"}
+                      value={`${runningSessions.length} 个运行中`}
                     />
                     <StatusCard
                       detail={
@@ -692,10 +702,8 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
           >
             {workspaceNotice}
             <IdentityInspectPanel
-              activeSiloId={status.activation.activeSiloId}
-              activation={status.activation}
-              identityPreviews={identityPreviews}
-              observation={status.websiteIdentity ?? null}
+              preferredSiloId={focusedSiloId ?? undefined}
+              sessions={status.sessions}
               silos={activeSilos}
             />
           </WorkspaceSheet>

@@ -2,10 +2,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { type Silo } from "@verisilo/contracts";
+import { type RuntimeActivation, type Silo } from "@verisilo/contracts";
 
 import type {
-  DesktopStatus,
   ManagedIdentityPreview,
 } from "../../desktop-api.js";
 
@@ -18,8 +17,6 @@ import {
   NetworkEvidenceDetails,
   deriveCurrentSessionSummary,
 } from "./CurrentSessionIntegrity.js";
-
-type RuntimeActivation = DesktopStatus["activation"];
 
 const RUNTIME_ID = "22222222-2222-4222-8222-222222222222";
 const OTHER_RUNTIME_ID = "33333333-3333-4333-8333-333333333333";
@@ -350,6 +347,19 @@ describe("current session summary derivation", () => {
     expect(ended.overallLabel).toBe("本次运行已结束");
     expect(ended.overallDetail).toContain("浏览器校验失败");
 
+    const closed = summaryFor(
+      previewManagedSilo,
+      activation({
+        activeSiloId: null,
+        state: "verification_failed" as const,
+        message: null,
+        identityEvidence: null,
+        networkEvidence: null,
+      }),
+    );
+    expect(closed.overallDetail).toContain("浏览器已关闭");
+    expect(closed.overallDetail).not.toContain("结束会话");
+
     const recovery = summaryFor(
       previewManagedSilo,
       activation({ state: "recovery_required" as const }),
@@ -497,6 +507,9 @@ describe("current session claim boundaries", () => {
   it("defers the session summary until its detail pane is opened", () => {
     const baseProps = {
       busy: false,
+      siloBusyIds: new Set<string>(),
+      launchingSiloIds: new Set<string>(),
+      managedSessionLimit: 2,
       managedEngineReady: true,
       networkEvidence: [],
       storageUsage: {},
@@ -512,9 +525,7 @@ describe("current session claim boundaries", () => {
     const active = renderToStaticMarkup(
       createElement(SiloList, {
         ...baseProps,
-        activation: previewManagedSilo.id,
-        runtimeActivation: freshActivation(),
-        runtimeState: "running" as const,
+        sessions: [{ siloId: previewManagedSilo.id, activation: freshActivation() }],
         silos: [previewManagedSilo],
         identityPreviews: { [previewManagedSilo.id]: identityPreview },
         onCreateIdentity: () => {},
@@ -528,9 +539,7 @@ describe("current session claim boundaries", () => {
     const inactive = renderToStaticMarkup(
       createElement(SiloList, {
         ...baseProps,
-        activation: null,
-        runtimeActivation: freshActivation(),
-        runtimeState: "idle" as const,
+        sessions: [],
         silos: [previewManagedSilo],
         identityPreviews: { [previewManagedSilo.id]: identityPreview },
         onCreateIdentity: () => {},
@@ -544,9 +553,7 @@ describe("current session claim boundaries", () => {
     const standard = renderToStaticMarkup(
       createElement(SiloList, {
         ...baseProps,
-        activation: previewSilo.id,
-        runtimeActivation: freshActivation(),
-        runtimeState: "running" as const,
+        sessions: [{ siloId: previewSilo.id, activation: { ...freshActivation(), activeSiloId: previewSilo.id } }],
         silos: [previewSilo],
         identityPreviews: {},
       }),

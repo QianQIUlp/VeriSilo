@@ -205,7 +205,7 @@ describe("desktop product copy", () => {
     expect(createPanelSource).toContain("网络特征检查");
   });
 
-  it("polls only an active local stock runtime without reloading sensitive panels", () => {
+  it("polls local runtime sessions without reloading sensitive panels", () => {
     const appSource = workspaceSource;
     const pollStart = appSource.indexOf(
       "const pollLocalRuntimeStatus = useCallback",
@@ -231,7 +231,8 @@ describe("desktop product copy", () => {
     expect(intervalSource).toContain("2_000");
     expect(intervalSource).toContain("window.clearInterval(interval)");
     expect(intervalSource).toContain('silo.executionTarget.kind === "local"');
-    expect(intervalSource).toContain('silo.engine.adapter === "stock"');
+    expect(intervalSource).toContain("sessionNeedsManagement(session)");
+    expect(intervalSource).toContain("silo.id === session.siloId");
   });
 
   it("explains Standard capability evidence and browser-owned stopping honestly", () => {
@@ -330,7 +331,7 @@ describe("desktop product copy", () => {
     expect(appSource).toContain('"结束会话"');
     expect(appSource).toContain('"打开浏览器"');
     expect(appSource).toContain("onStop(silo)");
-    expect(appSource).toContain("一次只打开一个");
+    expect(appSource).toContain("切换选择不改变正在运行的身份。");
   });
 
   it("keeps managed package, network, and binding evidence states distinct", () => {

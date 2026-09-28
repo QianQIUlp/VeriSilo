@@ -558,6 +558,18 @@ describe("VeriSilo contracts", () => {
   });
 
   it("uses the sanitized Native Host runtime snapshot shape", () => {
+    expect(parseNativeMessage({
+      type: "get_runtime_status",
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
+      siloId: "0f8fad5b-d9cb-469f-a165-70867728950e",
+    }).type).toBe("get_runtime_status");
+    expect(() => parseNativeMessage({
+      type: "get_runtime_status",
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: "6b8a9da2-13e7-4f69-90cb-860f8d02e510",
+      siloId: "not-a-uuid",
+    })).toThrow();
     const response = nativeResponseSchema.parse({
       type: "runtime_status",
       protocolVersion: PROTOCOL_VERSION,

@@ -463,10 +463,10 @@ fn status_health_releases_vault_and_rechecks_expiry_before_returning() {
             })
         });
         health_started.recv_timeout(Duration::from_secs(2)).unwrap();
-        // The health call owns Runtime and the lifecycle reservation. A pure
-        // Vault read must still finish before that health call is released.
+        // Slow legacy health owns its Runtime only. It must not take the global
+        // lifecycle barrier or block unrelated Vault reads.
         let lifecycle_reserved = matches!(
-            core.local_control.reservation.try_lock(),
+            core.local_control.reservation.try_write(),
             Err(TryLockError::WouldBlock)
         );
         let (listed_tx, listed) = mpsc::channel();
@@ -482,7 +482,7 @@ fn status_health_releases_vault_and_rechecks_expiry_before_returning() {
         release_health.send(()).unwrap();
         let status = status_worker.join().unwrap().unwrap();
         list_worker.join().unwrap();
-        assert!(lifecycle_reserved, "status must retain lifecycle ownership");
+        assert!(!lifecycle_reserved, "status health must not reserve every Silo lifecycle");
         assert!(
             read_while_health_waits.unwrap().unwrap().is_empty(),
             "Vault reads must not wait for runtime health"
@@ -545,7 +545,7 @@ fn status_marks_identity_evidence_stale_when_its_silo_was_deleted() {
     *core.runtime.lock().unwrap() = RuntimeManager::open(&root);
 
     let status = desktop_status_with(&core).unwrap();
-    let evidence = status.activation.identity_evidence.unwrap();
+    let evidence = status.activation.unwrap().identity_evidence.unwrap();
     assert_eq!(evidence.silo_id, silo_id);
     assert_eq!(evidence.state, IdentityEvidenceState::Stale);
     assert!(status.website_identity.is_none());
@@ -557,7 +557,7 @@ fn status_marks_identity_evidence_stale_when_its_silo_was_deleted() {
 fn diagnostic_runtime_contention_does_not_hold_vault_or_probe_another_silo() {
     use std::sync::{mpsc, Arc};
     use std::thread;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use super::{initialize_vault_with, list_silos_with, DesktopCore};
     use crate::domain::RuntimeState;
@@ -566,6 +566,7 @@ fn diagnostic_runtime_contention_does_not_hold_vault_or_probe_another_silo() {
     fs::create_dir_all(&root).unwrap();
     let core = Arc::new(DesktopCore::open(root.clone(), root.join("resources")));
     initialize_vault_with(&core, "diagnostic contention passphrase").unwrap();
+    let target_id = recent_run_test_silo(&core, "diagnostic target").id;
     let other_silo_id = Uuid::new_v4();
     {
         let mut environment = core.environment_runtime.lock().unwrap();
@@ -575,22 +576,11 @@ fn diagnostic_runtime_contention_does_not_hold_vault_or_probe_another_silo() {
     }
     let runtime_guard = core.runtime.lock().unwrap();
     let diagnostic_core = Arc::clone(&core);
+    let (diagnosed_tx, diagnosed) = mpsc::channel();
     let diagnostic_worker = thread::spawn(move || {
-        super::runtime::diagnostic_status_for_silo(&diagnostic_core, Uuid::new_v4())
+        diagnosed_tx.send(super::runtime::diagnostic_status_for_silo(&diagnostic_core, target_id)).unwrap();
     });
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let diagnostic_reserved = loop {
-        if matches!(
-            core.local_control.reservation.try_lock(),
-            Err(TryLockError::WouldBlock)
-        ) {
-            break true;
-        }
-        if Instant::now() >= deadline {
-            break false;
-        }
-        thread::park_timeout(Duration::from_millis(1));
-    };
+    let target_while_other_runtime_busy = diagnosed.recv_timeout(Duration::from_secs(2));
     let (listed_tx, listed) = mpsc::channel();
     let list_core = Arc::clone(&core);
     let list_worker = thread::spawn(move || {
@@ -599,15 +589,12 @@ fn diagnostic_runtime_contention_does_not_hold_vault_or_probe_another_silo() {
     let read_while_runtime_waits = listed.recv_timeout(Duration::from_secs(2));
     // Release even on regression, so failed assertions cannot strand workers.
     drop(runtime_guard);
-    let diagnostic = diagnostic_worker.join().unwrap().unwrap();
+    diagnostic_worker.join().unwrap();
+    let diagnostic = target_while_other_runtime_busy.expect("target diagnosis must not wait for another runtime").unwrap();
     list_worker.join().unwrap();
 
-    assert!(
-        diagnostic_reserved,
-        "diagnosis must reserve lifecycle attribution"
-    );
-    assert!(read_while_runtime_waits.unwrap().unwrap().is_empty());
-    assert_eq!(diagnostic.activation.active_silo_id, Some(other_silo_id));
+    assert_eq!(read_while_runtime_waits.unwrap().unwrap().len(), 1);
+    assert_eq!(diagnostic.activation.as_ref().unwrap().active_silo_id, None);
     assert_eq!(
         core.environment_runtime
             .lock()
@@ -867,7 +854,7 @@ fn provider_reservation_blocks_launch_update_archive_and_delete_until_completion
     for blocked_operation in ["launch", "update", "archive", "delete"] {
         assert!(
             matches!(
-                control.reservation.try_lock(),
+                control.reservation.try_write(),
                 Err(TryLockError::WouldBlock)
             ),
             "{blocked_operation} must share the in-flight provider reservation"
@@ -1007,7 +994,7 @@ fn recent_run_status_reconciles_stop_and_reports_save_failure_without_hiding_run
     fs::rename(root.join("vault.json"), root.join("vault.saved")).unwrap();
     fs::create_dir(root.join("vault.json")).unwrap();
     let status = desktop_status_with(&core).unwrap();
-    assert_eq!(status.activation.state, RuntimeState::Stopped);
+    assert_eq!(status.activation.as_ref().unwrap().state, RuntimeState::Stopped);
     assert_eq!(status.recent_runs_warning, Some("save_failed"));
     assert_eq!(
         core.vault
@@ -1032,6 +1019,48 @@ fn recent_run_status_reconciles_stop_and_reports_save_failure_without_hiding_run
         .unwrap();
     assert_eq!(record.state, RuntimeState::Stopped);
     assert!(record.ended_at.is_some());
+    drop(core);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn silo_reservations_allow_independent_targets_and_exclude_global_replacement() {
+    let control = LocalEnvironmentControl::default();
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let first = control.reserve_silo(a).unwrap();
+    let second = control.reserve_silo(b).unwrap();
+    assert!(control.reserve_silo(a).is_err(), "duplicate target operation must fail immediately");
+    assert!(matches!(control.reservation.try_write(), Err(TryLockError::WouldBlock)));
+    drop(first);
+    let restarted = control.reserve_silo(a).unwrap();
+    drop(restarted);
+    drop(second);
+    assert!(control.reservation.try_write().is_ok());
+}
+
+#[test]
+fn global_replacement_and_engine_maintenance_reject_per_silo_recovery() {
+    let root = temporary_root("concurrency-global-recovery-guards");
+    let id = Uuid::new_v4();
+    fs::create_dir_all(root.join("runtime")).unwrap();
+    fs::write(
+        crate::launcher::local_runtime_record_path(&root, id),
+        serde_json::to_vec(&serde_json::json!({
+            "siloId": id, "runtimeId": Uuid::new_v4(), "pid": std::process::id(),
+            "startedAt": Utc::now(), "lastSeenAt": Utc::now(), "state": "running"
+        })).unwrap(),
+    ).unwrap();
+    let core = super::DesktopCore::open(root.clone(), root.join("resources"));
+    super::initialize_vault_with(&core, "synthetic global boundary passphrase").unwrap();
+    assert!(core.runtime.lock().unwrap().cached_activation().active_silo_id.is_none());
+    let engine_error = super::rollback_engine_package(&core, crate::engine::EngineAdapterId::Camoufox)
+        .unwrap_err();
+    assert!(engine_error.contains("Stop all Silos"), "{engine_error}");
+    let restore_error = super::restore_vault(&core, root.join("absent.backup").display().to_string(),
+        "synthetic backup passphrase".to_owned(), true).unwrap_err();
+    assert!(restore_error.contains("every local Silo"), "{restore_error}");
+    assert!(crate::launcher::local_runtime_record_path(&root, id).is_file());
     drop(core);
     fs::remove_dir_all(root).unwrap();
 }

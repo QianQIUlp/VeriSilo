@@ -494,6 +494,7 @@ fn read_request(stream: &mut TcpStream) -> Result<ApiRequest, String> {
 fn dispatch(state: &DesktopCore, request: &ApiRequest) -> (u16, serde_json::Value) {
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/v1/status") => map_result(desktop_status_with(state)),
+        ("GET", "/v1/sessions") => map_result(crate::application::list_runtime_sessions(state)),
         ("POST", "/v1/vault/initialize") => dispatch_vault_passphrase(state, request, true),
         ("POST", "/v1/vault/unlock") => dispatch_vault_passphrase(state, request, false),
         ("POST", "/v1/vault/lock") => map_result(lock_vault_with(state)),
@@ -580,6 +581,14 @@ fn dispatch_silo(
     match (method, action) {
         ("GET", None) => match resolve_silo(state, spec) {
             Ok(silo) => (200, ok_body(silo)),
+            Err(error) => api_error_status(error),
+        },
+        ("GET", Some("runtime")) => match resolve_silo_id(state, spec) {
+            Ok(id) => map_result(crate::application::get_silo_runtime(state, id)),
+            Err(error) => api_error_status(error),
+        },
+        ("GET", Some("recent-run")) => match resolve_silo_id(state, spec) {
+            Ok(id) => map_result(crate::application::get_recent_run(state, id)),
             Err(error) => api_error_status(error),
         },
         ("GET", Some("diagnose")) => match resolve_silo_id(state, spec) {
