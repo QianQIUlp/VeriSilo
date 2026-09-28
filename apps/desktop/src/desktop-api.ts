@@ -32,6 +32,7 @@ import type {
   RemoteSessionAuthorization,
   RemoteVolumeAttestation,
   RuntimeActivation,
+  RecentRunRecord,
   Silo,
   SiloEngineConfig,
   SiloExecutionTarget,
@@ -260,6 +261,7 @@ export interface DesktopStatus {
   vault: VaultState;
   activation: RuntimeActivation;
   websiteIdentity?: WebsiteIdentityObservation | null;
+  recentRunsWarning?: "save_failed" | null;
 }
 
 export interface LocalApiInfo {
@@ -569,6 +571,9 @@ export const desktopApi = {
     invoke<LocalClashProbe>("probe_local_clash", { secret: secret ?? null }),
   listActiveSilos: () => invoke<Silo[]>("list_active_silos"),
   listArchivedSilos: () => invoke<Silo[]>("list_archived_silos"),
+  listRecentRuns: () => invoke<RecentRunRecord[]>("list_recent_runs"),
+  getRecentRun: (siloId: string) =>
+    invoke<RecentRunRecord | null>("get_recent_run", { siloId }),
   createSilo: (input: CreateSiloInput) =>
     invoke<Silo>("create_silo", { input }),
   createManagedSilo: (input: CreateManagedSiloInput) =>

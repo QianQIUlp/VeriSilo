@@ -3,6 +3,7 @@ import { type DesktopStatus } from "../../desktop-api.js";
 import { type Silo } from "@verisilo/contracts";
 
 import { formatDate } from "../../shared/presentation.js";
+import { identityEvidenceContext, safeEvidenceReason } from "./evidence-diagnostics.js";
 
 type RuntimeActivation = DesktopStatus["activation"];
 type RuntimeNetworkEvidence = NonNullable<
@@ -37,8 +38,6 @@ export interface CurrentSessionSummary {
   rows: CurrentSessionRow[];
 }
 
-const FRESH_OBSERVATION_WINDOW_MS = 120_000;
-
 const networkProviderLabels: Record<
   RuntimeNetworkEvidence["provider"],
   string
@@ -57,6 +56,90 @@ const networkProvenanceLabels: Record<
   extension_asserted: "浏览器内检查断言",
   relay_observed: "受管中继观测",
 };
+
+const networkPhaseLabels: Record<RuntimeNetworkEvidence["exit"], string> = {
+  not_applicable: "不适用",
+  not_requested: "未请求",
+  configured: "已配置",
+  reachable: "可达",
+  applied: "已应用",
+  observed: "已观察",
+  verified: "已验证",
+  failed: "失败",
+  unavailable: "不可用",
+};
+
+const networkPhases: Array<[keyof Pick<RuntimeNetworkEvidence,
+  "configuration" | "controllerBinding" | "endpoint" | "authentication" |
+  "browserRouting" | "exit" | "dns" | "webRtc">, string]> = [
+  ["configuration", "配置"],
+  ["controllerBinding", "控制器绑定"],
+  ["endpoint", "端点"],
+  ["authentication", "认证"],
+  ["browserRouting", "浏览器路由"],
+  ["exit", "出口"],
+  ["dns", "DNS"],
+  ["webRtc", "WebRTC"],
+];
+
+type NetworkScope = "current" | "missing" | "other_silo" | "last_known" | "expired" | "runtime_mismatch";
+
+function networkEvidenceScope(activation: RuntimeActivation, silo: Silo, now: number): NetworkScope {
+  if (activation.activeSiloId !== silo.id) return "other_silo";
+  const network = activation.networkEvidence;
+  if (network === null) return "missing";
+  if (activation.state !== "running") return "last_known";
+  if (activation.identityEvidence?.siloId === silo.id &&
+    activation.identityEvidence.runtimeId !== network.runtimeId) return "runtime_mismatch";
+  if (network.expiresAt !== null && formatExpiry(network.expiresAt, now) === "最近证据已过期") return "expired";
+  return "current";
+}
+
+/** Shared stage display for the session summary and the network lens. */
+export function NetworkEvidenceDetails({
+  activation,
+  silo,
+  now = Date.now(),
+}: {
+  activation: RuntimeActivation;
+  silo: Silo;
+  now?: number;
+}) {
+  const scope = networkEvidenceScope(activation, silo, now);
+  const evidence = scope === "other_silo" ? null : activation.networkEvidence;
+  if (evidence === null) {
+    return <p className="network-evidence-empty">{silo.networkProfile.mode === "direct"
+      ? "直连策略已配置，尚无出口观察。"
+      : "尚无这次运行的网络阶段证据。"}</p>;
+  }
+  const expired = evidence.expiresAt !== null && formatExpiry(evidence.expiresAt, now) === "最近证据已过期";
+  const scopeNote = {
+    current: "当前运行记录",
+    missing: "尚无证据",
+    other_silo: "非所选 Silo",
+    last_known: "最后已知记录；非当前有效",
+    expired: "证据已过期；非当前有效",
+    runtime_mismatch: "身份与网络证据来自不同 runtime；非当前有效",
+  }[scope];
+  return (
+    <div className="network-evidence-details">
+      <p>
+        {networkProviderLabels[evidence.provider]} · {evidence.endpointLabel ?? "无端点名称"}
+        {` · ${scopeNote}`}
+      </p>
+      <p>来源：{networkProvenanceLabels[evidence.provenance]}；认证来源：{networkProvenanceLabels[evidence.authenticationProvenance]}</p>
+      <p>观察于 <time dateTime={evidence.observedAt}>{formatDate(evidence.observedAt)}</time>；
+        {evidence.expiresAt === null ? "未提供有效期" : expired
+          ? `已过期（${formatDate(evidence.expiresAt)}）`
+          : `有效至 ${formatDate(evidence.expiresAt)}`}</p>
+      <dl>
+        {networkPhases.map(([key, label]) => (
+          <div key={key}><dt>{label}</dt><dd>{networkPhaseLabels[evidence[key]]}</dd></div>
+        ))}
+      </dl>
+    </div>
+  );
+}
 
 function row(
   key: CurrentSessionRow["key"],
@@ -78,11 +161,11 @@ function formatObservedFreshness(observedAt: string, now: number): string {
     return `上次观察于 ${formatDate(observedAt)}`;
   }
   const age = now - observed;
-  if (age >= 0 && age < FRESH_OBSERVATION_WINDOW_MS) {
-    return "刚刚重新读取";
+  if (age >= 0 && age < 60_000) {
+    return "不到 1 分钟前观察";
   }
   if (age >= 0 && age < 3_600_000) {
-    return `${Math.max(1, Math.floor(age / 60_000))} 分钟前读取`;
+    return `${Math.floor(age / 60_000)} 分钟前观察`;
   }
   return `上次观察于 ${formatDate(observedAt)}`;
 }
@@ -102,11 +185,8 @@ function deriveIdentityRow(
   silo: Silo,
   now: number,
 ): CurrentSessionRow {
-  const identity =
-    activation.identityEvidence !== null &&
-    activation.identityEvidence.siloId === silo.id
-      ? activation.identityEvidence
-      : null;
+  const context = identityEvidenceContext(activation, silo);
+  const identity = context.evidence;
   const starting = ["preflight", "launching"].includes(activation.state);
   const running = activation.state === "running";
   if (identity === null) {
@@ -138,35 +218,34 @@ function deriveIdentityRow(
           "unconfirmed",
         );
   }
-  const runtimeMismatch =
-    activation.networkEvidence !== null &&
-    activation.networkEvidence.runtimeId !== identity.runtimeId;
-  if (runtimeMismatch) {
+  if (!context.current) {
     return row(
       "identity",
       "身份",
-      "Stale",
-      "这份证据来自另一次运行，不能代表当前会话；可点「重新检查」。",
+      identity.state === "stale" || activation.networkEvidence?.runtimeId !== identity.runtimeId && activation.networkEvidence !== null
+        ? "Stale" : "归属未确认",
+      context.note ?? "这份观察不能代表当前会话。",
       "warn",
       "unconfirmed",
     );
   }
   switch (identity.state) {
     case "matched":
+      const unavailableCount = identity.signals.filter((signal) => signal.state === "unavailable").length;
       return row(
         "identity",
         "身份",
         "Matched",
-        `网站可见身份与声明一致 · ${formatObservedFreshness(identity.observedAt, now)}`,
+        `Host 判定网站可见身份匹配 · ${formatObservedFreshness(identity.observedAt, now)}${unavailableCount > 0 ? ` · ${unavailableCount} 项字段不可用` : ""}`,
         "good",
-        "ok",
+        unavailableCount > 0 ? "unconfirmed" : "ok",
       );
     case "mismatched":
       return row(
         "identity",
         "身份",
         "Mismatched",
-        identity.reason ?? "当前观测与声明身份不一致；可点「重新检查」。",
+        safeEvidenceReason(identity.reason) ?? "当前观测与声明身份不一致；可点「重新检查」。",
         "warn",
         "attention",
       );
@@ -175,7 +254,7 @@ function deriveIdentityRow(
         "identity",
         "身份",
         "Unavailable",
-        identity.reason ?? "这次无法取得网站可见身份；可点「重新检查」。",
+        safeEvidenceReason(identity.reason) ?? "这次无法取得网站可见身份；可点「重新检查」。",
         "danger",
         "unconfirmed",
       );
@@ -184,7 +263,7 @@ function deriveIdentityRow(
         "identity",
         "身份",
         "Stale",
-        identity.reason ?? "这份证据不再属于当前 Artifact 或活动 runtime。",
+        safeEvidenceReason(identity.reason) ?? "这份证据不再属于当前 Artifact 或活动 runtime。",
         "warn",
         "unconfirmed",
       );
@@ -302,7 +381,7 @@ function deriveEngineRow(
   );
 }
 
-function deriveNetworkRow(
+export function deriveNetworkRow(
   activation: RuntimeActivation,
   silo: Silo,
   now: number,
@@ -311,6 +390,10 @@ function deriveNetworkRow(
   const proxyRequired = silo.networkProfile.proxyRequired;
   const starting = ["preflight", "launching"].includes(activation.state);
   const running = activation.state === "running";
+  const scope = networkEvidenceScope(activation, silo, now);
+  if (scope === "other_silo") {
+    return row("network", "网络", "非当前运行", "这份网络状态不属于所选 Silo。", "neutral", "unconfirmed");
+  }
   if (network === null) {
     if (starting) {
       return row(
@@ -334,30 +417,32 @@ function deriveNetworkRow(
         "unconfirmed",
       );
     }
-    return row(
-      "network",
-      "网络",
-      "直连",
-      "当前策略不要求代理出口。",
-      "neutral",
-      "ok",
-    );
+    return silo.networkProfile.mode === "direct"
+      ? row("network", "网络", "直连已配置", "当前策略为直连；尚无出口观察。", "neutral", "unconfirmed")
+      : row("network", "网络", "代理策略已配置", "当前配置了代理；尚无出口观察。", "neutral", "unconfirmed");
+  }
+  if (scope === "last_known") {
+    return row("network", "网络", "最后已知出口", "这份网络记录来自已结束或尚未完成的运行；非当前有效。", "warn", "unconfirmed");
+  }
+  if (scope === "runtime_mismatch") {
+    return row("network", "网络", "运行归属未确认", "网络与身份观察来自不同运行；非当前有效。", "warn", "unconfirmed");
   }
   const expiry =
     network.expiresAt === null ? null : formatExpiry(network.expiresAt, now);
-  if (expiry === "最近证据已过期") {
+  if (scope === "expired") {
     return row(
       "network",
       "网络",
       "无法确认当前出口",
       proxyRequired
-        ? "当前策略要求代理出口；最近证据已过期，可点「重新检查」。"
-        : "最近证据已过期；可点「重新检查」。",
+        ? "当前策略要求代理出口；最近证据已过期，非当前有效，可点「重新检查」。"
+        : "最近证据已过期，非当前有效；可点「重新检查」。",
       "warn",
       proxyRequired ? "attention" : "unconfirmed",
     );
   }
-  if (network.exit === "failed" || network.exit === "unavailable") {
+  if ([network.configuration, network.endpoint, network.browserRouting,
+    network.exit].some((phase) => phase === "failed" || phase === "unavailable")) {
     return row(
       "network",
       "网络",
@@ -369,13 +454,16 @@ function deriveNetworkRow(
   }
   if (network.exit === "observed" || network.exit === "verified") {
     const endpoint = network.endpointLabel ?? networkProviderLabels[network.provider];
+    const unavailable = networkPhases
+      .filter(([key]) => evidencePhaseUnconfirmed(network[key]))
+      .map(([, label]) => label);
     return row(
       "network",
       "网络",
-      proxyRequired ? "代理出口已观测" : "直连已观测",
-      `${endpoint} · ${expiry ?? formatObservedFreshness(network.observedAt, now)} · 出口观察由${networkProvenanceLabels[network.provenance]}提供`,
+      network.provider === "direct" ? "直连已观测" : "代理出口已观测",
+      `${endpoint} · ${expiry ?? formatObservedFreshness(network.observedAt, now)} · 出口观察由${networkProvenanceLabels[network.provenance]}提供${unavailable.length ? ` · ${unavailable.join("、")}尚未确认` : ""}`,
       "good",
-      "ok",
+      unavailable.length ? "unconfirmed" : "ok",
     );
   }
   return row(
@@ -388,45 +476,41 @@ function deriveNetworkRow(
   );
 }
 
+function evidencePhaseUnconfirmed(state: RuntimeNetworkEvidence["exit"]): boolean {
+  return state === "unavailable" || state === "not_requested";
+}
+
 function deriveAttributionRow(
   activation: RuntimeActivation,
   silo: Silo,
 ): CurrentSessionRow {
-  const identity =
-    activation.identityEvidence !== null &&
-    activation.identityEvidence.siloId === silo.id
-      ? activation.identityEvidence
-      : null;
-  const network = activation.networkEvidence;
-  if (identity === null && network === null) {
+  const identity = identityEvidenceContext(activation, silo);
+  const network = activation.activeSiloId === silo.id ? activation.networkEvidence : null;
+  if (identity.evidence === null || network === null) {
     return row(
       "attribution",
       "运行归属",
-      "启动后确认",
-      "打开后这里会确认证据属于当前运行。",
+      "尚未确认",
+      "Profile 配置属于此 Silo；当前缺少身份与网络的共同 runtime 关联。",
       "neutral",
       "unconfirmed",
     );
   }
-  const runtimeMismatch =
-    identity !== null &&
-    network !== null &&
-    network.runtimeId !== identity.runtimeId;
-  if (runtimeMismatch) {
+  if (!identity.current) {
     return row(
       "attribution",
       "运行归属",
-      "证据不属于当前运行",
-      "这份证据来自另一次运行；不能代表当前会话。",
+      network.runtimeId === identity.evidence.runtimeId ? "归属未确认" : "证据不属于当前运行",
+      identity.note ?? "这份证据不能代表当前会话。",
       "warn",
-      "attention",
+      network.runtimeId === identity.evidence.runtimeId ? "unconfirmed" : "attention",
     );
   }
   return row(
     "attribution",
     "运行归属",
     "当前 Silo · 本次运行",
-    "证据与当前运行的 Silo 绑定一致。",
+    "身份与网络证据的 runtime 关联一致；Profile 仅确认配置归属。",
     "good",
     "ok",
   );
@@ -502,10 +586,14 @@ export function deriveCurrentSessionSummary(input: {
 export function CurrentSessionIntegrity({
   activation,
   managedEngineReady,
+  onInspectIdentity,
+  onInspectNetwork,
   silo,
 }: {
   activation: RuntimeActivation;
   managedEngineReady: boolean;
+  onInspectIdentity?: (trigger: HTMLButtonElement) => void;
+  onInspectNetwork?: (trigger: HTMLButtonElement) => void;
   silo: Silo;
 }) {
   const summary = deriveCurrentSessionSummary({
@@ -528,9 +616,23 @@ export function CurrentSessionIntegrity({
               {entry.stateLabel}
             </strong>
             <small>{entry.detail}</small>
+            {entry.key === "identity" && onInspectIdentity ? (
+              <button type="button" className="current-session-inspect" onClick={(event) => onInspectIdentity(event.currentTarget)}>
+                查看身份字段
+              </button>
+            ) : null}
+            {entry.key === "network" && onInspectNetwork ? (
+              <button type="button" className="current-session-inspect" onClick={(event) => onInspectNetwork(event.currentTarget)}>
+                查看网络证据
+              </button>
+            ) : null}
           </div>
         ))}
       </dl>
+      <details className="current-session-network-details">
+        <summary>网络阶段与来源</summary>
+        <NetworkEvidenceDetails activation={activation} silo={silo} />
+      </details>
     </section>
   );
 }

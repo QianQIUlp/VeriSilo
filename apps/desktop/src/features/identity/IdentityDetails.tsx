@@ -10,6 +10,15 @@ import { type Silo } from "@verisilo/contracts";
 import { useState } from "react";
 
 import { formatDate } from "../../shared/presentation.js";
+import {
+  IdentityEvidenceSignals,
+  identityEvidenceContext,
+  identityEvidenceLabels,
+  safeEvidenceReason,
+} from "./evidence-diagnostics.js";
+import { deriveNetworkRow, NetworkEvidenceDetails } from "./CurrentSessionIntegrity.js";
+
+export { identityEvidenceLabels } from "./evidence-diagnostics.js";
 
 type ManagedUiState =
   | "configured"
@@ -39,12 +48,14 @@ export function ManagedStatusGroups({
   engineHealthy,
   runtimeState,
   silo,
+  now = Date.now(),
 }: {
   activation: DesktopStatus["activation"];
   evidence: SiloNetworkEvidence[];
   engineHealthy: boolean;
   runtimeState: DesktopStatus["activation"]["state"];
   silo: Silo;
+  now?: number;
 }) {
   const runtimeApplied = ["preflight", "launching", "running"].includes(
     runtimeState,
@@ -52,7 +63,6 @@ export function ManagedStatusGroups({
   const latestEvidence = evidence.some((entry) => entry.siloId === silo.id);
   const activeEvidence = activation.activeSiloId === silo.id;
   const engineEvidence = activeEvidence ? activation.engineEvidence : null;
-  const networkEvidence = activeEvidence ? activation.networkEvidence : null;
   const artifactConfigured =
     silo.engine.adapter === "camoufox" &&
     silo.engine.artifactBinding !== undefined;
@@ -62,24 +72,10 @@ export function ManagedStatusGroups({
   const packageVerified =
     engineEvidence?.packageVerification === "verified" &&
     engineEvidence.packageVerificationDetails !== null;
-  const networkState: ManagedUiState =
-    networkEvidence === null
-      ? "configured"
-      : networkEvidence.exit === "observed"
-        ? "observed"
-        : networkEvidence.browserRouting === "applied"
-          ? "applied"
-          : networkEvidence.endpoint === "reachable"
-            ? "reachable"
-            : [
-                  networkEvidence.configuration,
-                  networkEvidence.endpoint,
-                  networkEvidence.browserRouting,
-                ].some((state) => state === "failed" || state === "unavailable")
-              ? "unavailable"
-              : "configured";
+  const currentIdentity = identityEvidenceContext(activation, silo);
+  const networkRow = deriveNetworkRow(activation, silo, now);
   const packageDetails = engineEvidence?.packageVerificationDetails;
-  const states: Array<[string, ManagedUiState, string]> = [
+  const states: Array<[string, ManagedUiState | "network", string]> = [
     [
       "数据文件夹",
       hostBindingVerified ? "applied" : "configured",
@@ -87,14 +83,13 @@ export function ManagedStatusGroups({
     ],
     [
       "身份",
-      artifactConfigured
-        ? hostBindingVerified
-          ? "applied"
-          : "configured"
-        : "unavailable",
-      artifactConfigured
-        ? "对外身份已经绑在这个 Silo 上。"
-        : "还没有可用的对外身份。",
+      !artifactConfigured ? "unavailable"
+        : currentIdentity.current && currentIdentity.evidence?.state === "matched" ? "observed"
+        : hostBindingVerified ? "applied" : "configured",
+      !artifactConfigured ? "还没有可用的对外身份。"
+        : currentIdentity.current && currentIdentity.evidence?.state === "matched"
+          ? "Host 已观察到当前 Artifact 的网站可见身份匹配。"
+          : "当前 Artifact 已配置；逐字段结果见身份详情。",
     ],
     [
       "内置浏览器",
@@ -113,27 +108,21 @@ export function ManagedStatusGroups({
     ],
     [
       "网络",
-      networkState,
-      silo.networkProfile.proxyRequired
-        ? "必须走代理；连不上不会改成直连。"
-        : "现在是直连。",
+      "network",
+      networkRow.detail,
     ],
     [
       "检查记录",
-      hostBindingVerified && packageVerified
-        ? "verified"
-        : latestEvidence
+      currentIdentity.current || latestEvidence
           ? "observed"
           : "not_requested",
-      hostBindingVerified && packageVerified
-        ? "这次打开用的身份、浏览器和网络是对得上的。"
-        : latestEvidence
-          ? "你做过出口检查。"
-          : "还没有检查记录。",
+      currentIdentity.current
+        ? "当前身份有逐字段观察；网络和引擎各有独立证据。"
+        : latestEvidence ? "你做过出口检查。" : "还没有检查记录。",
     ],
   ];
   return (
-    <details className="managed-status-groups">
+    <details className="managed-status-groups" open>
       <summary>技术细节</summary>
       <div className="managed-status-heading">
         <strong>当前绑定</strong>
@@ -143,12 +132,16 @@ export function ManagedStatusGroups({
         {states.map(([name, state, detail]) => (
           <div key={name}>
             <span>{name}</span>
-            <strong className={`managed-state ${state}`}>
-              {managedUiStateLabel(state)}
+            <strong className={`managed-state ${state === "network" ? networkRow.tone : state}`}>
+              {state === "network" ? networkRow.stateLabel : managedUiStateLabel(state)}
             </strong>
             <small>{detail}</small>
           </div>
         ))}
+      </div>
+      <div className="managed-network-details">
+        <strong>逐阶段网络证据</strong>
+        <NetworkEvidenceDetails activation={activation} silo={silo} now={now} />
       </div>
     </details>
   );
@@ -156,25 +149,21 @@ export function ManagedStatusGroups({
 
 export function IdentityInspectPanel({
   activeSiloId,
-  identityPreviews,
-  observation,
+  activation,
   silos,
 }: {
   activeSiloId: string | null;
-  identityPreviews: Record<string, ManagedIdentityPreview>;
-  observation: WebsiteIdentityObservation | null | undefined;
+  activation?: DesktopStatus["activation"];
+  identityPreviews?: Record<string, ManagedIdentityPreview>;
+  observation?: WebsiteIdentityObservation | null;
   silos: Silo[];
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const silo =
     silos.find((candidate) => candidate.id === selectedId) ??
     silos.find((candidate) => candidate.id === activeSiloId) ??
-    silos.find((candidate) => candidate.id === observation?.siloId) ??
     silos.find((candidate) => candidate.engine.adapter === "camoufox") ??
     silos[0];
-  const preview = silo === undefined ? undefined : identityPreviews[silo.id];
-  const pageRead =
-    silo !== undefined && observation?.siloId === silo.id ? observation : null;
 
   if (silo === undefined) {
     return (
@@ -184,7 +173,7 @@ export function IdentityInspectPanel({
             <p className="eyebrow">检查身份</p>
             <h2>网站会读到什么</h2>
             <p>
-              先创建一个独立浏览器，打开一次后，这里会对照写入的值和页面读到的值。
+              先创建一个独立浏览器，运行后这里会展示 Host 的网站可见身份观察。
             </p>
           </div>
         </div>
@@ -192,84 +181,8 @@ export function IdentityInspectPanel({
     );
   }
 
-  const writtenGpu =
-    preview === undefined
-      ? "—"
-      : `${preview.webglVendor} · ${preview.webglRenderer}`;
-  const readGpu =
-    pageRead === null
-      ? "打开后才会出现"
-      : pageRead.webglVendor === "未读到" && pageRead.webglRenderer === "未读到"
-        ? "这次没读到"
-        : `${pageRead.webglVendor} · ${pageRead.webglRenderer}`;
-  const rows: Array<{
-    label: string;
-    written: string;
-    read: string;
-    pending?: boolean;
-    compare?: boolean;
-  }> = [
-    {
-      label: "浏览器标识",
-      written: preview?.userAgent ?? "—",
-      read: pageRead?.userAgent ?? "打开后才会出现",
-      pending: pageRead === null,
-    },
-    {
-      label: "语言",
-      written: preview?.language ?? "—",
-      read: pageRead?.language ?? "打开后才会出现",
-      pending: pageRead === null,
-    },
-    {
-      label: "系统平台",
-      written: preview?.platform ?? "—",
-      read: pageRead?.platform ?? "打开后才会出现",
-      pending: pageRead === null,
-    },
-    {
-      label: "时区",
-      written: preview?.timezone ?? "—",
-      read: pageRead?.timezone ?? "打开后才会出现",
-      pending: pageRead === null,
-    },
-    {
-      label: "屏幕",
-      written:
-        preview === undefined
-          ? "—"
-          : `${preview.screenWidth}×${preview.screenHeight}`,
-      read:
-        pageRead === null
-          ? "打开后才会出现"
-          : `${pageRead.screenWidth}×${pageRead.screenHeight}`,
-      pending: pageRead === null,
-    },
-    {
-      label: "CPU",
-      written:
-        preview === undefined ? "—" : `${preview.hardwareConcurrency} 核`,
-      read:
-        pageRead === null
-          ? "打开后才会出现"
-          : `${pageRead.hardwareConcurrency} 核`,
-      pending: pageRead === null,
-    },
-    {
-      label: "显卡",
-      written: writtenGpu,
-      read: readGpu,
-      pending: pageRead === null,
-    },
-  ];
-  if (pageRead?.webdriver !== null && pageRead?.webdriver !== undefined) {
-    rows.push({
-      label: "自动化标记",
-      written: "—",
-      read: pageRead.webdriver ? "有" : "没有",
-      compare: false,
-    });
-  }
+  const context = activation === undefined ? null : identityEvidenceContext(activation, silo);
+  const evidence = context?.evidence ?? null;
 
   return (
     <section className="panel identity-inspect-panel">
@@ -278,7 +191,7 @@ export function IdentityInspectPanel({
           <p className="eyebrow">检查身份</p>
           <h2>网站会读到什么</h2>
           <p>
-            左边是写入这套浏览器的值。右边是这次打开时，页面脚本实际读到的值。这不是网上那些指纹检测页的打分。
+            期望值与观察值来自正式运行证据；差异判断由 Host 给出，不是网站风控评分。
           </p>
         </div>
         {silos.length > 1 ? (
@@ -299,62 +212,26 @@ export function IdentityInspectPanel({
       </div>
       {silo.engine.adapter === "stock" ? (
         <p className="identity-inspect-note">
-          系统浏览器跟这台电脑长得一样，没有另一套可以对照的身份。
+          Standard Silo 独立保存网站数据；设备身份跟随本机，没有独立身份 Artifact。
+        </p>
+      ) : evidence === null ? (
+        <p className="identity-inspect-note">
+          这处还没有正式运行身份观察；运行后可查看 Host 的逐字段结果。
         </p>
       ) : (
-        <div className="identity-inspect-table">
-          <div className="identity-inspect-head">
-            <span>项目</span>
-            <span>写入的</span>
-            <span>页面读到的</span>
-          </div>
-          <dl>
-            {rows.map((row) => {
-              const tone =
-                row.pending || row.compare === false
-                  ? "pending"
-                  : inspectValuesMatch(row.written, row.read)
-                    ? "match"
-                    : "differ";
-              return (
-                <div className={`identity-inspect-row ${tone}`} key={row.label}>
-                  <dt>{row.label}</dt>
-                  <dd
-                    className={
-                      row.label === "浏览器标识" ? "identity-ua" : undefined
-                    }
-                  >
-                    {row.written}
-                  </dd>
-                  <dd
-                    className={
-                      row.label === "浏览器标识" ? "identity-ua" : undefined
-                    }
-                  >
-                    {row.read}
-                  </dd>
-                </div>
-              );
-            })}
-          </dl>
+        <div>
+          <p className="identity-inspect-note">
+            身份 {identityEvidenceLabels[evidence.state][0]} · {identityEvidenceLabels[evidence.state][1]}
+            {" · "}{context?.scopeLabel}
+            {" · 观察于 "}<time dateTime={evidence.observedAt}>{formatDate(evidence.observedAt)}</time>
+          </p>
+          {context?.note ? <p className="identity-evidence-context">{context.note}</p> : null}
+          {safeEvidenceReason(evidence.reason) ? (
+            <p className="identity-inspect-note">{safeEvidenceReason(evidence.reason)}</p>
+          ) : null}
+          <IdentityEvidenceSignals signals={evidence.signals} />
         </div>
       )}
-      {pageRead === null && silo.engine.adapter === "camoufox" ? (
-        <p className="identity-inspect-note">
-          还没有页面读到的结果。打开这个独立浏览器一次后，这里会出现对照。
-        </p>
-      ) : null}
-      {pageRead !== null &&
-      rows.some(
-        (row) =>
-          row.compare !== false &&
-          !row.pending &&
-          !inspectValuesMatch(row.written, row.read),
-      ) ? (
-        <p className="identity-inspect-note">
-          有几项对不上。这只说明写入的值和这次页面读到的值不同，不等于被网站识破。
-        </p>
-      ) : null}
     </section>
   );
 }
@@ -398,82 +275,6 @@ export function ManagedIdentityFacts({
   );
 }
 
-export const identityEvidenceLabels = {
-  matched: ["Matched", "已匹配"],
-  mismatched: ["Mismatch", "不匹配"],
-  unavailable: ["Unavailable", "不可用"],
-  stale: ["Stale", "已过期"],
-} as const;
-
-const FRESH_OBSERVATION_WINDOW_MS = 120_000;
-
-function isFreshObservation(observedAt: string): boolean {
-  const observed = new Date(observedAt).getTime();
-  return (
-    Number.isFinite(observed) &&
-    observed > 0 &&
-    Date.now() - observed < FRESH_OBSERVATION_WINDOW_MS
-  );
-}
-
-const identitySignalLabels: Record<string, string> = {
-  userAgent: "浏览器标识",
-  language: "语言",
-  platform: "系统平台",
-  oscpu: "系统信息",
-  screen: "屏幕",
-  devicePixelRatio: "像素比例",
-  hardwareConcurrency: "硬件线程",
-  historyLength: "历史记录",
-  timezone: "时区",
-  utcOffsetMinutes: "UTC 偏移",
-  globalPrivacyControl: "GPC",
-  doNotTrack: "DNT",
-  mediaDevices: "媒体设备",
-  webglVendor: "WebGL 厂商",
-  webglRenderer: "WebGL 渲染器",
-  voices: "语音",
-  fonts: "字体",
-};
-
-function identityEvidenceValue(signal: string, value: unknown): string {
-  if (value === null || value === undefined) {
-    return "—";
-  }
-  if (signal === "screen" && typeof value === "object" && value !== null) {
-    const screen = value as { width?: unknown; height?: unknown };
-    if (typeof screen.width === "number" && typeof screen.height === "number") {
-      return `${screen.width}×${screen.height}`;
-    }
-  }
-  if (
-    signal === "mediaDevices" &&
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value)
-  ) {
-    const counts = value as Record<string, unknown>;
-    return `麦克风 ${String(counts.audioinput ?? 0)} · 摄像头 ${String(counts.videoinput ?? 0)} · 输出 ${String(counts.audiooutput ?? 0)}`;
-  }
-  if (signal === "voices" && Array.isArray(value)) {
-    return `${value.length} 项`;
-  }
-  if (signal === "utcOffsetMinutes" && typeof value === "number") {
-    return `UTC${value >= 0 ? "+" : ""}${value / 60}`;
-  }
-  if (signal === "hardwareConcurrency" && typeof value === "number") {
-    return `${value} 线程`;
-  }
-  if (typeof value === "boolean") {
-    return value ? "开启" : "关闭";
-  }
-  if (typeof value === "object") {
-    return "已取得";
-  }
-  const text = String(value);
-  return text.length > 120 ? `${text.slice(0, 117)}…` : text;
-}
-
 export function ManagedIdentityEvidence({
   activation,
   silo,
@@ -481,20 +282,15 @@ export function ManagedIdentityEvidence({
   activation: DesktopStatus["activation"];
   silo: Silo;
 }) {
-  const evidence =
-    activation.identityEvidence?.siloId === silo.id
-      ? activation.identityEvidence
-      : null;
+  const context = identityEvidenceContext(activation, silo);
+  const evidence = context.evidence;
   const state = evidence?.state ?? "unavailable";
   const [stateLabel, stateDescription] = identityEvidenceLabels[state];
   const reason =
-    evidence?.reason ??
+    safeEvidenceReason(evidence?.reason) ??
     (evidence === null
       ? "启动这个 Managed Identity Silo 后，Host 才会取得网站观察。"
       : null);
-  const signals = evidence?.state === "stale" ? [] : (evidence?.signals ?? []);
-  const freshlyReobserved =
-    evidence !== null && isFreshObservation(evidence.observedAt);
 
   return (
     <section className={`identity-evidence ${state}`}>
@@ -511,11 +307,11 @@ export function ManagedIdentityEvidence({
             </span>
             Identity {stateLabel}
           </strong>
-          <span>{stateDescription}</span>
+          <span>{stateDescription}{evidence !== null ? ` · ${context.scopeLabel}` : ""}</span>
         </div>
         {evidence !== null ? (
           <small>
-            {freshlyReobserved ? "身份已重新读取 · " : "Observed "}
+            观察于{" "}
             <time dateTime={evidence.observedAt} title={evidence.observedAt}>
               {formatDate(evidence.observedAt)}
             </time>{" "}
@@ -523,71 +319,11 @@ export function ManagedIdentityEvidence({
           </small>
         ) : null}
       </div>
-      {signals.length > 0 ? (
-        <div className="evidence-signal-strip">
-          {signals.map((signal) => (
-            <span
-              key={signal.signal}
-              className={signal.state}
-              title={identityEvidenceLabels[signal.state][1]}
-            >
-              <b aria-hidden="true">
-                {
-                  {
-                    matched: "≍",
-                    mismatched: "≠",
-                    unavailable: "∅",
-                    stale: "◷",
-                  }[signal.state]
-                }
-              </b>
-              {identitySignalLabels[signal.signal] ?? signal.signal}
-              <span className="sr-only">
-                {identityEvidenceLabels[signal.state][1]}
-              </span>
-            </span>
-          ))}
-        </div>
-      ) : null}
+      {context.note ? <p className="identity-evidence-context">{context.note}</p> : null}
       {reason !== null ? (
         <p className="identity-evidence-reason">{reason}</p>
       ) : null}
-      {signals.length > 0 ? (
-        <details className="identity-evidence-details">
-          <summary>查看网站可见字段</summary>
-          <dl className="identity-evidence-table">
-            {signals.map((signal) => {
-              const label =
-                identitySignalLabels[signal.signal] ?? signal.signal;
-              return (
-                <div
-                  className={`identity-evidence-row ${signal.state}`}
-                  key={signal.signal}
-                >
-                  <dt>{label}</dt>
-                  <dd>
-                    <span>
-                      {identityEvidenceValue(signal.signal, signal.expected)}
-                    </span>
-                    <small>期望</small>
-                  </dd>
-                  <dd>
-                    <span>
-                      {identityEvidenceValue(signal.signal, signal.observed)}
-                    </span>
-                    <small>观察</small>
-                  </dd>
-                  {signal.reason ? <p>{signal.reason}</p> : null}
-                </div>
-              );
-            })}
-          </dl>
-        </details>
-      ) : null}
+      {evidence !== null ? <IdentityEvidenceSignals signals={evidence.signals} /> : null}
     </section>
   );
-}
-
-function inspectValuesMatch(written: string, read: string): boolean {
-  return written.trim().toLowerCase() === read.trim().toLowerCase();
 }

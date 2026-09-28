@@ -1,0 +1,32 @@
+.identity-evidence-signals { display: grid; gap: 0.55rem; min-width: 0; }
+.identity-evidence-signals .identity-evidence-table { margin: 0; }
+.identity-evidence-signals .identity-evidence-row { align-items: start; }
+.identity-evidence-signals .identity-evidence-row dt small { display: block; margin-top: 0.2rem; }
+.identity-evidence-signals .identity-evidence-row pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.identity-evidence-value summary { cursor: pointer; overflow-wrap: anywhere; }
+.identity-evidence-value summary:focus-visible { outline: 2px solid var(--primary-dark); outline-offset: 2px; }
+.identity-evidence-value pre { margin-top: 0.35rem !important; }
+.identity-evidence-signals .identity-evidence-row p { grid-column: 1 / -1; }
+.identity-evidence-signals .identity-evidence-details { border-top: 0; padding-top: 0; }
+.identity-evidence-context { margin: 0.4rem 0; color: var(--warn); font-size: 0.75rem; }
+.identity-inspect-panel .identity-evidence-signals { margin-top: 0.75rem; }
+.current-session-inspect { justify-self: start; border: 0; padding: 0.2rem 0; background: transparent; color: var(--primary-dark); font: inherit; font-size: 0.72rem; font-weight: 700; cursor: pointer; text-decoration: underline; }
+.current-session-inspect:focus-visible, .current-session-network-details summary:focus-visible { outline: 2px solid var(--primary-dark); outline-offset: 2px; }
+.current-session-network-details summary { cursor: pointer; color: var(--primary-dark); font-size: 0.72rem; font-weight: 700; }
+.network-evidence-details { margin-top: 0.7rem; color: var(--ink); font-size: 0.72rem; line-height: 1.5; }
+.network-evidence-details p { margin: 0.3rem 0; overflow-wrap: anywhere; }
+.network-evidence-details dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem; }
+.network-evidence-details dl div { display: flex; justify-content: space-between; gap: 0.5rem; border-top: 1px solid var(--line); padding-top: 0.3rem; }
+.network-evidence-details dt, .network-evidence-details dd { margin: 0; }
+.network-evidence-details dt, .network-evidence-empty { color: var(--muted); }
+.managed-status-grid .managed-state.good { color: var(--good); }
+.managed-status-grid .managed-state.warn { color: var(--warn); }
+.managed-status-grid .managed-state.danger { color: var(--danger); }
+.managed-network-details { margin-top: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.75rem; }
+.managed-network-details > strong { font-size: 0.75rem; color: var(--ink); }
+@media (max-width: 600px) { .network-evidence-details dl { grid-template-columns: 1fr; } }

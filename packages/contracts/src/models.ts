@@ -4,6 +4,7 @@ import {
   engineAdapterIdSchema,
   engineCapabilityEvidenceSchema,
   engineCapabilityStateSchema,
+  camoufoxArtifactBindingV1Schema,
   siloEngineConfigSchema,
 } from "./engine";
 
@@ -631,6 +632,81 @@ export const runtimeActivationSchema = z
   })
   .strict();
 export type RuntimeActivation = z.infer<typeof runtimeActivationSchema>;
+
+/** One last-known local run per Silo. These snapshots are historical and never
+ * participate in current runtime guards or promote an observation to verified. */
+export const recentRunRecordSchema = z
+  .object({
+    siloId: z.string().uuid(),
+    runId: z.string().uuid(),
+    runtimeId: z.string().uuid().nullable(),
+    startedAt: z.string().datetime().nullable(),
+    updatedAt: z.string().datetime(),
+    endedAt: z.string().datetime().nullable(),
+    profileSiloId: z.string().uuid(),
+    artifactBinding: camoufoxArtifactBindingV1Schema.nullable(),
+    engineAdapter: engineAdapterIdSchema,
+    networkPolicy: z
+      .object({
+        mode: z.enum(["direct", "fixed_proxy", "pac"]),
+        proxyRequired: z.boolean(),
+        endpointLabel: z.string().max(512).nullable(),
+        externalMihomo: z.boolean(),
+      })
+      .strict(),
+    state: runtimeStateSchema,
+    reason: z.string().max(512).nullable(),
+    identityEvidence: runtimeIdentityEvidenceSchema.nullable(),
+    engineEvidence: runtimeEngineEvidenceSchema.nullable(),
+    networkEvidence: runtimeNetworkEvidenceSchema.nullable(),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    if (record.profileSiloId !== record.siloId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["profileSiloId"],
+        message: "The configured Profile must belong to the recorded Silo.",
+      });
+    }
+    if (
+      record.networkEvidence !== null &&
+      record.networkEvidence.runtimeId !== record.runtimeId
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["networkEvidence"],
+        message: "Network evidence must belong to the recorded runtime.",
+      });
+    }
+    if (
+      record.identityEvidence !== null &&
+      (record.identityEvidence.siloId !== record.siloId ||
+        record.identityEvidence.runtimeId !== record.runtimeId ||
+        record.identityEvidence.engineAdapter !== record.engineAdapter ||
+        record.artifactBinding === null ||
+        record.identityEvidence.artifactId !== record.artifactBinding.artifactId ||
+        record.identityEvidence.artifactFileSha256 !==
+          record.artifactBinding.artifactFileSha256)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["identityEvidence"],
+        message: "Identity evidence must match this run's Silo, runtime, and Artifact binding.",
+      });
+    }
+    if (
+      record.engineEvidence !== null &&
+      record.engineEvidence.configuredAdapter !== record.engineAdapter
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["engineEvidence"],
+        message: "Engine evidence must belong to the declared adapter.",
+      });
+    }
+  });
+export type RecentRunRecord = z.infer<typeof recentRunRecordSchema>;
 
 export const vaultStateSchema = z
   .object({

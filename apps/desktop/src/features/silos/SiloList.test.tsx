@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { type ComponentProps, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ManagedIdentityPreview } from "../../desktop-api.js";
@@ -342,5 +342,48 @@ describe("Silo list presentation", () => {
       }),
     );
     expect(rendered).toContain("创建新身份");
+  });
+});
+
+
+describe("recent-run integration", () => {
+  const noAction = async () => {};
+  const scene: ComponentProps<typeof SiloScene> = {
+    silo: previewSilo, index: 0, selected: true, isActive: false,
+    isLaunching: false, runningSiloName: null,
+    runtimeActivation: previewStatus().activation, runtimeState: "idle",
+    busy: false, managedEngineReady: true, networkEvidence: [],
+    identityPreview: undefined, storageBytes: undefined, lens: "session",
+    openLens: noAction, closeLens: noAction, choose: noAction,
+    onArchive: noAction, onEdit: noAction, onLaunch: noAction,
+    onRebindMihomo: noAction, onRecheckBrowser: noAction,
+    onRecheckRuntime: noAction, onStop: noAction,
+  };
+  it("does not turn a history read failure into no previous run", () => {
+    const markup = renderToStaticMarkup(createElement(SiloScene, {
+      ...scene, recentRunsError: "读取失败",
+    }));
+    expect(markup).toContain("记录不可用");
+    expect(markup).toContain("最近运行记录暂不可用");
+    expect(markup).not.toContain("尚无保存的本机运行记录");
+  });
+  it("labels saved runs as historical and does not offer them as current", () => {
+    const markup = renderToStaticMarkup(createElement(SiloScene, {
+      ...scene,
+      recentRun: {
+        siloId: previewSilo.id, runId: "old-run", runtimeId: null,
+        startedAt: null, updatedAt: "2026-09-28T00:00:00Z", endedAt: null,
+        profileSiloId: previewSilo.id, artifactBinding: null,
+        engineAdapter: "stock-edge",
+        networkPolicy: { mode: "direct", proxyRequired: false, endpointLabel: null, externalMihomo: false },
+        state: "stopped", reason: null, identityEvidence: null,
+        engineEvidence: null, networkEvidence: null,
+      },
+    }));
+    expect(markup).toContain("已有记录");
+    expect(markup).toContain("历史快照");
+    expect(markup).toContain("这个身份当前未运行");
+    expect(markup).not.toContain("浏览器尚未运行");
+    expect(markup).not.toContain("当前会话完整性");
   });
 });

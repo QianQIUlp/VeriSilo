@@ -881,3 +881,157 @@ fn provider_reservation_blocks_launch_update_archive_and_delete_until_completion
             .expect("lifecycle operation proceeds after provider completion"),
     );
 }
+
+fn recent_run_test_silo(core: &super::DesktopCore, name: &str) -> Silo {
+    let browser = core.root.join("chrome.exe");
+    fs::write(&browser, []).unwrap();
+    fs::write(
+        browser.with_extension("version-output"),
+        "Google Chrome 126.0.6478.127\n",
+    )
+    .unwrap();
+    core.vault
+        .lock()
+        .unwrap()
+        .create_silo(
+            &core.root,
+            CreateSiloInput {
+                name: name.to_owned(),
+                color: "#5b5ce2".to_owned(),
+                browser_kind: BrowserKind::Chrome,
+                executable_path: browser.to_string_lossy().into_owned(),
+                execution_target: SiloExecutionTarget::Local,
+                network_profile: NetworkProfile::Direct {
+                    proxy_required: false,
+                },
+                engine: Default::default(),
+                proxy_credentials: None,
+                mihomo_controller_secret: None,
+            },
+        )
+        .unwrap()
+}
+
+#[test]
+fn recent_run_failed_launches_stay_per_silo_after_desktop_reopen() {
+    use super::{
+        initialize_vault_with, launch_silo_with, list_recent_runs, unlock_vault_with, DesktopCore,
+    };
+    use crate::domain::RuntimeState;
+    let root = temporary_root("recent-run-failed-launch");
+    fs::create_dir_all(&root).unwrap();
+    let passphrase = "recent run reopen passphrase";
+    let records = {
+        let core = DesktopCore::open(root.clone(), root.join("resources"));
+        initialize_vault_with(&core, passphrase).unwrap();
+        let a = recent_run_test_silo(&core, "A");
+        let b = recent_run_test_silo(&core, "B");
+        fs::remove_file(root.join("chrome.exe")).unwrap();
+        for silo in [&a, &b] {
+            assert!(launch_silo_with(&core, silo.id).is_err());
+            let record = core
+                .vault
+                .lock()
+                .unwrap()
+                .get_recent_run(silo.id)
+                .unwrap()
+                .unwrap();
+            assert!(matches!(
+                record.state,
+                RuntimeState::Failed | RuntimeState::VerificationFailed
+            ));
+            assert!(record.ended_at.is_some());
+            assert!(record.identity_evidence.is_none());
+            assert!(record.network_evidence.is_none());
+        }
+        let records = list_recent_runs(&core).unwrap();
+        assert_eq!(records.len(), 2);
+        assert_ne!(records[0].run_id, records[1].run_id);
+        records
+    };
+    let reopened = DesktopCore::open(root.clone(), root.join("resources"));
+    assert!(list_recent_runs(&reopened).is_err());
+    unlock_vault_with(&reopened, passphrase).unwrap();
+    let restored = list_recent_runs(&reopened).unwrap();
+    assert_eq!(
+        serde_json::to_value(restored).unwrap(),
+        serde_json::to_value(records).unwrap()
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn recent_run_status_reconciles_stop_and_reports_save_failure_without_hiding_runtime() {
+    use super::{desktop_status_with, initialize_vault_with, unlock_vault_with, DesktopCore};
+    use crate::domain::{RuntimeActivation, RuntimeNetworkEvidence, RuntimeState};
+    let root = temporary_root("recent-run-status");
+    fs::create_dir_all(&root).unwrap();
+    let passphrase = "recent run status passphrase";
+    let silo_id = {
+        let core = DesktopCore::open(root.clone(), root.join("resources"));
+        initialize_vault_with(&core, passphrase).unwrap();
+        let silo = recent_run_test_silo(&core, "stopped Silo");
+        let mut vault = core.vault.lock().unwrap();
+        vault.begin_recent_run(&root, &silo).unwrap();
+        vault
+            .update_recent_run(
+                &root,
+                silo.id,
+                &RuntimeActivation {
+                    active_silo_id: Some(silo.id),
+                    state: RuntimeState::Running,
+                    network_evidence: Some(RuntimeNetworkEvidence::configured(
+                        &silo.network_profile,
+                        false,
+                    )),
+                    ..RuntimeActivation::idle()
+                },
+            )
+            .unwrap();
+        silo.id
+    };
+    fs::create_dir_all(root.join("runtime")).unwrap();
+    fs::write(
+        root.join("runtime/browser-session.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "siloId": silo_id, "pid": 424242, "startedAt": Utc::now(),
+            "lastSeenAt": Utc::now(), "state": "stopped"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let core = DesktopCore::open(root.clone(), root.join("resources"));
+    unlock_vault_with(&core, passphrase).unwrap();
+    // Block only the snapshot's durable write in this disposable fixture.
+    fs::rename(root.join("vault.json"), root.join("vault.saved")).unwrap();
+    fs::create_dir(root.join("vault.json")).unwrap();
+    let status = desktop_status_with(&core).unwrap();
+    assert_eq!(status.activation.state, RuntimeState::Stopped);
+    assert_eq!(status.recent_runs_warning, Some("save_failed"));
+    assert_eq!(
+        core.vault
+            .lock()
+            .unwrap()
+            .get_recent_run(silo_id)
+            .unwrap()
+            .unwrap()
+            .state,
+        RuntimeState::Running
+    );
+    fs::remove_dir(root.join("vault.json")).unwrap();
+    fs::rename(root.join("vault.saved"), root.join("vault.json")).unwrap();
+    let status = desktop_status_with(&core).unwrap();
+    assert!(status.recent_runs_warning.is_none());
+    let record = core
+        .vault
+        .lock()
+        .unwrap()
+        .get_recent_run(silo_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.state, RuntimeState::Stopped);
+    assert!(record.ended_at.is_some());
+    drop(core);
+    fs::remove_dir_all(root).unwrap();
+}

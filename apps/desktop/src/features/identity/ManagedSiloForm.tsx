@@ -134,6 +134,7 @@ export function ManagedSiloForm({
   const formRef = useRef<HTMLFormElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const hasProxy = networkMode !== "direct";
+  const followsExit = hasProxy && followNetworkExit;
   const screenChoiceOptions: readonly (readonly [number, number])[] =
     managedScreenChoices.some(
       ([width, height]) => width === screenWidth && height === screenHeight,
@@ -590,9 +591,10 @@ export function ManagedSiloForm({
           <legend>网站可见身份</legend>
           <div className="form-grid identity-grid">
             <label htmlFor="managed-identity-preset">
-              语言
+              语言{followsExit ? "（由代理出口解析）" : ""}
               <select
-                disabled={busy}
+                aria-describedby="managed-identity-priority-note"
+                disabled={busy || followsExit}
                 id="managed-identity-preset"
                 onChange={(event) => {
                   const next = event.target.value as ManagedIdentityPreset;
@@ -630,11 +632,18 @@ export function ManagedSiloForm({
                 onChange={(event) => setFollowNetworkExit(event.target.checked)}
                 type="checkbox"
               />
-              时区、语言和地理位置跟随代理出口
+              按代理出口解析语言、时区和地理位置
             </label>
           ) : null}
+          <p className="form-hint" id="managed-identity-priority-note">
+            {followsExit
+              ? "跟随出口已开启：创建时优先按代理出口解析语言、时区和地理位置。当前手选语言与时区暂不生效；关闭跟随后恢复原选择。"
+              : hasProxy
+                ? "固定身份：语言按这里选择，时区按高级设置选择（默认随语言预设）；不会按代理出口自动改写。"
+                : "Direct 直连：语言按这里选择，时区按高级设置选择（默认随语言预设）。"}
+          </p>
           <p className="form-hint">
-            网站会看到一套由 VeriSilo 管理的独立身份：语言按这里的选择，其余特征使用托管引擎的安全默认值；创建后可在身份详情里查看实际结果。
+            屏幕等参数按高级设置或托管引擎默认值生成。创建后可查看解析配置；运行观察需首次打开后核对。
           </p>
         </fieldset>
         <button
@@ -659,7 +668,8 @@ export function ManagedSiloForm({
               <label htmlFor="managed-timezone">
                 时区
                 <select
-                  disabled={busy || (hasProxy && followNetworkExit)}
+                  aria-describedby="managed-identity-priority-note"
+                  disabled={busy || followsExit}
                   id="managed-timezone"
                   onChange={(event) => setTimezone(event.target.value)}
                   value={timezone}
@@ -734,15 +744,15 @@ export function ManagedSiloForm({
                 </select>
               </label>
             </div>
-            {hasProxy && followNetworkExit ? (
+            {followsExit ? (
               <p className="form-hint">
-                时区、语言和地理位置正在跟随代理出口；关闭上面的跟随选择后才能手工固定时区。
+                此处时区暂不生效；关闭跟随后恢复原来的手选值。
               </p>
             ) : null}
             <p className="form-hint">
               User-Agent 跟随内置 Firefox 内核，不能改成 Chrome。Canvas / Audio
               噪声在创建时生成，创建后在 Silo
-              的编辑页点「换一套指纹」会重新生成。字体目前跟随这台电脑。WebRTC
+              的编辑页点「换一套指纹」会重新生成。字体使用托管模式；跨设备字形仍受宿主可用字体和回退规则影响。WebRTC
               在走代理时用出口 IP，直连时由引擎生成，不会露出这台电脑的网卡地址。
               创建后可在身份详情里看到完整 UA、时区和 WebGL。
             </p>

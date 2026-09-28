@@ -28,6 +28,7 @@ import { IdentityMark } from "./shared/IdentityMark.js";
 import { VaultAccess } from "./features/vault/VaultAccess.js";
 
 import { IdentityInspectPanel } from "./features/identity/IdentityDetails.js";
+import { CreatedSiloSummary } from "./features/identity/CreatedSiloSummary.js";
 
 import { ArchivedSiloList, SiloList } from "./features/silos/SiloList.js";
 
@@ -84,6 +85,8 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
     launchingSiloId,
     lockVault,
     identityPreviews,
+    recentRuns,
+    recentRunsError,
     archiveSilo,
     setEditingSilo,
     launchSilo,
@@ -107,6 +110,8 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
     clearNetworkEvidence,
     downloadLocalReport,
     editingSilo,
+    createdSiloId,
+    dismissCreatedSilo,
     updateSilo,
     updateManagedIdentity,
     setNotice,
@@ -173,6 +178,7 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
   }
 
   const vaultLocked = uiVaultLocked || status.vault.state !== "unlocked";
+  const createdSilo = activeSilos.find((silo) => silo.id === createdSiloId);
   const hasInspectableIdentity = activeSilos.some(
     (silo) => silo.engine.adapter !== "stock",
   );
@@ -425,6 +431,18 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                 />
               ) : (
                 <>
+                  {createdSilo !== undefined ? (
+                    <CreatedSiloSummary
+                      silo={createdSilo}
+                      preview={identityPreviews[createdSilo.id]}
+                      busy={busy}
+                      launching={launchingSiloId === createdSilo.id}
+                      launchBlocked={status.activation.activeSiloId !== null}
+                      onInspect={() => { dismissCreatedSilo(); editSilo(createdSilo); }}
+                      onLaunch={() => void launchSilo(createdSilo)}
+                      onDismiss={dismissCreatedSilo}
+                    />
+                  ) : null}
                   <SiloList
                     focusedSiloId={focusedSiloId}
                     onFocusSilo={setFocusedSiloId}
@@ -443,6 +461,8 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                     runtimeActivation={status.activation}
                     runtimeState={status.activation.state}
                     silos={activeSilos}
+                    recentRuns={recentRuns}
+                    recentRunsError={recentRunsError}
                     identityPreviews={identityPreviews}
                     networkEvidence={networkEvidenceHistory}
                     managedEngineReady={engineStatuses.some(
@@ -500,6 +520,7 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
                   {inspectIdentity && editingSilo.engine.adapter !== "stock" ? (
                     <IdentityInspectPanel
                       activeSiloId={status.activation.activeSiloId}
+                      activation={status.activation}
                       identityPreviews={identityPreviews}
                       observation={status.websiteIdentity ?? null}
                       silos={[editingSilo]}
@@ -670,6 +691,7 @@ export function App({ headerActions }: { headerActions?: ReactNode } = {}) {
             {workspaceNotice}
             <IdentityInspectPanel
               activeSiloId={status.activation.activeSiloId}
+              activation={status.activation}
               identityPreviews={identityPreviews}
               observation={status.websiteIdentity ?? null}
               silos={activeSilos}

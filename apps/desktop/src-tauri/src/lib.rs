@@ -230,6 +230,8 @@ pub fn run() {
             commands::list_silos,
             commands::list_active_silos,
             commands::list_archived_silos,
+            commands::list_recent_runs,
+            commands::get_recent_run,
             commands::create_managed_silo,
             commands::list_managed_identity_previews,
             commands::update_managed_identity,

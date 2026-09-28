@@ -28,6 +28,9 @@ describe("authoritative Vault lock UI cleanup", () => {
     expect(scrubEnd).toBeGreaterThan(scrubStart);
     for (const setter of [
       "setSilos([])",
+      "setRecentRuns({})",
+      "setRecentRunsError(null)",
+      "setCreatedSiloId(null)",
       "setArchivedSilos([])",
       "setEditingSilo(null)",
       "setNetworkEvidenceHistory([])",

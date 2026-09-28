@@ -1,0 +1,39 @@
+.created-silo-summary {
+  border-left: 3px solid var(--primary);
+}
+
+.created-silo-facts {
+  margin-top: 1rem;
+}
+
+.created-silo-facts .created-silo-wide-fact {
+  grid-column: 1 / -1;
+}
+
+.created-silo-preview-missing {
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.8rem;
+  background: var(--soft);
+}
+
+.created-silo-preview-missing p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+}
+
+.created-silo-network-note {
+  margin: 0.8rem 0 0;
+}
+
+.created-silo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1.1rem;
+}
+
+.created-silo-launch-hint {
+  margin: 0.65rem 0 0;
+}

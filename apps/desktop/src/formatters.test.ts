@@ -86,8 +86,9 @@ describe("desktop formatters", () => {
       engineEvidence: null,
       networkEvidence: null,
       identityEvidence: evidence,
-    });
-    expect(message).toContain("网站可见身份已重新读取：Matched");
+    }, null);
+    expect(message).toContain("网站可见身份：Matched");
+    expect(message).toContain("本次已取得新观察");
     expect(message).toContain("浏览器正在运行");
   });
 
@@ -111,7 +112,7 @@ describe("desktop formatters", () => {
       engineEvidence: null,
       networkEvidence: null,
       identityEvidence: evidence,
-    });
+    }, null);
     expect(message).toContain("Mismatched");
     expect(message).not.toContain("检测");
     expect(message).not.toContain("风控");
@@ -140,5 +141,34 @@ describe("desktop formatters", () => {
         identityEvidence: evidence,
       }),
     ).toBe("浏览器正在运行");
+  });
+
+  it("does not claim a new observation when Core retains the old time after failure", () => {
+    const before: RuntimeIdentityEvidence = {
+      siloId: "11111111-1111-4111-8111-111111111111",
+      runtimeId: "22222222-2222-4222-8222-222222222222",
+      sessionId: "s", artifactId: "identity-a", artifactFileSha256: "a".repeat(64),
+      engineAdapter: "camoufox", observedAt: "2026-09-12T08:00:00.000Z",
+      state: "matched", signals: [],
+    };
+    const after = { ...before, state: "unavailable" as const };
+    const activation = {
+      activeSiloId: before.siloId, state: "running" as const,
+      updatedAt: "2026-09-12T08:05:00.000Z", message: null,
+      engineEvidence: null, networkEvidence: null, identityEvidence: after,
+    };
+    const retained = describeIdentityRecheck(activation, before);
+    expect(retained).toContain("Unavailable");
+    expect(retained).toContain("未取得可确认的新观察");
+    expect(retained).not.toContain("本次已取得新观察");
+
+    const uncertain = describeIdentityRecheck(activation);
+    expect(uncertain).toContain("未确认本次重新取得观察");
+
+    const newlyUnavailable = describeIdentityRecheck({
+      ...activation,
+      identityEvidence: { ...after, observedAt: "2026-09-12T08:05:00.000Z" },
+    }, before);
+    expect(newlyUnavailable).toContain("本次取得新记录，但网站可见字段不可用");
   });
 });

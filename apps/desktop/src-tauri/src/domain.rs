@@ -15,8 +15,8 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::engine::{
-    EngineAdapterId, EngineCapabilityState, EngineControlExecution, EngineControlPhaseReceipt,
-    SiloEngineConfig, SiteFallbackReceipt,
+    CamoufoxArtifactBindingV1, EngineAdapterId, EngineCapabilityState, EngineControlExecution,
+    EngineControlPhaseReceipt, SiloEngineConfig, SiteFallbackReceipt,
 };
 
 pub const SCHEMA_VERSION: u32 = 3;
@@ -1364,7 +1364,7 @@ pub struct RuntimeActivation {
 /// Separates configuration, process launch, package authenticity, bootstrap
 /// delivery, and runtime identity verification. A verified package never sets
 /// `verified_adapter`; that field requires direct runtime protocol evidence.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimePackageVerification {
     pub verifier_id: String,
@@ -1379,7 +1379,7 @@ pub struct RuntimePackageVerification {
     pub verified_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeEngineEvidence {
     pub configured_adapter: EngineAdapterId,
@@ -1459,7 +1459,78 @@ impl RuntimeActivation {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// A sanitized declaration captured at launch. URLs, credentials and Profile
+/// paths are intentionally absent from the renderer-facing history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecentRunNetworkPolicy {
+    pub mode: RecentRunNetworkMode,
+    pub proxy_required: bool,
+    pub endpoint_label: Option<String>,
+    pub external_mihomo: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecentRunNetworkMode {
+    Direct,
+    FixedProxy,
+    Pac,
+}
+
+impl From<&NetworkProfile> for RecentRunNetworkPolicy {
+    fn from(profile: &NetworkProfile) -> Self {
+        match profile {
+            NetworkProfile::Direct { proxy_required } => Self {
+                mode: RecentRunNetworkMode::Direct,
+                proxy_required: *proxy_required,
+                endpoint_label: None,
+                external_mihomo: false,
+            },
+            NetworkProfile::FixedProxy {
+                proxy_required,
+                host,
+                port,
+                external_mihomo,
+                ..
+            } => Self {
+                mode: RecentRunNetworkMode::FixedProxy,
+                proxy_required: *proxy_required,
+                endpoint_label: Some(format!("{host}:{port}")),
+                external_mihomo: external_mihomo.is_some(),
+            },
+            NetworkProfile::Pac { proxy_required, .. } => Self {
+                mode: RecentRunNetworkMode::Pac,
+                proxy_required: *proxy_required,
+                endpoint_label: None,
+                external_mihomo: false,
+            },
+        }
+    }
+}
+
+/// One encrypted, last-known snapshot per local Silo; never current authority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecentRunRecord {
+    pub silo_id: Uuid,
+    pub run_id: Uuid,
+    pub runtime_id: Option<Uuid>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub profile_silo_id: Uuid,
+    pub artifact_binding: Option<CamoufoxArtifactBindingV1>,
+    pub engine_adapter: EngineAdapterId,
+    pub network_policy: RecentRunNetworkPolicy,
+    pub state: RuntimeState,
+    pub reason: Option<String>,
+    pub identity_evidence: Option<RuntimeIdentityEvidence>,
+    pub engine_evidence: Option<RuntimeEngineEvidence>,
+    pub network_evidence: Option<RuntimeNetworkEvidence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeNetworkEvidence {
     pub runtime_id: Uuid,
@@ -1482,7 +1553,7 @@ pub struct RuntimeNetworkEvidence {
     pub safeguards: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeNetworkProvider {
     Direct,
@@ -1491,7 +1562,7 @@ pub enum RuntimeNetworkProvider {
     Pac,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeNetworkEvidenceProvenance {
     DesktopControlPlane,
@@ -1499,7 +1570,7 @@ pub enum RuntimeNetworkEvidenceProvenance {
     RelayObserved,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeEvidenceState {
     NotApplicable,

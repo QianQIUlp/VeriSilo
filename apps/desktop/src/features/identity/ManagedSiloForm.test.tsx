@@ -127,6 +127,46 @@ describe("ManagedSiloForm progressive disclosure", () => {
   });
 });
 
+describe("ManagedSiloForm identity priority", () => {
+  const selectTag = (markup: string, id: string) =>
+    markup.match(new RegExp(`<select[^>]*id="${id}"[^>]*>`))?.[0];
+
+  it("uses the chosen language and timezone for Direct", () => {
+    const markup = renderForm("直连空间");
+    expect(markup).toContain("Direct 直连：语言按这里选择");
+    expect(selectTag(markup, "managed-identity-preset")).not.toContain(
+      "disabled",
+    );
+    expect(markup).not.toContain("跟随出口已开启");
+  });
+
+  it("makes both manual choices inactive while the proxy exit takes priority", () => {
+    const markup = renderTemplatedForm(remoteProxyTemplate);
+    expect(markup).toContain("跟随出口已开启：创建时优先按代理出口解析语言、时区和地理位置");
+    expect(markup).toContain("关闭跟随后恢复原选择");
+    expect(selectTag(markup, "managed-identity-preset")).toContain(
+      "disabled",
+    );
+    expect(selectTag(markup, "managed-timezone")).toContain("disabled");
+    expect(markup).toContain('value="balanced-en-us"');
+    expect(markup).toContain('value="America/New_York"');
+  });
+
+  it("keeps inherited manual choices active when following is off", () => {
+    const markup = renderTemplatedForm({
+      ...remoteProxyTemplate,
+      followNetworkExit: false,
+    });
+    expect(markup).toContain("固定身份：语言按这里选择");
+    expect(selectTag(markup, "managed-identity-preset")).not.toContain(
+      "disabled",
+    );
+    expect(selectTag(markup, "managed-timezone")).not.toContain("disabled");
+    expect(markup).toContain('value="balanced-en-us"');
+    expect(markup).toContain('value="America/New_York"');
+  });
+});
+
 describe("ManagedSiloForm create-new-identity template", () => {
   it("frames the form as creating a new identity from the source Silo", () => {
     const markup = renderTemplatedForm(remoteProxyTemplate);

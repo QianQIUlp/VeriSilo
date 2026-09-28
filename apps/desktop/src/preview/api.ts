@@ -1,15 +1,18 @@
-import type { Silo } from "@verisilo/contracts";
+import type { RecentRunRecord, Silo } from "@verisilo/contracts";
 import {
   desktopApi,
   type CreateManagedSiloInput,
   type CreateSiloInput,
   type DesktopStatus,
+  type ManagedIdentityPreview,
 } from "../desktop-api.js";
+import { defaultTimezoneForPreset } from "../timezone-presets.js";
 import {
   previewEngineStatuses,
   previewIdentityEvidence,
   previewManagedIdentity,
   previewManagedSilo,
+  previewRuntimeActivation,
   previewSilo,
   previewStatus,
 } from "./fixtures.js";
@@ -33,12 +36,11 @@ export function installPreviewApi(scenario: string) {
       "北美业务 · 长期协作与研究专用身份空间 / Research & Operations";
   }
   if (
-    ["matched", "mismatched", "unavailable", "stale", "long-name"].includes(
+    ["matched", "mismatched", "unavailable", "stale", "long-name", "recheck-failed", "complex-mismatch", "network-expired", "binding-mismatch", "history-save-failed"].includes(
       scenario,
     )
   ) {
-    status.activation.activeSiloId = previewManagedSilo.id;
-    status.activation.state = "running";
+    status.activation = previewRuntimeActivation(previewManagedSilo);
     status.activation.identityEvidence = previewIdentityEvidence(
       previewManagedSilo,
       scenario === "mismatched" ||
@@ -48,9 +50,64 @@ export function installPreviewApi(scenario: string) {
         : "matched",
     );
   }
+  if (scenario === "complex-mismatch") {
+    status.activation.identityEvidence!.state = "mismatched";
+    status.activation.identityEvidence!.signals.push({
+      signal: "voices", state: "mismatched",
+      expected: [{ name: "Voice A", lang: "en-US", default: true }],
+      observed: [{ name: "Voice B", lang: "en-US", default: true }],
+    });
+  }
+  if (scenario === "network-expired") {
+    status.activation.networkEvidence!.observedAt = new Date(Date.now() - 600000).toISOString();
+    status.activation.networkEvidence!.expiresAt = new Date(Date.now() - 60000).toISOString();
+  }
+  if (scenario === "history-save-failed") status.recentRunsWarning = "save_failed";
+  if (scenario === "binding-mismatch") {
+    status.activation.networkEvidence!.runtimeId = "33333333-3333-4333-8333-333333333333";
+  }
   if (scenario === "running") {
     status.activation.activeSiloId = previewSilo.id;
     status.activation.state = "running";
+  }
+  const previews: Record<string, ManagedIdentityPreview> = {
+    [previewManagedSilo.id]: structuredClone(previewManagedIdentity),
+  };
+  const recentRuns: Record<string, RecentRunRecord> = {};
+  const saveRecent = (siloId: string, freshRun = false) => {
+    const silo = silos.find((entry) => entry.id === siloId)!;
+    const activation = status.activation;
+    if (activation.identityEvidence !== null && activation.networkEvidence !== null &&
+        activation.identityEvidence.runtimeId !== activation.networkEvidence.runtimeId) return;
+    const previous = freshRun ? undefined : recentRuns[siloId];
+    recentRuns[siloId] = {
+      siloId, runId: previous?.runId ?? crypto.randomUUID(),
+      runtimeId: activation.identityEvidence?.runtimeId ?? activation.networkEvidence?.runtimeId ?? null,
+      startedAt: previous?.startedAt ?? activation.updatedAt,
+      updatedAt: activation.updatedAt,
+      endedAt: ["stopped", "failed", "verification_failed"].includes(activation.state) ? activation.updatedAt : null,
+      profileSiloId: siloId,
+      artifactBinding: silo.engine.adapter === "camoufox" ? silo.engine.artifactBinding ?? null : null,
+      engineAdapter: activation.engineEvidence?.configuredAdapter ?? (silo.engine.adapter === "camoufox" ? "camoufox" : "stock-edge"),
+      networkPolicy: previous?.networkPolicy ?? {
+        mode: silo.networkProfile.mode, proxyRequired: silo.networkProfile.proxyRequired,
+        endpointLabel: activation.networkEvidence?.endpointLabel ?? null,
+        externalMihomo: silo.networkProfile.mode === "fixed_proxy" && silo.networkProfile.externalMihomo !== undefined,
+      },
+      state: activation.state, reason: activation.message,
+      identityEvidence: structuredClone(activation.identityEvidence),
+      engineEvidence: structuredClone(activation.engineEvidence),
+      networkEvidence: structuredClone(activation.networkEvidence),
+    };
+  };
+  if (status.activation.activeSiloId !== null) saveRecent(status.activation.activeSiloId);
+  if (scenario === "recent-run" || scenario === "history-error") {
+    for (const silo of silos) {
+      status.activation = previewRuntimeActivation(silo);
+      status.activation.state = "stopped";
+      saveRecent(silo.id);
+    }
+    status.activation = previewStatus().activation;
   }
   for (const operation of Object.keys(desktopApi)) {
     Object.defineProperty(desktopApi, operation, {
@@ -130,14 +187,18 @@ export function installPreviewApi(scenario: string) {
       if (scenario === "error") throw new Error("模拟：备份无法写入。");
       return { destinationPath, bytes: 4096 };
     },
-    listManagedIdentityPreviews: async () =>
-      Object.fromEntries(
-        silos
-          .filter((s) => s.engine.adapter === "camoufox")
-          .map((s) => [s.id, structuredClone(previewManagedIdentity)]),
-      ),
+    listManagedIdentityPreviews: async () => structuredClone(previews),
     listLegacyEnvironmentArtifacts: async () => [],
     listNetworkEvidence: async () => [],
+    listRecentRuns: async () => {
+      unlocked();
+      if (scenario === "history-error") throw new Error("模拟：最近运行记录读取失败。");
+      return structuredClone(Object.values(recentRuns));
+    },
+    getRecentRun: async (siloId: string) => {
+      unlocked();
+      return structuredClone(recentRuns[siloId] ?? null);
+    },
     listActiveSilos: async () => {
       unlocked();
       return structuredClone(silos.filter((s) => s.archivedAt === null));
@@ -183,6 +244,18 @@ export function installPreviewApi(scenario: string) {
         },
       };
       silo.profileDirectory = `C:\\Preview\\profiles\\${silo.id}`;
+      const followsExit = input.networkProfile.mode !== "direct" && input.followNetworkExit !== false;
+      const language = input.identityPreset.replace("balanced-", "").split("-");
+      previews[silo.id] = {
+        ...structuredClone(previewManagedIdentity),
+        language: followsExit ? previewManagedIdentity.language : `${language[0]}-${language[1]?.toUpperCase()}`,
+        timezone: followsExit ? previewManagedIdentity.timezone : input.timezone ?? defaultTimezoneForPreset(input.identityPreset),
+        screenWidth: input.screenWidth ?? previewManagedIdentity.screenWidth,
+        screenHeight: input.screenHeight ?? previewManagedIdentity.screenHeight,
+        networkBound: input.networkProfile.mode !== "direct",
+        publicAddress: input.networkProfile.mode === "direct" ? null : previewManagedIdentity.publicAddress,
+        countryCode: input.networkProfile.mode === "direct" ? null : previewManagedIdentity.countryCode,
+      };
       silos.push(silo);
       return structuredClone(silo);
     },
@@ -190,13 +263,11 @@ export function installPreviewApi(scenario: string) {
       unlocked();
       if (scenario === "error")
         throw new Error("模拟启动失败：浏览器当前不可用。");
-      status.activation.activeSiloId = siloId;
-      status.activation.state = "running";
+      if (status.activation.activeSiloId !== null) throw new Error("已有一个 Silo 正在运行。");
       const silo = silos.find((s) => s.id === siloId)!;
-      status.activation.identityEvidence =
-        silo.engine.adapter === "camoufox"
-          ? previewIdentityEvidence(silo)
-          : null;
+      status.activation = previewRuntimeActivation(silo);
+      silo.identityLockedAt ??= new Date().toISOString();
+      saveRecent(siloId, true);
       return structuredClone(status.activation);
     },
     restoreArchivedSilo: async (id: string) => {
@@ -207,12 +278,16 @@ export function installPreviewApi(scenario: string) {
     deleteSilo: async (id: string) => {
       unlocked();
       silos = silos.filter((s) => s.id !== id);
+      delete recentRuns[id];
+      delete previews[id];
     },
     stopSilo: async () => {
       unlocked();
-      status.activation.activeSiloId = null;
+      const stoppedSiloId = status.activation.activeSiloId;
       status.activation.state = "stopped";
-      status.activation.identityEvidence = null;
+      status.activation.updatedAt = new Date().toISOString();
+      if (stoppedSiloId !== null) saveRecent(stoppedSiloId);
+      status.activation.activeSiloId = null;
       return structuredClone(status.activation);
     },
     archiveSilo: async (id: string) => {
@@ -221,11 +296,19 @@ export function installPreviewApi(scenario: string) {
         s.id === id ? { ...s, archivedAt: new Date().toISOString() } : s,
       );
     },
-    recheckSiloRuntime: async () => {
+    recheckSiloRuntime: async (siloId: string) => {
+      unlocked();
+      if (siloId !== status.activation.activeSiloId) throw new Error("该 Silo 没有可重新检查的活动会话。");
       if (status.activation.identityEvidence) {
-        status.activation.identityEvidence.observedAt =
-          new Date().toISOString();
+        if (scenario === "recheck-failed") {
+          status.activation.identityEvidence.state = "unavailable";
+          status.activation.identityEvidence.reason = "模拟：本次身份复核未能重新观察网站身份。";
+        } else {
+          status.activation.identityEvidence.observedAt = new Date().toISOString();
+        }
       }
+      status.activation.updatedAt = new Date().toISOString();
+      saveRecent(siloId);
       return structuredClone(status.activation);
     },
   } satisfies Partial<typeof desktopApi>);

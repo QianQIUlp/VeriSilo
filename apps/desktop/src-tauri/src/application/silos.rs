@@ -9,8 +9,9 @@ use super::runtime::diagnostic_status_for_silo;
 use super::DesktopCore;
 use crate::domain::{
     CreateSiloInput, ManagedIdentityIntent, ManagedIdentityPreset, NetworkProfile,
-    ProxyScheme as SiloProxyScheme, RuntimeState, Silo, SiloExecutionTarget, SiloStorageUsage,
-    SiloStorageUsageSummary, UpdateSiloEngineInput, UpdateSiloInput, UpdateSiloNetworkInput,
+    ProxyScheme as SiloProxyScheme, RecentRunRecord, RuntimeState, Silo, SiloExecutionTarget,
+    SiloStorageUsage, SiloStorageUsageSummary, UpdateSiloEngineInput, UpdateSiloInput,
+    UpdateSiloNetworkInput,
 };
 use crate::environment::backend::{EnvironmentBackendId, EnvironmentOperation};
 use crate::environment::EnvironmentOperationRequest;
@@ -42,6 +43,27 @@ pub(crate) fn list_silos_with(state: &DesktopCore) -> Result<Vec<Silo>, String> 
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
     vault.list_silos().map_err(|error| error.to_string())
+}
+
+pub(crate) fn list_recent_runs(state: &DesktopCore) -> Result<Vec<RecentRunRecord>, String> {
+    let mut vault = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    vault.list_recent_runs().map_err(|error| error.to_string())
+}
+
+pub(crate) fn get_recent_run(
+    state: &DesktopCore,
+    silo_id: Uuid,
+) -> Result<Option<RecentRunRecord>, String> {
+    let mut vault = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    vault
+        .get_recent_run(silo_id)
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn diagnose_silo_with(
@@ -202,7 +224,8 @@ pub(crate) fn update_silo_configuration(
             .runtime
             .lock()
             .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-        let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+        let is_active =
+            runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
         drop(runtime);
         let current = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
         if current.engine.is_stock() || network_input.is_none() {
@@ -350,7 +373,8 @@ pub(crate) fn update_silo_network(
             .runtime
             .lock()
             .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
-        let is_active = runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
+        let is_active =
+            runtime.is_active(silo_id) || environment_runtime_is_active(&state, silo_id)?;
         drop(runtime);
         let current = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
         if current.engine.is_stock() {

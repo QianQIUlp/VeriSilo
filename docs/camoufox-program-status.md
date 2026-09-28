@@ -1,7 +1,7 @@
 # Camoufox Managed Engine 当前状态
 
 - 状态：**当前路由页**
-- 更新日期：2026-09-27
+- 更新日期：2026-09-28
 - 当前稳定产品分支：`codex/camoufox-m3-engine-adapter`
 - 当前 canonical development source：`origin/baseline/dev`（本地工作引用为 `baseline/dev`，正常时两者精确相等）
 - 当前公开版本：**v0.1.0-rc4**（`PUBLIC_GITHUB_PRERELEASE`；tag `v0.1.0-rc4`，release gate 已关闭）
@@ -195,6 +195,8 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
   完整 QUIC 或 exhaustive browser DNS-path。
 
 ## 当前下一任务
+
+本轮正常产品开发已完成三项能力：统一当前身份/网络证据的解释与差异定位、Managed 创建后的解析结果确认、每个本机 Standard/Managed Silo 的一条加密最近运行记录。最近记录始终表示历史/最后已知状态，不提供当前运行验证；匹配、无法验证和过期边界保持独立。实现范围和组合验证结果见[产品完整性切片记录](product-integrity-slices-2026-09-28.md)。
 
 当前没有预选的 Camoufox、fingerprint、QA 或 release Gate，也没有已知待集成的产品代码分支。新工程任务从最新 `origin/baseline/dev` 开始，由用户提出的产品需求、真实体验问题或新的直接证据驱动；`main` 与历史 task branch 不是新任务的开发起点。
 

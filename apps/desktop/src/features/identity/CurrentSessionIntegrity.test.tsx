@@ -15,6 +15,7 @@ import { SiloList } from "../silos/SiloList.js";
 
 import {
   CurrentSessionIntegrity,
+  NetworkEvidenceDetails,
   deriveCurrentSessionSummary,
 } from "./CurrentSessionIntegrity.js";
 
@@ -105,8 +106,8 @@ function networkEvidence(
     authenticationProvenance: "relay_observed" as const,
     browserRouting: "applied" as const,
     exit: "observed" as const,
-    dns: "unavailable" as const,
-    webRtc: "unavailable" as const,
+    dns: "observed" as const,
+    webRtc: "observed" as const,
     endpointLabel: "本机 Clash · 预览节点",
     safeguards: [],
     ...overrides,
@@ -192,6 +193,31 @@ describe("current session summary derivation", () => {
     expect(rowState(summary, "identity").tone).toBe("danger");
   });
 
+  it("shows matched with unavailable fields as partial", () => {
+    const summary = summaryFor(previewManagedSilo, activation({
+      identityEvidence: identityEvidence({ signals: [
+        { signal: "voices", expected: ["a"], observed: null, state: "unavailable" },
+      ] }),
+    }));
+    expect(summary.overall).toBe("partial");
+    expect(rowState(summary, "identity").stateLabel).toBe("Matched");
+    expect(rowState(summary, "identity").detail).toContain("1 项字段不可用");
+  });
+
+  it("does not confirm current runtime attribution without network evidence", () => {
+    const summary = summaryFor(previewManagedSilo, activation({ networkEvidence: null }));
+    expect(summary.overall).toBe("partial");
+    expect(rowState(summary, "identity").stateLabel).toBe("归属未确认");
+    expect(rowState(summary, "attribution").stateLabel).toBe("尚未确认");
+  });
+
+  it("keeps an old matched verdict out of a stopped session", () => {
+    const summary = summaryFor(previewManagedSilo, activation({ state: "stopped" }));
+    expect(summary.overall).toBe("stopped");
+    expect(rowState(summary, "identity").stateLabel).toBe("归属未确认");
+    expect(rowState(summary, "identity").detail).toContain("最后已知");
+  });
+
   it("keeps stale identity as partially unconfirmed, never a pass", () => {
     const summary = summaryFor(
       previewManagedSilo,
@@ -206,9 +232,9 @@ describe("current session summary derivation", () => {
     expect(rowState(summary, "identity").stateLabel).toBe("Stale");
   });
 
-  it("shows fresh observedAt from the recheck as just re-read", () => {
+  it("describes observation age without inferring a recheck or TTL", () => {
     const fresh = summaryFor(previewManagedSilo, activation());
-    expect(rowState(fresh, "identity").detail).toContain("刚刚重新读取");
+    expect(rowState(fresh, "identity").detail).toContain("不到 1 分钟前观察");
 
     const minutesAgo = summaryFor(
       previewManagedSilo,
@@ -218,7 +244,7 @@ describe("current session summary derivation", () => {
         }),
       }),
     );
-    expect(rowState(minutesAgo, "identity").detail).toContain("10 分钟前读取");
+    expect(rowState(minutesAgo, "identity").detail).toContain("10 分钟前观察");
 
     const old = summaryFor(
       previewManagedSilo,
@@ -254,6 +280,14 @@ describe("current session summary derivation", () => {
     expect(rowState(summary, "network").detail).toContain("最近证据已过期");
   });
 
+  it("keeps an observed exit partial when DNS is unavailable", () => {
+    const summary = summaryFor(previewManagedSilo, activation({
+      networkEvidence: networkEvidence({ dns: "unavailable" }),
+    }));
+    expect(summary.overall).toBe("partial");
+    expect(rowState(summary, "network").detail).toContain("DNS尚未确认");
+  });
+
   it("keeps a direct policy honest with and without exit observation", () => {
     const observed = summaryFor(
       directSilo,
@@ -285,10 +319,23 @@ describe("current session summary derivation", () => {
       directSilo,
       activation({ networkEvidence: null }),
     );
-    expect(rowState(absent, "network").stateLabel).toBe("直连");
-    expect(rowState(absent, "network").detail).toContain(
-      "当前策略不要求代理出口",
-    );
+    expect(rowState(absent, "network").stateLabel).toBe("直连已配置");
+    expect(rowState(absent, "network").detail).toContain("尚无出口观察");
+    expect(absent.overall).toBe("partial");
+  });
+
+  it("does not call an optional proxy Direct when exit evidence is absent", () => {
+    const optionalProxy: Silo = {
+      ...previewManagedSilo,
+      networkProfile: {
+        mode: "fixed_proxy", proxyRequired: false, scheme: "http",
+        host: "proxy.example.test", port: 3128, bypassList: [],
+      },
+    };
+    const summary = summaryFor(optionalProxy, activation({ networkEvidence: null }));
+    expect(rowState(summary, "network").stateLabel).toBe("代理策略已配置");
+    expect(rowState(summary, "network").detail).toContain("尚无出口观察");
+    expect(rowState(summary, "network").detail).not.toContain("直连");
   });
 
   it("maps verification failed and recovery required to non-running sessions", () => {
@@ -406,7 +453,7 @@ describe("current session claim boundaries", () => {
     const rendered = renderSummary(previewManagedSilo, freshActivation());
     expect(rendered).toContain("当前会话完整性");
     expect(rendered).toContain("Matched");
-    expect(rendered).toContain("刚刚重新读取");
+    expect(rendered).toContain("不到 1 分钟前观察");
     expect(rendered).toContain("证据有效至");
     expect(rendered).not.toMatch(/>已验证<\/strong>/u);
     expect(rendered).not.toContain("Verified");
@@ -422,6 +469,29 @@ describe("current session claim boundaries", () => {
       freshActivation({ provenance: "extension_asserted" as const }),
     );
     expect(rendered).toContain("浏览器内检查断言");
+  });
+
+  it("renders network stages, provenance, observed time and expiry for reuse", () => {
+    const rendered = renderToStaticMarkup(createElement(NetworkEvidenceDetails, {
+      activation: freshActivation({ dns: "unavailable" }),
+      silo: previewManagedSilo,
+    }));
+    expect(rendered).toContain("桌面控制面");
+    expect(rendered).toContain("浏览器路由");
+    expect(rendered).toContain("DNS");
+    expect(rendered).toContain("不可用");
+    expect(rendered).toContain("观察于");
+    expect(rendered).toContain("有效至");
+  });
+
+  it("renders keyboard buttons for lens navigation when callbacks are wired", () => {
+    const rendered = renderToStaticMarkup(createElement(CurrentSessionIntegrity, {
+      activation: freshActivation(), managedEngineReady: true, silo: previewManagedSilo,
+      onInspectIdentity: () => {}, onInspectNetwork: () => {},
+    }));
+    expect(rendered).toContain("<button type=\"button\"");
+    expect(rendered).toContain("查看身份字段");
+    expect(rendered).toContain("查看网络证据");
   });
 
   it("defers the session summary until its detail pane is opened", () => {

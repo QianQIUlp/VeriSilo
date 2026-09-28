@@ -1,6 +1,7 @@
 import type {
   NetworkProfile,
   RuntimeActivation,
+  RuntimeIdentityEvidence,
   VaultState,
 } from "@verisilo/contracts";
 
@@ -53,9 +54,11 @@ const identityEvidenceStateLabels = {
   stale: "Stale",
 } as const;
 
-/** Describes an explicit recheck: the runtime result plus the fresh
- * website-visible identity observation it just performed. */
-export function describeIdentityRecheck(activation: RuntimeActivation): string {
+/** Describe the returned record without treating its age as proof of a new read. */
+export function describeIdentityRecheck(
+  activation: RuntimeActivation,
+  beforeEvidence?: RuntimeIdentityEvidence | null,
+): string {
   const evidence = activation.identityEvidence;
   if (evidence === null || evidence.siloId !== activation.activeSiloId) {
     return describeActivation(activation);
@@ -71,7 +74,21 @@ export function describeIdentityRecheck(activation: RuntimeActivation): string {
   } catch {
     // Keep the raw timestamp when the browser cannot format it.
   }
-  return `${describeActivation(activation)}；网站可见身份已重新读取：${label}（${observedAt}）`;
+  const prefix = `${describeActivation(activation)}；网站可见身份：${label}（${observedAt}）`;
+  if (beforeEvidence === undefined) {
+    return `${prefix}；未确认本次重新取得观察。`;
+  }
+  const newObservation = beforeEvidence === null ||
+    beforeEvidence.siloId !== evidence.siloId ||
+    beforeEvidence.runtimeId !== evidence.runtimeId ||
+    beforeEvidence.observedAt !== evidence.observedAt;
+  if (!newObservation || activation.networkEvidence !== null &&
+      activation.networkEvidence.runtimeId !== evidence.runtimeId) {
+    return `${prefix}；未取得可确认的新观察，保留上次观察时间。`;
+  }
+  return evidence.state === "unavailable"
+    ? `${prefix}；本次取得新记录，但网站可见字段不可用。`
+    : `${prefix}；本次已取得新观察。`;
 }
 
 export function activationStatusLabel(

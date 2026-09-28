@@ -24,6 +24,7 @@ import {
 
 import {
   type NetworkCheckResult,
+  type RecentRunRecord,
   type Silo,
   type SiloExecutionTarget,
   networkProfileSchema,
@@ -100,6 +101,8 @@ export function useDesktopWorkspace() {
   const [identityPreviews, setIdentityPreviews] = useState<
     Record<string, ManagedIdentityPreview>
   >({});
+  const [recentRuns, setRecentRuns] = useState<Record<string, RecentRunRecord>>({});
+  const [recentRunsError, setRecentRunsError] = useState<string | null>(null);
   const [inspectIdentity, setInspectIdentity] = useState(() => {
     try {
       return window.localStorage.getItem("verisilo.inspectIdentity") === "1";
@@ -115,6 +118,7 @@ export function useDesktopWorkspace() {
     Record<string, number | null>
   >({});
   const [editingSilo, setEditingSilo] = useState<Silo | null>(null);
+  const [createdSiloId, setCreatedSiloId] = useState<string | null>(null);
   const [managedTemplate, setManagedTemplate] =
     useState<ManagedSiloTemplate | null>(null);
   const [networkEvidenceHistory, setNetworkEvidenceHistory] = useState<
@@ -264,10 +268,13 @@ export function useDesktopWorkspace() {
   const scrubSensitiveUi = useCallback(() => {
     setSilos([]);
     setIdentityPreviews({});
+    setRecentRuns({});
+    setRecentRunsError(null);
     setArchivedSilos([]);
     setLegacyEnvironmentArtifacts([]);
     setStorageUsage({});
     setEditingSilo(null);
+    setCreatedSiloId(null);
     setNetworkEvidenceHistory([]);
     setBrowsers([]);
     setEngineStatuses([]);
@@ -368,12 +375,17 @@ export function useDesktopWorkspace() {
         let archived: Silo[];
         let evidence: SiloNetworkEvidence[];
         let legacyArtifacts: LegacyEnvironmentArtifact[];
+        let recent: { records: RecentRunRecord[]; error: string | null };
         try {
-          [active, archived, evidence, legacyArtifacts] = await Promise.all([
+          [active, archived, evidence, legacyArtifacts, recent] = await Promise.all([
             desktopApi.listActiveSilos(),
             desktopApi.listArchivedSilos(),
             desktopApi.listNetworkEvidence(),
             desktopApi.listLegacyEnvironmentArtifacts(),
+            desktopApi.listRecentRuns().then(
+              (records) => ({ records, error: null }),
+              (error: unknown) => ({ records: [], error: errorMessage(error, "最近运行记录暂时无法读取。") }),
+            ),
           ]);
         } catch (error) {
           if (
@@ -396,6 +408,9 @@ export function useDesktopWorkspace() {
         // so an unbounded history cannot grow the workspace state forever.
         setNetworkEvidenceHistory(evidence.slice(0, 200));
         setLegacyEnvironmentArtifacts(legacyArtifacts);
+        setRecentRuns(Object.fromEntries(recent.records.map((record) => [record.siloId, record])));
+        setRecentRunsError(recent.error ?? (nextStatus.recentRunsWarning === "save_failed"
+          ? "最近运行记录未能保存；当前会话状态仍以实时运行时为准。" : null));
 
         if (includeStorageUsage) {
           void Promise.all([
@@ -940,9 +955,10 @@ export function useDesktopWorkspace() {
       if (!isCurrent()) {
         return;
       }
+      setCreatedSiloId(silo.id);
       setNotice({
         tone: "success",
-        message: `已创建「${silo.name}」托管身份浏览器。首次启动前可以查看和微调指纹；启动后身份锁定。`,
+        message: `已创建「${silo.name}」托管身份浏览器。下面是已保存的身份配置；首次成功启动后锁定。`,
       });
       setView("overview");
       await refresh();
@@ -988,6 +1004,9 @@ export function useDesktopWorkspace() {
           const activation = await desktopApi.launchSilo(silo.id);
           if (!isCurrent()) {
             return;
+          }
+          if (activation.state === "running") {
+            setCreatedSiloId((current) => current === silo.id ? null : current);
           }
           if (
             activation.state === "running" &&
@@ -1057,17 +1076,19 @@ export function useDesktopWorkspace() {
   const recheckSiloRuntime = useCallback(
     (silo: Silo) =>
       withBusy(async (isCurrent) => {
+        const beforeEvidence = status?.activation.activeSiloId === silo.id
+          ? status.activation.identityEvidence : null;
         const activation = await desktopApi.recheckSiloRuntime(silo.id);
         if (!isCurrent()) {
           return;
         }
         setNotice({
-          tone: activation.state === "running" ? "success" : "error",
-          message: describeIdentityRecheck(activation),
+          tone: activation.state === "running" ? "info" : "error",
+          message: describeIdentityRecheck(activation, beforeEvidence),
         });
         await refresh(false);
       }),
-    [refresh, withBusy],
+    [refresh, status, withBusy],
   );
 
   const rebindSiloMihomo = useCallback(
@@ -1402,6 +1423,8 @@ export function useDesktopWorkspace() {
     launchingSiloId,
     lockVault,
     identityPreviews,
+    recentRuns,
+    recentRunsError,
     archiveSilo,
     setEditingSilo,
     launchSilo,
@@ -1425,6 +1448,8 @@ export function useDesktopWorkspace() {
     clearNetworkEvidence,
     downloadLocalReport,
     editingSilo,
+    createdSiloId,
+    dismissCreatedSilo: () => setCreatedSiloId(null),
     updateSilo,
     updateManagedIdentity,
     setNotice,

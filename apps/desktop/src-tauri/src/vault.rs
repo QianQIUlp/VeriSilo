@@ -28,8 +28,9 @@ use crate::domain::{
     inspect_browser_executable, validate_silo_name, BrowserDescriptor, BrowserVerification,
     BrowserVerificationState, CreateManagedSiloInput, CreateSiloInput, ExternalMihomoBinding,
     ManagedIdentityIntent, ManagedIdentityPreset, ManagedIdentityPreview, NetworkProfile,
-    ProxyScheme, Silo, SiloExecutionTarget, SiloStorageUsage, UpdateSiloEngineInput,
-    UpdateSiloInput, UpdateSiloNetworkInput, VaultLockState, VaultStatus, SCHEMA_VERSION,
+    ProxyScheme, RecentRunNetworkPolicy, RecentRunRecord, RuntimeActivation, RuntimeState, Silo,
+    SiloExecutionTarget, SiloStorageUsage, UpdateSiloEngineInput, UpdateSiloInput,
+    UpdateSiloNetworkInput, VaultLockState, VaultStatus, SCHEMA_VERSION,
 };
 use crate::engine::{
     sha256_hex_bytes, strict_json_from_slice, CAMOUFOX_ARTIFACT_SCHEMA_V3,
@@ -96,6 +97,10 @@ struct VaultData {
     /// observed request, not proof that DNS/WebRTC/QUIC were fully controlled.
     #[serde(default)]
     network_evidence: Vec<NativeNetworkEvidenceInboxEntry>,
+    /// At most one sanitized local runtime snapshot per Silo, inside the
+    /// encrypted payload. This is historical data, never a runtime guard.
+    #[serde(default)]
+    recent_runs: HashMap<Uuid, RecentRunRecord>,
     /// Self-hosted endpoint, application credential, replay ledger and stable
     /// Silo bindings. The complete structure is serialized only inside the
     /// encrypted Vault payload.
@@ -613,6 +618,7 @@ impl VaultRuntime {
             proxy_credentials: HashMap::new(),
             mihomo_controller_secrets: HashMap::new(),
             network_evidence: Vec::new(),
+            recent_runs: HashMap::new(),
             remote_control_plane: RemoteVaultState::default(),
         };
         let unlocked = UnlockedVault {
@@ -856,6 +862,169 @@ impl VaultRuntime {
             .filter(|silo| silo.archived_at.is_some())
             .cloned()
             .collect())
+    }
+
+    pub fn list_recent_runs(&mut self) -> Result<Vec<RecentRunRecord>, VaultError> {
+        let unlocked = self.unlocked_without_activity()?;
+        let mut runs: Vec<_> = unlocked.data.recent_runs.values().cloned().collect();
+        runs.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        Ok(runs)
+    }
+
+    pub fn get_recent_run(&mut self, silo_id: Uuid) -> Result<Option<RecentRunRecord>, VaultError> {
+        Ok(self
+            .unlocked_without_activity()?
+            .data
+            .recent_runs
+            .get(&silo_id)
+            .cloned())
+    }
+
+    pub fn begin_recent_run(&mut self, root: &Path, silo: &Silo) -> Result<(), VaultError> {
+        if !silo.execution_target.is_local()
+            || !matches!(
+                silo.adapter_id(),
+                crate::engine::EngineAdapterId::StockChrome
+                    | crate::engine::EngineAdapterId::StockEdge
+                    | crate::engine::EngineAdapterId::Camoufox
+            )
+        {
+            return Err(VaultError::InvalidData);
+        }
+        let now = Utc::now();
+        let record = RecentRunRecord {
+            silo_id: silo.id,
+            run_id: Uuid::new_v4(),
+            runtime_id: None,
+            started_at: Some(now),
+            updated_at: now,
+            ended_at: None,
+            profile_silo_id: silo.id,
+            artifact_binding: silo.engine.camoufox_artifact_binding().cloned(),
+            engine_adapter: silo.adapter_id(),
+            network_policy: RecentRunNetworkPolicy::from(&silo.network_profile),
+            state: RuntimeState::Preflight,
+            reason: None,
+            identity_evidence: None,
+            engine_evidence: None,
+            network_evidence: None,
+        };
+        let mut data = self.unlocked_mut_without_activity()?.data.clone();
+        if !data.silos.iter().any(|candidate| candidate.id == silo.id) {
+            return Err(VaultError::SiloNotFound);
+        }
+        data.recent_runs.insert(silo.id, record);
+        self.persist_data(root, &data)?;
+        self.unlocked_mut_without_activity()?.data = data;
+        Ok(())
+    }
+
+    /// Persist only substantive state/evidence transitions. Polling can update
+    /// the launcher's last-seen timestamp without rewriting the Vault.
+    pub fn update_recent_run(
+        &mut self,
+        root: &Path,
+        silo_id: Uuid,
+        activation: &RuntimeActivation,
+    ) -> Result<bool, VaultError> {
+        if activation.state == RuntimeState::Idle {
+            return Ok(false);
+        }
+        if activation
+            .active_silo_id
+            .is_some_and(|active| active != silo_id)
+        {
+            return Err(VaultError::InvalidData);
+        }
+        let Some(current) = self
+            .unlocked_without_activity()?
+            .data
+            .recent_runs
+            .get(&silo_id)
+            .cloned()
+        else {
+            return Ok(false);
+        };
+        let mut next = current.clone();
+        let evidence_runtime_id = activation
+            .network_evidence
+            .as_ref()
+            .map(|evidence| evidence.runtime_id)
+            .or_else(|| {
+                activation
+                    .identity_evidence
+                    .as_ref()
+                    .map(|evidence| evidence.runtime_id)
+            });
+        if next.runtime_id.is_some()
+            && evidence_runtime_id.is_some()
+            && next.runtime_id != evidence_runtime_id
+        {
+            return Err(VaultError::InvalidData);
+        }
+        next.runtime_id = next.runtime_id.or(evidence_runtime_id);
+        if activation
+            .network_evidence
+            .as_ref()
+            .is_some_and(|evidence| Some(evidence.runtime_id) != next.runtime_id)
+            || activation
+                .identity_evidence
+                .as_ref()
+                .is_some_and(|evidence| {
+                    evidence.silo_id != silo_id
+                        || Some(evidence.runtime_id) != next.runtime_id
+                        || evidence.engine_adapter != next.engine_adapter
+                        || next.artifact_binding.as_ref().is_none_or(|binding| {
+                            binding.artifact_id != evidence.artifact_id
+                                || binding.artifact_file_sha256 != evidence.artifact_file_sha256
+                        })
+                })
+            || activation
+                .engine_evidence
+                .as_ref()
+                .is_some_and(|evidence| evidence.configured_adapter != next.engine_adapter)
+        {
+            return Err(VaultError::InvalidData);
+        }
+        next.state = activation.state.clone();
+        if let Some(evidence) = &activation.identity_evidence {
+            next.identity_evidence = Some(evidence.clone());
+        }
+        if let Some(evidence) = &activation.engine_evidence {
+            next.engine_evidence = Some(evidence.clone());
+        }
+        if let Some(evidence) = &activation.network_evidence {
+            next.network_evidence = Some(evidence.clone());
+        }
+        next.reason = match &next.state {
+            RuntimeState::VerificationFailed => {
+                Some("运行时验证未通过；请查看这次记录中的证据。".to_owned())
+            }
+            RuntimeState::RecoveryRequired => {
+                Some("无法确认运行环境已安全停止，需要恢复处理。".to_owned())
+            }
+            RuntimeState::Failed => Some("本次启动未完成；没有可确认的运行环境。".to_owned()),
+            RuntimeState::Stopped => next.reason.or_else(|| Some("浏览器已停止。".to_owned())),
+            _ => next.reason,
+        };
+        if next.ended_at.is_none()
+            && activation.active_silo_id.is_none()
+            && matches!(
+                &next.state,
+                RuntimeState::Stopped | RuntimeState::Failed | RuntimeState::VerificationFailed
+            )
+        {
+            next.ended_at = Some(activation.updated_at);
+        }
+        if serde_json::to_value(&next)? == serde_json::to_value(&current)? {
+            return Ok(false);
+        }
+        next.updated_at = Utc::now();
+        let mut data = self.unlocked_mut_without_activity()?.data.clone();
+        data.recent_runs.insert(silo_id, next);
+        self.persist_data(root, &data)?;
+        self.unlocked_mut_without_activity()?.data = data;
+        Ok(true)
     }
 
     pub fn get_silo(&mut self, silo_id: Uuid) -> Result<Silo, VaultError> {
@@ -2245,6 +2414,7 @@ impl VaultRuntime {
             data.seed_material.remove(&removed.seed_reference);
             data.network_evidence
                 .retain(|entry| entry.silo_id != removed.id);
+            data.recent_runs.remove(&removed.id);
             data.remote_control_plane.last_results.remove(&removed.id);
             remove_unreferenced_secrets(
                 &mut data,
@@ -3066,6 +3236,17 @@ const VAULT_DATA_FIELDS_V9: &[&str] = &[
     "mihomoControllerSecrets",
     "networkEvidence",
     "remoteControlPlane",
+    "recentRuns",
+];
+const VAULT_DATA_REQUIRED_FIELDS_V9: &[&str] = &[
+    "schemaVersion",
+    "silos",
+    "seedMaterial",
+    "identityArtifacts",
+    "proxyCredentials",
+    "mihomoControllerSecrets",
+    "networkEvidence",
+    "remoteControlPlane",
 ];
 
 fn expected_vault_data_fields(schema_version: u32) -> Option<&'static [&'static str]> {
@@ -3314,7 +3495,15 @@ fn deserialize_vault_data(plaintext: &[u8]) -> Result<(VaultData, u32), VaultErr
         .ok_or(VaultError::InvalidData)?;
     let expected_fields =
         expected_vault_data_fields(schema_version).ok_or(VaultError::InvalidData)?;
-    object_with_known_fields(&value, expected_fields, expected_fields)?;
+    object_with_known_fields(
+        &value,
+        expected_fields,
+        if schema_version == VAULT_DATA_SCHEMA_VERSION {
+            VAULT_DATA_REQUIRED_FIELDS_V9
+        } else {
+            expected_fields
+        },
+    )?;
 
     let silos = object
         .get("silos")
@@ -3622,6 +3811,7 @@ fn validate_vault_data(data: &VaultData) -> Result<(), VaultError> {
         || data.proxy_credentials.len() > 10_000
         || data.mihomo_controller_secrets.len() > 10_000
         || data.network_evidence.len() > MAX_NETWORK_EVIDENCE_RECORDS
+        || data.recent_runs.len() > data.silos.len()
     {
         return Err(VaultError::InvalidData);
     }
@@ -3723,6 +3913,48 @@ fn validate_vault_data(data: &VaultData) -> Result<(), VaultError> {
             || !evidence_request_ids.insert(entry.request_id)
             || *count > MAX_NETWORK_EVIDENCE_PER_SILO
             || validate_network_evidence_inbox_entry(entry).is_err()
+        {
+            return Err(VaultError::InvalidData);
+        }
+    }
+    for (silo_id, record) in &data.recent_runs {
+        if *silo_id != record.silo_id
+            || record.profile_silo_id != record.silo_id
+            || !data
+                .silos
+                .iter()
+                .any(|silo| silo.id == *silo_id && silo.execution_target.is_local())
+            || record
+                .reason
+                .as_ref()
+                .is_some_and(|reason| reason.len() > 512 || reason.chars().any(char::is_control))
+            || record
+                .network_policy
+                .endpoint_label
+                .as_ref()
+                .is_some_and(|label| label.len() > 512 || label.chars().any(char::is_control))
+            || record
+                .artifact_binding
+                .as_ref()
+                .is_some_and(|binding| binding.validate().is_err())
+            || record
+                .network_evidence
+                .as_ref()
+                .is_some_and(|evidence| Some(evidence.runtime_id) != record.runtime_id)
+            || record
+                .engine_evidence
+                .as_ref()
+                .is_some_and(|evidence| evidence.configured_adapter != record.engine_adapter)
+            || record.identity_evidence.as_ref().is_some_and(|evidence| {
+                evidence.silo_id != *silo_id
+                    || Some(evidence.runtime_id) != record.runtime_id
+                    || evidence.engine_adapter != record.engine_adapter
+                    || record.artifact_binding.as_ref().is_none_or(|binding| {
+                        binding.artifact_id != evidence.artifact_id
+                            || binding.artifact_file_sha256 != evidence.artifact_file_sha256
+                    })
+            })
+            || serde_json::to_vec(record)?.len() > 512 * 1024
         {
             return Err(VaultError::InvalidData);
         }
@@ -4262,7 +4494,8 @@ mod tests {
     };
     use crate::domain::{
         BrowserKind, CreateManagedSiloInput, CreateSiloInput, ManagedIdentityPreset,
-        NetworkProfile, ProxyCredentialsInput, ProxyScheme, SiloExecutionTarget, UpdateSiloInput,
+        NetworkProfile, ProxyCredentialsInput, ProxyScheme, RuntimeActivation,
+        RuntimeNetworkEvidence, RuntimeState, SiloExecutionTarget, UpdateSiloInput,
         UpdateSiloNetworkInput, VaultLockState, SCHEMA_VERSION,
     };
     use crate::native_host::{
@@ -4672,6 +4905,131 @@ mod tests {
                 },
             )
             .expect("create direct Silo")
+    }
+
+    #[test]
+    fn recent_run_missing_field_in_existing_vault_defaults_to_empty() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).unwrap();
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, "legacy recent run passphrase")
+            .unwrap();
+        create_direct_silo(&root, &mut vault, "existing Silo");
+        let mut payload =
+            serde_json::to_value(&vault.unlocked_without_activity().unwrap().data).unwrap();
+        payload.as_object_mut().unwrap().remove("recentRuns");
+        let (restored, _) = super::deserialize_vault_data(&serde_json::to_vec(&payload).unwrap()).unwrap();
+        assert!(restored.recent_runs.is_empty());
+        assert_eq!(restored.silos.len(), 1);
+        super::validate_vault_data(&restored).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recent_run_is_bounded_per_silo_persistent_locked_and_deleted_with_its_silo() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).unwrap();
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, "recent run test passphrase")
+            .unwrap();
+        let a = create_direct_silo(&root, &mut vault, "A");
+        let b = create_direct_silo(&root, &mut vault, "B");
+        assert!(vault.list_recent_runs().unwrap().is_empty());
+
+        vault.begin_recent_run(&root, &a).unwrap();
+        let first_run_id = vault.get_recent_run(a.id).unwrap().unwrap().run_id;
+        let evidence = RuntimeNetworkEvidence::configured(&a.network_profile, false);
+        let running = RuntimeActivation {
+            active_silo_id: Some(a.id),
+            state: RuntimeState::Running,
+            updated_at: Utc::now(),
+            message: None,
+            browser_verification: None,
+            engine_evidence: None,
+            network_evidence: Some(evidence.clone()),
+            identity_evidence: None,
+        };
+        assert!(vault.update_recent_run(&root, a.id, &running).unwrap());
+        let persisted = fs::read(super::vault_path(&root)).unwrap();
+        assert!(!vault.update_recent_run(&root, a.id, &running).unwrap());
+        assert_eq!(fs::read(super::vault_path(&root)).unwrap(), persisted);
+
+        vault.begin_recent_run(&root, &b).unwrap();
+        assert_eq!(vault.list_recent_runs().unwrap().len(), 2);
+        assert_eq!(
+            vault.get_recent_run(a.id).unwrap().unwrap().run_id,
+            first_run_id
+        );
+        let stopped = RuntimeActivation {
+            active_silo_id: None,
+            state: RuntimeState::Stopped,
+            updated_at: Utc::now(),
+            ..running
+        };
+        vault.update_recent_run(&root, a.id, &stopped).unwrap();
+        assert!(vault
+            .get_recent_run(a.id)
+            .unwrap()
+            .unwrap()
+            .ended_at
+            .is_some());
+        vault.archive_silo(&root, a.id, false).unwrap();
+        assert!(vault.get_recent_run(a.id).unwrap().is_some());
+
+        vault.lock();
+        assert!(matches!(vault.list_recent_runs(), Err(VaultError::Locked)));
+        assert!(matches!(
+            vault.get_recent_run(a.id),
+            Err(VaultError::Locked)
+        ));
+        vault.unlock(&root, "recent run test passphrase").unwrap();
+        assert_eq!(
+            vault.get_recent_run(a.id).unwrap().unwrap().run_id,
+            first_run_id
+        );
+        vault.delete_silo(&root, a.id, false, true).unwrap();
+        assert!(vault.get_recent_run(a.id).unwrap().is_none());
+        assert!(vault.get_recent_run(b.id).unwrap().is_some());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recent_run_rejects_cross_runtime_evidence_without_rewriting_vault() {
+        let root = temporary_root();
+        fs::create_dir_all(&root).unwrap();
+        let mut vault = VaultRuntime::default();
+        vault
+            .initialize(&root, "recent binding passphrase")
+            .unwrap();
+        let silo = create_direct_silo(&root, &mut vault, "A");
+        vault.begin_recent_run(&root, &silo).unwrap();
+        let first = RuntimeNetworkEvidence::configured(&silo.network_profile, false);
+        let mut activation = RuntimeActivation {
+            active_silo_id: Some(silo.id),
+            state: RuntimeState::Running,
+            updated_at: Utc::now(),
+            message: None,
+            browser_verification: None,
+            engine_evidence: None,
+            network_evidence: Some(first),
+            identity_evidence: None,
+        };
+        vault
+            .update_recent_run(&root, silo.id, &activation)
+            .unwrap();
+        let before = fs::read(super::vault_path(&root)).unwrap();
+        activation.network_evidence = Some(RuntimeNetworkEvidence::configured(
+            &silo.network_profile,
+            false,
+        ));
+        assert!(matches!(
+            vault.update_recent_run(&root, silo.id, &activation),
+            Err(VaultError::InvalidData)
+        ));
+        assert_eq!(fs::read(super::vault_path(&root)).unwrap(), before);
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn minimal_remote_state(silo_id: Uuid) -> RemoteVaultState {
@@ -5355,6 +5713,7 @@ mod tests {
             proxy_credentials: Default::default(),
             mihomo_controller_secrets: Default::default(),
             network_evidence: Vec::new(),
+            recent_runs: Default::default(),
             remote_control_plane: RemoteVaultState::default(),
         })
         .expect("serialize legacy vault data");
@@ -5576,7 +5935,13 @@ mod tests {
                 &serde_json::to_vec(&payload).expect("serialize valid payload")
             )
             .is_ok());
-            for field in expected_fields {
+            let required_fields = if schema_version == VAULT_DATA_SCHEMA_VERSION {
+                // recentRuns was added compatibly: existing schema-9 Vaults omit it.
+                super::VAULT_DATA_REQUIRED_FIELDS_V9
+            } else {
+                expected_fields
+            };
+            for field in required_fields {
                 let mut missing = payload.clone();
                 missing
                     .as_object_mut()

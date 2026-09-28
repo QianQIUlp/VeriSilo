@@ -6,7 +6,7 @@ import {
   type SiloNetworkEvidence,
 } from "../../desktop-api.js";
 
-import { type Silo } from "@verisilo/contracts";
+import { type RecentRunRecord, type Silo } from "@verisilo/contracts";
 
 import {
   formatDate,
@@ -23,6 +23,10 @@ import {
   ManagedStatusGroups,
 } from "../identity/IdentityDetails.js";
 
+import { identityEvidenceContext } from "../identity/evidence-diagnostics.js";
+
+import { RecentRunDetails } from "../identity/RecentRunDetails.js";
+
 import { CurrentSessionIntegrity } from "../identity/CurrentSessionIntegrity.js";
 
 import { CapabilityState } from "../../shared/components.js";
@@ -34,7 +38,7 @@ type LensKind = "identity" | "network" | "session" | "configuration";
 const lensTitles: Record<LensKind, string> = {
   identity: "身份观测",
   network: "网络与技术证据",
-  session: "当前运行",
+  session: "运行与记录",
   configuration: "身份与配置",
 };
 
@@ -56,6 +60,8 @@ export const SiloScene = memo(function SiloScene({
   managedEngineReady,
   networkEvidence,
   identityPreview,
+  recentRun = null,
+  recentRunsError = null,
   storageBytes,
   lens,
   openLens,
@@ -82,6 +88,8 @@ export const SiloScene = memo(function SiloScene({
   managedEngineReady: boolean;
   networkEvidence: SiloNetworkEvidence[];
   identityPreview: ManagedIdentityPreview | undefined;
+  recentRun?: RecentRunRecord | null;
+  recentRunsError?: string | null;
   storageBytes: number | null | undefined;
   lens: LensKind | null;
   openLens: (next: LensKind, trigger: HTMLButtonElement) => void;
@@ -112,11 +120,10 @@ export const SiloScene = memo(function SiloScene({
     ["verification_failed", "failed", "recovery_required"].includes(
       runtimeState,
     );
-  const evidence =
-    runtimeActivation.identityEvidence?.siloId === silo.id
-      ? runtimeActivation.identityEvidence
-      : null;
-  const evidenceState = evidence?.state ?? "unavailable";
+  const evidenceContext = identityEvidenceContext(runtimeActivation, silo);
+  const evidence = evidenceContext.evidence;
+  const evidenceState = evidence === null ? "unavailable"
+    : evidenceContext.current ? evidence.state : "stale";
   return (
     <article
       className={`silo-scene ${isActive ? `is-active state-${runtimeState}` : "state-idle"}`}
@@ -225,7 +232,9 @@ export const SiloScene = memo(function SiloScene({
               <small>身份观测</small>
               <strong>
                 {managedCamoufox
-                  ? identityEvidenceLabels[evidenceState][0]
+                  ? evidence !== null && !evidenceContext.current
+                    ? evidenceContext.scopeLabel
+                    : identityEvidenceLabels[evidenceState][0]
                   : "跟随本机"}
               </strong>
               <em key={evidence?.observedAt ?? "none"}>
@@ -274,11 +283,11 @@ export const SiloScene = memo(function SiloScene({
               ◎
             </span>
             <span>
-              <small>当前运行</small>
+              <small>{isActive ? "当前运行" : "最近运行"}</small>
               <strong>
-                {isActive ? activationStatusLabel(runtimeState) : "尚未开启"}
+                {isActive ? activationStatusLabel(runtimeState) : recentRunsError !== null ? "记录不可用" : recentRun ? "已有记录" : "暂无记录"}
               </strong>
-              <em>{isActive ? "查看本次运行" : "浏览器尚未运行"}</em>
+              <em>{isActive ? "查看本次运行" : recentRun ? "查看最后保存的状态" : "查看记录状态"}</em>
             </span>
             <b aria-hidden="true">↗</b>
           </button>
@@ -294,9 +303,10 @@ export const SiloScene = memo(function SiloScene({
                 blockedByRunning ||
                 (isActive && !canStop && !canClear)
               }
-              onClick={() =>
-                void (canStop || canClear ? onStop(silo) : onLaunch(silo))
-              }
+              onClick={() => {
+                choose(index);
+                void (canStop || canClear ? onStop(silo) : onLaunch(silo));
+              }}
               title={blockedByRunning ? "一次只能打开一个 Silo" : undefined}
               type="button"
             >
@@ -456,6 +466,8 @@ export const SiloScene = memo(function SiloScene({
                   activation={runtimeActivation}
                   managedEngineReady={managedEngineReady}
                   silo={silo}
+                  onInspectIdentity={(trigger) => openLens("identity", trigger)}
+                  onInspectNetwork={(trigger) => openLens("network", trigger)}
                 />
               ) : (
                 <div className="session-resting">
@@ -463,14 +475,19 @@ export const SiloScene = memo(function SiloScene({
                   <h3>
                     {isActive
                       ? activationStatusLabel(runtimeState)
-                      : "这个身份还没有开始运行"}
+                      : "这个身份当前未运行"}
                   </h3>
                   <p>
                     {isActive
                       ? "用完后关闭浏览器窗口。"
-                      : "打开浏览器后，在这里查看本次运行。"}
+                      : "打开浏览器后，在这里查看当前运行；已保存的记录在下方。"}
                   </p>
                 </div>
+              )}
+              {recentRunsError !== null ? (
+                <p role="status">最近运行记录暂不可用：{recentRunsError}</p>
+              ) : (
+                <RecentRunDetails silo={silo} record={recentRun} />
               )}
             </div>
           ) : null}
@@ -590,6 +607,8 @@ export function SiloList({
   runtimeState,
   silos,
   identityPreviews,
+  recentRuns = {},
+  recentRunsError = null,
   storageUsage,
 }: {
   activation: string | null;
@@ -613,6 +632,8 @@ export function SiloList({
   runtimeState: DesktopStatus["activation"]["state"];
   silos: Silo[];
   identityPreviews: Record<string, ManagedIdentityPreview>;
+  recentRuns?: Record<string, RecentRunRecord>;
+  recentRunsError?: string | null;
   storageUsage: Record<string, number | null>;
 }) {
   const [selectedId, setSelectedId] = useState<string>();
@@ -730,6 +751,8 @@ export function SiloList({
                   choose={choose}
                   closeLens={closeLens}
                   identityPreview={identityPreviews[silo.id]}
+                  recentRun={recentRuns[silo.id] ?? null}
+                  recentRunsError={recentRunsError}
                   index={index}
                   isActive={activation === silo.id}
                   isLaunching={launchingSiloId === silo.id}

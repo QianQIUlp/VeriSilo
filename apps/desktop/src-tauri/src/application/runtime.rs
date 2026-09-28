@@ -57,6 +57,65 @@ pub(crate) fn publish_runtime_status(
     let _ = native_host::write_runtime_status_snapshot(&state.root, activation, vault);
 }
 
+fn save_recent_run(
+    state: &DesktopCore,
+    silo_id: Uuid,
+    activation: &RuntimeActivation,
+) -> Result<(), String> {
+    let mut vault = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    vault
+        .update_recent_run(&state.root, silo_id, activation)
+        .map(|_| ())
+        .map_err(|error| format!("最近运行记录保存失败：{error}"))
+}
+
+fn report_recent_run_error(error: &str) {
+    eprintln!("recent run snapshot unavailable: {error}");
+}
+
+fn save_recent_run_from_status(
+    state: &DesktopCore,
+    activation: &RuntimeActivation,
+) -> Result<(), String> {
+    let silo_id = if let Some(id) = activation.active_silo_id {
+        id
+    } else {
+        let runtime = state
+            .runtime
+            .lock()
+            .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
+        match runtime.recorded_silo_id() {
+            Some(id) => id,
+            None => return Ok(()),
+        }
+    };
+    let mut vault = state
+        .vault
+        .lock()
+        .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
+    if !matches!(vault.status(&state.root).state, VaultLockState::Unlocked) {
+        return Ok(());
+    }
+    let Some(record) = vault
+        .get_recent_run(silo_id)
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(());
+    };
+    // A global stopped record cannot be attributed to a newer failed launch
+    // whose runtime never acquired its own ID.
+    if activation.active_silo_id.is_none() && record.runtime_id.is_none() {
+        return Ok(());
+    }
+    vault
+        .update_recent_run(&state.root, silo_id, activation)
+        .map(|_| ())
+        .map_err(|error| format!("最近运行记录保存失败：{error}"))
+}
+
 pub(crate) fn reconcile_runtime_if_possible(
     vault: &mut VaultRuntime,
     runtime: &mut RuntimeManager,
@@ -82,6 +141,8 @@ pub(crate) struct DesktopStatus {
     pub(crate) activation: RuntimeActivation,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) website_identity: Option<website_identity::WebsiteIdentityObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) recent_runs_warning: Option<&'static str>,
 }
 
 pub(crate) fn desktop_status(state: &DesktopCore) -> Result<DesktopStatus, String> {
@@ -276,11 +337,22 @@ pub(super) fn desktop_status_with_refresh(
         environment_runtime.reconciled = false;
     }
     activation = effective_runtime_activation(&state, &vault_status, activation)?;
+    let recent_runs_warning = if matches!(vault_status.state, VaultLockState::Unlocked) {
+        save_recent_run_from_status(state, &activation)
+            .err()
+            .map(|error| {
+                report_recent_run_error(&error);
+                "save_failed"
+            })
+    } else {
+        None
+    };
     publish_runtime_status(&state, &activation, &vault_status);
     Ok(DesktopStatus {
         vault: vault_status,
         activation,
         website_identity,
+        recent_runs_warning,
     })
 }
 
@@ -322,6 +394,7 @@ pub(crate) fn diagnostic_status_for_silo(
                 vault: vault_status,
                 activation,
                 website_identity: None,
+                recent_runs_warning: None,
             });
         }
     }
@@ -378,6 +451,10 @@ pub(crate) fn recheck_silo_runtime(
                     mihomo_authentication.as_ref(),
                 )
                 .map_err(|error| error.to_string())?;
+            drop(runtime);
+            if let Err(error) = save_recent_run(state, silo_id, &activation) {
+                report_recent_run_error(&error);
+            }
             publish_runtime_status(&state, &activation, &vault_status);
             Ok(activation)
         }
@@ -526,6 +603,7 @@ pub(crate) fn stop_silo_with(
         let activation = runtime
             .stop_managed_camoufox(silo_id)
             .map_err(managed_launcher_error)?;
+        drop(runtime);
         publish_runtime_status(state, &activation, &vault_status);
         return Ok(activation);
     }
@@ -622,6 +700,10 @@ pub(crate) fn stop_silo_with(
             let activation = runtime
                 .stop_managed_camoufox(silo_id)
                 .map_err(managed_launcher_error)?;
+            drop(runtime);
+            if let Err(error) = save_recent_run(state, silo_id, &activation) {
+                report_recent_run_error(&error);
+            }
             publish_runtime_status(&state, &activation, &vault_status);
             Ok(activation)
         }
@@ -671,6 +753,10 @@ pub(crate) fn rebind_silo_mihomo(
             mihomo_authentication.as_ref(),
         )
         .map_err(|error| error.to_string())?;
+    drop(runtime);
+    if let Err(error) = save_recent_run(state, silo_id, &activation) {
+        report_recent_run_error(&error);
+    }
     publish_runtime_status(&state, &activation, &vault_status);
     Ok(activation)
 }
@@ -742,13 +828,33 @@ pub(crate) fn launch_silo_with(
             let silo = vault
                 .mark_silo_identity_locked(&state.root, silo_id)
                 .map_err(|error| error.to_string())?;
+            if matches!(silo.adapter_id(), EngineAdapterId::StockChrome | EngineAdapterId::StockEdge | EngineAdapterId::Camoufox) {
+                vault.begin_recent_run(&state.root, &silo)
+                    .map_err(|error| error.to_string())?;
+            }
             if silo.adapter_id() == EngineAdapterId::Camoufox {
-                vault
-                    .materialize_identity_artifact(&state.root, silo_id)
-                    .map_err(managed_vault_error)?;
+                if let Err(error) = vault.materialize_identity_artifact(&state.root, silo_id) {
+                    let failure = RuntimeActivation {
+                        active_silo_id: None,
+                        state: RuntimeState::Failed,
+                        updated_at: Utc::now(),
+                        message: None,
+                        browser_verification: None,
+                        engine_evidence: None,
+                        network_evidence: None,
+                        identity_evidence: None,
+                    };
+                    vault
+                        .update_recent_run(&state.root, silo_id, &failure)
+                        .map_err(|save_error| {
+                            format!("{error}; 最近运行记录保存失败：{save_error}")
+                        })?;
+                    return Err(managed_vault_error(error).into());
+                }
             }
             vault_status = vault.status(&state.root);
             drop(vault);
+            let launch_started_at = Utc::now();
             match runtime.launch_with_identity_deriver(
                 &silo,
                 &managed_profile_directories,
@@ -760,11 +866,26 @@ pub(crate) fn launch_silo_with(
             ) {
                 Ok(activation) => {
                     drop(runtime);
+                    if let Err(error) = save_recent_run(state, silo_id, &activation) {
+                        report_recent_run_error(&error);
+                    }
                     publish_runtime_status(&state, &activation, &vault_status);
                     Ok(activation)
                 }
                 Err(error) => {
                     let activation = runtime.activation();
+                    drop(runtime);
+                    // Early launch rejection may leave the previous activation intact.
+                    // Never attach that previous run to the new attempt's declaration.
+                    let failed_snapshot = if activation.updated_at < launch_started_at ||
+                        !matches!(activation.state, RuntimeState::Failed | RuntimeState::VerificationFailed | RuntimeState::RecoveryRequired) {
+                        RuntimeActivation { state: RuntimeState::Failed, ..RuntimeActivation::idle() }
+                    } else {
+                        activation.clone()
+                    };
+                    if let Err(save_error) = save_recent_run(state, silo_id, &failed_snapshot) {
+                        report_recent_run_error(&save_error);
+                    }
                     publish_runtime_status(&state, &activation, &vault_status);
                     Err(if managed_camoufox {
                         LaunchFailure::Managed(managed_launcher_failure(error))

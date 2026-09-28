@@ -4,9 +4,9 @@ use crate::application::{
 };
 use crate::domain::{
     BrowserCandidate, BrowserVerification, CreateManagedSiloInput, CreateSiloInput,
-    ManagedIdentityPreview, RuntimeActivation, Silo, SiloStorageUsage, SiloStorageUsageSummary,
-    UpdateManagedIdentityInput, UpdateSiloEngineInput, UpdateSiloInput, UpdateSiloNetworkInput,
-    VaultStatus,
+    ManagedIdentityPreview, RecentRunRecord, RuntimeActivation, Silo, SiloStorageUsage,
+    SiloStorageUsageSummary, UpdateManagedIdentityInput, UpdateSiloEngineInput, UpdateSiloInput,
+    UpdateSiloNetworkInput, VaultStatus,
 };
 use crate::engine::{EngineAdapterId, EngineMaintenanceReceipt, EnginePackageRequest};
 use crate::environment::backend::{
@@ -583,6 +583,19 @@ pub(crate) async fn list_active_silos(app: AppHandle) -> Result<Vec<Silo>, Strin
 #[tauri::command]
 pub(crate) async fn list_archived_silos(app: AppHandle) -> Result<Vec<Silo>, String> {
     run_blocking(app, application::list_archived_silos).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_recent_runs(app: AppHandle) -> Result<Vec<RecentRunRecord>, String> {
+    run_blocking(app, application::list_recent_runs).await
+}
+
+#[tauri::command]
+pub(crate) async fn get_recent_run(
+    app: AppHandle,
+    silo_id: Uuid,
+) -> Result<Option<RecentRunRecord>, String> {
+    run_blocking(app, move |core| application::get_recent_run(core, silo_id)).await
 }
 
 #[tauri::command]

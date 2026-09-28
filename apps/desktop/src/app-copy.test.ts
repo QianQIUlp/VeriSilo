@@ -79,9 +79,9 @@ describe("desktop product copy", () => {
   it("exposes inspect-identity copy without backend fingerprint jargon", () => {
     expect(appSource).toContain("检查身份");
     expect(appSource).toContain("网站会读到什么");
-    expect(appSource).toContain("这次没读到");
-    expect(appSource).toContain("写入这套浏览器的值");
-    expect(appSource).toContain("页面脚本实际读到的值");
+    expect(appSource).toContain("这处还没有正式运行身份观察");
+    expect(appSource).toContain("期望值与观察值来自正式运行证据");
+    expect(appSource).toContain("差异判断由 Host 给出");
     expect(appSource).toContain("查看页面读到的身份");
     expect(appSource).toContain("${shortName} identity");
     expect(appSource).toContain("${shortName} app open");
@@ -350,7 +350,8 @@ describe("desktop product copy", () => {
     expect(appSource).toContain(
       'engineEvidence?.verifiedAdapter === "camoufox"',
     );
-    expect(appSource).toContain('networkEvidence.exit === "observed"');
+    expect(appSource).toContain("deriveNetworkRow(activation, silo, now)");
+    expect(appSource).toContain("<NetworkEvidenceDetails");
   });
 
 });

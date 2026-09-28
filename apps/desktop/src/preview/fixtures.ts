@@ -140,7 +140,8 @@ export function previewIdentityEvidence(
       silo.engine.adapter === "camoufox"
         ? silo.engine.artifactBinding!.artifactId
         : "preview-artifact",
-    artifactFileSha256: "b".repeat(64),
+    artifactFileSha256: silo.engine.adapter === "camoufox"
+      ? silo.engine.artifactBinding!.artifactFileSha256 : "b".repeat(64),
     engineAdapter: "camoufox",
     observedAt: new Date(
       Date.now() - (state === "stale" ? 3600000 : 10000),
@@ -196,8 +197,42 @@ export function previewIdentityEvidence(
               expected: null,
               observed: null,
               state: "unavailable",
-              reason: "字体跟随本机，不参与匹配判断。",
+              reason: "当前身份没有可直接比较的字体宽度期望值。",
             },
           ],
+  };
+}
+
+/** Consistent synthetic bindings for product interaction checks only. */
+export function previewRuntimeActivation(silo: Silo): DesktopStatus["activation"] {
+  const now = new Date().toISOString();
+  const managed = silo.engine.adapter === "camoufox";
+  const adapter = managed ? "camoufox" : silo.browser?.kind === "edge" ? "stock-edge" : "stock-chrome";
+  const proxy = silo.networkProfile.mode !== "direct";
+  return {
+    activeSiloId: silo.id, state: "running", updatedAt: now, message: null,
+    identityEvidence: managed ? previewIdentityEvidence(silo) : null,
+    engineEvidence: {
+      configuredAdapter: adapter, launchedAdapter: adapter, verifiedAdapter: null,
+      packageVerification: managed ? "configured" : "not_applicable",
+      packageVerificationDetails: null,
+      bootstrapDelivery: "applied", hostLaunch: "observed",
+      runtimeReceipts: "observed", restoreReceipt: "not_applicable",
+      capabilities: [], phaseReceipts: [], fallbackReceipts: [],
+    },
+    networkEvidence: {
+      runtimeId: "22222222-2222-4222-8222-222222222222",
+      evidenceId: "44444444-4444-4444-8444-444444444444",
+      observedAt: now, expiresAt: new Date(Date.now() + 300000).toISOString(),
+      provenance: "desktop_control_plane",
+      provider: silo.networkProfile.mode === "fixed_proxy" && silo.networkProfile.externalMihomo
+        ? "external_mihomo" : silo.networkProfile.mode,
+      configuration: "configured", controllerBinding: "not_applicable",
+      endpoint: proxy ? "reachable" : "not_applicable",
+      authentication: "not_applicable", authenticationProvenance: "desktop_control_plane",
+      browserRouting: proxy ? "applied" : "not_applicable", exit: "observed",
+      dns: "unavailable", webRtc: "unavailable", safeguards: [],
+      endpointLabel: proxy ? "预览代理节点（非出口 IP）" : "直连",
+    },
   };
 }
