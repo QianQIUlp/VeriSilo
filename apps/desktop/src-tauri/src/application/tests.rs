@@ -482,7 +482,10 @@ fn status_health_releases_vault_and_rechecks_expiry_before_returning() {
         release_health.send(()).unwrap();
         let status = status_worker.join().unwrap().unwrap();
         list_worker.join().unwrap();
-        assert!(!lifecycle_reserved, "status health must not reserve every Silo lifecycle");
+        assert!(
+            !lifecycle_reserved,
+            "status health must not reserve every Silo lifecycle"
+        );
         assert!(
             read_while_health_waits.unwrap().unwrap().is_empty(),
             "Vault reads must not wait for runtime health"
@@ -578,7 +581,12 @@ fn diagnostic_runtime_contention_does_not_hold_vault_or_probe_another_silo() {
     let diagnostic_core = Arc::clone(&core);
     let (diagnosed_tx, diagnosed) = mpsc::channel();
     let diagnostic_worker = thread::spawn(move || {
-        diagnosed_tx.send(super::runtime::diagnostic_status_for_silo(&diagnostic_core, target_id)).unwrap();
+        diagnosed_tx
+            .send(super::runtime::diagnostic_status_for_silo(
+                &diagnostic_core,
+                target_id,
+            ))
+            .unwrap();
     });
     let target_while_other_runtime_busy = diagnosed.recv_timeout(Duration::from_secs(2));
     let (listed_tx, listed) = mpsc::channel();
@@ -590,7 +598,9 @@ fn diagnostic_runtime_contention_does_not_hold_vault_or_probe_another_silo() {
     // Release even on regression, so failed assertions cannot strand workers.
     drop(runtime_guard);
     diagnostic_worker.join().unwrap();
-    let diagnostic = target_while_other_runtime_busy.expect("target diagnosis must not wait for another runtime").unwrap();
+    let diagnostic = target_while_other_runtime_busy
+        .expect("target diagnosis must not wait for another runtime")
+        .unwrap();
     list_worker.join().unwrap();
 
     assert_eq!(read_while_runtime_waits.unwrap().unwrap().len(), 1);
@@ -994,7 +1004,10 @@ fn recent_run_status_reconciles_stop_and_reports_save_failure_without_hiding_run
     fs::rename(root.join("vault.json"), root.join("vault.saved")).unwrap();
     fs::create_dir(root.join("vault.json")).unwrap();
     let status = desktop_status_with(&core).unwrap();
-    assert_eq!(status.activation.as_ref().unwrap().state, RuntimeState::Stopped);
+    assert_eq!(
+        status.activation.as_ref().unwrap().state,
+        RuntimeState::Stopped
+    );
     assert_eq!(status.recent_runs_warning, Some("save_failed"));
     assert_eq!(
         core.vault
@@ -1024,14 +1037,103 @@ fn recent_run_status_reconciles_stop_and_reports_save_failure_without_hiding_run
 }
 
 #[test]
+fn old_managed_slot_cannot_stop_a_new_legacy_run_of_the_same_silo() {
+    use super::{initialize_vault_with, runtime::save_recent_run_from_session, DesktopCore};
+    use crate::domain::{RuntimeActivation, RuntimeNetworkEvidence, RuntimeState};
+
+    let root = temporary_root("recent-run-same-silo-runtime-owner");
+    fs::create_dir_all(root.join("runtime")).unwrap();
+    let passphrase = "same Silo runtime owner passphrase";
+    let (silo_id, current_runtime_id) = {
+        let core = DesktopCore::open(root.clone(), root.join("resources"));
+        initialize_vault_with(&core, passphrase).unwrap();
+        let silo = recent_run_test_silo(&core, "A");
+        let evidence = RuntimeNetworkEvidence::configured(&silo.network_profile, false);
+        let current_runtime_id = evidence.runtime_id;
+        let mut vault = core.vault.lock().unwrap();
+        vault.begin_recent_run(&root, &silo).unwrap();
+        vault
+            .update_recent_run(
+                &root,
+                silo.id,
+                &RuntimeActivation {
+                    active_silo_id: Some(silo.id),
+                    state: RuntimeState::Running,
+                    network_evidence: Some(evidence),
+                    ..RuntimeActivation::idle()
+                },
+            )
+            .unwrap();
+        (silo.id, current_runtime_id)
+    };
+    let now = Utc::now();
+    for (path, runtime_id, state) in [
+        (
+            crate::launcher::local_runtime_record_path(&root, silo_id),
+            Uuid::new_v4(),
+            "stopped",
+        ),
+        (
+            root.join("runtime/browser-session.json"),
+            current_runtime_id,
+            "running",
+        ),
+    ] {
+        fs::write(
+            path,
+            serde_json::to_vec(&serde_json::json!({
+                "siloId": silo_id,
+                "runtimeId": runtime_id,
+                "pid": u32::MAX,
+                "startedAt": now,
+                "lastSeenAt": now,
+                "state": state,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+    let core = DesktopCore::open(root.clone(), root.join("resources"));
+    core.vault
+        .lock()
+        .unwrap()
+        .unlock(&root, passphrase)
+        .unwrap();
+    let stale_slot = core.local_runtimes.snapshot_for(silo_id).unwrap();
+    assert_eq!(stale_slot.activation.state, RuntimeState::Stopped);
+    assert!(std::sync::Arc::ptr_eq(
+        &core.local_runtimes.get(silo_id).unwrap(),
+        &core.runtime
+    ));
+    save_recent_run_from_session(&core, &stale_slot).unwrap();
+    let recent = core
+        .vault
+        .lock()
+        .unwrap()
+        .get_recent_run(silo_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(recent.state, RuntimeState::Running);
+    assert_eq!(recent.runtime_id, Some(current_runtime_id));
+    drop(core);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn silo_reservations_allow_independent_targets_and_exclude_global_replacement() {
     let control = LocalEnvironmentControl::default();
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
     let first = control.reserve_silo(a).unwrap();
     let second = control.reserve_silo(b).unwrap();
-    assert!(control.reserve_silo(a).is_err(), "duplicate target operation must fail immediately");
-    assert!(matches!(control.reservation.try_write(), Err(TryLockError::WouldBlock)));
+    assert!(
+        control.reserve_silo(a).is_err(),
+        "duplicate target operation must fail immediately"
+    );
+    assert!(matches!(
+        control.reservation.try_write(),
+        Err(TryLockError::WouldBlock)
+    ));
     drop(first);
     let restarted = control.reserve_silo(a).unwrap();
     drop(restarted);
@@ -1049,17 +1151,34 @@ fn global_replacement_and_engine_maintenance_reject_per_silo_recovery() {
         serde_json::to_vec(&serde_json::json!({
             "siloId": id, "runtimeId": Uuid::new_v4(), "pid": std::process::id(),
             "startedAt": Utc::now(), "lastSeenAt": Utc::now(), "state": "running"
-        })).unwrap(),
-    ).unwrap();
+        }))
+        .unwrap(),
+    )
+    .unwrap();
     let core = super::DesktopCore::open(root.clone(), root.join("resources"));
     super::initialize_vault_with(&core, "synthetic global boundary passphrase").unwrap();
-    assert!(core.runtime.lock().unwrap().cached_activation().active_silo_id.is_none());
-    let engine_error = super::rollback_engine_package(&core, crate::engine::EngineAdapterId::Camoufox)
-        .unwrap_err();
+    assert!(core
+        .runtime
+        .lock()
+        .unwrap()
+        .cached_activation()
+        .active_silo_id
+        .is_none());
+    let engine_error =
+        super::rollback_engine_package(&core, crate::engine::EngineAdapterId::Camoufox)
+            .unwrap_err();
     assert!(engine_error.contains("Stop all Silos"), "{engine_error}");
-    let restore_error = super::restore_vault(&core, root.join("absent.backup").display().to_string(),
-        "synthetic backup passphrase".to_owned(), true).unwrap_err();
-    assert!(restore_error.contains("every local Silo"), "{restore_error}");
+    let restore_error = super::restore_vault(
+        &core,
+        root.join("absent.backup").display().to_string(),
+        "synthetic backup passphrase".to_owned(),
+        true,
+    )
+    .unwrap_err();
+    assert!(
+        restore_error.contains("every local Silo"),
+        "{restore_error}"
+    );
     assert!(crate::launcher::local_runtime_record_path(&root, id).is_file());
     drop(core);
     fs::remove_dir_all(root).unwrap();

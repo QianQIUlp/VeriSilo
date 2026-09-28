@@ -471,6 +471,18 @@ impl LocalRuntimeSet {
             .map(|slot| slot.snapshot())
     }
 
+    pub(crate) fn slot_recorded_runtime_id(&self, silo_id: Uuid) -> Option<Uuid> {
+        let slot = self
+            .slots
+            .lock()
+            .ok()
+            .and_then(|slots| slots.get(&silo_id).cloned())?;
+        slot.runtime
+            .try_lock()
+            .ok()
+            .and_then(|runtime| runtime.recorded_runtime_id())
+    }
+
     pub(crate) fn update(
         &self,
         silo_id: Uuid,

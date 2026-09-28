@@ -254,7 +254,7 @@ fn save_recent_run_from_status(
         .map_err(|error| format!("最近运行记录保存失败：{error}"))
 }
 
-fn save_recent_run_from_session(
+pub(super) fn save_recent_run_from_session(
     state: &DesktopCore,
     session: &RuntimeSessionStatus,
 ) -> Result<(), String> {
@@ -273,13 +273,7 @@ fn save_recent_run_from_session(
         .or_else(|| {
             state
                 .local_runtimes
-                .get(session.silo_id)
-                .and_then(|runtime| {
-                    runtime
-                        .try_lock()
-                        .ok()
-                        .and_then(|runtime| runtime.recorded_runtime_id())
-                })
+                .slot_recorded_runtime_id(session.silo_id)
         });
     let Some(runtime_id) = runtime_id else {
         return Ok(());
