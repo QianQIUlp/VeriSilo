@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const profile = "managed-browser-windows";
+const cliExecutable = "verisilo-cli.exe";
 const releaseVersionPattern = /^v[0-9]+\.[0-9]+\.[0-9]+-rc[0-9]+$/u;
 function installerNameFor(releaseVersion) {
   return `VeriSilo-Managed-Browser-${releaseVersion}-x64-setup.exe`;
@@ -43,6 +44,7 @@ const lifecycleNames = [
 function requiredFilesFor(installerName) {
   return new Set([
     "verisilo.exe",
+    cliExecutable,
     installerName,
     "README.txt",
     "LICENSE",
@@ -145,10 +147,10 @@ function assertReleaseShape(files, installerName) {
     .sort();
   if (
     JSON.stringify(executablePaths) !==
-    JSON.stringify([installerName, "verisilo.exe"].sort())
+    JSON.stringify([installerName, "verisilo.exe", cliExecutable].sort())
   ) {
     fail(
-      "Managed-browser release must stage only verisilo.exe and its NSIS installer.",
+      "Managed-browser release must stage only verisilo.exe, verisilo-cli.exe, and its NSIS installer.",
     );
   }
   if (
@@ -652,13 +654,33 @@ function selfTest() {
     expectedSignerCertificateSha256: null,
     files: [
       { path: "verisilo.exe", status: "NotSigned" },
+      { path: cliExecutable, status: "NotSigned" },
       { path: installerName, status: "NotSigned" },
     ],
   };
   verifyAuthenticodeReport(report, [
     { path: "verisilo.exe" },
+    { path: cliExecutable },
     { path: installerName },
   ]);
+  let extraExecutableRejected = false;
+  try {
+    assertReleaseShape(
+      [
+        ...[...requiredFilesFor(installerName)].map((filePath) => ({
+          path: filePath,
+        })),
+        { path: "engine-package/camoufox.exe" },
+        { path: "sbom/unexpected.exe" },
+      ],
+      installerName,
+    );
+  } catch {
+    extraExecutableRejected = true;
+  }
+  if (!extraExecutableRejected) {
+    fail("Managed-browser verifier self-test accepted an unexpected executable.");
+  }
   const packageInfo = {
     manifestSha256: "a".repeat(64),
     packageTreeSha256: "b".repeat(64),

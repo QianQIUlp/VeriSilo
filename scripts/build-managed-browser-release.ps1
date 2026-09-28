@@ -19,6 +19,7 @@ $installerName = $null
 $targetRoot = Join-Path $root 'apps/desktop/src-tauri/target'
 $stagedPackage = Join-Path $targetRoot 'verisilo-managed-browser-resources/engine-package'
 $desktopBinary = Join-Path $targetRoot "$TargetTriple/release/verisilo.exe"
+$cliBinary = Join-Path $targetRoot "$TargetTriple/release/verisilo-cli.exe"
 $nsisDirectory = Join-Path $targetRoot "$TargetTriple/release/bundle/nsis"
 $verifier = Join-Path $root 'scripts/verify-managed-browser-release.mjs'
 $packageBuilder = Join-Path $root 'scripts/build-camoufox-host-package.py'
@@ -260,6 +261,9 @@ Invoke-Checked 'pnpm' @(
 if (-not (Test-Path -LiteralPath $desktopBinary -PathType Leaf)) {
   throw "Tauri did not produce $desktopBinary"
 }
+if (-not (Test-Path -LiteralPath $cliBinary -PathType Leaf)) {
+  throw "Tauri did not produce $cliBinary"
+}
 $installers = @(Get-ChildItem -LiteralPath $nsisDirectory -Filter '*.exe' -File)
 if ($installers.Count -ne 1) {
   throw "Expected exactly one managed-browser NSIS installer, found $($installers.Count)."
@@ -267,6 +271,7 @@ if ($installers.Count -ne 1) {
 
 New-Item -ItemType Directory -Force -Path $releasePath | Out-Null
 Copy-Item -LiteralPath $desktopBinary -Destination (Join-Path $releasePath 'verisilo.exe')
+Copy-Item -LiteralPath $cliBinary -Destination (Join-Path $releasePath 'verisilo-cli.exe')
 Copy-Item -LiteralPath $installers[0].FullName -Destination (Join-Path $releasePath $installerName)
 Write-Utf8NoBom -Path (Join-Path $releasePath 'README.txt') -Content @"
 VeriSilo Managed Browser candidate $releaseVersion
@@ -276,14 +281,14 @@ This candidate is a self-contained Windows x64 build for local evaluation. It
 bundles the current CMS-signed Camoufox engine package; the target computer
 does not need Git, Python, uv, Node, Rust, or a separately installed Camoufox.
 
-The release folder contains verisilo.exe, the exact current-user NSIS installer
+The release folder contains verisilo.exe, verisilo-cli.exe, the exact current-user NSIS installer
 $installerName, the signed engine-package/ tree, SHA256SUMS, provenance.json,
 authenticode-status.json, pending windows-acceptance-report.json/.md, SBOM and
 license evidence, LICENSE, and THIRD_PARTY_NOTICES.md. It contains no Hyper-V
 or environment files, extension files, Native Host binaries, or installer
 hooks.
 
-The installer and verisilo.exe are intentionally outer-unsigned for this local
+The installer, verisilo.exe, and verisilo-cli.exe are intentionally outer-unsigned for this local
 candidate; authenticode-status.json records that unsigned boundary. The engine
 package carries a mandatory detached CMS signature and is rejected before
 launch if its signer, manifest, Host, or browser tree does not match the pin
@@ -357,7 +362,7 @@ runtime verdict. This generated report intentionally contains no runtime result.
 
 Invoke-Checked 'node' @('scripts/generate-sbom.mjs', '--out', (Join-Path $releasePath 'sbom'), '--profile', 'managed-browser-windows')
 Invoke-Checked 'pnpm' @('run', 'managed-browser:licenses', '--', '--out', (Join-Path $releasePath 'dependency-licenses.json'))
-& (Join-Path $root 'scripts/authenticode-gate.ps1') -Check -Mode Unsigned -ReleaseDirectory $releasePath -IncludeRelativePath @('verisilo.exe', $installerName) -ReportPath (Join-Path $releasePath 'authenticode-status.json')
+& (Join-Path $root 'scripts/authenticode-gate.ps1') -Check -Mode Unsigned -ReleaseDirectory $releasePath -IncludeRelativePath @('verisilo.exe', 'verisilo-cli.exe', $installerName) -ReportPath (Join-Path $releasePath 'authenticode-status.json')
 Invoke-Checked 'node' @('scripts/generate-release-metadata.mjs', '--dir', $releasePath, '--profile', 'managed-browser-windows')
 Invoke-Checked 'node' @('scripts/generate-release-metadata.mjs', '--dir', $releasePath, '--profile', 'managed-browser-windows', '--check')
 Invoke-Checked 'node' @($verifier, '--check', '--release', $releasePath, '--engine-package', $finalPackage, '--python', $Python)

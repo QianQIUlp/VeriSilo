@@ -202,9 +202,9 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
 
 用户随后授权的[本地 Managed Silo 有限并发 v1](managed-silo-concurrency-v1.md)现已实现：同一实例和 Vault 最多两个本地 Camoufox Managed，会话各自管理进程、Profile、代理中继、健康、runtimeId、证据和恢复记录。支持 Direct 与现有固定代理组合，其他引擎、运行位置及 Clash/Mihomo 仍保持单会话边界。[原生证据](qa/managed-concurrency-2026-09-28.md)覆盖 A/B 同站存储隔离、独立重观察/停止/重启、B 运行时 A 冷恢复、本地固定代理路由与单侧失败关闭、锁定及退出/重启归属。UI Preview 覆盖目标、独立 busy、迟到响应和错误；真实窗口已核对 P/Q 选择与双运行显示，90 秒自动 runtimeId 后置对照超时仍记未确认，详见[UI 记录](qa/managed-concurrency-ui-2026-09-28.md)。本地代理实验不推导公网出口或完整无泄漏；这些开发变化未进入 rc4 安装包。
 
-当前没有预选的 Camoufox、fingerprint、QA 或 release Gate，也没有已知待集成的产品代码分支。新工程任务从最新 `origin/baseline/dev` 开始，由用户提出的产品需求、真实体验问题或新的直接证据驱动；`main` 与历史 task branch 不是新任务的开发起点。
+2026-09-28 用户明确要求“直接开新的 rc 然后更新 release”，因此当前活动任务是 [RC5 发布](acceptance/managed-browser-rc5.md)，从 `86ee698e5d7d7838b29478625be71a0d905885c6` 开始。这次授权包括固定候选打包、必要安装验收和公开 prerelease；尚未发布的 RC5 不能作为当前公开版本。没有新 fingerprint Gate，也没有已知待集成的产品代码分支。
 
-不要默认重跑 FP1–FP4、开启 FP5、继续当前 Codex worktree 的 ACL 深挖、重跑已完成的性能/Managed 生命周期验收，或启动 rc5、installed-candidate acceptance 与 reassurance QA。未来若正常产品目录和正常用户上下文出现同类启动故障，再对那个确切环境采集原生证据；旧工作树失败不是当前产品 blocker。
+本次 RC5 继承未受影响的产品证据，只对实际候选增加有边界的安装检查。不要默认重跑 FP1–FP4、开启 FP5、继续当前 Codex worktree 的 ACL 深挖或重跑已完成的性能/Managed 生命周期验收。未来若正常产品目录和正常用户上下文出现同类启动故障，再对那个确切环境采集原生证据；旧工作树失败不是当前产品 blocker。
 
 近期性能与响应性工作已完成：[处置和原生 Windows 开发生命周期证据](qa/performance-architecture-2026-09-27.md)记录 Managed 创建 2.952/1.136 秒、创建期间 Vault 读取 25.9 毫秒、两次启动 25.171/13.920 秒、reobserve 1.873 秒、stop 约 1 秒，及页面 ready、122 秒存活、最终 owned processes 0。这些是有边界的开发运行证据，不是普遍性能保证或 rc4 安装验收。[目录 ACL 对照](qa/managed-engine-directory-acl-2026-09-27.md)证明继承 DACL 对当前工作树启动失败的因果作用；尚未识别具体 ACE、Windows API 错误或更深层机制。
 

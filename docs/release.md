@@ -66,6 +66,14 @@ installer `VeriSilo-Managed-Browser-v0.1.0-rc1-x64-setup.exe`. The installer is
 built with `--no-sign` and must carry an explicit `authenticode-status.json`
 showing `Unsigned`/`unsigned`; outer Authenticode is not silently inferred.
 
+Tauri builds the existing `verisilo-cli` Cargo binary alongside `verisilo` and
+bundles it beside `verisilo.exe` in the current-user NSIS install directory.
+Candidates built from the current Managed Browser release script also carry
+`verisilo-cli.exe` in the release folder for direct use and audit.
+`authenticode-status.json`, `SHA256SUMS`, and `provenance.json` cover the CLI;
+the release verifier requires exactly these two application executables and
+the versioned NSIS installer outside `engine-package/`.
+
 The Formal-v3 production package is built and internally CMS-signed under
 `artifacts/build/managed-browser/`. Its public certificate SHA-256 pin is
 embedded in the Desktop verifier; the encrypted private-key PFX remains outside
