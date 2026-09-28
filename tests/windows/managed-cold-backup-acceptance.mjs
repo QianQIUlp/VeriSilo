@@ -93,6 +93,8 @@ async function api(method, route, body) {
     },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(180_000),
+  }).catch((error) => {
+    throw new Error(`${method} ${route}: ${error.cause?.code ?? error.name}: ${error.cause?.message ?? error.message}`);
   });
   const payload = await response.json();
   if (!response.ok || payload.ok !== true) {
@@ -193,6 +195,8 @@ try {
   assert.equal(discovery.vaultName, vault);
   assert.match(discovery.url, /^http:\/\/127\.0\.0\.1:\d+\/?$/);
   step("normal-user development service started", { servicePid: discovery.pid });
+  await api("GET", "/v1/status");
+  step("normal-user development service ready");
   await api("POST", "/v1/vault/initialize", { passphrase });
   await launchFixture();
   step("isolated Vault and loopback fixture ready");
