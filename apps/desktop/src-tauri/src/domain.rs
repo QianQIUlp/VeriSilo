@@ -1361,6 +1361,19 @@ pub struct RuntimeActivation {
     pub identity_evidence: Option<RuntimeIdentityEvidence>,
 }
 
+/// Product limit, also returned to clients so admission and UI stay consistent.
+pub const LOCAL_MANAGED_SESSION_LIMIT: usize = 2;
+
+/// Ownership remains explicit after stop clears activation.active_silo_id.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSessionStatus {
+    pub silo_id: Uuid,
+    pub activation: RuntimeActivation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub website_identity: Option<crate::website_identity::WebsiteIdentityObservation>,
+}
+
 /// Separates configuration, process launch, package authenticity, bootstrap
 /// delivery, and runtime identity verification. A verified package never sets
 /// `verified_adapter`; that field requires direct runtime protocol evidence.

@@ -278,9 +278,18 @@ export interface WebsiteIdentityObservation {
 
 export interface DesktopStatus {
   vault: VaultState;
-  activation: RuntimeActivation;
+  /** Legacy projection: null when more than one session needs management. */
+  activation: RuntimeActivation | null;
+  sessions: RuntimeSessionStatus[];
+  managedSessionLimit: number;
   websiteIdentity?: WebsiteIdentityObservation | null;
   recentRunsWarning?: "save_failed" | null;
+}
+
+export interface RuntimeSessionStatus {
+  siloId: string;
+  activation: RuntimeActivation;
+  websiteIdentity?: WebsiteIdentityObservation | null;
 }
 
 export interface LocalApiInfo {
@@ -690,6 +699,9 @@ export const desktopApi = {
       passphrase,
       confirmOverwrite,
     }),
+  listRuntimeSessions: () => invoke<RuntimeSessionStatus[]>("list_runtime_sessions"),
+  getSiloRuntime: (siloId: string) =>
+    invoke<RuntimeSessionStatus>("get_silo_runtime", { siloId }),
   launchSilo: (siloId: string) =>
     invoke<RuntimeActivation>("launch_silo", { siloId }),
   stopSilo: (siloId: string) =>
