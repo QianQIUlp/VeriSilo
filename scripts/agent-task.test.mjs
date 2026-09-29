@@ -657,6 +657,15 @@ function preparePromotableTask(t, fx, { verify = true } = {}) {
 test("integration lane defines a lightweight tier distinct from the full matrix", () => {
   assert.deepEqual(LANES.integration.verifyLight, []);
   assert.ok(LANES.integration.verify.length > 0);
+  for (const command of [
+    "pnpm site:build",
+    "cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check",
+    "cargo fmt --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml -- --check",
+    "cargo fmt --manifest-path crates/verisilo-remote-backend/Cargo.toml -- --check",
+  ]) {
+    assert.ok(LANES.integration.verify.includes(command), `${command} missing`);
+  }
+  assert.ok(!LANES.integration.verify.includes("pnpm build"));
 });
 
 test("integration verify defaults to lightweight guards and skips the heavy matrix", (t) => {

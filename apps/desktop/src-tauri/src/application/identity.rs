@@ -532,8 +532,8 @@ pub(crate) fn update_managed_identity(
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let is_active = state.local_runtimes.is_in_use(silo_id)
-        || environment_runtime_is_active(state, silo_id)?;
+    let is_active =
+        state.local_runtimes.is_in_use(silo_id) || environment_runtime_is_active(state, silo_id)?;
     if is_active {
         return Err("managed_silo_active".to_owned());
     }

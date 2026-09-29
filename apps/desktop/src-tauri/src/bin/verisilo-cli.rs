@@ -41,8 +41,16 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "vault" => vault_command(&args, json_out),
         "app" => app_command(&args, json_out),
         "service" => service_command(&args, json_out),
-        "status" => print_value(api("GET", &runtime_query_path(args.get(1)), None)?, json_out, print_status),
-        "identity" => print_value(api("GET", &runtime_query_path(args.get(1)), None)?, json_out, print_identity),
+        "status" => print_value(
+            api("GET", &runtime_query_path(args.get(1)), None)?,
+            json_out,
+            print_status,
+        ),
+        "identity" => print_value(
+            api("GET", &runtime_query_path(args.get(1)), None)?,
+            json_out,
+            print_identity,
+        ),
         "sessions" => print_value(api("GET", "/v1/sessions", None)?, json_out, print_sessions),
         "silos" => print_value(api("GET", "/v1/silos", None)?, json_out, print_silos),
         "clash" => print_value(api("GET", "/v1/clash", None)?, json_out, print_clash),
@@ -842,8 +850,17 @@ fn runtime_query_path(spec: Option<&String>) -> String {
 fn print_sessions(value: &Value) -> Result<(), String> {
     if let Some(sessions) = value.as_array() {
         for session in sessions {
-            println!("{}：{}", session.get("siloId").and_then(Value::as_str).unwrap_or("unknown"),
-                session.pointer("/activation/state").and_then(Value::as_str).unwrap_or("unknown"));
+            println!(
+                "{}：{}",
+                session
+                    .get("siloId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown"),
+                session
+                    .pointer("/activation/state")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+            );
         }
     }
     Ok(())

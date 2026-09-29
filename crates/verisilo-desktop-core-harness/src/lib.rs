@@ -19,6 +19,8 @@ pub mod engine;
 pub mod environment;
 #[path = "../../../apps/desktop/src-tauri/src/launcher.rs"]
 pub mod launcher;
+#[path = "../../../apps/desktop/src-tauri/src/local_runtimes.rs"]
+pub mod local_runtimes;
 #[path = "../../../apps/desktop/src-tauri/src/managed_backup.rs"]
 pub mod managed_backup;
 #[path = "../../../apps/desktop/src-tauri/src/mihomo.rs"]
@@ -29,8 +31,6 @@ pub mod native_host;
 pub mod proxy_relay;
 #[path = "../../../apps/desktop/src-tauri/src/runtime_watchdog.rs"]
 pub mod runtime_watchdog;
-#[path = "../../../apps/desktop/src-tauri/src/local_runtimes.rs"]
-pub mod local_runtimes;
 #[path = "../../../apps/desktop/src-tauri/src/vault.rs"]
 pub mod vault;
 #[path = "../../../apps/desktop/src-tauri/src/website_identity.rs"]

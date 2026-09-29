@@ -11,12 +11,12 @@ pub mod engine;
 pub mod environment;
 pub mod launcher;
 pub mod local_api;
+mod local_runtimes;
 pub mod managed_backup;
 pub mod mihomo;
 pub mod native_host;
 pub mod proxy_relay;
 mod runtime_watchdog;
-mod local_runtimes;
 pub mod vault;
 pub mod website_identity;
 
@@ -99,7 +99,10 @@ fn exit_from_tray<R: Runtime>(app: &AppHandle<R>) {
                 if runtime.active_managed_camoufox_silo_id().is_some() {
                     can_exit &= runtime.stop_managed_camoufox(id).is_ok();
                 }
-                state.core.local_runtimes.update(id, runtime.cached_activation(), None);
+                state
+                    .core
+                    .local_runtimes
+                    .update(id, runtime.cached_activation(), None);
             }
             Err(_) => can_exit = false,
         }

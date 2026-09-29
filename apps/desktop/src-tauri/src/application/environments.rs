@@ -12,10 +12,10 @@ use crate::environment::backend::{
 use crate::environment::{EnvironmentOperationRequest, WslStatus};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::collections::HashSet;
 use std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 
@@ -60,15 +60,22 @@ impl LocalEnvironmentControl {
     }
 
     pub(crate) fn reserve_silo(&self, silo_id: Uuid) -> Result<SiloReservation<'_>, String> {
-        let global = self.reservation
+        let global = self
+            .reservation
             .read()
             .map_err(|_| "VeriSilo local environment reservation is unavailable.".to_owned())?;
-        let mut targets = self.targets.lock()
+        let mut targets = self
+            .targets
+            .lock()
             .map_err(|_| "VeriSilo local operation state is unavailable.".to_owned())?;
         if !targets.insert(silo_id) {
             return Err("This Silo already has an operation in progress.".to_owned());
         }
-        Ok(SiloReservation { _global: global, control: self, silo_id })
+        Ok(SiloReservation {
+            _global: global,
+            control: self,
+            silo_id,
+        })
     }
 }
 

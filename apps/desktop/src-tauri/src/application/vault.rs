@@ -90,7 +90,8 @@ pub(crate) fn lock_vault_with(state: &DesktopCore) -> Result<VaultStatus, String
     drop(runtime);
     drop(vault);
     for (id, handle) in state.local_runtimes.entries() {
-        let activation = handle.lock()
+        let activation = handle
+            .lock()
             .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
             .revoke_secrets_for_vault_lock();
         state.local_runtimes.update(id, activation, None);
@@ -154,7 +155,8 @@ pub(crate) fn restore_vault(
     }
     let mut session_preparations = Vec::new();
     for (id, handle) in state.local_runtimes.entries() {
-        let preparation = handle.lock()
+        let preparation = handle
+            .lock()
             .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
             .prepare_for_vault_restore()
             .ok_or_else(|| "Resolve every Silo runtime before restoring the Vault.".to_owned())?;
@@ -210,7 +212,8 @@ pub(crate) fn restore_vault(
     drop(runtime);
     drop(vault);
     for (id, handle, preparation) in session_preparations {
-        let activation = handle.lock()
+        let activation = handle
+            .lock()
             .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?
             .complete_successful_vault_restore(preparation);
         state.local_runtimes.update(id, activation, None);
