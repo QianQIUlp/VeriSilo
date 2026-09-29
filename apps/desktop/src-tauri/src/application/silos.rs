@@ -9,9 +9,8 @@ use super::runtime::diagnostic_status_for_silo;
 use super::DesktopCore;
 use crate::domain::{
     CreateSiloInput, ManagedIdentityIntent, ManagedIdentityPreset, NetworkProfile,
-    ProxyScheme as SiloProxyScheme, RecentRunRecord, Silo, SiloExecutionTarget,
-    SiloStorageUsage, SiloStorageUsageSummary, UpdateSiloEngineInput, UpdateSiloInput,
-    UpdateSiloNetworkInput,
+    ProxyScheme as SiloProxyScheme, RecentRunRecord, Silo, SiloExecutionTarget, SiloStorageUsage,
+    SiloStorageUsageSummary, UpdateSiloEngineInput, UpdateSiloInput, UpdateSiloNetworkInput,
 };
 use crate::environment::backend::{EnvironmentBackendId, EnvironmentOperation};
 use crate::environment::EnvironmentOperationRequest;
@@ -75,8 +74,12 @@ pub(crate) fn diagnose_silo_with(
         .find(|silo| silo.id == silo_id)
         .ok_or_else(|| format!("没有找到 Silo {silo_id}。"))?;
     let status = diagnostic_status_for_silo(state, silo_id)?;
-    let session = status.sessions.iter().find(|session| session.silo_id == silo.id);
-    let activation = session.map(|session| &session.activation)
+    let session = status
+        .sessions
+        .iter()
+        .find(|session| session.silo_id == silo.id);
+    let activation = session
+        .map(|session| &session.activation)
         .filter(|activation| activation.state != crate::domain::RuntimeState::Idle);
     let active = activation.is_some_and(|activation| activation.active_silo_id == Some(silo.id));
     let mut diagnosis = serde_json::json!({
@@ -113,12 +116,16 @@ pub(crate) fn page_action_with(
 ) -> Result<serde_json::Value, String> {
     let _local_reservation = state.local_control.reserve_silo(silo_id)?;
     {
-        let mut vault = state.vault.lock()
+        let mut vault = state
+            .vault
+            .lock()
             .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
         vault.record_activity().map_err(|error| error.to_string())?;
         vault.get_silo(silo_id).map_err(|error| error.to_string())?;
     }
-    let handle = state.local_runtimes.get(silo_id)
+    let handle = state
+        .local_runtimes
+        .get(silo_id)
         .ok_or_else(|| "This Silo has no current local runtime.".to_owned())?;
     let result = handle
         .lock()
@@ -188,8 +195,8 @@ pub(crate) fn update_silo(
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let is_active = state.local_runtimes.is_in_use(silo_id)
-        || environment_runtime_is_active(state, silo_id)?;
+    let is_active =
+        state.local_runtimes.is_in_use(silo_id) || environment_runtime_is_active(state, silo_id)?;
     vault
         .update_silo(&state.root, silo_id, input, is_active)
         .map_err(|error| error.to_string())
@@ -302,8 +309,8 @@ pub(crate) fn update_silo_configuration(
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let is_active = state.local_runtimes.is_in_use(silo_id)
-        || environment_runtime_is_active(state, silo_id)?;
+    let is_active =
+        state.local_runtimes.is_in_use(silo_id) || environment_runtime_is_active(state, silo_id)?;
     if is_active {
         return Err("managed_another_silo_running".to_owned());
     }
@@ -327,8 +334,8 @@ pub(crate) fn rename_silo(
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let is_active = state.local_runtimes.is_in_use(silo_id)
-        || environment_runtime_is_active(state, silo_id)?;
+    let is_active =
+        state.local_runtimes.is_in_use(silo_id) || environment_runtime_is_active(state, silo_id)?;
     vault
         .rename_silo(&state.root, silo_id, &name, is_active)
         .map_err(|error| error.to_string())
@@ -425,8 +432,8 @@ pub(crate) fn update_silo_network(
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let is_active = state.local_runtimes.is_in_use(silo_id)
-        || environment_runtime_is_active(state, silo_id)?;
+    let is_active =
+        state.local_runtimes.is_in_use(silo_id) || environment_runtime_is_active(state, silo_id)?;
     if is_active {
         return Err("managed_another_silo_running".to_owned());
     }
@@ -451,8 +458,8 @@ pub(crate) fn update_silo_engine(
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let is_active = state.local_runtimes.is_in_use(silo_id)
-        || environment_runtime_is_active(state, silo_id)?;
+    let is_active =
+        state.local_runtimes.is_in_use(silo_id) || environment_runtime_is_active(state, silo_id)?;
     vault
         .update_silo_engine(&state.root, silo_id, input, is_active)
         .map_err(|error| error.to_string())
@@ -464,8 +471,8 @@ pub(crate) fn archive_silo(state: &DesktopCore, silo_id: Uuid) -> Result<(), Str
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let is_active = state.local_runtimes.is_in_use(silo_id)
-        || environment_runtime_is_active(state, silo_id)?;
+    let is_active =
+        state.local_runtimes.is_in_use(silo_id) || environment_runtime_is_active(state, silo_id)?;
     let silo = vault.get_silo(silo_id).map_err(|error| error.to_string())?;
     verified_current_wsl_artifact(&state.root, &silo)?;
     let profile_directory = vault
@@ -511,8 +518,8 @@ pub(crate) fn delete_silo_with(
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let is_active = state.local_runtimes.is_in_use(silo_id)
-        || environment_runtime_is_active(state, silo_id)?;
+    let is_active =
+        state.local_runtimes.is_in_use(silo_id) || environment_runtime_is_active(state, silo_id)?;
     if is_active {
         return Err("Stop this Silo before permanently deleting it.".to_owned());
     }
@@ -558,8 +565,8 @@ pub(crate) fn delete_silo_with(
         .vault
         .lock()
         .map_err(|_| "VeriSilo vault state is unavailable.".to_owned())?;
-    let is_active = state.local_runtimes.is_in_use(silo_id)
-        || environment_runtime_is_active(state, silo_id)?;
+    let is_active =
+        state.local_runtimes.is_in_use(silo_id) || environment_runtime_is_active(state, silo_id)?;
     vault
         .delete_silo(&state.root, silo_id, is_active, confirm_permanent)
         .map_err(|error| error.to_string())

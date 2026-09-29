@@ -1144,7 +1144,7 @@ body.demo-expanded .portal-berth {
   padding-bottom: 4px;
 }
 .download-copy > p.download-note {
-  font-size: 10px;
+  font-size: 12px;
   color: #aebfda;
   margin-top: 20px;
   max-width: 520px;
@@ -1913,7 +1913,7 @@ body:has(.privacy-main) .site-header {
     top: 80px;
   }
   .download-copy > p.download-note {
-    font-size: 9px;
+    font-size: 12px;
   }
   .site-footer {
     gap: 17px;

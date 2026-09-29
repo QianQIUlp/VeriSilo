@@ -18,12 +18,12 @@ pub(crate) use environments::{
 };
 
 mod runtime;
-pub(crate) use runtime::{
-    desktop_status, desktop_status_with, launch_silo_with, rebind_silo_mihomo,
-    recheck_silo_browser, recheck_silo_runtime, stop_silo_with, get_silo_runtime,
-    list_runtime_sessions, DesktopStatus, LaunchFailure,
-};
 pub(super) use runtime::reconcile_local_runtimes_if_possible;
+pub(crate) use runtime::{
+    desktop_status, desktop_status_with, get_silo_runtime, launch_silo_with, list_runtime_sessions,
+    rebind_silo_mihomo, recheck_silo_browser, recheck_silo_runtime, stop_silo_with, DesktopStatus,
+    LaunchFailure,
+};
 
 mod silos;
 pub(crate) use silos::{
@@ -69,7 +69,9 @@ pub(crate) use identity::{
 };
 
 mod managed_backup;
-pub(crate) use managed_backup::{backup_managed_silo, inspect_managed_silo_backup, restore_managed_silo_backup};
+pub(crate) use managed_backup::{
+    backup_managed_silo, inspect_managed_silo_backup, restore_managed_silo_backup,
+};
 
 pub(crate) struct DesktopCore {
     pub(crate) root: PathBuf,

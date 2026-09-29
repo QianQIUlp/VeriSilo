@@ -1,9 +1,11 @@
 export type Locale = "en" | "zh";
 export const links = {
   repository: "https://github.com/QianQIUlp/VeriSilo",
-  release: "https://github.com/QianQIUlp/VeriSilo/releases/tag/v0.1.0-rc4",
+  release: "https://github.com/QianQIUlp/VeriSilo/releases/tag/v0.1.0-rc5",
   releaseInstaller:
-    "https://github.com/QianQIUlp/VeriSilo/releases/download/v0.1.0-rc4/VeriSilo-Managed-Browser-v0.1.0-rc4-x64-setup.exe",
+    "https://github.com/QianQIUlp/VeriSilo/releases/download/v0.1.0-rc5/VeriSilo-Managed-Browser-v0.1.0-rc5-x64-setup.exe",
+  releaseCli:
+    "https://github.com/QianQIUlp/VeriSilo/releases/download/v0.1.0-rc5/verisilo-cli.exe",
   architecture:
     "https://github.com/QianQIUlp/VeriSilo/blob/main/docs/architecture.md",
   capabilities:
@@ -65,13 +67,13 @@ export const copy = {
         {
           title: "每一次回来，还是你。",
           label: "PERSISTENT IDENTITY",
-          text: "独立的 Profile 保存各自的网站数据。Managed Silo 将受控身份、引擎与网络配置连接起来，让一个身份能被持续使用、重新观测。",
+          text: "独立的 Profile 保存各自的网站数据。创建 Managed Silo 前可核对身份配置；首次成功启动后身份锁定。受控身份、引擎与网络配置让这个身份可以持续使用。",
           aside: "轮廓帮助辨认，不是验证印章。",
         },
         {
           title: "发生了什么，看得见。",
           label: "EVIDENCE, IN THE OPEN",
-          text: "把配置声明放在实际观测旁边。知道哪里匹配、哪里不同、什么时候读取，也知道哪些信息尚未取得。",
+          text: "把配置声明放在当前观测旁边，解释哪里匹配、哪里不同、哪些信息尚未取得；每个 Silo 还保留最近运行记录。",
           aside: "Configured · Applied · Observed · Verified，各有含义。",
         },
         {
@@ -109,6 +111,14 @@ export const copy = {
           text: "Standard Silo 在系统 Chrome 或 Edge 中隔离网站数据，设备身份跟随本机。Managed Silo 使用受控 Camoufox 引擎、独立 Profile 与身份 Artifact，并提供运行时观测。两种方式都保留，各有明确用途。",
         },
         {
+          title: "RC5 可以同时运行几个 Managed Silo？",
+          text: "同一桌面实例和 Vault 中，最多可同时运行两个本地 Camoufox Managed Silo，使用直连或支持的固定 HTTP / SOCKS5 代理。各自拥有独立的 Profile、进程、网络路由、运行证据与生命周期。其他引擎、运行位置，以及 Clash / Mihomo 路由仍限单会话。",
+        },
+        {
+          title: "Managed 冷备份能恢复什么？",
+          text: "停止目标 Silo 后，冷备份可保存其 Profile、原始身份 Artifact、绑定和必要网络配置，并恢复同一个身份。恢复限定在同一 Windows 机器、同一系统用户和同一 Vault 路径；它与 Vault 配置备份不同，不是跨机器迁移。恢复后需要重新取得当前运行证据。",
+        },
+        {
           title: "哪些事，VeriSilo 不会承诺？",
           text: "不承诺无法检测、绝对匿名或对所有网站兼容。不重写真实硬件，也不把 TLS、QUIC 或所有 DNS 路径都宣称为受控。观测的范围、时间和来源始终重要。",
         },
@@ -118,7 +128,7 @@ export const copy = {
         },
         {
           title: "下载之前，我需要知道什么？",
-          text: "公开版本为 v0.1.0-rc4，属于 Windows x64 预发布版。安装程序尚未进行 Authenticode 签名，Windows 可能显示未知发布者或 SmartScreen 提示。严格的普通用户安装语义仍未得到证明。请在 Release 页面核对 SHA256、来源信息与已知限制。",
+          text: "公开版本为 v0.1.0-rc5，属于 Windows x64 预发布版。Engine Package 已进行 CMS 签名和签名者绑定；Desktop、CLI 和 NSIS 安装程序的外层 Authenticode 尚未签名，Windows 可能显示未知发布者或 SmartScreen 提示。严格的普通用户安装语义仍未得到证明。请在 Release 页面核对 SHA256、来源信息与已知限制。",
         },
       ],
       link: "阅读威胁模型",
@@ -126,12 +136,13 @@ export const copy = {
     download: {
       eyebrow: "TAKE YOUR SPACE WITH YOU",
       title: "下一种你。\n从这里开始。",
-      body: "先试，再把这个空间留在你的电脑上。",
+      body: "RC5 带来 Managed 原身份冷备份恢复、最多两个本地 Managed 会话。CLI 随安装提供，也可独立下载。先试，再把空间留在你的电脑上。",
       action: "下载 Windows 预发布版",
-      version: "v0.1.0-rc4 · Windows x64",
+      version: "v0.1.0-rc5 · Windows x64",
+      cli: "获取独立 CLI",
       source: "打开源代码",
-      verify: "校验和、来源与已知限制 ↗",
-      note: "公开下载版与上方开发版演示可能不同。安装包暂未进行 Windows 发布者签名。",
+      verify: "版本功能、校验和与验收状态 ↗",
+      note: "安装及安装文件核对已通过；RC5 安装后的 Managed 运行、修复、重装与卸载验收尚未完成，整体报告为 inconclusive。安装包未做 Windows 发布者签名；上方开发版演示可能与公开下载版不同。",
       privacy: "隐私政策",
       license: "MPL-2.0 开源",
       footer: "身份有形，证据可见。",
@@ -191,13 +202,13 @@ export const copy = {
         {
           title: "Come back as yourself.",
           label: "PERSISTENT IDENTITY",
-          text: "Each Profile keeps its own website data. A Managed Silo connects a controlled identity, engine, and network policy into an environment you can keep using and observe again.",
+          text: "Each Profile keeps its own website data. Review the identity settings before creating a Managed Silo; its identity locks after the first successful launch. Controlled identity, engine, and network settings keep that identity usable over time.",
           aside: "Its shape is a recognition aid, never a verification seal.",
         },
         {
           title: "See what actually happened.",
           label: "EVIDENCE, IN THE OPEN",
-          text: "Read the declared configuration beside the observation. See what matches, what differs, when it was observed, and what could not be read.",
+          text: "Read declared settings beside current observations. See why they match or differ, what could not be read, and each Silo's recent-run records.",
           aside:
             "Configured, Applied, Observed, and Verified mean different things.",
         },
@@ -236,6 +247,14 @@ export const copy = {
           text: "A Standard Silo separates website data in system Chrome or Edge while retaining the local device identity. A Managed Silo uses a controlled Camoufox engine, independent Profile and Identity Artifact, with runtime observations. Both remain available for distinct purposes.",
         },
         {
+          title: "How many Managed Silos can RC5 run at once?",
+          text: "In one desktop instance and Vault, up to two local Camoufox Managed Silos can run with Direct or supported fixed HTTP / SOCKS5 proxies. Each has its own Profile, process, network routing, runtime evidence, and lifecycle. Other engines or run locations, and Clash / Mihomo routing, still have a single-session limit.",
+        },
+        {
+          title: "What does a Managed cold backup restore?",
+          text: "After stopping the target Silo, a cold backup saves its Profile, original Identity Artifact, bindings, and required network settings to restore the same identity. Recovery is limited to the same Windows machine, system user, and Vault path. It is separate from a Vault configuration backup and is not a cross-machine transfer. Obtain fresh runtime evidence after restoring.",
+        },
+        {
           title: "What does VeriSilo never promise?",
           text: "No undetectability, absolute anonymity, or universal site compatibility. It does not rewrite physical hardware or claim control of TLS, QUIC, or every DNS path. Observation scope, timing, and provenance always matter.",
         },
@@ -245,7 +264,7 @@ export const copy = {
         },
         {
           title: "What should I know before downloading?",
-          text: "The public version is v0.1.0-rc4, a Windows x64 pre-release. The installer is not Authenticode-signed and may trigger an Unknown publisher or SmartScreen prompt. Strict standard-user installation semantics remain unproven. Check the Release page for SHA256, provenance, and known limits.",
+          text: "The public version is v0.1.0-rc5, a Windows x64 pre-release. The Engine Package is CMS-signed and signer-pinned; Desktop, CLI, and NSIS installer remain unsigned for outer Authenticode, so Windows may show an Unknown publisher or SmartScreen prompt. Strict standard-user installation semantics remain unproven. Check the Release page for SHA256, provenance, and known limits.",
         },
       ],
       link: "Read the threat model",
@@ -253,12 +272,13 @@ export const copy = {
     download: {
       eyebrow: "TAKE YOUR SPACE WITH YOU",
       title: "Your next you.\nStarts here.",
-      body: "Try the space. Then make it yours, on your computer.",
+      body: "RC5 adds original-identity cold backup and restore, with up to two local Managed sessions. The CLI is installed alongside the app and can also be downloaded separately. Try the space, then make it yours on your computer.",
       action: "Get the Windows pre-release",
-      version: "v0.1.0-rc4 · Windows x64",
+      version: "v0.1.0-rc5 · Windows x64",
+      cli: "Get standalone CLI",
       source: "Explore the source",
-      verify: "Checksums, provenance & known limits ↗",
-      note: "The public download may differ from the development demo above. The installer is not Windows publisher-signed yet.",
+      verify: "Release features, checksums & acceptance status ↗",
+      note: "Installation and installed-file checks passed. Installed Managed runtime, repair, reinstall, and uninstall acceptance are incomplete; the RC5 report is inconclusive. The installer is not Windows publisher-signed, and the development demo above may differ from the public download.",
       privacy: "Privacy",
       license: "MPL-2.0 open source",
       footer: "Identity, with form. Evidence, in view.",

@@ -5,8 +5,13 @@
 The current canonical development source is `origin/baseline/dev` (with local
 `baseline/dev` required to match it exactly); fixed revisions are documented
 checkpoints, not moving source refs. The current public release is
-**v0.1.0-rc4**, `PUBLIC_GITHUB_PRERELEASE`, tagged at
-`68e21c3d601e1df3699f1b21431cc23da873e546`; its release gate is closed.
+**v0.1.0-rc5**, `PUBLIC_GITHUB_PRERELEASE`, tagged at
+`7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027`; its release gate is closed.
+The exact-candidate bounded installed report records `INCONCLUSIVE — installed files matched; Managed runtime/repair/uninstall flow not completed`
+for the scope in [the RC5 smoke procedure](qa/rc5-installed-smoke.md). The
+complete legacy `windows-acceptance-report.json` remains `Pending`,
+`verified:false`, and `runtimeAcceptance:null` because its single-active-Silo
+contract does not describe RC5's two-session behavior.
 The historical, fixed **v0.1.0-rc2** candidate was accepted through packaged
 runtime and installed lifecycle in the exact pristine Windows Sandbox recorded
 in [the Camoufox program status](camoufox-program-status.md).
@@ -26,7 +31,7 @@ historical candidate and must not be used as the current product candidate:
 - acceptance: `Pending`, `verified:false`, `runtimeAcceptance:null`;
 - classification: historical candidate, superseded for current acceptance, never runtime-accepted.
 
-No subsequent RC version is chosen here. Any future candidate requires a new
+No RC after v0.1.0-rc5 is chosen here. Any future candidate requires a new
 source binding and an explicit release-readiness decision on one canonical
 baseline.
 

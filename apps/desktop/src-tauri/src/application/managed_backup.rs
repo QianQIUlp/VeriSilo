@@ -107,7 +107,8 @@ pub(crate) fn restore_managed_silo_backup(
     let status = vault.status(&state.root);
     drop(vault);
     let activation = if let Some(handle) = state.local_runtimes.get(id) {
-        let mut runtime = handle.lock()
+        let mut runtime = handle
+            .lock()
             .map_err(|_| "VeriSilo runtime state is unavailable.".to_owned())?;
         runtime.invalidate_restored_silo(id)
     } else {

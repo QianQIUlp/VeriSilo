@@ -96,6 +96,33 @@ test("new authored Chinese copy fails the site build until translated", () => {
   );
 });
 
+test("current desktop and preview copy are covered by the public demo catalog", () => {
+  for (const path of [
+    "App.tsx",
+    "formatters.ts",
+    "timezone-presets.ts",
+    "preview/api.ts",
+    "preview/fixtures.ts",
+    "preview/main.tsx",
+    "workspace/useDesktopWorkspace.ts",
+    "features/identity/CreatedSiloSummary.tsx",
+    "features/identity/CurrentSessionIntegrity.tsx",
+    "features/identity/evidence-diagnostics.tsx",
+    "features/identity/IdentityDetails.tsx",
+    "features/identity/ManagedSiloForm.tsx",
+    "features/identity/RecentRunDetails.tsx",
+    "features/silos/SiloList.tsx",
+    "features/vault/ManagedSiloBackupPanel.tsx",
+  ]) {
+    const sourceFile = new URL(`../../../desktop/src/${path}`, import.meta.url);
+    const source = readFileSync(sourceFile, "utf8");
+    assert.doesNotThrow(
+      () => localizeDemo(source, fileURLToPath(sourceFile)),
+      path,
+    );
+  }
+});
+
 test("translation placeholders stay complete and English messages contain no untranslated Han text", () => {
   const catalog = JSON.parse(
     readFileSync(new URL("./en.json", import.meta.url), "utf8"),

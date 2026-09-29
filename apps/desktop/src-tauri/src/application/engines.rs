@@ -31,7 +31,11 @@ pub(crate) fn list_engine_adapters(
 ) -> Result<Vec<EngineAdapterStatus>, String> {
     // Discovery can initialize the bundled package only while every runtime is
     // quiescent. A read during another Silo's launch remains read-only.
-    let maintenance = state.local_control.reservation.try_write().ok()
+    let maintenance = state
+        .local_control
+        .reservation
+        .try_write()
+        .ok()
         .filter(|_| ensure_engine_maintenance_quiescent(state).is_ok());
     let mut statuses = Vec::new();
     for id in [
@@ -133,10 +137,17 @@ pub(crate) fn discover_browsers() -> Vec<BrowserCandidate> {
 
 fn ensure_engine_maintenance_quiescent(state: &DesktopCore) -> Result<(), String> {
     if state.local_runtimes.has_occupied()
-        || state.runtime.try_lock().map_err(|_| "A runtime operation is still in progress.".to_owned())?.has_runtime_ownership()
+        || state
+            .runtime
+            .try_lock()
+            .map_err(|_| "A runtime operation is still in progress.".to_owned())?
+            .has_runtime_ownership()
         || super::environments::environment_runtime_has_active_silo(state)?
     {
-        return Err("Stop all Silos and resolve runtime recovery before maintaining a shared engine.".to_owned());
+        return Err(
+            "Stop all Silos and resolve runtime recovery before maintaining a shared engine."
+                .to_owned(),
+        );
     }
     Ok(())
 }

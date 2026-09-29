@@ -4923,7 +4923,8 @@ mod tests {
         let mut payload =
             serde_json::to_value(&vault.unlocked_without_activity().unwrap().data).unwrap();
         payload.as_object_mut().unwrap().remove("recentRuns");
-        let (restored, _) = super::deserialize_vault_data(&serde_json::to_vec(&payload).unwrap()).unwrap();
+        let (restored, _) =
+            super::deserialize_vault_data(&serde_json::to_vec(&payload).unwrap()).unwrap();
         assert!(restored.recent_runs.is_empty());
         assert_eq!(restored.silos.len(), 1);
         super::validate_vault_data(&restored).unwrap();

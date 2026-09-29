@@ -69,3 +69,11 @@ assets, checksums, provenance and explicit evidence limits. Do not replace rc4,
 force-push, advance `main`, or create a stable product release. Publish the task
 branch and advance canonical baseline through the existing integration workflow.
 Update the public download references and release status after publication.
+
+Final scope decision: the user directed this task back to publishing the already
+verified artifact and stopped expansion of the installation harness. RC5 is now
+public at the frozen source above; the [actual verification report](../qa/rc5-installed-smoke.md)
+records installed-file checks and the incomplete runtime/lifecycle acceptance.
+The one-off runner remains in the frozen candidate history and local evidence,
+and is not maintained as a new development test platform. No further acceptance
+or release gate is opened by this document.

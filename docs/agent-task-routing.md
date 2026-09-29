@@ -123,7 +123,7 @@ baseline/dev = origin/baseline/dev = B1   之后的新任务统一从 B1 开始
 | `core`        | desktop cargo check + harness `application::` tests                                 | 触到窗口/托盘/进程路径时补 owning module focused tests                                            |
 | `host`        | package contract + page command 测试                                                | `test_identity_artifact.py` 需 numpy（有条件则跑）；内核/包/指纹结论必须来自真实 runtime evidence |
 | `qa`          | （无自动化命令）                                                                    | 验证=证据：复现步骤 + 实际观察 + 针对的确切候选版本；修复回 owning lane                           |
-| `integration` | 默认轻量档（merge/冲突/ancestry/scope/`git diff --check` + focused tests）；`verify --full` 时为递归 check/test、两个 crate 的 cargo check/test、Host 测试、脚本自测（Pre-RC 不含 desktop production build；排除依赖用户本机 provider inventory 的 live test） | 完整自动化之后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行 |
+| `integration` | 默认轻量档（merge/冲突/ancestry/scope/`git diff --check` + focused tests）；`verify --full` 时为递归 check/test、官网 build、三个 Rust crate 的 fmt check、两个 crate 的 cargo check/test、Host 测试、脚本自测（Pre-RC 不含 desktop production build；排除依赖用户本机 provider inventory 的 live test） | 完整自动化之后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行 |
 
 不要把"配置声明/测试通过/编译成功"冒充尚未取得的 runtime/product Gate；lane 验证只覆盖其名称所指的范围。
 
@@ -164,8 +164,9 @@ merge 无冲突、输入 tasks 已各自 lane verify/check PASS、合并后文�
 
 ### C. full integration（显式升级）
 
-`node scripts/agent-task.mjs verify --full` 保留完整矩阵（递归 check/test、双 crate cargo、
-Host、workflow tests）。触发条件：
+`node scripts/agent-task.mjs verify --full` 保留完整矩阵（递归 check/test、官网 build、
+三个 Rust crate 的 fmt check、双 crate cargo check/test、Host、workflow tests；
+不执行 desktop production build）。触发条件：
 
 - shared protocol / DTO / contracts 变化；
 - 依赖或 lockfile 变化；
@@ -222,7 +223,7 @@ lane 级 verify 之外，运行验证实例时用「足以验证当前修改的�
 5. 验证通过后由 integration 执行 `baseline advance <集成结果 SHA>`，再执行 `baseline publish`；fetch 后必须
    证明 `baseline/dev == origin/baseline/dev`。发布只允许 fast-forward/首次 bootstrap，禁止 force。
 6. 当前产品阶段、候选状态与下一任务以 [Camoufox 状态页](camoufox-program-status.md) 为准；当前
-   阶段是 post-rc4 normal product development，`v0.1.0-rc4` 公开 prerelease 已发布且 release gate 已关闭。
+   阶段是 post-rc5 normal product development，`v0.1.0-rc5` 公开 prerelease 已发布且 release gate 已关闭。
    只有用户明确打开 RC/release gate 且 release-readiness 条件满足后，才执行新的候选构建或发布验收；
    安装/覆盖安装/用户旅程验收在专用环境执行，不与开发实例混用。
 
