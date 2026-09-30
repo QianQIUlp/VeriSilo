@@ -70,7 +70,7 @@ jobs:
           test -n "$package"
           dpkg-deb --info "$package"
           dpkg-deb --contents "$package" | tee /tmp/verisilo-deb-files.txt
-          grep '/usr/bin/verisilo-cli$' /tmp/verisilo-deb-files.txt
+          grep 'usr/bin/verisilo-cli$' /tmp/verisilo-deb-files.txt
           sudo apt-get install -y "$PWD/$package"
       - name: Exercise installed desktop, Vault and real browser lifecycle
         run: |
