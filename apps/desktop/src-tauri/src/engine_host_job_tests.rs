@@ -12,7 +12,7 @@ fn camoufox_host_job_stops_a_pending_provisioner_when_ownership_ends() {
     command.stderr(Stdio::null());
     crate::domain::hide_windows_console(&mut command);
     let (mut child, job) =
-        super::CamoufoxHostJobGuard::spawn(&mut command).expect("start owned Host stand-in");
+        super::CamoufoxHostJobGuard::spawn(command).expect("start owned Host stand-in");
     assert!(child.try_wait().unwrap().is_none());
 
     // A hard desktop exit closes this same non-inherited job handle.

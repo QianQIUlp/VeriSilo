@@ -1,7 +1,13 @@
 //! Linux x86-64 process and file ownership used by the desktop runtime.
 #[cfg(not(target_arch = "x86_64"))]
 compile_error!("The native Linux desktop currently supports x86-64 only.");
-use std::{fs, io, os::fd::AsRawFd, os::unix::fs::OpenOptionsExt, path::Path};
+use std::{
+    fs, io,
+    os::fd::{AsRawFd, FromRawFd, OwnedFd},
+    os::unix::{fs::OpenOptionsExt, process::CommandExt},
+    path::Path,
+    process::{Child, Command},
+};
 
 extern "C" {
     fn flock(fd: i32, operation: i32) -> i32;
@@ -10,6 +16,15 @@ extern "C" {
     fn getppid() -> i32;
     fn geteuid() -> u32;
     fn fcntl(fd: i32, command: i32, ...) -> i32;
+    fn syscall(number: i64, ...) -> i64;
+    fn poll(fds: *mut PollFd, count: u64, timeout_ms: i32) -> i32;
+}
+
+#[repr(C)]
+struct PollFd {
+    fd: i32,
+    events: i16,
+    revents: i16,
 }
 
 pub(crate) fn effective_uid() -> u32 {
@@ -97,8 +112,8 @@ impl FileLease {
     }
 }
 
-pub(crate) fn die_with_parent(parent_pid: u32) -> io::Result<()> {
-    // The packaged supervisor owns descendants; this closes the spawn/owner-exit race.
+fn die_with_parent(parent_pid: u32) -> io::Result<()> {
+    // Close the spawn/desktop-exit race after binding the creator's death signal.
     if unsafe { prctl(1, 9, 0, 0, 0) } != 0 {
         // PR_SET_PDEATHSIG, SIGKILL
         return Err(io::Error::last_os_error());
@@ -110,6 +125,69 @@ pub(crate) fn die_with_parent(parent_pid: u32) -> io::Result<()> {
         ));
     }
     Ok(())
+}
+
+pub(crate) fn spawn_owned(mut command: Command) -> io::Result<Child> {
+    let parent_pid = std::process::id();
+    command.process_group(0);
+    unsafe {
+        command.pre_exec(move || die_with_parent(parent_pid));
+    }
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    // PDEATHSIG follows the creator thread. HTTP request threads can end as soon
+    // as launch succeeds, so keep a dedicated creator alive until this child exits.
+    std::thread::Builder::new()
+        .name("linux-child-owner".to_owned())
+        .spawn(move || {
+            let mut child = match command.spawn() {
+                Ok(child) => child,
+                Err(error) => {
+                    let _ = sender.send(Err(error));
+                    return;
+                }
+            };
+            drop(command);
+            // pidfd_open on Linux x86-64. The descriptor identifies this child
+            // even after wait/reaping; no polling loop or recycled PID is involved.
+            let fd = unsafe { syscall(434, child.id() as i32, 0_u32) };
+            if fd < 0 {
+                let error = io::Error::last_os_error();
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = sender.send(Err(error));
+                return;
+            }
+            let pidfd = unsafe { OwnedFd::from_raw_fd(fd as i32) };
+            if let Err(error) = sender.send(Ok(child)) {
+                if let Ok(mut child) = error.0 {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                return;
+            }
+            let mut descriptor = PollFd {
+                fd: pidfd.as_raw_fd(),
+                events: 1, // POLLIN: child exit; POLLHUP is also returned after reaping.
+                revents: 0,
+            };
+            loop {
+                if unsafe { poll(&mut descriptor, 1, -1) } >= 0 {
+                    break;
+                }
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::Interrupted {
+                    // Ending the creator fails closed via the child's PDEATHSIG.
+                    eprintln!("Linux child ownership wait failed: {error}");
+                    break;
+                }
+            }
+        })?;
+    receiver.recv().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "Linux child owner failed during spawn",
+        )
+    })?
 }
 
 pub(crate) fn process_start_time(pid: u32) -> Option<u64> {
@@ -183,7 +261,7 @@ mod tests {
         command
             .args(["-c", "sleep 30 & echo $! > \"$1\"; wait", "sh"])
             .arg(&pid_file);
-        let (mut child, guard) = crate::engine::CamoufoxHostJobGuard::spawn(&mut command).unwrap();
+        let (mut child, guard) = crate::engine::CamoufoxHostJobGuard::spawn(command).unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         let descendant = loop {
             if let Some(pid) = std::fs::read_to_string(&pid_file)
@@ -207,6 +285,95 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         assert!(!super::process_is_alive(descendant));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn owned_child_survives_request_thread_and_dies_with_desktop_owner() {
+        use std::io::{BufRead, Write};
+        const PID_PATH: &str = "VERISILO_TEST_LINUX_CHILD_PID_PATH";
+        if let Some(pid_path) = std::env::var_os(PID_PATH) {
+            let (mut child, _guard) = std::thread::spawn(|| {
+                let mut command = std::process::Command::new("/bin/sh");
+                command
+                    .args([
+                        "-c",
+                        "while IFS= read -r line; do printf '%s\\n' \"$line\"; done",
+                    ])
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped());
+                crate::engine::CamoufoxHostJobGuard::spawn(command).unwrap()
+            })
+            .join()
+            .unwrap();
+            // The launching request thread has ended. Require a real response
+            // from the child before advertising readiness to the outer process.
+            let mut stdin = child.stdin.take().unwrap();
+            stdin.write_all(b"ready\n").unwrap();
+            stdin.flush().unwrap();
+            let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+            let mut response = String::new();
+            stdout.read_line(&mut response).unwrap();
+            assert_eq!(response, "ready\n");
+            std::fs::write(pid_path, format!("{}\n", child.id())).unwrap();
+            loop {
+                std::thread::park();
+            }
+        }
+
+        struct Owner(std::process::Child);
+        impl Drop for Owner {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let root =
+            std::env::temp_dir().join(format!("verisilo-linux-owner-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let pid_path = root.join("child-pid");
+        let mut owner = Owner(
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "linux::tests::owned_child_survives_request_thread_and_dies_with_desktop_owner",
+                    "--nocapture",
+                ])
+                .env(PID_PATH, &pid_path)
+                .spawn()
+                .unwrap(),
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let pid = loop {
+            if let Some(pid) = std::fs::read_to_string(&pid_path)
+                .ok()
+                .filter(|value| value.ends_with('\n'))
+                .and_then(|value| value.trim().parse::<u32>().ok())
+                .filter(|pid| *pid > 1)
+            {
+                break pid;
+            }
+            assert!(
+                owner.0.try_wait().unwrap().is_none(),
+                "child died when the request thread ended"
+            );
+            assert!(
+                std::time::Instant::now() < deadline,
+                "child did not acknowledge after the request thread ended"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert!(super::process_is_alive(pid));
+        owner.0.kill().unwrap(); // SIGKILL: no Rust Drop or graceful cleanup runs.
+        owner.0.wait().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while super::process_is_alive(pid) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            !super::process_is_alive(pid),
+            "child survived desktop SIGKILL"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

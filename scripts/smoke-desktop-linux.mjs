@@ -47,7 +47,7 @@ const evidence = {
   passed: false,
 };
 
-function cli(args, input, allowFailure = false) {
+function cli(args, input, allowFailure = false, timeout = 180_000) {
   const result = spawnSync(
     resolve(values.cli),
     ["--vault", "linux-smoke", "--json", ...args],
@@ -55,7 +55,7 @@ function cli(args, input, allowFailure = false) {
       env,
       input,
       encoding: "utf8",
-      timeout: 180_000,
+      timeout,
     },
   );
   if (allowFailure && result.status !== 0) return null;
@@ -612,6 +612,37 @@ try {
   );
 } finally {
   if (standard) evidence.standardDiagnostics = standardDiagnostics(standard);
+  if (!evidence.passed && desktop?.exitCode === null) {
+    const threads = spawnSync(
+      "ps",
+      ["-L", "-p", String(desktop.pid), "-o", "pid,tid,ppid,stat,wchan:32,comm"],
+      { encoding: "utf8", timeout: 5_000 },
+    );
+    evidence.desktopThreadDiagnostics = {
+      status: threads.status,
+      output: threads.stdout,
+      error: threads.stderr || threads.error?.message,
+    };
+  }
+  if (!evidence.passed && values.managed) {
+    evidence.managedFailureStatuses = [];
+    const ids = new Set(
+      (evidence.managedLaunches ?? []).map((launch) => launch.activeSiloId),
+    );
+    for (const siloId of ids) {
+      try {
+        const status = cli(["status", siloId], undefined, true, 15_000);
+        evidence.managedFailureStatuses.push({
+          siloId,
+          state: status?.activation?.state,
+          message: status?.activation?.message,
+          engineEvidence: status?.activation?.engineEvidence,
+        });
+      } catch (error) {
+        evidence.managedFailureStatuses.push({ siloId, error: String(error) });
+      }
+    }
+  }
   evidence.completedAt = new Date().toISOString();
   const evidenceRoot = resolve("artifacts/linux-desktop-smoke");
   mkdirSync(evidenceRoot, { recursive: true });

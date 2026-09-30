@@ -127,8 +127,8 @@ const ENGINE_RUNTIME_RECEIPT_LIFETIME_SECONDS: i64 = 30;
 const ENGINE_RUNTIME_RECEIPT_CLOCK_SKEW_SECONDS: i64 = 5;
 const MAX_RETAINED_ENGINE_FALLBACK_RECEIPTS: usize = 128;
 
-/// Holds the existing Windows kill-on-close job for either a browser Host or
-/// an identity provisioner. Both must exit if the desktop owner disappears.
+/// Owns either a browser Host or an identity provisioner. Both must exit if
+/// the desktop owner disappears.
 #[derive(Default)]
 pub(crate) struct CamoufoxHostJobGuard {
     #[cfg(target_os = "windows")]
@@ -140,18 +140,14 @@ pub(crate) struct CamoufoxHostJobGuard {
 }
 
 impl CamoufoxHostJobGuard {
-    pub(crate) fn spawn(command: &mut Command) -> std::io::Result<(Child, Self)> {
-        #[cfg(target_os = "linux")]
-        {
-            use std::os::unix::process::CommandExt;
-            let parent_pid = std::process::id();
-            command.process_group(0);
-            unsafe {
-                command.pre_exec(move || crate::linux::die_with_parent(parent_pid));
-            }
-        }
+    pub(crate) fn spawn(command: Command) -> std::io::Result<(Child, Self)> {
+        #[cfg(not(target_os = "linux"))]
+        let mut command = command;
         #[allow(unused_mut)]
+        #[cfg(not(target_os = "linux"))]
         let mut child = command.spawn()?;
+        #[cfg(target_os = "linux")]
+        let child = crate::linux::spawn_owned(command)?;
         #[cfg(target_os = "windows")]
         let job = match crate::mihomo::attach_kill_on_close_job(&child) {
             Ok(handle) => Self { handle },
@@ -3000,7 +2996,7 @@ impl ExternalPackageEngineAdapter {
         command.stdout(Stdio::piped());
         command.stderr(Stdio::null());
         Self::configure_camoufox_host_process(&mut command);
-        let (mut child, _host_job) = CamoufoxHostJobGuard::spawn(&mut command)?;
+        let (mut child, _host_job) = CamoufoxHostJobGuard::spawn(command)?;
         let mut request = serde_json::json!({
             "seed": BASE64_STANDARD.encode(seed),
             "preset": preset,

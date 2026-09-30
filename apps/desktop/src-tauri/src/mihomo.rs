@@ -768,16 +768,10 @@ fn pin_isolated_mihomo(
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         hide_windows_console(&mut command);
-        #[cfg(target_os = "linux")]
-        {
-            use std::os::unix::process::CommandExt;
-            let parent_pid = std::process::id();
-            command.process_group(0);
-            unsafe {
-                command.pre_exec(move || crate::linux::die_with_parent(parent_pid));
-            }
-        }
+        #[cfg(not(target_os = "linux"))]
         let mut child = command.spawn()?;
+        #[cfg(target_os = "linux")]
+        let child = crate::linux::spawn_owned(command)?;
         #[cfg(windows)]
         let job_handle = match attach_kill_on_close_job(&child) {
             Ok(handle) => handle,

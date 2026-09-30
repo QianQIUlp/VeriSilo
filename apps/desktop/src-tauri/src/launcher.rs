@@ -3883,7 +3883,7 @@ fn spawn_camoufox_host(
     command.env("VERISILO_INTERACTIVE", "1");
     configure_camoufox_host_process(&mut command);
     let (mut child, host_job) =
-        CamoufoxHostJobGuard::spawn(&mut command).map_err(LauncherError::Spawn)?;
+        CamoufoxHostJobGuard::spawn(command).map_err(LauncherError::Spawn)?;
     let mut transport = match CamoufoxHostTransport::attach(&mut child) {
         Ok(transport) => transport,
         Err(error) => {
