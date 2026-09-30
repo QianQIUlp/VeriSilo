@@ -33,6 +33,9 @@ PROBE_DIRECTORY = f"{HOST_DIRECTORY}/probe"
 SUPERVISOR_NAME = "verisilo-camoufox-supervisor.exe"
 PROBE_NAME = "probe.html"
 HOST_NAME = "camoufox-host.exe"
+LINUX_HOST_NAME = "camoufox-host"
+LINUX_SUPERVISOR_NAME = "verisilo-camoufox-supervisor"
+LINUX_PLATFORM = "linux-x64"
 FORMAL_V3_ENGINE_VERSION = "152.0.4-beta.28"
 FORMAL_V3_BROWSER_RELEASE = f"v{FORMAL_V3_ENGINE_VERSION}"
 FORMAL_V3_ENGINE_REVISION = "verisilo-camoufox-152.0.4-beta.28-r1-formal-v3"
@@ -197,16 +200,17 @@ class PackageLayout:
     probe: Path
 
     @classmethod
-    def from_root(cls, root: Path | str) -> "PackageLayout":
+    def from_root(cls, root: Path | str, platform: str | None = None) -> "PackageLayout":
         root = Path(root).absolute()
+        linux = platform == LINUX_PLATFORM if platform else os.name != "nt"
         return cls(
             root=root,
             asset_lock=root / ASSET_LOCK_NAME,
             browser_root=root / BROWSER_DIRECTORY,
             browser_tree=root / BROWSER_TREE_NAME,
             package_tree=root / PACKAGE_TREE_NAME,
-            host=root / HOST_DIRECTORY / HOST_NAME,
-            supervisor=root / SUPERVISOR_DIRECTORY / SUPERVISOR_NAME,
+            host=root / HOST_DIRECTORY / (LINUX_HOST_NAME if linux else HOST_NAME),
+            supervisor=root / SUPERVISOR_DIRECTORY / (LINUX_SUPERVISOR_NAME if linux else SUPERVISOR_NAME),
             probe=root / PROBE_DIRECTORY / PROBE_NAME,
         )
 
@@ -234,6 +238,9 @@ def _validate_package_asset_lock(lock: dict[str, Any]) -> None:
         "browserTreeManifestSha256",
     }
     _require_exact_keys(lock, expected, "package asset lock")
+    if lock["platform"] == "linux-x86_64":
+        _validate_linux_package_asset_lock(lock)
+        return
     if (
         lock["schema"] != PACKAGE_ASSET_LOCK_SCHEMA
         or lock["assetKind"] != "self-built"
@@ -282,6 +289,40 @@ def _validate_package_asset_lock(lock: dict[str, Any]) -> None:
     _require_sha(source["sourceLockSha256"], "package asset sourceLockSha256")
 
 
+def _validate_linux_package_asset_lock(lock: dict[str, Any]) -> None:
+    """Linux has its own compiled bytes; Windows runtime evidence is not inherited."""
+    if (
+        lock["schema"] != PACKAGE_ASSET_LOCK_SCHEMA
+        or lock["assetKind"] != "self-built"
+        or lock["verified"] is not False
+        or lock["evidenceClass"] != "compiled-not-runtime-verified"
+        or lock["package"] != "camoufox"
+        or lock["release"] != FORMAL_V3_BROWSER_RELEASE
+        or lock["pythonPackage"] != "camoufox==0.5.4"
+        or lock["engineRevision"] != FORMAL_V3_ENGINE_REVISION
+        or lock["executableRelativePath"] != "camoufox-bin"
+        or type(lock["sizeBytes"]) is not int or lock["sizeBytes"] <= 0
+        or type(lock["buildId"]) is not str or re.fullmatch(r"[0-9]{14}", lock["buildId"]) is None
+        or type(lock["sourceStamp"]) is not str or not lock["sourceStamp"]
+    ):
+        raise PackageContractError("Linux package asset lock classification is not exact")
+    for field in ("sha256", "browserExecutableSha256", "propertiesJsonSha256",
+                  "buildResultSha256", "browserTreeManifestSha256"):
+        _require_sha(lock[field], f"Linux package asset lock {field}")
+    source = _require_exact_keys(
+        lock["sourceBinding"],
+        {"commit", "tree", "sourceLockSha256", "completeAppliedPatchOrder"},
+        "Linux package asset sourceBinding",
+    )
+    if (
+        source["sourceLockSha256"] != FORMAL_V3_SOURCE_LOCK_SHA256
+        or source["completeAppliedPatchOrder"] != ["0000", "0001", "0002", "0003", "0003a", "0004", "0005", "0006", "0007"]
+        or any(type(source[field]) is not str or re.fullmatch(r"[0-9a-f]{40}", source[field]) is None
+               for field in ("commit", "tree"))
+    ):
+        raise PackageContractError("Linux package source is not the RC5 Formal-v3 patchset")
+
+
 def load_package_asset_lock(path: Path | str) -> dict[str, Any]:
     path = Path(path)
     value = read_json(path)
@@ -319,6 +360,8 @@ def verify_package_browser_root(
     executable = browser_root / lock["executableRelativePath"]
     if not executable.is_file() or executable.is_symlink():
         raise PackageContractError("package browser executable is missing or irregular")
+    if os.name != "nt" and lock["platform"] == "linux-x86_64" and not os.access(executable, os.X_OK):
+        raise PackageContractError("Linux package browser executable is not executable")
     application_ini = browser_root / "application.ini"
     properties = browser_root / "properties.json"
     if not application_ini.is_file() or not properties.is_file():
@@ -476,7 +519,7 @@ def validate_v3_manifest(manifest: dict[str, Any], *, allow_unsigned: bool = Fal
         or manifest["engineId"] != "camoufox"
         or manifest["engineVersion"] != FORMAL_V3_ENGINE_VERSION
         or manifest["channel"] != FORMAL_V3_CHANNEL
-        or manifest["platform"] != FORMAL_V3_PLATFORM
+        or manifest["platform"] not in (FORMAL_V3_PLATFORM, LINUX_PLATFORM)
         or manifest["browserRelease"] != FORMAL_V3_BROWSER_RELEASE
         or manifest["hostVersion"] != FORMAL_V3_HOST_VERSION
     ):
@@ -526,12 +569,12 @@ def validate_v3_manifest(manifest: dict[str, Any], *, allow_unsigned: bool = Fal
     )
     if (
         entrypoint["kind"] != PACKAGE_ENTRYPOINT_KIND
-        or entrypoint["relativePath"] != f"{HOST_DIRECTORY}/{HOST_NAME}"
+        or entrypoint["relativePath"] != f"{HOST_DIRECTORY}/{LINUX_HOST_NAME if manifest['platform'] == LINUX_PLATFORM else HOST_NAME}"
         or entrypoint["protocol"] != PACKAGE_PROTOCOL
         or tree["relativePath"] != PACKAGE_TREE_NAME
         or browser_tree["relativePath"] != BROWSER_TREE_NAME
         or manifest["artifactSha256"] != entrypoint["sha256"]
-        or manifest["browserAssetSha256"] != FORMAL_V3_ARCHIVE_SHA256
+        or (manifest["platform"] == FORMAL_V3_PLATFORM and manifest["browserAssetSha256"] != FORMAL_V3_ARCHIVE_SHA256)
     ):
         raise PackageContractError("manifest path or binding is not exact")
     for value, label in (
@@ -556,10 +599,19 @@ def recheck_package(
         directory = root / relative
         if directory.is_symlink() or not directory.is_dir():
             raise PackageContractError(f"required RC1 package directory is missing: {relative}")
-    for relative in REQUIRED_RC1_MEMBERS:
+    layout = PackageLayout.from_root(root, platform=manifest["platform"])
+    required_members = (ASSET_LOCK_NAME, BROWSER_TREE_NAME, PACKAGE_TREE_NAME,
+                        layout.host.relative_to(root).as_posix(),
+                        layout.supervisor.relative_to(root).as_posix(),
+                        f"{PROBE_DIRECTORY}/{PROBE_NAME}")
+    for relative in required_members:
         member = root / relative
         if member.is_symlink() or not member.is_file():
             raise PackageContractError(f"required RC1 package member is missing: {relative}")
+    if os.name != "nt" and manifest["platform"] == LINUX_PLATFORM:
+        for executable in (layout.host, layout.supervisor):
+            if not os.access(executable, os.X_OK):
+                raise PackageContractError(f"Linux package member is not executable: {executable.name}")
     tree_path = root / manifest["treeManifest"]["relativePath"]
     browser_tree_path = root / manifest["browserTreeManifest"]["relativePath"]
     tree_raw = tree_path.read_bytes()
@@ -621,6 +673,9 @@ def recheck_formal_package(root: Path | str, manifest: dict[str, Any]) -> dict[s
         key = browser_relative.casefold() if os.name == "nt" else browser_relative
         browser_digests[key] = entry["sha256"]
     asset_lock = load_package_asset_lock(root / ASSET_LOCK_NAME)
+    expected_platform = "linux-x86_64" if manifest["platform"] == LINUX_PLATFORM else "windows-x86_64"
+    if asset_lock["platform"] != expected_platform or asset_lock["sha256"] != manifest["browserAssetSha256"]:
+        raise PackageContractError("package manifest and browser asset binding differ")
     browser_tree_path = root / manifest["browserTreeManifest"]["relativePath"]
     browser_tree_sha256 = sha256_file(browser_tree_path)
     if asset_lock["browserTreeManifestSha256"] != browser_tree_sha256:

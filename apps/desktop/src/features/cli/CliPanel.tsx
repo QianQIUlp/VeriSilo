@@ -46,7 +46,7 @@ export function CliPanel({
 
   const quoted = cliInfo === null ? "" : `"${cliInfo.cliPath}"`;
   const shortName =
-    cliInfo === null ? "verisilo-cli.exe" : cliFileName(cliInfo.cliPath);
+    cliInfo === null ? "verisilo-cli" : cliFileName(cliInfo.cliPath);
   const commands = [
     {
       label: "打开桌面窗口",

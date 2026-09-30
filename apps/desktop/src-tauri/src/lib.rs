@@ -8,8 +8,12 @@ use tauri::{
 
 pub mod domain;
 pub mod engine;
+#[cfg(target_os = "linux")]
+mod engine_linux;
 pub mod environment;
 pub mod launcher;
+#[cfg(target_os = "linux")]
+mod linux;
 pub mod local_api;
 mod local_runtimes;
 pub mod managed_backup;

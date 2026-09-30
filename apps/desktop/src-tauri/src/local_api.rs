@@ -67,6 +67,8 @@ fn default_vault_name() -> String {
 pub struct VaultInstanceGuard {
     #[cfg(target_os = "windows")]
     handle: isize,
+    #[cfg(target_os = "linux")]
+    _lease: crate::linux::FileLease,
 }
 
 impl VaultInstanceGuard {
@@ -97,7 +99,17 @@ impl VaultInstanceGuard {
                 handle: handle as isize,
             })
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
+        {
+            if active_vault_name().map_err(|error| error.to_string())? != vault_name {
+                return Err("Vault lock name does not match the selected Vault.".to_owned());
+            }
+            let root = app_data_root().map_err(|error| error.to_string())?;
+            let lease = crate::linux::FileLease::acquire(&root.join(".desktop.lock"))
+                .map_err(|error| format!("Vault `{vault_name}` 无法取得进程锁：{error}"))?;
+            Ok(Self { _lease: lease })
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         {
             let _ = vault_name;
             Ok(Self {})
@@ -193,10 +205,11 @@ pub fn request_existing_app_open() -> bool {
 }
 
 pub fn sibling_cli_path() -> PathBuf {
+    let name = format!("verisilo-cli{}", std::env::consts::EXE_SUFFIX);
     std::env::current_exe()
         .ok()
-        .and_then(|path| path.parent().map(|parent| parent.join("verisilo-cli.exe")))
-        .unwrap_or_else(|| PathBuf::from("verisilo-cli.exe"))
+        .and_then(|path| path.parent().map(|parent| parent.join(&name)))
+        .unwrap_or_else(|| PathBuf::from(name))
 }
 
 pub fn spawn<R: Runtime>(app: AppHandle<R>) -> Result<(LocalApiServer, String), String> {
@@ -256,7 +269,21 @@ fn write_discovery(path: &PathBuf, discovery: &LocalApiDiscovery) -> Result<(), 
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let encoded = serde_json::to_vec_pretty(discovery).map_err(|error| error.to_string())?;
-    fs::write(path, encoded).map_err(|error| error.to_string())
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(0x20000); // O_NOFOLLOW
+    }
+    let mut file = options.open(path).map_err(|error| error.to_string())?;
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600))
+            .map_err(|error| error.to_string())?;
+    }
+    file.write_all(&encoded).map_err(|error| error.to_string())
 }
 
 fn serve<R: Runtime>(

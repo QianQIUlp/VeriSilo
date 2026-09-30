@@ -28,7 +28,7 @@ use crate::domain::{
 };
 #[cfg(test)]
 use crate::engine::EngineAdapter;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 use crate::vault::chromium_profile_sentinel_exists;
 use crate::website_identity::{
     load_latest_observation, load_session_observation, WebsiteIdentityObservation,
@@ -73,7 +73,9 @@ const ENGINE_INITIAL_RECEIPT_TIMEOUT: Duration = Duration::from_secs(5);
 const ENGINE_EXIT_RECEIPT_GRACE: Duration = Duration::from_millis(100);
 #[cfg(target_os = "windows")]
 const STOCK_BROWSER_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg(target_os = "windows")]
+#[cfg(target_os = "linux")]
+const STOCK_BROWSER_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 const STOCK_BROWSER_OWNERSHIP_STABILITY: Duration = Duration::from_millis(350);
 const ENGINE_PROTOCOL_CHANNEL_CAPACITY: usize = 32;
 const HTTP_AUTH_EVIDENCE_LOOKBACK_SECONDS: i64 = 15;
@@ -148,7 +150,7 @@ pub struct RuntimeManager {
     health_context: Option<RuntimeHealthContext>,
     engine_runtime: Option<EngineRuntimeProtocol>,
     profile_lease: Option<BrowserProfileLease>,
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pending_stock_profile_release: Option<PathBuf>,
     record_path: Option<PathBuf>,
     record: Option<RuntimeRecord>,
@@ -1106,11 +1108,11 @@ impl RuntimeManager {
     }
 
     fn stock_profile_release_pending(&self) -> bool {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         {
             self.pending_stock_profile_release.is_some()
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         {
             false
         }
@@ -1403,7 +1405,7 @@ impl RuntimeManager {
         self.health_context = None;
         self.engine_runtime = None;
         self.profile_lease = None;
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         {
             self.pending_stock_profile_release = None;
         }
@@ -2240,7 +2242,7 @@ impl RuntimeManager {
             host_job,
         } = spawned;
 
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         if silo.engine.is_stock() {
             if let Err(error) = verify_stock_browser_profile_ownership(
                 &mut child,
@@ -3135,7 +3137,7 @@ impl RuntimeManager {
         cancelled: &AtomicBool,
         persist_runtime_record: bool,
     ) {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         if self.child.is_none() && self.refresh_pending_stock_profile_release() {
             return;
         }
@@ -3261,7 +3263,7 @@ impl RuntimeManager {
                 return;
             }
 
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             if let Some((silo_id, profile_directory)) = self
                 .health_context
                 .as_ref()
@@ -3302,12 +3304,12 @@ impl RuntimeManager {
                 }
             }
 
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             let stock_profile_release_completed =
                 self.health_context.as_ref().is_some_and(|context| {
                     context.silo.execution_target.is_local() && context.silo.engine.is_stock()
                 });
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(not(any(target_os = "windows", target_os = "linux")))]
             let stock_profile_release_completed = false;
             self.release_pinned_mihomo_inbound();
             self.profile_lease = None;
@@ -3487,7 +3489,7 @@ impl RuntimeManager {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     fn refresh_pending_stock_profile_release(&mut self) -> bool {
         let Some(profile_directory) = self.pending_stock_profile_release.clone() else {
             return false;
@@ -3883,7 +3885,7 @@ fn spawn_camoufox_host(
     command.env("VERISILO_INTERACTIVE", "1");
     configure_camoufox_host_process(&mut command);
     let (mut child, host_job) =
-        CamoufoxHostJobGuard::spawn(&mut command).map_err(LauncherError::Spawn)?;
+        CamoufoxHostJobGuard::spawn(command).map_err(LauncherError::Spawn)?;
     let mut transport = match CamoufoxHostTransport::attach(&mut child) {
         Ok(transport) => transport,
         Err(error) => {
@@ -4595,7 +4597,7 @@ fn terminate_just_spawned_child(child: &mut Child) {
     let _ = child.wait();
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn verify_stock_browser_profile_ownership(
     child: &mut Child,
     profile_directory: &Path,
@@ -4607,7 +4609,8 @@ fn verify_stock_browser_profile_ownership(
     }
     let _ = executable_path;
 
-    let deadline = Instant::now() + STOCK_BROWSER_STARTUP_TIMEOUT;
+    let started = Instant::now();
+    let deadline = started + STOCK_BROWSER_STARTUP_TIMEOUT;
     let mut sentinel_observed_at = None;
     loop {
         match child.try_wait() {
@@ -4618,6 +4621,13 @@ fn verify_stock_browser_profile_ownership(
             }
             Ok(None) => {}
             Err(error) => {
+                #[cfg(target_os = "linux")]
+                log_linux_stock_ownership_failure(
+                    child,
+                    profile_directory,
+                    started,
+                    sentinel_observed_at,
+                );
                 terminate_just_spawned_child(child);
                 return Err(LauncherError::Spawn(error));
             }
@@ -4634,6 +4644,13 @@ fn verify_stock_browser_profile_ownership(
                 sentinel_observed_at = None;
             }
             Err(error) => {
+                #[cfg(target_os = "linux")]
+                log_linux_stock_ownership_failure(
+                    child,
+                    profile_directory,
+                    started,
+                    sentinel_observed_at,
+                );
                 terminate_just_spawned_child(child);
                 return Err(LauncherError::BrowserStartup(format!(
                     "Chromium Profile sentinel probe failed closed: {error}"
@@ -4642,6 +4659,13 @@ fn verify_stock_browser_profile_ownership(
         }
 
         if Instant::now() >= deadline {
+            #[cfg(target_os = "linux")]
+            log_linux_stock_ownership_failure(
+                child,
+                profile_directory,
+                started,
+                sentinel_observed_at,
+            );
             terminate_just_spawned_child(child);
             return Err(LauncherError::BrowserStartup(
                 "the exact child stayed alive but no stable Chromium Profile sentinel appeared"
@@ -4650,6 +4674,50 @@ fn verify_stock_browser_profile_ownership(
         }
         thread::sleep(Duration::from_millis(25));
     }
+}
+
+#[cfg(target_os = "linux")]
+fn log_linux_stock_ownership_failure(
+    child: &mut Child,
+    profile_directory: &Path,
+    started: Instant,
+    sentinel_observed_at: Option<Instant>,
+) {
+    crate::domain::log_linux_browser_process_diagnostics(child, false);
+    let sentinels = crate::vault::CHROMIUM_PROFILE_SENTINEL_NAMES
+        .iter()
+        .map(|name| {
+            let path = profile_directory.join(name);
+            match fs::symlink_metadata(&path) {
+                Ok(metadata) => json!({
+                    "name": name,
+                    "isFile": metadata.is_file(),
+                    "isDirectory": metadata.is_dir(),
+                    "isSymlink": metadata.file_type().is_symlink(),
+                    // Chromium's lock link ends in its owner's decimal PID.
+                    // Do not emit arbitrary link text, Profile data or argv.
+                    "lockPid": (*name == "SingletonLock")
+                        .then(|| fs::read_link(&path).ok()
+                            .and_then(|target| target.to_str()?.rsplit_once('-')?.1.parse::<u32>().ok()))
+                        .flatten(),
+                }),
+                Err(error) => json!({
+                    "name": name,
+                    "errorKind": format!("{:?}", error.kind()),
+                    "errno": error.raw_os_error(),
+                }),
+            }
+        })
+        .collect::<Vec<_>>();
+    eprintln!(
+        "Linux stock Profile ownership failure: {}",
+        json!({
+            "pid": child.id(),
+            "elapsedMs": started.elapsed().as_millis(),
+            "stableSentinelMs": sentinel_observed_at.map(|observed| observed.elapsed().as_millis()),
+            "sentinels": sentinels,
+        })
+    );
 }
 
 fn expects_managed_relay(profile: &NetworkProfile) -> bool {
@@ -4726,7 +4794,7 @@ fn process_is_alive(pid: u32) -> bool {
 
 #[cfg(target_os = "linux")]
 fn process_is_alive(pid: u32) -> bool {
-    Path::new("/proc").join(pid.to_string()).exists()
+    crate::linux::process_is_alive(pid)
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
@@ -5015,6 +5083,8 @@ mod tests {
         NativeNetworkEvidenceInboxEntry, NativeNetworkHint, NativeReputationObservation,
         NativeReputationState, NETWORK_REPUTATION_EXPLANATION, PROTOCOL_VERSION,
     };
+    #[cfg(target_os = "linux")]
+    use crate::proxy_relay::linux_listener_inode;
     use crate::proxy_relay::{ProxyRelay, RelayAuthenticationEvidence};
     #[cfg(unix)]
     use crate::runtime_watchdog::RuntimeWatchdog;
@@ -5697,22 +5767,90 @@ process.stdin.on('end', () => {
         protocol_fixture_with_behavior("complete")
     }
 
-    fn reserve_fake_controlled_engine_test() -> std::sync::MutexGuard<'static, ()> {
+    fn reserve_protocol_fixture() -> std::sync::MutexGuard<'static, ()> {
         static RESERVATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        static NODE_WARMUP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-        let reservation = RESERVATION
+        RESERVATION
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn reserve_fake_controlled_engine_test() -> std::sync::MutexGuard<'static, ()> {
+        static NODE_WARMUP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        let reservation = reserve_protocol_fixture();
         NODE_WARMUP.get_or_init(|| {
-            let status = std::process::Command::new("node")
-                .arg("--version")
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
+            // --version skips the V8 and redirected stdio startup exercised by
+            // the protocol fixture. Complete that cold path before its deadline.
+            let mut child = std::process::Command::new("node")
+                .args(["-e", "process.stdin.pipe(process.stdout)"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
                 .expect("start Node protocol fixture warmup");
-            assert!(status.success(), "Node protocol fixture warmup failed");
+            let mut stdin = child.stdin.take().expect("warmup stdin");
+            std::io::Write::write_all(&mut stdin, b"ready").expect("write warmup probe");
+            drop(stdin);
+            let output = child
+                .wait_with_output()
+                .expect("finish Node fixture warmup");
+            assert!(
+                output.status.success(),
+                "Node protocol fixture warmup failed"
+            );
+            assert_eq!(
+                output.stdout, b"ready",
+                "Node warmup must echo the exact probe"
+            );
         });
         reservation
+    }
+
+    fn reserve_fake_camoufox_host_test() -> std::sync::MutexGuard<'static, ()> {
+        static PYTHON_WARMUP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        let reservation = reserve_protocol_fixture();
+        PYTHON_WARMUP.get_or_init(|| {
+            // Exercise the real script's imports and redirected JSONL stdio
+            // before tests measure protocol deadlines. Node and Python fixtures
+            // share the reservation so parallel cold starts cannot starve them.
+            let (root, plan, arguments) = fake_camoufox_host_fixture("normal");
+            let mut child = std::process::Command::new(&plan.executable_path)
+                .args(arguments)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .expect("start Python Host fixture warmup");
+            let mut stdin = child.stdin.take().expect("warmup stdin");
+            std::io::Write::write_all(&mut stdin, b"{\"id\":\"warmup\",\"command\":\"hello\"}\n")
+                .expect("write Python Host warmup hello");
+            drop(stdin);
+            let output = child.wait_with_output().expect("finish Python Host warmup");
+            assert!(output.status.success(), "Python Host fixture warmup failed");
+            let response: serde_json::Value =
+                serde_json::from_slice(&output.stdout).expect("Python Host warmup JSONL");
+            assert_eq!(response["id"], "warmup");
+            assert_eq!(response["ok"], true);
+            fs::remove_dir_all(root).expect("remove Python Host warmup fixture");
+        });
+        reservation
+    }
+
+    fn wait_for_fake_host_ready(child: &mut std::process::Child, ready: &std::path::Path) {
+        let deadline = Instant::now() + super::ENGINE_BOOTSTRAP_ACK_TIMEOUT;
+        while !ready.is_file() {
+            assert!(
+                child
+                    .try_wait()
+                    .expect("inspect starting fake Host")
+                    .is_none(),
+                "fake Host exited before fixture readiness"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "fake Host fixture startup timed out"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fn fake_camoufox_host_script() -> PathBuf {
@@ -6226,6 +6364,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_host_jsonl_launch_close_shutdown_is_bound_and_secret_free() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let root =
             std::env::temp_dir().join(format!("verisilo-camoufox-host-test-{}", Uuid::new_v4()));
         let artifact_root = root.join("artifacts");
@@ -6365,6 +6504,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_startup_failure_is_typed_without_private_host_message() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, plan, arguments) = fake_camoufox_host_fixture("startup-rejected");
         let error = match super::spawn_camoufox_host(&plan, &arguments) {
             Ok(_) => panic!("Host startup rejection must stop launch"),
@@ -6377,6 +6517,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_required_proxy_receipt_is_exact_and_fail_closed() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, spawned_plan, arguments) = fake_camoufox_host_fixture("proxy-required");
         let mut spawned =
             super::spawn_camoufox_host(&spawned_plan, &arguments).expect("required proxy Host");
@@ -6405,6 +6546,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn camoufox_runtime_manager_binds_required_proxy_through_exact_relay() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let upstream = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind HTTP upstream");
         let upstream_port = upstream.local_addr().expect("HTTP upstream address").port();
         let credential_reference = Uuid::new_v4();
@@ -6438,6 +6580,8 @@ process.stdin.on('end', () => {
             .expect("required proxy relay")
             .endpoint()
             .port;
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(relay_port).expect("exact relay is listening");
         let expected_proxy = format!("socks5://127.0.0.1:{relay_port}");
         let host = match runtime.engine_runtime.as_ref().expect("Host runtime") {
             super::EngineRuntimeProtocol::CamoufoxHost(host) => host,
@@ -6475,6 +6619,9 @@ process.stdin.on('end', () => {
             .stop_managed_camoufox(silo.id)
             .expect("stop required proxy Host");
         assert!(runtime.proxy_relay.is_none());
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(relay_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, relay_port)),
             Duration::from_millis(200),
@@ -6486,6 +6633,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn camoufox_required_proxy_host_failures_revoke_relay_and_cannot_recover() {
+        let _reservation = reserve_fake_camoufox_host_test();
         for mode in ["status-proxy-mismatch"] {
             let upstream =
                 TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind required proxy upstream");
@@ -6516,6 +6664,9 @@ process.stdin.on('end', () => {
                 .expect("required proxy relay")
                 .endpoint()
                 .port;
+            #[cfg(target_os = "linux")]
+            let listener_inode =
+                linux_listener_inode(relay_port).expect("exact relay is listening");
 
             let failure = wait_for_runtime_state(&mut runtime, RuntimeState::VerificationFailed);
             assert_eq!(
@@ -6531,6 +6682,9 @@ process.stdin.on('end', () => {
                 .health_context
                 .as_ref()
                 .is_some_and(|context| context.compromised));
+            #[cfg(target_os = "linux")]
+            assert_ne!(linux_listener_inode(relay_port), Some(listener_inode));
+            #[cfg(not(target_os = "linux"))]
             assert!(TcpStream::connect_timeout(
                 &SocketAddr::from((Ipv4Addr::LOCALHOST, relay_port)),
                 Duration::from_millis(200),
@@ -6577,6 +6731,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn camoufox_secret_sentinels_are_absent_from_launch_surfaces() {
+        let _reservation = reserve_fake_camoufox_host_test();
         const VAULT_SEED_SENTINEL: &str = "VAULT-SEED-SENTINEL-9d6f";
         const ARTIFACT_SEED_SENTINEL: &str = "ARTIFACT-SEED-SENTINEL-3a81";
         const TOKEN_SENTINEL: &str = "TOKEN-SENTINEL-6c44";
@@ -6720,6 +6875,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_host_timeout_and_early_exit_fail_closed() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let root =
             std::env::temp_dir().join(format!("verisilo-camoufox-host-failure-{}", Uuid::new_v4()));
         let artifact_root = root.join("artifacts");
@@ -6739,6 +6895,7 @@ process.stdin.on('end', () => {
         };
 
         for (mode, expected) in [("timeout", "timeout"), ("eof", "eof")] {
+            let ready = root.join(format!("{mode}.ready"));
             let arguments = vec![
                 std::ffi::OsString::from("-u"),
                 std::ffi::OsString::from(script.to_string_lossy().into_owned()),
@@ -6752,6 +6909,8 @@ process.stdin.on('end', () => {
                 std::ffi::OsString::from(browser_tree_manifest_path.to_string_lossy().into_owned()),
                 std::ffi::OsString::from("--mode"),
                 std::ffi::OsString::from(mode),
+                std::ffi::OsString::from("--ready-file"),
+                ready.as_os_str().to_owned(),
             ];
             let mut child = std::process::Command::new(python)
                 .args(&arguments)
@@ -6762,6 +6921,7 @@ process.stdin.on('end', () => {
                 .expect("start fake Host failure mode");
             let mut transport = super::CamoufoxHostTransport::attach(&mut child)
                 .expect("attach fake Host failure mode");
+            wait_for_fake_host_ready(&mut child, &ready);
             let error = transport
                 .request(
                     "hello",
@@ -6778,6 +6938,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_host_frozen_failure_matrix_fails_closed() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let modes = [
             "wrong-protocol",
             "wrong-host-version",
@@ -6816,15 +6977,19 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_host_stdin_eof_closes_exact_child() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, plan, arguments) = fake_camoufox_host_fixture("normal");
+        let ready = root.join("host.ready");
         let mut command = std::process::Command::new(&plan.executable_path);
         command.args(&arguments);
+        command.arg("--ready-file").arg(&ready);
         command.stdin(std::process::Stdio::piped());
         command.stdout(std::process::Stdio::piped());
         command.stderr(std::process::Stdio::null());
         let mut child = command.spawn().expect("start fake Host for stdin EOF");
         let mut transport = super::CamoufoxHostTransport::attach(&mut child)
             .expect("attach fake Host for stdin EOF");
+        wait_for_fake_host_ready(&mut child, &ready);
         transport
             .request("hello", serde_json::json!({}), Duration::from_secs(1))
             .expect("hello before stdin EOF");
@@ -6846,18 +7011,22 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_host_transport_correlates_requests_and_quarantines_after_late_response() {
+        let _reservation = reserve_fake_camoufox_host_test();
         // Part 1: healthy wire keeps strict request/response correlation:
         // request N -> response N, then request N+1 -> response N+1.
         {
             let (root, plan, arguments) = fake_camoufox_host_fixture("normal");
+            let ready = root.join("host.ready");
             let mut command = std::process::Command::new(&plan.executable_path);
             command.args(&arguments);
+            command.arg("--ready-file").arg(&ready);
             command.stdin(std::process::Stdio::piped());
             command.stdout(std::process::Stdio::piped());
             command.stderr(std::process::Stdio::null());
             let mut child = command.spawn().expect("start fake Host for sequencing");
             let mut transport = super::CamoufoxHostTransport::attach(&mut child)
                 .expect("attach fake Host for sequencing");
+            wait_for_fake_host_ready(&mut child, &ready);
             transport
                 .request("hello", serde_json::json!({}), Duration::from_secs(2))
                 .expect("hello matches request 1");
@@ -6898,10 +7067,13 @@ process.stdin.on('end', () => {
                 .join(format!("verisilo-camoufox-late-host-{}", Uuid::new_v4()));
             fs::create_dir_all(&root).expect("late-response temp root");
             let script = root.join("late-host.py");
+            let ready = root.join("host.ready");
             fs::write(
                 &script,
                 r#"
 import json, sys, time
+from pathlib import Path
+Path(sys.argv[1]).touch()
 for raw in sys.stdin.buffer:
     request = json.loads(raw)
     request_id = request.get("id")
@@ -6920,13 +7092,14 @@ for raw in sys.stdin.buffer:
                 "python3"
             };
             let mut command = std::process::Command::new(python);
-            command.arg(&script);
+            command.arg(&script).arg(&ready);
             command.stdin(std::process::Stdio::piped());
             command.stdout(std::process::Stdio::piped());
             command.stderr(std::process::Stdio::null());
             let mut child = command.spawn().expect("start fake Host for late response");
             let mut transport = super::CamoufoxHostTransport::attach(&mut child)
                 .expect("attach fake Host for late response");
+            wait_for_fake_host_ready(&mut child, &ready);
             transport
                 .request("hello", serde_json::json!({}), Duration::from_secs(2))
                 .expect("hello before the late page response");
@@ -6973,6 +7146,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_runtime_manager_preserves_evidence_and_releases_exact_ownership() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo_id) = fake_camoufox_runtime_manager("normal");
         let activation = runtime
             .stop_managed_camoufox(silo_id)
@@ -7006,6 +7180,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_runtime_manager_keeps_ownership_on_uncertain_tree_exit() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo_id) = fake_camoufox_runtime_manager("tree-exit-false");
         let error = runtime
             .stop_managed_camoufox(silo_id)
@@ -7071,6 +7246,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_runtime_manager_launch_stop_composition_is_bound_and_secret_free() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo) = fake_camoufox_runtime_launch_fixture(
             "normal",
             NetworkProfile::Direct {
@@ -7142,6 +7318,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_runtime_manager_active_session_failures_keep_ownership() {
+        let _reservation = reserve_fake_camoufox_host_test();
         for mode in ["active-session-eof", "active-session-crash"] {
             let (root, mut runtime, silo) = fake_camoufox_runtime_launch_fixture(
                 mode,
@@ -7191,6 +7368,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_user_closing_the_window_releases_the_session() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo) = fake_camoufox_runtime_launch_fixture(
             "browser-exited",
             NetworkProfile::Direct {
@@ -7211,6 +7389,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_stop_is_idempotent_after_external_browser_close() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo) = fake_camoufox_runtime_launch_fixture(
             "browser-exited",
             NetworkProfile::Direct {
@@ -7252,6 +7431,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_stop_rejects_a_different_active_silo() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, active_silo_id) = fake_camoufox_runtime_manager("normal");
         let wrong_silo_id = Uuid::new_v4();
         let error = runtime
@@ -8040,6 +8220,73 @@ for raw in sys.stdin.buffer:
         fs::remove_dir_all(stale_profile).expect("remove unused test Profile fixture");
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_stock_startup_requires_stable_profile_ownership_after_slow_initialization() {
+        let root = std::env::temp_dir().join(format!("verisilo-stock-startup-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let executable = std::path::Path::new("/usr/bin/python3");
+        let mut child = std::process::Command::new(executable)
+            .args([
+                "-c",
+                "import pathlib,sys,time; time.sleep(6); pathlib.Path(sys.argv[1], 'SingletonLock').touch(); sys.stdin.read()",
+            ])
+            .arg(&root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        let result = super::verify_stock_browser_profile_ownership(&mut child, &root, executable);
+        let alive = child.try_wait().unwrap().is_none();
+        super::terminate_just_spawned_child(&mut child);
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            alive,
+            "ownership cannot be accepted after the exact child exits"
+        );
+        assert!(started.elapsed() >= Duration::from_secs(6));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_stock_startup_rejects_unstable_sentinel_and_probe_errors() {
+        let root = std::env::temp_dir().join(format!("verisilo-stock-reject-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let executable = std::path::Path::new("/usr/bin/python3");
+        let mut child = std::process::Command::new(executable)
+            .args([
+                "-c",
+                "import pathlib,sys,time; p=pathlib.Path(sys.argv[1], 'SingletonLock'); p.touch(); time.sleep(.1); p.unlink(); time.sleep(.4)",
+            ])
+            .arg(&root)
+            .spawn()
+            .unwrap();
+        let result = super::verify_stock_browser_profile_ownership(&mut child, &root, executable);
+        super::terminate_just_spawned_child(&mut child);
+        assert!(
+            result.is_err(),
+            "an unstable sentinel is not ownership proof"
+        );
+
+        let invalid_profile = root.join("not-a-profile-directory");
+        fs::write(&invalid_profile, []).unwrap();
+        let mut child = std::process::Command::new(executable)
+            .args(["-c", "import sys; sys.stdin.read()"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let result =
+            super::verify_stock_browser_profile_ownership(&mut child, &invalid_profile, executable);
+        let exited = child.try_wait().unwrap().is_some();
+        super::terminate_just_spawned_child(&mut child);
+        assert!(result.is_err(), "Profile probe failures must fail closed");
+        assert!(exited, "failure must reap the exact owned child");
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(target_os = "windows")]
     #[test]
     fn stock_child_exit_waits_for_chromium_profile_release_before_stopping() {
@@ -8664,6 +8911,8 @@ for raw in sys.stdin.buffer:
     fn mihomo_node_drift_atomically_closes_exact_relay_and_latches_recovery() {
         let (mut runtime, silo, old_port, _upstream, controller_worker, upstream_worker) =
             mihomo_runtime_manager(MihomoRuntimeFixture::NodeDrift);
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(old_port).expect("exact relay is listening");
         let launch_arguments = silo
             .network_profile
             .launch_arguments_with_proxy_override(Some(("127.0.0.1", old_port)))
@@ -8684,6 +8933,9 @@ for raw in sys.stdin.buffer:
             .health_context
             .as_ref()
             .is_some_and(|context| context.compromised));
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(old_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
             Duration::from_millis(200),
@@ -8730,6 +8982,8 @@ for raw in sys.stdin.buffer:
     fn mihomo_controller_process_exit_closes_relay_without_killing_owned_browser() {
         let (mut runtime, _silo, old_port, _upstream, controller_worker, upstream_worker) =
             mihomo_runtime_manager(MihomoRuntimeFixture::ControllerExit);
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(old_port).expect("exact relay is listening");
         controller_worker
             .join()
             .expect("Controller fixture exits after launch guard");
@@ -8741,6 +8995,9 @@ for raw in sys.stdin.buffer:
             .expect("controller failure evidence");
         assert_eq!(evidence.controller_binding, RuntimeEvidenceState::Failed);
         assert!(runtime.proxy_relay.is_none());
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(old_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
             Duration::from_millis(200),
@@ -8766,6 +9023,8 @@ for raw in sys.stdin.buffer:
     fn mihomo_config_drift_closes_old_listener_and_clears_configuration_evidence() {
         let (mut runtime, _silo, old_port, _upstream, controller_worker, upstream_worker) =
             mihomo_runtime_manager(MihomoRuntimeFixture::ConfigDrift);
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(old_port).expect("exact relay is listening");
 
         let activation = runtime.activation();
         assert_eq!(activation.state, RuntimeState::VerificationFailed);
@@ -8773,6 +9032,9 @@ for raw in sys.stdin.buffer:
         let evidence = activation.network_evidence.expect("failed config evidence");
         assert_eq!(evidence.configuration, RuntimeEvidenceState::Failed);
         assert_ne!(evidence.exit, RuntimeEvidenceState::Observed);
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(old_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
             Duration::from_millis(200),
@@ -8830,6 +9092,8 @@ for raw in sys.stdin.buffer:
         )
         .expect("start exact runtime relay");
         let old_port = relay.endpoint().port;
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(old_port).expect("exact relay is listening");
         let child = std::process::Command::new("sh")
             .args(["-c", "sleep 30"])
             .spawn()
@@ -8871,6 +9135,9 @@ for raw in sys.stdin.buffer:
             .health_context
             .as_ref()
             .is_some_and(|context| context.compromised && context.runtime_id == runtime_id));
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(old_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
             Duration::from_millis(200),
@@ -8896,6 +9163,8 @@ for raw in sys.stdin.buffer:
     fn native_watchdog_detects_mihomo_drift_without_a_desktop_status_poll() {
         let (runtime, _silo, old_port, _upstream, controller_worker, upstream_worker) =
             mihomo_runtime_manager(MihomoRuntimeFixture::NodeDrift);
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(old_port).expect("exact relay is listening");
         let runtime = Arc::new(Mutex::new(runtime));
         let mut watchdog = RuntimeWatchdog::start(&runtime).expect("start native watchdog");
 
@@ -8913,6 +9182,12 @@ for raw in sys.stdin.buffer:
             .health_context
             .as_ref()
             .is_some_and(|context| context.compromised));
+        // Shutdown joins the accept thread before returning. Linux can reuse
+        // the released ephemeral port for another parallel test immediately;
+        // check the original listening socket, rather than its former address.
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(old_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
             Duration::from_millis(200),
@@ -9045,6 +9320,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn reobserve_binds_fresh_identity_evidence_to_the_active_session() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo, runtime_id, launch_observed_at) = reobserve_fixture("normal");
         let fresh = runtime
             .reobserve_active_camoufox_identity(silo.id, runtime_id)
@@ -9084,6 +9360,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn reobserve_rejects_a_response_that_does_not_bind_to_the_active_session() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo, runtime_id, _launch_observed_at) =
             reobserve_fixture("reobserve-wrong-session");
         let error = runtime
@@ -9098,6 +9375,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn recheck_active_reobserves_fresh_identity_for_the_running_managed_silo() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo, runtime_id, launch_observed_at) = reobserve_fixture("normal");
         let before_recheck = Utc::now();
         let activation = runtime
@@ -9126,6 +9404,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn recheck_active_reports_mismatched_fresh_identity_honestly() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo, _runtime_id, _launch_observed_at) =
             reobserve_fixture("reobserve-mismatched");
         let activation = runtime
@@ -9144,6 +9423,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn recheck_active_reports_failed_reobservation_without_fabricating_fresh_evidence() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo, _runtime_id, launch_observed_at) =
             reobserve_fixture("reobserve-error");
         let activation = runtime
@@ -9421,6 +9701,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn recheck_package_evidence_is_independent_of_fresh_identity_outcome() {
+        let _reservation = reserve_fake_camoufox_host_test();
         for (mode, expected_identity) in [
             ("normal", IdentityEvidenceState::Matched),
             ("reobserve-error", IdentityEvidenceState::Unavailable),

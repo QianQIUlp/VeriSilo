@@ -36,6 +36,7 @@ impl BrowserKind {
         }
     }
 
+    #[cfg(target_os = "windows")]
     fn known_relative_paths(&self) -> &'static [&'static str] {
         match self {
             Self::Chrome => &[
@@ -1830,6 +1831,21 @@ pub fn app_data_root() -> Result<PathBuf, DomainError> {
         })?;
         migrate_legacy_app_data(base)?;
     }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&root)?;
+        if fs::symlink_metadata(&root)?.file_type().is_symlink() {
+            return Err(DomainError::InvalidSilo(
+                "Application data directory cannot be a symbolic link.".to_owned(),
+            ));
+        }
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
+    }
+    #[cfg(not(target_os = "linux"))]
     fs::create_dir_all(&root)?;
     Ok(root)
 }
@@ -1905,11 +1921,32 @@ pub fn discover_browsers() -> Vec<BrowserCandidate> {
     let mut candidates = Vec::new();
     for kind in [BrowserKind::Chrome, BrowserKind::Edge] {
         let mut paths = Vec::new();
+        #[cfg(target_os = "windows")]
         for variable in ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"] {
             if let Some(base) = std::env::var_os(variable) {
                 for relative in kind.known_relative_paths() {
                     paths.push(PathBuf::from(&base).join(relative));
                 }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let names: &[&str] = match kind {
+                BrowserKind::Chrome => &[
+                    "google-chrome",
+                    "google-chrome-stable",
+                    "google-chrome-beta",
+                    "chromium",
+                    "chromium-browser",
+                ],
+                BrowserKind::Edge => &[
+                    "microsoft-edge",
+                    "microsoft-edge-stable",
+                    "microsoft-edge-beta",
+                ],
+            };
+            for directory in ["/usr/bin", "/usr/local/bin", "/snap/bin"] {
+                paths.extend(names.iter().map(|name| Path::new(directory).join(name)));
             }
         }
 
@@ -1942,13 +1979,35 @@ pub fn inspect_browser_executable(
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or_default();
+    #[cfg(not(target_os = "linux"))]
     let expected_filename = match kind {
         BrowserKind::Chrome => "chrome.exe",
         BrowserKind::Edge => "msedge.exe",
     };
     #[cfg(target_os = "windows")]
     let filename_matches = filename.eq_ignore_ascii_case(expected_filename);
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    let filename_matches = match kind {
+        BrowserKind::Chrome => matches!(
+            filename,
+            "chrome"
+                | "google-chrome"
+                | "google-chrome-stable"
+                | "google-chrome-beta"
+                | "chromium"
+                | "chromium-browser"
+                | "chrome.exe"
+        ),
+        BrowserKind::Edge => matches!(
+            filename,
+            "msedge"
+                | "microsoft-edge"
+                | "microsoft-edge-stable"
+                | "microsoft-edge-beta"
+                | "msedge.exe"
+        ),
+    };
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     let filename_matches = filename.eq_ignore_ascii_case(expected_filename)
         || filename.eq_ignore_ascii_case(expected_filename.trim_end_matches(".exe"));
     if !filename_matches {
@@ -1960,8 +2019,18 @@ pub fn inspect_browser_executable(
         BrowserKind::Edge => "Microsoft Edge ",
     };
     let output = browser_identity_output(kind, prefix, &resolved_path)?;
-    let version = output
-        .strip_prefix(prefix)
+    let version_output = output.strip_prefix(prefix);
+    #[cfg(target_os = "linux")]
+    let version_output = version_output.or_else(|| {
+        (*kind == BrowserKind::Chrome)
+            .then(|| {
+                output
+                    .strip_prefix("Chromium ")
+                    .and_then(|version| version.split_ascii_whitespace().next())
+            })
+            .flatten()
+    });
+    let version = version_output
         .map(str::trim)
         .filter(|value| {
             !value.is_empty()
@@ -2039,7 +2108,7 @@ pub fn verify_browser_descriptor(descriptor: &BrowserDescriptor) -> BrowserVerif
         Some(_) => (
             BrowserVerificationState::Verified,
             format!(
-                "已核验 {} {} 的路径、类型、版本和发布者基线。",
+                "已核验 {} {} 的路径、类型和版本基线。",
                 descriptor.kind.display_name(),
                 inspection.version
             ),
@@ -2091,6 +2160,11 @@ fn browser_version_output(executable_path: &Path) -> Result<String, BrowserVerif
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     hide_windows_console(&mut command);
     let child = command
         .spawn()
@@ -2119,6 +2193,7 @@ fn browser_version_output(executable_path: &Path) -> Result<String, BrowserVerif
     Ok(output.to_owned())
 }
 
+#[cfg(not(target_os = "linux"))]
 fn wait_child_output(
     mut child: std::process::Child,
     timeout: Duration,
@@ -2141,6 +2216,207 @@ fn wait_child_output(
     child
         .wait_with_output()
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))
+}
+
+#[cfg(target_os = "linux")]
+fn wait_child_output(
+    mut child: std::process::Child,
+    timeout: Duration,
+) -> Result<std::process::Output, BrowserVerificationError> {
+    use std::io::{self, Read};
+    use std::os::fd::{AsRawFd, RawFd};
+    extern "C" {
+        fn fcntl(fd: RawFd, command: i32, ...) -> i32;
+        fn waitid(kind: i32, pid: u32, info: *mut std::ffi::c_void, options: i32) -> i32;
+    }
+    fn nonblocking(pipe: &impl AsRawFd) -> io::Result<()> {
+        let fd = pipe.as_raw_fd();
+        let flags = unsafe { fcntl(fd, 3) }; // F_GETFL
+        if flags < 0 || unsafe { fcntl(fd, 4, flags | 0x800) } < 0 {
+            return Err(io::Error::last_os_error()); // F_SETFL, O_NONBLOCK
+        }
+        Ok(())
+    }
+    fn collect(pipe: &mut impl Read, output: &mut Vec<u8>) -> io::Result<bool> {
+        let mut buffer = [0_u8; 4096];
+        loop {
+            match pipe.read(&mut buffer) {
+                Ok(0) => return Ok(true),
+                Ok(length) => {
+                    if output.len() + length > 64 * 1024 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "浏览器版本检查输出过长。",
+                        ));
+                    }
+                    output.extend_from_slice(&buffer[..length]);
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => return Ok(false),
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    fn exited(pid: u32) -> io::Result<bool> {
+        // Linux x86-64 siginfo_t is 128 bytes, aligned to 8; si_pid starts at 16.
+        let mut info = [0_u64; 16];
+        let result = unsafe {
+            waitid(
+                1, // P_PID
+                pid,
+                info.as_mut_ptr().cast(),
+                1 | 4 | 0x0100_0000, // WNOHANG | WEXITED | WNOWAIT
+            )
+        };
+        if result < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                return Ok(false); // Retry in the deadline-bounded outer loop.
+            }
+            return Err(error);
+        }
+        // Do not reap yet: retaining the leader reserves its PID until the
+        // private probe group has been terminated, even if descendants persist.
+        Ok(info[2] as u32 != 0)
+    }
+    let deadline = Instant::now() + timeout;
+    let pid = child.id();
+    let start_time = crate::linux::process_start_time(pid);
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut timed_out = false;
+    let result = (|| -> io::Result<()> {
+        let out = child.stdout.as_mut().expect("version probe stdout pipe");
+        let err = child.stderr.as_mut().expect("version probe stderr pipe");
+        nonblocking(out)?;
+        nonblocking(err)?;
+        let mut exited_at = None;
+        loop {
+            let out_eof = collect(out, &mut stdout)?;
+            let err_eof = collect(err, &mut stderr)?;
+            let now = Instant::now();
+            if exited(pid)? {
+                let start = *exited_at.get_or_insert(now);
+                // Chrome's Linux wrapper forwards output through helper cats.
+                // Give them a bounded drain window, without requiring EOF from
+                // every inherited writer after the browser itself has exited.
+                if (out_eof && err_eof)
+                    || ((!stdout.is_empty() || !stderr.is_empty())
+                        && now.duration_since(start) >= Duration::from_millis(100))
+                {
+                    return Ok(());
+                }
+            }
+            if now >= deadline {
+                timed_out = true;
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "浏览器版本检查超时。",
+                ));
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    })();
+    if timed_out {
+        log_linux_browser_process_diagnostics(&mut child, true);
+        eprintln!(
+            "Linux browser version probe collected stdout: {:?}, stderr: {:?}",
+            String::from_utf8_lossy(&stdout),
+            String::from_utf8_lossy(&stderr)
+        );
+    }
+    // Retain the leader with WNOWAIT, then verify its original start time. An
+    // error such as ECHILD must never signal a PID/group that was recycled.
+    crate::linux::terminate_process_group(pid, start_time);
+    let status = child.wait();
+    result.map_err(|error| BrowserVerificationError::Probe(error.to_string()))?;
+    Ok(std::process::Output {
+        status: status.map_err(|error| BrowserVerificationError::Probe(error.to_string()))?,
+        stdout,
+        stderr,
+    })
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn log_linux_browser_process_diagnostics(
+    child: &mut std::process::Child,
+    version_probe: bool,
+) {
+    use std::io::Read;
+    use std::os::fd::{AsRawFd, RawFd};
+    extern "C" {
+        fn fcntl(fd: RawFd, command: i32, ...) -> i32;
+    }
+    fn proc_text(path: &Path, limit: u64) -> String {
+        let mut bytes = Vec::new();
+        let result = fs::File::open(path).and_then(|file| file.take(limit).read_to_end(&mut bytes));
+        match result {
+            Ok(_) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(error) => format!("unavailable: {error}"),
+        }
+    }
+    fn executable(pid: u32) -> String {
+        fs::read_link(format!("/proc/{pid}/exe"))
+            .map(|path| path.to_string_lossy().chars().take(2048).collect())
+            .unwrap_or_else(|error| format!("unavailable: {error}"))
+    }
+    fn pipe_output(pipe: &mut (impl Read + AsRawFd)) -> String {
+        let fd = pipe.as_raw_fd();
+        let flags = unsafe { fcntl(fd, 3) }; // F_GETFL
+        if flags < 0 || unsafe { fcntl(fd, 4, flags | 0x800) } < 0 {
+            // F_SETFL, O_NONBLOCK
+            return format!("unavailable: {}", std::io::Error::last_os_error());
+        }
+        let mut bytes = [0_u8; 4096];
+        let result = pipe.read(&mut bytes); // One bounded read, never wait for EOF.
+        unsafe { fcntl(fd, 4, flags) };
+        match result {
+            Ok(length) => String::from_utf8_lossy(&bytes[..length]).into_owned(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                "no buffered output".to_owned()
+            }
+            Err(error) => format!("unavailable: {error}"),
+        }
+    }
+    let pid = child.id();
+    let root = PathBuf::from(format!("/proc/{pid}"));
+    let context = if version_probe {
+        "version probe"
+    } else {
+        "stock Profile ownership"
+    };
+    eprintln!(
+        "Linux browser {context} failure: {}",
+        serde_json::json!({
+            "pid": pid,
+            "exe": executable(pid),
+            // Ordinary browser argv can include private URLs or launch input.
+            "cmdline": version_probe.then(|| proc_text(&root.join("cmdline"), 2048)),
+            "status": proc_text(&root.join("status"), 4096),
+            "wchan": proc_text(&root.join("wchan"), 128),
+        })
+    );
+    let children = proc_text(&root.join(format!("task/{pid}/children")), 2048);
+    for descendant in children
+        .split_ascii_whitespace()
+        .filter_map(|value| value.parse::<u32>().ok())
+        .take(16)
+    {
+        eprintln!(
+            "Linux browser {context} direct child: {}",
+            serde_json::json!({
+                "pid": descendant,
+                "exe": executable(descendant),
+                "wchan": proc_text(&PathBuf::from(format!("/proc/{descendant}/wchan")), 128),
+            })
+        );
+    }
+    if let Some(stdout) = child.stdout.as_mut() {
+        eprintln!("Linux browser {context} stdout: {:?}", pipe_output(stdout));
+    }
+    if let Some(stderr) = child.stderr.as_mut() {
+        eprintln!("Linux browser {context} stderr: {:?}", pipe_output(stderr));
+    }
 }
 
 fn paths_match(stored: &str, resolved: &str) -> bool {
@@ -2264,7 +2540,7 @@ fn validate_mihomo_binding(binding: &ExternalMihomoBinding) -> Result<(), Domain
         DomainError::InvalidNetwork("The Mihomo controller URL is invalid.".to_owned())
     })?;
     let controller_host = controller.host_str().unwrap_or_default();
-    let pipe_controller = cfg!(windows)
+    let pipe_controller = cfg!(any(windows, target_os = "linux"))
         && controller.scheme() == "pipe"
         && is_allowed_clash_pipe(controller_host)
         && controller.port().is_none()
@@ -2351,6 +2627,125 @@ mod tests {
         assert!(source.contains("fn windows_file_product_version("));
         assert!(body.contains("browser_identity_output"));
         assert!(!body.contains("Command::new"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_browser_paths_accept_native_wrappers_and_chromium_distribution_version() {
+        let root = std::env::temp_dir().join(format!("verisilo-linux-browser-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        for (kind, name, output, version) in [
+            (
+                BrowserKind::Chrome,
+                "google-chrome",
+                "Google Chrome 152.0.4.28",
+                "152.0.4.28",
+            ),
+            (
+                BrowserKind::Chrome,
+                "chromium",
+                "Chromium 152.0.4.28 built on Debian GNU/Linux 12 (bookworm)",
+                "152.0.4.28",
+            ),
+            (
+                BrowserKind::Edge,
+                "microsoft-edge",
+                "Microsoft Edge 152.0.4.28",
+                "152.0.4.28",
+            ),
+        ] {
+            let executable = root.join(name);
+            fs::write(&executable, []).unwrap();
+            fs::write(executable.with_extension("version-output"), output).unwrap();
+            assert_eq!(
+                super::inspect_browser_executable(&kind, &executable)
+                    .unwrap()
+                    .version,
+                version
+            );
+        }
+        let redirected = root.join("google-chrome-stable");
+        std::os::unix::fs::symlink(root.join("google-chrome"), &redirected).unwrap();
+        assert_eq!(
+            super::inspect_browser_executable(&BrowserKind::Chrome, &redirected)
+                .unwrap()
+                .resolved_path,
+            root.join("google-chrome")
+                .canonicalize()
+                .unwrap()
+                .to_string_lossy()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    fn linux_probe_fixture(script: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("verisilo-probe-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let executable = root.join("google-chrome");
+        fs::write(&executable, format!("#!/bin/sh\n{script}\n")).unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        executable
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_version_probe_accepts_exited_browser_with_inherited_output_pipes() {
+        for fd in [1, 2] {
+            let executable = linux_probe_fixture(&format!(
+                "sleep 30 &\nprintf '%s' \"$!\" > \"$(dirname \"$0\")/descendant-pid\"\nprintf 'Google Chrome 153.0.8010.52\\n' >&{fd}\nexit 0"
+            ));
+            let started = std::time::Instant::now();
+            let inspection = super::inspect_browser_executable(&BrowserKind::Chrome, &executable)
+                .expect("valid version must not wait for the descendant's pipe EOF");
+            assert_eq!(inspection.version, "153.0.8010.52");
+            assert!(started.elapsed() < std::time::Duration::from_secs(3));
+            let root = executable.parent().unwrap();
+            let descendant: u32 = fs::read_to_string(root.join("descendant-pid"))
+                .unwrap()
+                .parse()
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+            while crate::linux::process_is_alive(descendant) && std::time::Instant::now() < deadline
+            {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(
+                !crate::linux::process_is_alive(descendant),
+                "probe descendant leaked"
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_version_probe_bounds_live_process_and_excessive_output() {
+        use std::os::unix::process::CommandExt;
+        for (script, timeout, expected) in [
+            ("sleep 30", std::time::Duration::from_millis(200), "超时"),
+            (
+                "head -c 131072 /dev/zero",
+                std::time::Duration::from_secs(1),
+                "输出过长",
+            ),
+        ] {
+            let child = std::process::Command::new("/bin/sh")
+                .args(["-c", script])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .process_group(0)
+                .spawn()
+                .unwrap();
+            let pid = child.id();
+            let started = std::time::Instant::now();
+            let error = super::wait_child_output(child, timeout).unwrap_err();
+            assert!(error.to_string().contains(expected), "{error}");
+            assert!(started.elapsed() < std::time::Duration::from_secs(3));
+            assert!(!crate::linux::process_is_alive(pid));
+        }
     }
 
     #[cfg(target_os = "windows")]

@@ -782,6 +782,30 @@ def report_startup_failure(provision_artifact: bool) -> None:
     _send({"id": request_id, "ok": False, "error": error})
 
 
+def _log_provision_failure(exc: BaseException, code: str) -> None:
+    """Locate a failed guard without rendering request-derived exception text."""
+    known_codes = {
+        "provision_eof", "provision_frame_too_large", "frame_too_large",
+        "invalid_utf8", "duplicate_key", "invalid_number", "invalid_json",
+        "frame_not_object", "unknown_field", "bad_type", "provision_rejected",
+        "network_observation_failed", "network_locale_unavailable",
+        "tree_integrity_failed", "provision_failed",
+    }
+    code = code if code in known_codes else "unclassified"
+    source = "unavailable"
+    frame = exc.__traceback__
+    while frame is not None:
+        filename = Path(frame.tb_frame.f_code.co_filename).name
+        if filename in {
+            "host_v1.py", "provision_artifact.py", "identity_policy.py",
+            "host_runtime.py", "browser_asset.py", "browser_tree.py",
+            "package_contract.py",
+        }:
+            source = f"{filename}:{frame.tb_lineno}"
+        frame = frame.tb_next
+    _log(f"provision failed: code={code} type={type(exc).__name__} source={source}")
+
+
 def run_provision(host: CamoufoxHost) -> int:
     if host.package_root is None:
         raise ProtocolError("package_required", "provision-artifact requires --package-root")
@@ -796,26 +820,27 @@ def run_provision(host: CamoufoxHost) -> int:
             cache_root=host.state_root / "camoufox-cache",
         )
     except ProtocolError as exc:
+        _log_provision_failure(exc, exc.code)
         write_provision_frame({"ok": False, "error": {"code": exc.code, "message": str(exc)}})
         return 2
     except ProvisionError as exc:
+        _log_provision_failure(exc, exc.code)
         write_provision_frame({"ok": False, "error": {"code": exc.code, "message": str(exc)}})
         return 2
     except TreeIntegrityError as exc:
-        _log(f"provision package tree rejected: {exc}")
+        _log_provision_failure(exc, "tree_integrity_failed")
         write_provision_frame(
             {"ok": False, "error": {"code": "tree_integrity_failed", "message": "browser package tree verification failed"}}
         )
         return 2
     except Exception as exc:  # noqa: BLE001 - never expose input values
-        detail = str(exc).replace("\n", " ").strip()[:180]
-        _log(f"provision failed: {type(exc).__name__}: {detail}")
+        _log_provision_failure(exc, "provision_failed")
         write_provision_frame(
             {
                 "ok": False,
                 "error": {
                     "code": "provision_failed",
-                    "message": f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__,
+                    "message": type(exc).__name__,
                 },
             }
         )
@@ -969,8 +994,10 @@ class CamoufoxHost:
             seed_camoufox_cache(lock, executable, install_dir=install_dir)
         if not self.supervisor.exists():
             raise SystemExit(f"missing native supervisor: {self.supervisor}")
-        if not IS_WINDOWS:
+        if not IS_WINDOWS and self.package_root is None:
             self.supervisor.chmod(0o755)
+        if not IS_WINDOWS and not os.access(self.supervisor, os.X_OK):
+            raise SystemExit(f"supervisor is not executable: {self.supervisor}")
         install_download_guard()
         DownloadGuard.reset()
         self.lock = lock
@@ -1186,9 +1213,9 @@ class CamoufoxHost:
         lock_path = self.profile_root / f"{profile_id}.lock"
         try:
             profile_lock = ProfileLock.acquire(lock_path)
-            if IS_WINDOWS and not probe_supervisor_lock(lock_path):
+            if not probe_supervisor_lock(lock_path):
                 profile_lock.release()
-                raise OSError("supervisor lock byte is already held")
+                raise OSError("supervisor profile lease is already held")
         except OSError as exc:
             raise ProtocolError(
                 "profile_in_use",
@@ -1404,14 +1431,17 @@ class CamoufoxHost:
         self.probe_port = server.server_address[1]
         session["probePort"] = self.probe_port
         os.environ["VERISILO_REAL_EXE"] = _process_path(self.executable)
+        if not IS_WINDOWS:
+            os.environ["VERISILO_HOST_PID"] = str(os.getpid())
+            os.environ["VERISILO_HOST_START_TICKS"] = str(proc_starttime_ticks(os.getpid()))
         os.environ["VERISILO_EXIT_FILE"] = str(session["exitFile"])
         os.environ["VERISILO_SUPERVISOR_FILE"] = str(
             session["sessionDir"] / "supervisor.json"
         )
+        os.environ["VERISILO_PROFILE_LOCK_PATH"] = str(
+            self.profile_root / f"{session['profileId']}.lock"
+        )
         if IS_WINDOWS:
-            os.environ["VERISILO_PROFILE_LOCK_PATH"] = str(
-                self.profile_root / f"{session['profileId']}.lock"
-            )
             session["expectedJobName"] = (
                 f"Local\\VeriSiloCamoufox-{session['sessionId']}"
             )
@@ -1487,6 +1517,14 @@ class CamoufoxHost:
         if geolocation is not None:
             opts["geolocation"] = geolocation
         opts["executable_path"] = _process_path(self.supervisor)
+        if not IS_WINDOWS and getattr(sys, "frozen", False):
+            # The browser is a separate native program. Preserve the caller's
+            # loader path rather than the frozen Python application's libraries.
+            original = os.environ.get("LD_LIBRARY_PATH_ORIG")
+            if original is None:
+                opts["env"].pop("LD_LIBRARY_PATH", None)
+            else:
+                opts["env"]["LD_LIBRARY_PATH"] = original
 
         with _active_launch_stage("launch_persistent_context"):
             session["launchAttempted"] = True

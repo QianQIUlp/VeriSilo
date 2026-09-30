@@ -182,6 +182,10 @@ def main() -> int:
             result["browserProxyServer"] = browser_proxy_server
         return result
 
+    # Direct transport tests start their short communication deadline only
+    # after the actual interpreter/import/fixture startup has completed.
+    if ready_file := values.get("--ready-file"):
+        Path(ready_file).touch()
     for raw in sys.stdin.buffer:
         if len(raw.rstrip(b"\n")) > MAX_FRAME_BYTES:
             raise SystemExit("fake Host request exceeded frame bound")

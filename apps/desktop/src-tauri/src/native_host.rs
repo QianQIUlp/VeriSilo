@@ -5,9 +5,7 @@ use std::{
     path::Path,
 };
 
-#[cfg(any(target_os = "windows", test))]
 use std::path::PathBuf;
-#[cfg(target_os = "windows")]
 use std::process::{Command, Stdio};
 
 use chrono::{DateTime, Duration, Utc};
@@ -38,10 +36,14 @@ const EVIDENCE_ENTRY_TTL_SECONDS: i64 = 10 * 60;
 const NETWORK_CHECK_MAX_AGE_SECONDS: i64 = 5 * 60;
 pub(crate) const NETWORK_REPUTATION_EXPLANATION: &str =
     "未查询商业信誉库或黑名单；运营商与机房线索不能代表 IP 一定干净或一定有风险。";
-#[cfg(any(target_os = "windows", test))]
+#[cfg(target_os = "windows")]
 const HOST_EXECUTABLE_NAME: &str = "verisilo-native-host.exe";
-#[cfg(any(target_os = "windows", test))]
+#[cfg(not(target_os = "windows"))]
+const HOST_EXECUTABLE_NAME: &str = "verisilo-native-host";
+#[cfg(target_os = "windows")]
 const DESKTOP_EXECUTABLE_NAME: &str = "verisilo.exe";
+#[cfg(not(target_os = "windows"))]
+const DESKTOP_EXECUTABLE_NAME: &str = "verisilo";
 
 #[derive(Debug, Error)]
 pub enum NativeHostError {
@@ -1356,7 +1358,6 @@ fn validate_snapshot_activation(
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
 fn open_desktop_application() -> Result<(), NativeHostError> {
     let current_executable = env::current_exe().map_err(|_| NativeHostError::DesktopUnavailable)?;
     let executable = desktop_executable_from_host_path(&current_executable)?;
@@ -1369,12 +1370,6 @@ fn open_desktop_application() -> Result<(), NativeHostError> {
         .map_err(|_| NativeHostError::DesktopUnavailable)
 }
 
-#[cfg(not(target_os = "windows"))]
-fn open_desktop_application() -> Result<(), NativeHostError> {
-    Err(NativeHostError::DesktopUnavailable)
-}
-
-#[cfg(any(target_os = "windows", test))]
 fn desktop_executable_from_host_path(host_path: &Path) -> Result<PathBuf, NativeHostError> {
     if !host_path
         .file_name()
@@ -1875,8 +1870,8 @@ mod tests {
     fn desktop_wake_path_is_fixed_to_the_host_directory() {
         let root = test_root("desktop-path");
         fs::create_dir_all(&root).expect("create root");
-        let host = root.join("verisilo-native-host.exe");
-        let desktop = root.join("verisilo.exe");
+        let host = root.join(super::HOST_EXECUTABLE_NAME);
+        let desktop = root.join(super::DESKTOP_EXECUTABLE_NAME);
         fs::write(&host, b"host").expect("host fixture");
         fs::write(&desktop, b"desktop").expect("desktop fixture");
         assert_eq!(

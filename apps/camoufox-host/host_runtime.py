@@ -152,7 +152,10 @@ def load_asset_lock(path: Path | str | None = None, *, package_root: Path | str 
         raw = selected.read_bytes()
         parsed = strict_json_loads(raw, selected.name)
         if type(parsed) is dict and parsed.get("schema") == PACKAGE_ASSET_LOCK_SCHEMA:
-            return load_package_asset_lock(selected)
+            lock = load_package_asset_lock(selected)
+            if lock["platform"] != PLATFORM:
+                raise SystemExit(f"package platform {lock['platform']} cannot run on {PLATFORM}")
+            return lock
     except OSError as exc:
         raise SystemExit(f"asset lock is unreadable: {exc}") from exc
     try:
@@ -303,6 +306,10 @@ def configure_camoufox_cache(cache_root: Path) -> Path:
 def _link_or_copy_browser_tree(source: Path, destination: Path) -> bool:
     """Prefer a directory junction/symlink so first launch does not copy ~1 GiB."""
 
+    # AppImage mounts change across Desktop launches; the per-Silo cache persists.
+    if sys.platform.startswith("linux") and destination.is_symlink():
+        if destination.resolve() != source.resolve():
+            destination.unlink()
     if (destination / EXECUTABLE_REL).exists():
         return False
     destination.parent.mkdir(parents=True, exist_ok=True)

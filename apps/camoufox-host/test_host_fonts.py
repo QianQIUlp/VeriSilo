@@ -9,6 +9,7 @@ import re
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from host_fonts import (
@@ -44,6 +45,25 @@ class NameConflictTests(unittest.TestCase):
         self.assertTrue(_name_conflicts_with("Segoe UI Black", "Segoe UI"))
         self.assertFalse(_name_conflicts_with("Ravie", "Arial"))
         self.assertFalse(_name_conflicts_with("宋体", "新宋体"))
+
+
+class LinuxFontFamilyTests(unittest.TestCase):
+    def test_fontconfig_family_lines_and_nested_bundle_fonts(self) -> None:
+        from host_fonts import fc_list_families, _families_via_fc_scan
+        from subprocess import CompletedProcess
+
+        result = CompletedProcess([], 0, "Family One,Family Alias\nFamily Two\n", "")
+        with patch("host_fonts.subprocess.run", return_value=result):
+            self.assertEqual(fc_list_families(), ["Family Alias", "Family One", "Family Two"])
+        with tempfile.TemporaryDirectory() as temporary:
+            fonts = Path(temporary)
+            nested = fonts / "linux/font.ttf"
+            nested.parent.mkdir()
+            nested.write_bytes(b"font fixture")
+            with patch("host_fonts.subprocess.run", return_value=result) as scan:
+                self.assertEqual(_families_via_fc_scan(fonts), {"Family Alias", "Family One", "Family Two"})
+            self.assertIn(str(nested), scan.call_args.args[0])
+            self.assertEqual(scan.call_args.args[0][2], "%{family}\n")
 
 
 class NegativeControlSelectionTests(unittest.TestCase):

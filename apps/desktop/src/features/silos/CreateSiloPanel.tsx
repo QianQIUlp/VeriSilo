@@ -400,7 +400,7 @@ export function CreateSiloPanel({
                   {localExecution
                     ? browserPath === ""
                       ? "尚未发现可用的 Chrome 或 Edge"
-                      : `${browserKind === "chrome" ? "Google Chrome" : "Microsoft Edge"} · Windows 本机`
+                      : `${browserKind === "chrome" ? "Google Chrome" : "Microsoft Edge"} · 本机`
                     : executionTarget.kind === "wsl"
                       ? `Chromium · ${executionTarget.distribution}`
                       : "远程运行"}
@@ -414,7 +414,7 @@ export function CreateSiloPanel({
               <div className="standard-default-facts">
                 <span>
                   <strong>运行位置</strong>
-                  {localExecution ? "Windows 本机" : "Linux 环境"}
+                  {localExecution ? "本机" : "Linux 环境"}
                 </span>
                 <span>
                   <strong>网络</strong>
@@ -480,7 +480,7 @@ export function CreateSiloPanel({
                 type="button"
               >
                 <span className="execution-card-kicker">这台电脑</span>
-                <strong>Windows 本机</strong>
+                <strong>本机</strong>
                 <small>使用已安装的 Chrome 或 Edge，网站数据单独保存。</small>
                 <span className="execution-card-state">可用</span>
               </button>
@@ -543,7 +543,7 @@ export function CreateSiloPanel({
               <div className="local-browser-choice" hidden={!advancedOpen}>
                 <div className="subsection-heading">
                   <strong>选择本机浏览器</strong>
-                  <span>支持 Windows 版 Google Chrome 和 Microsoft Edge。</span>
+                  <span>支持本机安装的 Google Chrome 和 Microsoft Edge。</span>
                 </div>
                 <div
                   className="browser-switch"
@@ -591,8 +591,7 @@ export function CreateSiloPanel({
                   </div>
                 ) : (
                   <p className="form-hint">
-                    尚未在常见 Windows
-                    安装位置找到该浏览器，请填写程序文件的位置。
+                    尚未在常见安装位置找到该浏览器，请填写程序文件的位置。
                   </p>
                 )}
                 <label>
@@ -601,13 +600,13 @@ export function CreateSiloPanel({
                     disabled={busy}
                     id="silo-browser-path-input"
                     onChange={(event) => setBrowserPath(event.target.value)}
-                    placeholder="C:\\Program Files\\...\\browser.exe"
+                    placeholder="/usr/bin/google-chrome 或 C:\\Program Files\\...\\browser.exe"
                     value={browserPath}
                   />
                 </label>
                 {browserKind === "edge" ? (
                   <p className="form-hint">
-                    Edge 仍可能显示 Windows
+                    在 Windows 上，Edge 仍可能显示系统
                     已登录的微软账户，但不会复用默认浏览器的
                     Cookie。微软或企业网站仍可能通过 Windows
                     单点登录识别该账户。
@@ -965,7 +964,7 @@ export function CreateSiloPanel({
                   <dt>运行位置</dt>
                   <dd>
                     {localExecution
-                      ? "这台 Windows 电脑"
+                      ? "这台电脑"
                       : executionTarget.kind === "wsl"
                         ? `WSL · ${executionTarget.distribution}`
                         : "远程运行"}
@@ -975,7 +974,7 @@ export function CreateSiloPanel({
                   <dt>浏览器身份</dt>
                   <dd>
                     {localExecution
-                      ? `${browserKind === "chrome" ? "Google Chrome" : "Microsoft Edge"} · Windows`
+                      ? `${browserKind === "chrome" ? "Google Chrome" : "Microsoft Edge"} · 本机`
                       : "Chromium · Linux"}
                   </dd>
                 </div>
@@ -1014,7 +1013,7 @@ export function CreateSiloPanel({
                   <dt>语言与时区</dt>
                   <dd>
                     {localExecution
-                      ? "跟随所选浏览器与 Windows，当前未固定"
+                      ? "跟随所选浏览器与本机系统，当前未固定"
                       : "跟随 Linux 环境，当前未固定"}
                   </dd>
                 </div>
@@ -1030,7 +1029,8 @@ export function CreateSiloPanel({
                   <div>
                     <dt>系统账户</dt>
                     <dd>
-                      微软或企业网站仍可能通过 Windows 单点登录识别设备账户
+                      在 Windows
+                      上，微软或企业网站仍可能通过系统单点登录识别设备账户
                     </dd>
                   </div>
                 ) : null}

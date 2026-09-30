@@ -476,6 +476,17 @@ impl ProxyRelay {
                     Err(_) => break,
                 }
             }
+            #[cfg(target_os = "linux")]
+            {
+                use std::os::fd::AsRawFd;
+                extern "C" {
+                    fn shutdown(fd: i32, how: i32) -> i32;
+                }
+                // CLOEXEC closes a forked descriptor only after exec. Stop
+                // the shared socket now, even if a concurrent child still
+                // holds a copy, before shutdown joins this listener owner.
+                let _ = unsafe { shutdown(listener.as_raw_fd(), 2) }; // SHUT_RDWR
+            }
         });
 
         Ok(Self {
@@ -1378,6 +1389,25 @@ fn relay_bytes(
     }
 }
 
+// Shutdown joins the accept thread. Linux can immediately reuse its port in
+// another parallel test, so close assertions identify the original socket.
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn linux_listener_inode(port: u16) -> Option<u64> {
+    let address = format!("0100007F:{port:04X}");
+    std::fs::read_to_string("/proc/net/tcp")
+        .expect("read native listening socket identities")
+        .lines()
+        .skip(1)
+        .find_map(|line| {
+            let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
+            if fields.get(1) == Some(&address.as_str()) && fields.get(3) == Some(&"0A") {
+                Some(fields[9].parse().expect("native socket inode"))
+            } else {
+                None
+            }
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::{Duration as ChronoDuration, Utc};
@@ -1393,6 +1423,8 @@ mod tests {
     };
     use uuid::Uuid;
 
+    #[cfg(target_os = "linux")]
+    use super::linux_listener_inode;
     use super::{
         handle_local_socks_connection, read_socks_target, try_acquire_connection,
         ActiveRelayConnections, ProxyRelay, RelayAuthenticationEvidence, RelayConfig,
@@ -1852,6 +1884,9 @@ mod tests {
         )
         .expect("start relay");
         let old_endpoint = SocketAddr::from((Ipv4Addr::LOCALHOST, relay.endpoint().port));
+        #[cfg(target_os = "linux")]
+        let listener_inode =
+            linux_listener_inode(old_endpoint.port()).expect("exact relay is listening");
         let (mut client, reply) = connect_to_relay(&relay);
         assert_eq!(reply, 0);
 
@@ -1863,6 +1898,12 @@ mod tests {
             .expect("bound client read");
         let mut byte = [0_u8; 1];
         assert!(matches!(client.read(&mut byte), Ok(0) | Err(_)));
+        #[cfg(target_os = "linux")]
+        assert_ne!(
+            linux_listener_inode(old_endpoint.port()),
+            Some(listener_inode)
+        );
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(&old_endpoint, Duration::from_millis(200)).is_err());
         server.join().expect("fake upstream exits");
     }
@@ -1896,6 +1937,30 @@ mod tests {
         )
         .expect("start relay B");
         let endpoint_a = SocketAddr::from((Ipv4Addr::LOCALHOST, relay_a.endpoint().port));
+        #[cfg(target_os = "linux")]
+        let listener_inode =
+            linux_listener_inode(endpoint_a.port()).expect("exact relay is listening");
+        #[cfg(target_os = "linux")]
+        let inherited_listener = {
+            use std::os::fd::BorrowedFd;
+            let target = std::path::PathBuf::from(format!("socket:[{listener_inode}]"));
+            let fd = std::fs::read_dir("/proc/self/fd")
+                .expect("enumerate owned descriptors")
+                .filter_map(Result::ok)
+                .find_map(|entry| {
+                    if std::fs::read_link(entry.path()).ok().as_ref() == Some(&target) {
+                        entry.file_name().to_str()?.parse::<i32>().ok()
+                    } else {
+                        None
+                    }
+                })
+                .expect("exact relay descriptor");
+            // The live relay owns this descriptor until the shutdown below.
+            // Holding a duplicate models the copy inherited by fork pre-exec.
+            unsafe { BorrowedFd::borrow_raw(fd) }
+                .try_clone_to_owned()
+                .expect("duplicate inherited listener")
+        };
 
         assert!(!relay_a.shutdown_for_runtime(silo_b, runtime_b));
         assert!(relay_a.is_healthy());
@@ -1903,6 +1968,21 @@ mod tests {
         assert!(relay_a.credentials.is_present());
         assert!(relay_a.shutdown_for_runtime(silo_a, runtime_a));
         assert!(!relay_a.credentials.is_present());
+        #[cfg(target_os = "linux")]
+        assert_ne!(
+            linux_listener_inode(endpoint_a.port()),
+            Some(listener_inode)
+        );
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            std::fs::read_link(format!(
+                "/proc/self/fd/{}",
+                std::os::fd::AsRawFd::as_raw_fd(&inherited_listener)
+            ))
+            .expect("inherited descriptor remains open"),
+            std::path::PathBuf::from(format!("socket:[{listener_inode}]"))
+        );
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(&endpoint_a, Duration::from_millis(200)).is_err());
         assert!(
             relay_b.is_healthy(),

@@ -57,7 +57,7 @@ def _name_conflicts_with(a: str, b: str) -> bool:
 def fc_list_families() -> list[str]:
     try:
         proc = subprocess.run(
-            ["fc-list", ": family"],
+            ["fc-list", "--format", "%{family}\n"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -66,11 +66,7 @@ def fc_list_families() -> list[str]:
         return []
     families = set()
     for line in proc.stdout.splitlines():
-        if ":" not in line:
-            continue
-        family_part = line.split(":", 1)[1]
-        family_part = family_part.split(":style=")[0]
-        for family in family_part.split(","):
+        for family in line.split(","):
             family = family.strip()
             if family:
                 families.add(family)
@@ -236,9 +232,13 @@ def _families_via_gdiplus(fonts_dir: Path) -> set[str]:
 
 
 def _families_via_fc_scan(fonts_dir: Path) -> set[str]:
+    files = sorted(str(path) for path in fonts_dir.rglob("*")
+                   if path.is_file() and path.suffix.lower() in (".ttf", ".ttc", ".otf"))
+    if not files:
+        return set()
     try:
         proc = subprocess.run(
-            ["fc-scan", "--format", "%{family}\\n", str(fonts_dir)],
+            ["fc-scan", "--format", "%{family}\n", *files],
             capture_output=True,
             text=True,
             timeout=60,

@@ -1,4 +1,4 @@
-//! Same-Vault, same-Windows-user cold backup of one Managed Silo.
+//! Same-Vault, same-machine, same-user cold backup of one Managed Silo.
 use super::*;
 use crate::engine::{
     Sha256State, CAMOUFOX_FORMAL_V3_BROWSER_ASSET_SHA256, CAMOUFOX_FORMAL_V3_ENGINE_REVISION,
@@ -232,14 +232,84 @@ fn dpapi(
     Ok(Zeroizing::new(copied))
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+fn dpapi(
+    input: &[u8],
+    entropy: &[u8],
+    protect: bool,
+    machine: bool,
+) -> Result<Zeroizing<Vec<u8>>, VaultError> {
+    // The binding includes the secret seed from the unlocked encrypted Vault.
+    // Linux has no DPAPI: authenticate that binding plus the machine and user
+    // with AES-GCM. Neither the seed nor a wrapping key is stored in the archive.
+    let machine_id = fs::read_to_string("/etc/machine-id")?;
+    let machine_id = machine_id.trim();
+    if machine_id.len() != 32 || !machine_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(rejected(
+            "A valid Linux machine-id is required for cold backup.",
+        ));
+    }
+    let status = fs::read_to_string("/proc/self/status")?;
+    let uid = status
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))
+        .and_then(|uids| uids.split_whitespace().nth(1))
+        .ok_or(VaultError::InvalidData)?;
+    let mut binding = Zeroizing::new(Vec::new());
+    binding.extend_from_slice(b"VeriSilo Linux backup wrapping v1\0");
+    binding.extend_from_slice(machine_id.as_bytes());
+    binding.push(0);
+    binding.extend_from_slice(uid.as_bytes());
+    binding.push(u8::from(machine));
+    binding.extend_from_slice(entropy);
+    let mut digest = Sha256State::new();
+    digest.update(&binding);
+    let key = Zeroizing::new(digest.finalize());
+    let cipher =
+        Aes256Gcm::new_from_slice(key.as_ref()).map_err(|_| VaultError::CryptographicSetup)?;
+    if protect {
+        let nonce = random_bytes::<12>();
+        let sealed = cipher
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: input,
+                    aad: &binding,
+                },
+            )
+            .map_err(|_| VaultError::InvalidData)?;
+        let mut output = Zeroizing::new(nonce.to_vec());
+        output.extend_from_slice(&sealed);
+        Ok(output)
+    } else {
+        if input.len() < 28 {
+            return Err(VaultError::InvalidData);
+        }
+        cipher
+            .decrypt(
+                Nonce::from_slice(&input[..12]),
+                Payload {
+                    msg: &input[12..],
+                    aad: &binding,
+                },
+            )
+            .map(Zeroizing::new)
+            .map_err(|_| {
+                rejected("This backup cannot be opened by this Linux user, machine and Vault.")
+            })
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn dpapi(
     _input: &[u8],
     _entropy: &[u8],
     _protect: bool,
     _machine: bool,
 ) -> Result<Zeroizing<Vec<u8>>, VaultError> {
-    Err(rejected("Managed Silo cold backup requires Windows DPAPI."))
+    Err(rejected(
+        "Managed Silo cold backup requires Windows or Linux.",
+    ))
 }
 
 struct HashingReader<R> {
@@ -452,7 +522,10 @@ fn excluded(relative: &Path) -> bool {
         && relative
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("silo-") && name.ends_with(".lock"))
+            .is_some_and(|name| {
+                name.starts_with("silo-")
+                    && (name.ends_with(".lock") || name.ends_with(".lock.supervisor"))
+            })
     {
         return true;
     }
@@ -565,7 +638,15 @@ fn open_regular(path: &Path) -> Result<fs::File, VaultError> {
             .custom_flags(0x0020_0000)
             .open(path)?
     };
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(unix)]
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(0x20000)
+            .open(path)?
+    };
+    #[cfg(not(any(target_os = "windows", unix)))]
     let file = fs::File::open(path)?;
     let opened = file.metadata()?;
     if !opened.is_file() || metadata_is_link_or_reparse(&opened) {
@@ -631,6 +712,17 @@ fn read_plain<R: Read>(input: &mut R, len: usize) -> Result<Vec<u8>, VaultError>
     Ok(bytes)
 }
 
+fn create_private_directory(path: &Path, recursive: bool) -> std::io::Result<()> {
+    let mut options = fs::DirBuilder::new();
+    options.recursive(recursive);
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        options.mode(0o700);
+    }
+    options.create(path)
+}
+
 fn read_profile<R: Read>(input: &mut R, staged: Option<&Path>) -> Result<(u64, u64), VaultError> {
     let mut seen = HashSet::new();
     let mut files = 0_u64;
@@ -656,11 +748,11 @@ fn read_profile<R: Read>(input: &mut R, staged: Option<&Path>) -> Result<(u64, u
         if let Some(stage) = staged {
             let destination = stage.join(&relative);
             let parent = destination.parent().ok_or(VaultError::InvalidData)?;
-            fs::create_dir_all(parent)?;
+            create_private_directory(parent, true)?;
             #[cfg(target_os = "windows")]
             ensure_path_ancestors_have_no_links_or_reparse_points(parent)?;
             if kind == 1 {
-                fs::create_dir(&destination)?;
+                create_private_directory(&destination, false)?;
             }
         }
         if kind == 2 {
@@ -671,12 +763,14 @@ fn read_profile<R: Read>(input: &mut R, staged: Option<&Path>) -> Result<(u64, u
                 return Err(VaultError::InvalidData);
             }
             let mut destination = if let Some(stage) = staged {
-                Some(
-                    fs::OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(stage.join(&relative))?,
-                )
+                let mut options = fs::OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(target_os = "linux")]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600);
+                }
+                Some(options.open(stage.join(&relative))?)
             } else {
                 None
             };
@@ -737,9 +831,20 @@ fn publish_new(source: &Path, destination: &Path) -> Result<(), VaultError> {
     }
     Ok(())
 }
-#[cfg(not(target_os = "windows"))]
-fn publish_new(_source: &Path, _destination: &Path) -> Result<(), VaultError> {
-    Err(rejected("Managed Silo cold backup requires Windows."))
+#[cfg(unix)]
+fn publish_new(source: &Path, destination: &Path) -> Result<(), VaultError> {
+    // Both paths have the same parent. Linking publishes the complete file
+    // atomically and refuses to replace a destination created concurrently.
+    fs::hard_link(source, destination).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            VaultError::BackupDestinationExists
+        } else {
+            VaultError::Filesystem(error)
+        }
+    })?;
+    fs::remove_file(source)?;
+    fs::File::open(destination.parent().ok_or(VaultError::InvalidData)?)?.sync_all()?;
+    Ok(())
 }
 
 fn read_archive(
@@ -786,6 +891,15 @@ struct ManagedLease {
     _browser: BrowserProfileLease,
     #[cfg(target_os = "windows")]
     _native: Vec<WindowsProfileFileLock>,
+}
+
+#[cfg(target_os = "linux")]
+fn linux_tree_lease(managed: &Path, id: Uuid) -> Result<BrowserProfileLease, VaultError> {
+    BrowserProfileLease::acquire(&[
+        managed.join("browser-data"),
+        managed.join("browser-data/engines/camoufox"),
+        host_profile_root(managed, id),
+    ])
 }
 
 fn profile_lease(
@@ -992,11 +1106,14 @@ impl VaultRuntime {
         header.extend_from_slice(&machine_blob);
         let temporary = destination.with_extension(format!("{}.tmp", Uuid::new_v4()));
         let result = (|| {
-            let mut file = fs::OpenOptions::new()
-                .write(true)
-                .read(true)
-                .create_new(true)
-                .open(&temporary)?;
+            let mut options = fs::OpenOptions::new();
+            options.write(true).read(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options.open(&temporary)?;
             file.write_all(&header)?;
             let mut writer = EncryptedWriter::new(file, &key, prefix, header)?;
             writer.write_all(&(metadata.len() as u32).to_le_bytes())?;
@@ -1102,10 +1219,10 @@ impl VaultRuntime {
         let source = archive_path(root, id, selected, false)?;
         let mut file = open_regular(&source)?;
         let journal = journal_path(root, id);
-        fs::create_dir(&journal)?;
+        create_private_directory(&journal, false)?;
         let staged = journal.join("staged-managed");
         let prepared = (|| {
-            fs::create_dir(&staged)?;
+            create_private_directory(&staged, false)?;
             let (mut snap, digest) =
                 read_archive(&mut file, root, id, &seed, passphrase, Some(&staged))?;
             if digest != expected_digest {
@@ -1119,7 +1236,7 @@ impl VaultRuntime {
                 return Err(VaultError::InvalidData);
             }
             let identity = staged.join("identity");
-            fs::create_dir(&identity)?;
+            create_private_directory(&identity, false)?;
             let artifact_path = identity.join(format!("{}.json", snap.artifact.artifact_id));
             ensure_exact_materialized_file(&artifact_path, snap.artifact.raw_json.as_bytes())?;
             let sidecar = format!(
@@ -1201,7 +1318,16 @@ impl VaultRuntime {
                 )?;
                 ensure_tree_has_no_links_or_reparse_points(&managed)?;
             }
-            drop(lease);
+            // Linux locks follow the opened inode across rename. Retain both
+            // trees so neither the old nor restored Profile can start before
+            // the restore transaction has committed.
+            #[cfg(target_os = "linux")]
+            let transition_leases = vec![lease._browser, linux_tree_lease(&staged, id)?];
+            #[cfg(not(target_os = "linux"))]
+            let transition_leases = {
+                drop(lease);
+                Vec::<BrowserProfileLease>::new()
+            };
             // The rollback envelope must represent the validated unlocked
             // state, even if the on-disk file was changed independently.
             self.persist(root)?;
@@ -1217,9 +1343,9 @@ impl VaultRuntime {
                 write_marker(&journal.join("old-missing"))?;
             }
             write_marker(&journal.join("prepared"))?;
-            Ok((data, snap.silo.clone()))
+            Ok((data, snap.silo.clone(), transition_leases))
         })();
-        let (data, restored) = match prepared {
+        let (data, restored, _transition_leases) = match prepared {
             Ok(value) => value,
             Err(error) => {
                 let _ = recover_one(root, id);
@@ -1236,7 +1362,7 @@ impl VaultRuntime {
             Ok(())
         })();
         if let Err(error) = transition {
-            if let Err(recovery_error) = recover_one(root, id) {
+            if let Err(recovery_error) = recover_one_under_lease(root, id) {
                 self.lock();
                 return Err(recovery_error);
             }
@@ -1293,6 +1419,23 @@ fn cleanup_committed(journal: &Path) -> Result<(), VaultError> {
 }
 
 fn recover_one(root: &Path, id: Uuid) -> Result<(), VaultError> {
+    #[cfg(target_os = "linux")]
+    let _leases = {
+        let journal = journal_path(root, id);
+        [
+            root.join("silos").join(id.to_string()),
+            journal.join("old-managed"),
+            journal.join("staged-managed"),
+            journal.join("discarded-managed"),
+        ]
+        .iter()
+        .map(|managed| linux_tree_lease(managed, id))
+        .collect::<Result<Vec<_>, _>>()?
+    };
+    recover_one_under_lease(root, id)
+}
+
+fn recover_one_under_lease(root: &Path, id: Uuid) -> Result<(), VaultError> {
     let journal = journal_path(root, id);
     let metadata = match fs::symlink_metadata(&journal) {
         Ok(metadata) => metadata,
@@ -1379,7 +1522,7 @@ pub(super) fn recover_interrupted_managed_restore(root: &Path) -> Result<(), Vau
     Ok(())
 }
 
-#[cfg(all(test, target_os = "windows"))]
+#[cfg(all(test, any(target_os = "windows", target_os = "linux")))]
 mod tests {
     use super::*;
     use crate::domain::CreateManagedSiloInput;
@@ -1387,6 +1530,93 @@ mod tests {
     const PASSPHRASE: &str = "managed backup password for tests";
     const VAULT_PASSWORD: &str = "managed vault password for tests";
     const VERSION: &str = "123.4.5";
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_restore_lease_follows_the_staged_tree_after_rename() {
+        let root = root();
+        let id = Uuid::new_v4();
+        let staged = root.join("staged-managed");
+        fs::create_dir_all(host_profile_root(&staged, id)).unwrap();
+        let lease = linux_tree_lease(&staged, id).unwrap();
+        let committed = root.join("restored-managed");
+        fs::rename(&staged, &committed).unwrap();
+        for suffix in [".lock", ".lock.supervisor"] {
+            assert!(crate::linux::FileLease::acquire(
+                &committed
+                    .join("profiles")
+                    .join(format!("silo-{}{suffix}", id.simple()))
+            )
+            .is_err());
+        }
+        assert!(linux_tree_lease(&committed, id).is_err());
+        drop(lease);
+        assert!(linux_tree_lease(&committed, id).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_recovery_refuses_an_active_host_before_mutating_the_journal() {
+        let root = root();
+        let id = Uuid::new_v4();
+        let journal = journal_path(&root, id);
+        let staged = journal.join("staged-managed");
+        fs::create_dir_all(host_profile_root(&staged, id)).unwrap();
+        let lock = crate::linux::FileLease::acquire(
+            &staged
+                .join("profiles")
+                .join(format!("silo-{}.lock.supervisor", id.simple())),
+        )
+        .unwrap();
+        assert!(matches!(
+            recover_one(&root, id),
+            Err(VaultError::SiloProfileInUse)
+        ));
+        assert!(staged.is_dir());
+        drop(lock);
+        recover_one(&root, id).unwrap();
+        assert!(!journal.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_wrapping_authenticates_the_vault_binding_and_scope() {
+        let input = [7; 32];
+        let wrapped = dpapi(&input, b"secret-vault-binding", true, false).unwrap();
+        assert_eq!(
+            dpapi(&wrapped, b"secret-vault-binding", false, false)
+                .unwrap()
+                .as_slice(),
+            input
+        );
+        assert!(dpapi(&wrapped, b"different-vault-binding", false, false).is_err());
+        assert!(dpapi(&wrapped, b"secret-vault-binding", false, true).is_err());
+        let mut corrupt = wrapped.to_vec();
+        *corrupt.last_mut().unwrap() ^= 1;
+        assert!(dpapi(&corrupt, b"secret-vault-binding", false, false).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publication_never_overwrites_an_existing_destination() {
+        let root = root();
+        let source = root.join("temporary");
+        let destination = root.join("backup");
+        fs::write(&source, b"complete").unwrap();
+        fs::write(&destination, b"existing").unwrap();
+        assert!(matches!(
+            publish_new(&source, &destination),
+            Err(VaultError::BackupDestinationExists)
+        ));
+        assert_eq!(fs::read(&destination).unwrap(), b"existing");
+        fs::remove_file(&destination).unwrap();
+        publish_new(&source, &destination).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"complete");
+        assert!(!source.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn root() -> PathBuf {
         let path =
@@ -1600,6 +1830,18 @@ mod tests {
         assert_eq!(restored.id, a.id);
         assert!(restored.archived_at.is_some());
         assert_eq!(fs::read(&a_cookie).unwrap(), b"session-cookie");
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&a_cookie).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(&a_profile).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
         assert_eq!(fs::read(&b_cookie).unwrap(), b_before);
         assert_eq!(vault.list_silos().unwrap().len(), 2);
         fs::remove_dir_all(root).unwrap();
@@ -1779,7 +2021,10 @@ mod tests {
             .join(silo.id.to_string())
             .join("profiles")
             .join(format!("silo-{}.lock", silo.id.simple()));
+        #[cfg(target_os = "windows")]
         let held = WindowsProfileFileLock::acquire(&lock_path).unwrap();
+        #[cfg(target_os = "linux")]
+        let held = crate::linux::FileLease::acquire(&lock_path).unwrap();
         assert!(matches!(
             vault.backup_managed_silo(
                 &root,

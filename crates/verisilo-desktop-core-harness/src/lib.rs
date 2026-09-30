@@ -15,10 +15,16 @@ mod application;
 pub mod domain;
 #[path = "../../../apps/desktop/src-tauri/src/engine.rs"]
 pub mod engine;
+#[cfg(target_os = "linux")]
+#[path = "../../../apps/desktop/src-tauri/src/engine_linux.rs"]
+mod engine_linux;
 #[path = "../../../apps/desktop/src-tauri/src/environment.rs"]
 pub mod environment;
 #[path = "../../../apps/desktop/src-tauri/src/launcher.rs"]
 pub mod launcher;
+#[cfg(target_os = "linux")]
+#[path = "../../../apps/desktop/src-tauri/src/linux.rs"]
+mod linux;
 #[path = "../../../apps/desktop/src-tauri/src/local_runtimes.rs"]
 pub mod local_runtimes;
 #[path = "../../../apps/desktop/src-tauri/src/managed_backup.rs"]

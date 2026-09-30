@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{self, Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
@@ -20,6 +20,8 @@ use thiserror::Error;
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
+#[cfg(windows)]
+use std::fs::File;
 use uuid::Uuid;
 
 use crate::{
@@ -180,13 +182,18 @@ impl MihomoRuntimeGuard {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ControllerTarget {
     Tcp(SocketAddr),
+    #[cfg(windows)]
     Pipe(String),
+    #[cfg(target_os = "linux")]
+    Unix(PathBuf),
 }
 
 enum ControllerConn {
     Tcp(TcpStream),
     #[cfg(windows)]
     Pipe(File),
+    #[cfg(target_os = "linux")]
+    Unix(std::os::unix::net::UnixStream),
 }
 
 #[derive(Debug, Error)]
@@ -509,8 +516,53 @@ fn controller_looks_like_clash(port: u16) -> bool {
     response_looks_like_clash(&mut stream, &request)
 }
 
+#[cfg(target_os = "linux")]
+fn linux_clash_socket_path() -> Result<PathBuf, MihomoError> {
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .ok_or(MihomoError::IsolatedConfigUnavailable)?;
+    if !data.is_absolute() {
+        return Err(MihomoError::UnsafeController);
+    }
+    Ok(data
+        .join("io.github.clash-verge-rev.clash-verge-rev")
+        .join("verge-mihomo.sock"))
+}
+
+#[cfg(target_os = "linux")]
+fn connect_linux_socket(path: &Path) -> io::Result<std::os::unix::net::UnixStream> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_socket() || metadata.uid() != crate::linux::effective_uid() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Clash controller must be a native socket owned by this user",
+        ));
+    }
+    std::os::unix::net::UnixStream::connect(path)
+}
+
 fn pipe_looks_like_clash(name: &str) -> bool {
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        if name != "verge-mihomo" {
+            return false;
+        }
+        let Ok(path) = linux_clash_socket_path() else {
+            return false;
+        };
+        let Ok(mut stream) = connect_linux_socket(&path) else {
+            return false;
+        };
+        let _ = stream.set_read_timeout(Some(LOCAL_PROBE_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(LOCAL_PROBE_TIMEOUT));
+        response_looks_like_clash(
+            &mut stream,
+            "GET /version HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = name;
         false
@@ -599,11 +651,12 @@ pub fn verify_binding(
     validate_available_node(binding, secret)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn pin_isolated_mihomo(
     binding: &ExternalMihomoBinding,
     silo_id: Uuid,
 ) -> Result<PinnedInbound, MihomoError> {
+    #[cfg(windows)]
     if !matches!(
         parse_controller_target(&binding.controller_url)?,
         ControllerTarget::Pipe(ref name) if name == "verge-mihomo"
@@ -611,16 +664,29 @@ fn pin_isolated_mihomo(
         return Err(MihomoError::PinnedInboundUnsupported);
     }
 
+    #[cfg(windows)]
     let app_data = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .ok_or(MihomoError::IsolatedConfigUnavailable)?;
+    #[cfg(windows)]
     let program_files = std::env::var_os("PROGRAMFILES")
         .map(PathBuf::from)
         .ok_or(MihomoError::IsolatedConfigUnavailable)?;
+    #[cfg(windows)]
     let source_path = app_data
         .join("io.github.clash-verge-rev.clash-verge-rev")
         .join("clash-verge.yaml");
+    #[cfg(windows)]
     let binary = program_files.join("Clash Verge").join("verge-mihomo.exe");
+    #[cfg(target_os = "linux")]
+    let source_path = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .ok_or(MihomoError::IsolatedConfigUnavailable)?
+        .join("io.github.clash-verge-rev.clash-verge-rev")
+        .join("clash-verge.yaml");
+    #[cfg(target_os = "linux")]
+    let binary = PathBuf::from("/usr/bin/verge-mihomo");
     if !source_path.is_file() || !binary.is_file() {
         return Err(MihomoError::IsolatedConfigUnavailable);
     }
@@ -632,6 +698,23 @@ fn pin_isolated_mihomo(
     let source = Zeroizing::new(fs::read(source_path)?);
     let parsed: serde_yaml::Value =
         serde_yaml::from_slice(&source).map_err(|_| MihomoError::IsolatedConfigUnavailable)?;
+    #[cfg(target_os = "linux")]
+    {
+        match parse_controller_target(&binding.controller_url)? {
+            ControllerTarget::Tcp(endpoint)
+                if parsed
+                    .get("external-controller")
+                    .and_then(serde_yaml::Value::as_str)
+                    .and_then(|value| value.parse::<SocketAddr>().ok())
+                    == Some(endpoint) => {}
+            ControllerTarget::Unix(path)
+                if parsed
+                    .get("external-controller-unix")
+                    .and_then(serde_yaml::Value::as_str)
+                    .is_some_and(|value| Path::new(value) == path) => {}
+            _ => return Err(MihomoError::PinnedInboundUnsupported),
+        }
+    }
     let port = allocate_loopback_port()?;
     let name = pinned_inbound_name(silo_id);
     let config = isolated_mihomo_config(&parsed, &binding.node_name, &name, port)?;
@@ -641,25 +724,36 @@ fn pin_isolated_mihomo(
             .into_bytes(),
     );
 
+    #[cfg(windows)]
     let local_data = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .ok_or(MihomoError::IsolatedConfigUnavailable)?;
-    let root = local_data
-        .join("io.verisilo.app")
-        .join("runtime")
-        .join("mihomo")
-        .join(format!(
-            "{}-{}",
-            silo_id.as_simple(),
-            Uuid::new_v4().as_simple()
-        ));
+    #[cfg(windows)]
+    let runtime_root = local_data.join("io.verisilo.app");
+    #[cfg(target_os = "linux")]
+    let runtime_root =
+        crate::domain::app_data_root().map_err(|_| MihomoError::IsolatedConfigUnavailable)?;
+    let root = runtime_root.join("runtime").join("mihomo").join(format!(
+        "{}-{}",
+        silo_id.as_simple(),
+        Uuid::new_v4().as_simple()
+    ));
     fs::create_dir_all(&root)?;
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
+    }
     let config_path = root.join("config.yaml");
     let result: Result<PinnedInbound, MihomoError> = (|| -> Result<_, MihomoError> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&config_path)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(0x20000);
+        }
+        let mut file = options.open(&config_path)?;
         file.write_all(&config_bytes)?;
         file.sync_all()?;
         drop(file);
@@ -674,7 +768,11 @@ fn pin_isolated_mihomo(
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         hide_windows_console(&mut command);
+        #[cfg(not(target_os = "linux"))]
         let mut child = command.spawn()?;
+        #[cfg(target_os = "linux")]
+        let child = crate::linux::spawn_owned(command)?;
+        #[cfg(windows)]
         let job_handle = match attach_kill_on_close_job(&child) {
             Ok(handle) => handle,
             Err(error) => {
@@ -686,6 +784,7 @@ fn pin_isolated_mihomo(
         let runtime = Arc::new(Mutex::new(IsolatedMihomoRuntime {
             child: Some(child),
             root: root.clone(),
+            #[cfg(windows)]
             job_handle,
         }));
         if let Err(error) = wait_for_socks_hello(port) {
@@ -709,7 +808,7 @@ fn pin_isolated_mihomo(
     result
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn pin_isolated_mihomo(
     _binding: &ExternalMihomoBinding,
     _silo_id: Uuid,
@@ -1682,7 +1781,11 @@ fn parse_controller_target(controller_url: &str) -> Result<ControllerTarget, Mih
         {
             return Err(MihomoError::UnsafeController);
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            return Ok(ControllerTarget::Unix(linux_clash_socket_path()?));
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             return Err(MihomoError::UnsafeController);
         }
@@ -1720,24 +1823,19 @@ fn connect_controller(
     timeout: Duration,
 ) -> Result<ControllerConn, MihomoError> {
     match target {
+        #[cfg(target_os = "linux")]
+        ControllerTarget::Unix(path) => connect_linux_socket(path)
+            .map(ControllerConn::Unix)
+            .map_err(map_connect_error),
         ControllerTarget::Tcp(endpoint) => {
             let stream =
                 TcpStream::connect_timeout(endpoint, timeout).map_err(map_connect_error)?;
             Ok(ControllerConn::Tcp(stream))
         }
-        ControllerTarget::Pipe(name) => {
-            #[cfg(not(windows))]
-            {
-                let _ = name;
-                Err(MihomoError::UnsafeController)
-            }
-            #[cfg(windows)]
-            {
-                connect_windows_pipe(name, timeout)
-                    .map(ControllerConn::Pipe)
-                    .map_err(map_connect_error)
-            }
-        }
+        #[cfg(windows)]
+        ControllerTarget::Pipe(name) => connect_windows_pipe(name, timeout)
+            .map(ControllerConn::Pipe)
+            .map_err(map_connect_error),
     }
 }
 
@@ -1783,7 +1881,10 @@ impl ControllerTarget {
                 format!("[{}]:{}", endpoint.ip(), endpoint.port())
             }
             Self::Tcp(endpoint) => format!("{}:{}", endpoint.ip(), endpoint.port()),
+            #[cfg(windows)]
             Self::Pipe(_) => "localhost".to_owned(),
+            #[cfg(target_os = "linux")]
+            Self::Unix(_) => "localhost".to_owned(),
         }
     }
 }
@@ -1797,6 +1898,11 @@ impl ControllerConn {
             }
             #[cfg(windows)]
             Self::Pipe(_) => Ok(()),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => {
+                stream.set_read_timeout(timeout)?;
+                stream.set_write_timeout(timeout)
+            }
         }
     }
 }
@@ -1807,6 +1913,8 @@ impl Read for ControllerConn {
             Self::Tcp(stream) => stream.read(buf),
             #[cfg(windows)]
             Self::Pipe(file) => file.read(buf),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => stream.read(buf),
         }
     }
 }
@@ -1817,6 +1925,8 @@ impl Write for ControllerConn {
             Self::Tcp(stream) => stream.write(buf),
             #[cfg(windows)]
             Self::Pipe(file) => file.write(buf),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => stream.write(buf),
         }
     }
 
@@ -1825,6 +1935,8 @@ impl Write for ControllerConn {
             Self::Tcp(stream) => stream.flush(),
             #[cfg(windows)]
             Self::Pipe(file) => file.flush(),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => stream.flush(),
         }
     }
 }
@@ -2565,11 +2677,58 @@ mod tests {
             node_name: "US-01".to_owned(),
             controller_secret_reference: None,
         };
+        let result = super::pin_selected_inbound(&binding, None, uuid::Uuid::nil());
+        #[cfg(target_os = "linux")]
         assert!(matches!(
-            super::pin_selected_inbound(&binding, None, uuid::Uuid::nil()),
-            Err(MihomoError::PinnedInboundUnsupported)
+            result,
+            Err(MihomoError::PinnedInboundUnsupported | MihomoError::IsolatedConfigUnavailable)
         ));
+        #[cfg(not(target_os = "linux"))]
+        assert!(matches!(result, Err(MihomoError::PinnedInboundUnsupported)));
         server.join().expect("fake controller exits");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_controller_alias_uses_an_owned_native_socket() {
+        use std::os::unix::{fs::symlink, net::UnixListener};
+        let root = std::env::temp_dir().join(format!("vs-sock-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("controller.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 512];
+            let read = stream.read(&mut request).unwrap();
+            assert!(request[..read].starts_with(b"GET /version HTTP/1.1"));
+            let body = r#"{"meta":true,"version":"test"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let mut connection = super::connect_linux_socket(&path).unwrap();
+        assert!(super::response_looks_like_clash(
+            &mut connection,
+            "GET /version HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        ));
+        server.join().unwrap();
+        let alias = root.join("redirect.sock");
+        symlink(&path, &alias).unwrap();
+        assert!(super::connect_linux_socket(&alias).is_err());
+        let regular = root.join("regular");
+        std::fs::write(&regular, []).unwrap();
+        assert!(super::connect_linux_socket(&regular).is_err());
+        assert_eq!(
+            super::parse_controller_target("pipe://verge-mihomo/").unwrap(),
+            super::ControllerTarget::Unix(super::linux_clash_socket_path().unwrap())
+        );
+        assert!(super::parse_controller_target("pipe://other-controller/").is_err());
+        assert!(super::parse_controller_target("pipe://verge-mihomo/private").is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
