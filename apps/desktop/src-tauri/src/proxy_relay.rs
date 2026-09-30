@@ -476,6 +476,17 @@ impl ProxyRelay {
                     Err(_) => break,
                 }
             }
+            #[cfg(target_os = "linux")]
+            {
+                use std::os::fd::AsRawFd;
+                extern "C" {
+                    fn shutdown(fd: i32, how: i32) -> i32;
+                }
+                // CLOEXEC closes a forked descriptor only after exec. Stop
+                // the shared socket now, even if a concurrent child still
+                // holds a copy, before shutdown joins this listener owner.
+                let _ = unsafe { shutdown(listener.as_raw_fd(), 2) }; // SHUT_RDWR
+            }
         });
 
         Ok(Self {
@@ -1929,6 +1940,27 @@ mod tests {
         #[cfg(target_os = "linux")]
         let listener_inode =
             linux_listener_inode(endpoint_a.port()).expect("exact relay is listening");
+        #[cfg(target_os = "linux")]
+        let inherited_listener = {
+            use std::os::fd::BorrowedFd;
+            let target = std::path::PathBuf::from(format!("socket:[{listener_inode}]"));
+            let fd = std::fs::read_dir("/proc/self/fd")
+                .expect("enumerate owned descriptors")
+                .filter_map(Result::ok)
+                .find_map(|entry| {
+                    if std::fs::read_link(entry.path()).ok().as_ref() == Some(&target) {
+                        entry.file_name().to_str()?.parse::<i32>().ok()
+                    } else {
+                        None
+                    }
+                })
+                .expect("exact relay descriptor");
+            // The live relay owns this descriptor until the shutdown below.
+            // Holding a duplicate models the copy inherited by fork pre-exec.
+            unsafe { BorrowedFd::borrow_raw(fd) }
+                .try_clone_to_owned()
+                .expect("duplicate inherited listener")
+        };
 
         assert!(!relay_a.shutdown_for_runtime(silo_b, runtime_b));
         assert!(relay_a.is_healthy());
@@ -1940,6 +1972,15 @@ mod tests {
         assert_ne!(
             linux_listener_inode(endpoint_a.port()),
             Some(listener_inode)
+        );
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            std::fs::read_link(format!(
+                "/proc/self/fd/{}",
+                std::os::fd::AsRawFd::as_raw_fd(&inherited_listener)
+            ))
+            .expect("inherited descriptor remains open"),
+            std::path::PathBuf::from(format!("socket:[{listener_inode}]"))
         );
         #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(&endpoint_a, Duration::from_millis(200)).is_err());
