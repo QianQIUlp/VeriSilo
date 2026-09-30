@@ -109,8 +109,9 @@ as verified when unavailable.
 The native workflow compiles/tests the Linux backend, builds both package
 formats and exercises the actual desktop API and WebView, Standard browser
 lifecycle and Vault persistence. The Managed job additionally builds the patched
-engine and tests native Host ownership, signatures, identity/page control,
-screenshots and cold backup/restore of changed browser storage. Results are
+engine and tests native Host ownership, signatures, matched identity/page control,
+screenshots, two concurrent Managed Silos with isolated same-site storage, and
+cold backup/restore while the other Silo remains running. Results are
 written under `artifacts/linux-desktop-smoke/` and attached to the Actions run.
 
 Windows runtime evidence remains Windows-specific. Linux unit tests or a

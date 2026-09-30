@@ -2198,6 +2198,8 @@ fn wait_child_output(
             Ok(Some(_)) => break,
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
             Ok(None) => {
+                #[cfg(target_os = "linux")]
+                log_linux_browser_probe_timeout(&mut child);
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(BrowserVerificationError::Probe(
@@ -2210,6 +2212,85 @@ fn wait_child_output(
     child
         .wait_with_output()
         .map_err(|error| BrowserVerificationError::Probe(error.to_string()))
+}
+
+#[cfg(target_os = "linux")]
+fn log_linux_browser_probe_timeout(child: &mut std::process::Child) {
+    use std::io::Read;
+    use std::os::fd::{AsRawFd, RawFd};
+    extern "C" {
+        fn fcntl(fd: RawFd, command: i32, ...) -> i32;
+    }
+    fn proc_text(path: &Path, limit: u64) -> String {
+        let mut bytes = Vec::new();
+        let result = fs::File::open(path).and_then(|file| file.take(limit).read_to_end(&mut bytes));
+        match result {
+            Ok(_) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(error) => format!("unavailable: {error}"),
+        }
+    }
+    fn executable(pid: u32) -> String {
+        fs::read_link(format!("/proc/{pid}/exe"))
+            .map(|path| path.to_string_lossy().chars().take(2048).collect())
+            .unwrap_or_else(|error| format!("unavailable: {error}"))
+    }
+    fn pipe_output(pipe: &mut (impl Read + AsRawFd)) -> String {
+        let fd = pipe.as_raw_fd();
+        let flags = unsafe { fcntl(fd, 3) }; // F_GETFL
+        if flags < 0 || unsafe { fcntl(fd, 4, flags | 0x800) } < 0 {
+            // F_SETFL, O_NONBLOCK
+            return format!("unavailable: {}", std::io::Error::last_os_error());
+        }
+        let mut bytes = [0_u8; 4096];
+        let result = pipe.read(&mut bytes); // One bounded read, never wait for EOF.
+        unsafe { fcntl(fd, 4, flags) };
+        match result {
+            Ok(length) => String::from_utf8_lossy(&bytes[..length]).into_owned(),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                "no buffered output".to_owned()
+            }
+            Err(error) => format!("unavailable: {error}"),
+        }
+    }
+    let pid = child.id();
+    let root = PathBuf::from(format!("/proc/{pid}"));
+    eprintln!(
+        "Linux browser --version timeout: {}",
+        serde_json::json!({
+            "pid": pid,
+            "exe": executable(pid),
+            "cmdline": proc_text(&root.join("cmdline"), 2048),
+            "status": proc_text(&root.join("status"), 4096),
+            "wchan": proc_text(&root.join("wchan"), 128),
+        })
+    );
+    let children = proc_text(&root.join(format!("task/{pid}/children")), 2048);
+    for descendant in children
+        .split_ascii_whitespace()
+        .filter_map(|value| value.parse::<u32>().ok())
+        .take(16)
+    {
+        eprintln!(
+            "Linux browser version probe direct child: {}",
+            serde_json::json!({
+                "pid": descendant,
+                "exe": executable(descendant),
+                "wchan": proc_text(&PathBuf::from(format!("/proc/{descendant}/wchan")), 128),
+            })
+        );
+    }
+    if let Some(stdout) = child.stdout.as_mut() {
+        eprintln!(
+            "Linux browser version probe stdout: {:?}",
+            pipe_output(stdout)
+        );
+    }
+    if let Some(stderr) = child.stderr.as_mut() {
+        eprintln!(
+            "Linux browser version probe stderr: {:?}",
+            pipe_output(stderr)
+        );
+    }
 }
 
 fn paths_match(stored: &str, resolved: &str) -> bool {

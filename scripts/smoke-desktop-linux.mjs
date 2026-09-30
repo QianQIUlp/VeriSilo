@@ -133,6 +133,7 @@ function startManaged(siloId) {
   assert.equal(activation.engineEvidence?.packageVerification, "verified");
   assert.equal(activation.engineEvidence?.hostLaunch, "verified");
   assert.equal(activation.identityEvidence?.state, "matched");
+  return activation;
 }
 
 try {
@@ -196,7 +197,7 @@ try {
       fixture.once("error", reject);
     });
     const fixtureUrl = `http://127.0.0.1:${port}/`;
-    startManaged(managed.id);
+    const firstLaunch = startManaged(managed.id);
     cli(["page", managed.id, "goto", fixtureUrl]);
     assert.equal(
       cli(
@@ -204,6 +205,32 @@ try {
         '() => { localStorage.setItem("smoke", "saved"); return localStorage.getItem("smoke"); }',
       ).value,
       "saved",
+    );
+    const concurrent = cli([
+      "create",
+      "--name",
+      "linux-managed-concurrent",
+      "--network",
+      "direct",
+      "--preset",
+      "balanced-en-us",
+    ]);
+    const concurrentLaunch = startManaged(concurrent.id);
+    assert.notEqual(
+      concurrentLaunch.identityEvidence.runtimeId,
+      firstLaunch.identityEvidence.runtimeId,
+    );
+    assert.notEqual(
+      concurrentLaunch.identityEvidence.artifactId,
+      firstLaunch.identityEvidence.artifactId,
+    );
+    cli(["page", concurrent.id, "goto", fixtureUrl]);
+    assert.equal(
+      cli(
+        ["page", concurrent.id, "evaluate"],
+        '() => { localStorage.setItem("smoke", "other-silo"); return localStorage.getItem("smoke"); }',
+      ).value,
+      "other-silo",
     );
     const windows = cli(["page", managed.id, "windows"]);
     assert.equal(
@@ -261,7 +288,19 @@ try {
       "saved",
       "Cold restore must restore the saved browser Profile.",
     );
+    assert.equal(cli(["status", concurrent.id]).activation?.state, "running");
+    assert.equal(
+      cli(
+        ["page", concurrent.id, "evaluate"],
+        '() => localStorage.getItem("smoke")',
+      ).value,
+      "other-silo",
+      "Stopping and restoring one Silo must preserve its concurrent peer.",
+    );
     cli(["stop", managed.id]);
+    assert.equal(cli(["status", concurrent.id]).activation?.state, "running");
+    cli(["stop", concurrent.id]);
+    evidence.managedConcurrency = true;
     evidence.managed = true;
   }
 
