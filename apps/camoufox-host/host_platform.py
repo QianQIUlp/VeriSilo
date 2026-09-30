@@ -401,11 +401,13 @@ class ProfileLock:
 
 
 def probe_supervisor_lock(path: Path) -> bool:
-    """Check the supervisor-owned byte without retaining the probe lock."""
-    if not IS_WINDOWS:
-        return True
+    """Check the independent supervisor lease without retaining it.
+
+    Windows uses a second byte. Linux flock owns the whole file, so a separate
+    lease file keeps browser ownership alive after the Host descriptor closes.
+    """
     try:
-        lock = ProfileLock.acquire(path, offset=1)
+        lock = ProfileLock.acquire(path if IS_WINDOWS else path.with_name(path.name + ".supervisor"), offset=1 if IS_WINDOWS else 0)
     except OSError:
         return False
     lock.release()

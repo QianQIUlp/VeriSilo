@@ -1188,9 +1188,9 @@ class CamoufoxHost:
         lock_path = self.profile_root / f"{profile_id}.lock"
         try:
             profile_lock = ProfileLock.acquire(lock_path)
-            if IS_WINDOWS and not probe_supervisor_lock(lock_path):
+            if not probe_supervisor_lock(lock_path):
                 profile_lock.release()
-                raise OSError("supervisor lock byte is already held")
+                raise OSError("supervisor profile lease is already held")
         except OSError as exc:
             raise ProtocolError(
                 "profile_in_use",
@@ -1413,10 +1413,10 @@ class CamoufoxHost:
         os.environ["VERISILO_SUPERVISOR_FILE"] = str(
             session["sessionDir"] / "supervisor.json"
         )
+        os.environ["VERISILO_PROFILE_LOCK_PATH"] = str(
+            self.profile_root / f"{session['profileId']}.lock"
+        )
         if IS_WINDOWS:
-            os.environ["VERISILO_PROFILE_LOCK_PATH"] = str(
-                self.profile_root / f"{session['profileId']}.lock"
-            )
             session["expectedJobName"] = (
                 f"Local\\VeriSiloCamoufox-{session['sessionId']}"
             )
@@ -1492,6 +1492,14 @@ class CamoufoxHost:
         if geolocation is not None:
             opts["geolocation"] = geolocation
         opts["executable_path"] = _process_path(self.supervisor)
+        if not IS_WINDOWS and getattr(sys, "frozen", False):
+            # The browser is a separate native program. Preserve the caller's
+            # loader path rather than the frozen Python application's libraries.
+            original = os.environ.get("LD_LIBRARY_PATH_ORIG")
+            if original is None:
+                opts["env"].pop("LD_LIBRARY_PATH", None)
+            else:
+                opts["env"]["LD_LIBRARY_PATH"] = original
 
         with _active_launch_stage("launch_persistent_context"):
             session["launchAttempted"] = True

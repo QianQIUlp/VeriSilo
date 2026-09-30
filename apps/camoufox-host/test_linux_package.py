@@ -41,6 +41,50 @@ def write_json(path: Path, value: dict) -> None:
 
 
 class NativePackageTests(unittest.TestCase):
+    def test_native_recipe_keeps_the_frozen_rc5_patchset(self) -> None:
+        self.assertEqual(engine.pinned_lock()["completeAppliedPatchOrder"], engine.ORDER)
+
+    def test_native_build_record_rejects_changed_archive_and_claims(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            browser = root / "browser"
+            browser.mkdir()
+            executable = browser / "camoufox-bin"
+            executable.write_bytes(b"\x7fELF\x02" + b"\0" * 13 + b"\x3e\0")
+            executable.chmod(0o755)
+            properties = browser / "properties.json"
+            properties.write_bytes(b"{}")
+            tree = root / "browser-tree-manifest.json"
+            write_json(tree, build_tree_manifest(browser))
+            archive = root / engine.ARCHIVE_NAME
+            with zipfile.ZipFile(archive, "w") as stream:
+                stream.write(executable, "camoufox-bin")
+                stream.write(properties, "properties.json")
+            record = {
+                "recordType": engine.RECORD_TYPE, "platform": "linux-x86_64", "target": "x86_64-pc-linux-gnu",
+                "engineRevision": builder.FORMAL_V3_ENGINE_REVISION, "claims": dict(engine.CLAIMS),
+                "upstream": engine.pinned_lock()["upstream"], "completeAppliedPatchOrder": engine.ORDER,
+                "source": {"commit": "1" * 40, "tree": "2" * 40, "sourceLockSha256": FORMAL_V3_SOURCE_LOCK_SHA256,
+                           "recipeSha256": sha256_file(HOST / "build/linux/build.py")},
+                "archive": {"name": archive.name, "sha256": sha256_file(archive), "sizeBytes": archive.stat().st_size,
+                            "browserExecutableSha256": sha256_file(executable), "propertiesJsonSha256": sha256_file(properties),
+                            "buildId": "20260811045234", "sourceStamp": "native-test"},
+                "browserTree": {"sha256": sha256_file(tree), "sizeBytes": tree.stat().st_size},
+            }
+            result = root / "linux-build-result.json"
+            write_json(result, record)
+            checked = builder._validate_linux_inputs(engine.LOCK, result, browser, tree)
+            self.assertFalse(checked["assetLock"]["verified"])
+            record["claims"]["runtimeVerified"] = True
+            write_json(result, record)
+            with self.assertRaisesRegex(PackageContractError, "patched candidate"):
+                builder._validate_linux_inputs(engine.LOCK, result, browser, tree)
+            record["claims"]["runtimeVerified"] = False
+            write_json(result, record)
+            archive.write_bytes(b"changed archive")
+            with self.assertRaisesRegex(PackageContractError, "browser bytes"):
+                builder._validate_linux_inputs(engine.LOCK, result, browser, tree)
+
     def test_native_package_bytes_and_platform_are_bound(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -122,6 +166,21 @@ class NativePackageTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == "linux", "native Linux process ownership")
 class SupervisorCrashTests(unittest.TestCase):
+    def test_pyinstaller_internal_aliases_are_materialized_without_escapes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "host"
+            source.mkdir()
+            library = source / "library.so.1"
+            library.write_bytes(b"bundled library")
+            (source / "library.so").symlink_to("library.so.1")
+            builder._copy_host_directory(source, root / "copied", linux=True)
+            self.assertFalse((root / "copied/library.so").is_symlink())
+            self.assertEqual((root / "copied/library.so").read_bytes(), b"bundled library")
+            (source / "escape").symlink_to(root)
+            with self.assertRaises(PackageContractError):
+                builder._copy_host_directory(source, root / "rejected", linux=True)
+
     def test_host_death_reclaims_signal_ignoring_browser_descendants(self) -> None:
         from exit_supervisor import starttime_ticks
         with tempfile.TemporaryDirectory() as temporary:
@@ -141,7 +200,8 @@ class SupervisorCrashTests(unittest.TestCase):
                 f"subprocess.Popen([{sys.executable!r},{str(HOST / 'exit_supervisor.py')!r},'-c',{browser_code!r}]);time.sleep(60)"
             )
             env = dict(os.environ, VERISILO_REAL_EXE=sys.executable, PYTHON_EXE=sys.executable,
-                       VERISILO_EXIT_FILE=str(root / "exit.json"), VERISILO_SUPERVISOR_FILE=str(supervisor_file))
+                       VERISILO_EXIT_FILE=str(root / "exit.json"), VERISILO_SUPERVISOR_FILE=str(supervisor_file),
+                       VERISILO_PROFILE_LOCK_PATH=str(root / "profile.lock"))
             host = subprocess.Popen([sys.executable, "-c", host_code], env=env)
             supervisor_pid = None
             try:
@@ -150,12 +210,15 @@ class SupervisorCrashTests(unittest.TestCase):
                     time.sleep(0.05)
                 pids = json.loads(pid_file.read_text())
                 supervisor_pid = json.loads(supervisor_file.read_text())["supervisorPid"]
+                from host_platform import probe_supervisor_lock
+                self.assertFalse(probe_supervisor_lock(root / "profile.lock"))
                 host.kill()
                 host.wait(timeout=5)
                 deadline = time.monotonic() + 6
                 while any(starttime_ticks(pid) > 0 for pid in [supervisor_pid, *pids]) and time.monotonic() < deadline:
                     time.sleep(0.05)
                 self.assertTrue(all(starttime_ticks(pid) < 0 for pid in [supervisor_pid, *pids]))
+                self.assertTrue(probe_supervisor_lock(root / "profile.lock"))
             finally:
                 if host.poll() is None:
                     host.kill()

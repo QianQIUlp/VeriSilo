@@ -2333,7 +2333,7 @@ fn validate_mihomo_binding(binding: &ExternalMihomoBinding) -> Result<(), Domain
         DomainError::InvalidNetwork("The Mihomo controller URL is invalid.".to_owned())
     })?;
     let controller_host = controller.host_str().unwrap_or_default();
-    let pipe_controller = cfg!(windows)
+    let pipe_controller = cfg!(any(windows, target_os = "linux"))
         && controller.scheme() == "pipe"
         && is_allowed_clash_pipe(controller_host)
         && controller.port().is_none()

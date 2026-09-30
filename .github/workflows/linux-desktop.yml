@@ -97,7 +97,7 @@ jobs:
     # A native Firefox build is deliberately opt-in; ordinary PRs still compile Linux.
     if: >-
       (github.event_name == 'workflow_dispatch' && (inputs.buildManagedEngine || inputs.engineBuildArtifactId != '')) ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/qiu/rc5-linux-desktop' && contains(github.event.head_commit.message, '[build-linux-engine]'))
+      (github.event_name == 'push' && github.ref == 'refs/heads/qiu/rc5-linux-desktop' && (contains(github.event.head_commit.message, '[build-linux-engine]') || contains(github.event.head_commit.message, '[reuse-linux-engine:')))
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     env:
@@ -106,8 +106,22 @@ jobs:
       VERISILO_SOURCE_REVISION: ${{ github.sha }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Select frozen engine build inputs
+        env:
+          REQUESTED_ENGINE_ARTIFACT_ID: ${{ inputs.engineBuildArtifactId }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          artifact="$REQUESTED_ENGINE_ARTIFACT_ID"
+          if [[ -z "$artifact" && "$HEAD_COMMIT_MESSAGE" == *'[reuse-linux-engine:'* ]]; then
+            [[ "$HEAD_COMMIT_MESSAGE" =~ \[reuse-linux-engine:([1-9][0-9]*)\] ]]
+            artifact="${BASH_REMATCH[1]}"
+          fi
+          if [[ -n "$artifact" ]]; then
+            [[ "$artifact" =~ ^[1-9][0-9]*$ ]]
+          fi
+          echo "VERISILO_ENGINE_BUILD_ARTIFACT_ID=$artifact" >> "$GITHUB_ENV"
       - name: Prepare ephemeral native engine build runner
-        if: inputs.engineBuildArtifactId == ''
+        if: env.VERISILO_ENGINE_BUILD_ARTIFACT_ID == ''
         run: |
           # These are unused preinstalled toolchains on this disposable Actions runner.
           sudo rm -rf -- /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/swift
@@ -149,13 +163,13 @@ jobs:
           apps/camoufox-host/.venv/bin/python scripts/build-camoufox-host-package.py --self-test
           apps/camoufox-host/.venv/bin/python apps/camoufox-host/test_linux_package.py
       - name: Build pinned RC5-patched Camoufox natively for Linux
-        if: inputs.engineBuildArtifactId == ''
+        if: env.VERISILO_ENGINE_BUILD_ARTIFACT_ID == ''
         run: python apps/camoufox-host/build/linux/build.py --work-root "$RUNNER_TEMP/verisilo-engine-work" --out artifacts/linux-engine-build
       - name: Reuse unchanged native engine build
-        if: inputs.engineBuildArtifactId != ''
+        if: env.VERISILO_ENGINE_BUILD_ARTIFACT_ID != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          ENGINE_ARTIFACT_ID: ${{ inputs.engineBuildArtifactId }}
+          ENGINE_ARTIFACT_ID: ${{ env.VERISILO_ENGINE_BUILD_ARTIFACT_ID }}
         run: |
           [[ "$ENGINE_ARTIFACT_ID" =~ ^[0-9]+$ ]]
           mkdir -p artifacts/linux-engine-build
@@ -163,7 +177,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/engine-build-artifact.zip" -d artifacts/linux-engine-build
           python apps/camoufox-host/build/linux/build.py --restore-build artifacts/linux-engine-build
       - name: Preserve immutable native engine inputs
-        if: inputs.engineBuildArtifactId == ''
+        if: env.VERISILO_ENGINE_BUILD_ARTIFACT_ID == ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: verisilo-linux-engine-build-${{ github.sha }}

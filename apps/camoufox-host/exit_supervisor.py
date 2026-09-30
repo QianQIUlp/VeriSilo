@@ -24,7 +24,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from host_platform import IS_WINDOWS, process_creation_time
+from host_platform import IS_WINDOWS, ProfileLock, process_creation_time
 
 
 def main() -> int:
@@ -33,6 +33,7 @@ def main() -> int:
     supervisor_file = os.environ.pop("VERISILO_SUPERVISOR_FILE", None)
     host_pid = os.environ.pop("VERISILO_HOST_PID", None)
     host_start = os.environ.pop("VERISILO_HOST_START_TICKS", None)
+    profile_lock_path = os.environ.pop("VERISILO_PROFILE_LOCK_PATH", None)
     if not real_exe or not exit_file:
         print("exit_supervisor: VERISILO_REAL_EXE and VERISILO_EXIT_FILE required", file=sys.stderr)
         return 2
@@ -40,10 +41,20 @@ def main() -> int:
     child_argv = [real_exe, *sys.argv[1:]]
     if not IS_WINDOWS and os.getpgrp() != os.getpid():
         os.setsid()
+    profile_lease = None
+    if not IS_WINDOWS and profile_lock_path:
+        path = Path(profile_lock_path)
+        profile_lease = ProfileLock.acquire(path.with_name(path.name + ".supervisor"))
     child_env = os.environ.copy()
     child_env.pop("VERISILO_REAL_EXE", None)
     child_env.pop("VERISILO_EXIT_FILE", None)
     child_env.pop("VERISILO_SUPERVISOR_FILE", None)
+    if not IS_WINDOWS and getattr(sys, "frozen", False):
+        original = child_env.pop("LD_LIBRARY_PATH_ORIG", None)
+        if original is None:
+            child_env.pop("LD_LIBRARY_PATH", None)
+        else:
+            child_env["LD_LIBRARY_PATH"] = original
 
     proc = subprocess.Popen(
         child_argv,
@@ -133,6 +144,11 @@ def main() -> int:
             )
     except OSError:
         pass
+    if profile_lease is not None:
+        # Parent-death cleanup keeps the interpreter alive until its watcher
+        # kills the owned group, preserving this lease through the grace period.
+        if watcher is None or not watcher.is_alive():
+            profile_lease.release()
     return code
 
 

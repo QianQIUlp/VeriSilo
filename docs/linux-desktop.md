@@ -56,6 +56,13 @@ with `build.py --restore-build <directory>`; its archive, recipe, patch inputs a
 tree must still match. Desktop/Host fixes do not require recompiling unchanged
 browser inputs.
 
+Managed font verification requires genuine system fonts distinct from the
+browser's bundled identity fonts. The Managed Debian package installs
+`fontconfig`, `fonts-unfonts-core` and `fonts-unfonts-extra` as dependencies.
+AppImage users must install those system packages before the first Managed
+launch. Missing native font controls fail closed; bundled fonts are not reported
+as native host evidence.
+
 For an explicit Standard-only development build:
 
 ```sh
@@ -73,6 +80,12 @@ network policy and runtime evidence contracts. Browser discovery recognizes
 native Chrome/Chromium and Edge paths; the CLI is `verisilo-cli`. Data defaults
 to `$XDG_DATA_HOME/VeriSilo` or `~/.local/share/VeriSilo`. Named Vaults remain below
 that root and use an exclusive per-Vault process lock.
+
+Native Clash Verge uses its current-user Unix socket through the existing
+`pipe://verge-mihomo/` controller alias. A loopback HTTP controller is also
+supported. Pinned nodes run in a Silo-specific Mihomo process using a validated
+copy of the active configuration; generic controllers cannot substitute for
+that isolated provider.
 
 Managed Host descendants use Linux process groups and an independent owner
 supervisor. Closing or crashing the owner must reclaim its browser tree without

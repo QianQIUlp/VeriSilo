@@ -101,6 +101,7 @@ const MAX_ENGINE_EXECUTABLE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_ENGINE_SIGNATURE_BYTES: usize = 48 * 1024;
 const MAX_SESSION_TOKEN_LIFETIME_MINUTES: i64 = 60;
 pub const DEFAULT_SESSION_TOKEN_LIFETIME_MINUTES: i64 = 30;
+#[cfg(not(target_os = "linux"))]
 const WINDOWS_X64_PLATFORM: &str = "windows-x64";
 #[cfg(not(target_os = "linux"))]
 const NATIVE_PLATFORM: &str = WINDOWS_X64_PLATFORM;
@@ -6910,7 +6911,13 @@ mod tests {
             ),
             (
                 "platform",
-                Box::new(|manifest: &mut Value| manifest["platform"] = json!("linux-x64")),
+                Box::new(|manifest: &mut Value| {
+                    manifest["platform"] = json!(if cfg!(target_os = "linux") {
+                        "windows-x64"
+                    } else {
+                        "linux-x64"
+                    })
+                }),
             ),
             (
                 "traversal",

@@ -2815,6 +2815,8 @@ pub(crate) struct BrowserProfileLease {
     _locks: Vec<WindowsProfileFileLock>,
     #[cfg(target_os = "linux")]
     _locks: Vec<LinuxProfileFileLock>,
+    #[cfg(target_os = "linux")]
+    _browser_locks: Vec<crate::linux::PosixProfileFileLease>,
 }
 
 #[cfg(target_os = "linux")]
@@ -2904,7 +2906,69 @@ impl BrowserProfileLease {
         #[cfg(target_os = "linux")]
         {
             let mut locks = Vec::new();
+            let mut host_paths = HashSet::new();
+            let mut browser_locks = Vec::new();
+            let mut browser_paths = HashSet::new();
             for profile_directory in profile_directories {
+                if let Some(host_locks) = linux_host_profile_locks(profile_directory) {
+                    let browser_lock = host_locks[0].with_extension("").join(".parentlock");
+                    if browser_paths.insert(browser_lock.clone()) {
+                        match fs::symlink_metadata(browser_lock.parent().unwrap()) {
+                            Ok(metadata)
+                                if metadata.is_dir() && !metadata_is_link_or_reparse(&metadata) =>
+                            {
+                                ensure_path_ancestors_have_no_links_or_reparse_points(
+                                    browser_lock.parent().unwrap(),
+                                )?;
+                                if required_profile_root.is_none() {
+                                    let lease = crate::linux::PosixProfileFileLease::acquire_for_maintenance(&browser_lock)
+                                        .map_err(|_| VaultError::SiloProfileInUse)?;
+                                    browser_locks.push(lease);
+                                } else {
+                                    match fs::symlink_metadata(&browser_lock) {
+                                        Ok(_) => {
+                                            crate::linux::PosixProfileFileLease::acquire(
+                                                &browser_lock,
+                                            )
+                                            .map_err(|_| VaultError::SiloProfileInUse)?;
+                                        }
+                                        Err(error)
+                                            if error.kind() == std::io::ErrorKind::NotFound => {}
+                                        Err(error) => return Err(VaultError::Filesystem(error)),
+                                    }
+                                }
+                            }
+                            Ok(_) => return Err(VaultError::UnmanagedProfile),
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                            Err(error) => return Err(VaultError::Filesystem(error)),
+                        }
+                    }
+                    for path in host_locks {
+                        if !host_paths.insert(path.clone()) {
+                            continue;
+                        }
+                        match fs::symlink_metadata(path.parent().unwrap()) {
+                            Ok(metadata)
+                                if metadata.is_dir() && !metadata_is_link_or_reparse(&metadata) =>
+                            {
+                                ensure_path_ancestors_have_no_links_or_reparse_points(
+                                    path.parent().unwrap(),
+                                )?;
+                                let lease = LinuxProfileFileLock::acquire(&path)
+                                    .map_err(|_| VaultError::SiloProfileInUse)?;
+                                // Runtime launch needs the Host and supervisor to
+                                // acquire these themselves. Maintenance retains
+                                // them to prevent a new Host entering mid-delete.
+                                if required_profile_root.is_none() {
+                                    locks.push(lease);
+                                }
+                            }
+                            Ok(_) => return Err(VaultError::UnmanagedProfile),
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                            Err(error) => return Err(VaultError::Filesystem(error)),
+                        }
+                    }
+                }
                 match fs::symlink_metadata(profile_directory) {
                     Ok(metadata)
                         if metadata.is_dir() && !metadata_is_link_or_reparse(&metadata) => {}
@@ -2925,13 +2989,39 @@ impl BrowserProfileLease {
                     return Err(VaultError::SiloProfileInUse);
                 }
             }
-            Ok(Self { _locks: locks })
+            Ok(Self {
+                _locks: locks,
+                _browser_locks: browser_locks,
+            })
         }
         #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         {
             Ok(Self {})
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_host_profile_locks(profile_directory: &Path) -> Option<[PathBuf; 2]> {
+    let profile = if profile_directory.parent()?.file_name()? == "profiles" {
+        profile_directory.to_path_buf()
+    } else {
+        let browser_data = profile_directory
+            .ancestors()
+            .find(|path| path.file_name().is_some_and(|name| name == "browser-data"))?;
+        let managed_root = browser_data.parent()?;
+        let silo_id = Uuid::parse_str(managed_root.file_name()?.to_str()?).ok()?;
+        managed_root
+            .join("profiles")
+            .join(format!("silo-{}", silo_id.simple()))
+    };
+    let name = profile.file_name()?.to_str()?;
+    Uuid::parse_str(name.strip_prefix("silo-")?).ok()?;
+    let root = profile.parent()?;
+    Some([
+        root.join(format!("{name}.lock")),
+        root.join(format!("{name}.lock.supervisor")),
+    ])
 }
 
 #[cfg(target_os = "windows")]
@@ -6950,6 +7040,45 @@ mod tests {
         );
 
         fs::remove_dir_all(root).expect("remove test vault directory");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_profile_lease_observes_supervisor_and_maintains_one_shared_host_lease() {
+        let root = std::env::temp_dir().join(format!("verisilo-linux-profile-{}", Uuid::new_v4()));
+        let silo_id = Uuid::new_v4();
+        let managed = root.join("silos").join(silo_id.to_string());
+        let browser_data = managed.join("browser-data");
+        let host_profile = managed
+            .join("profiles")
+            .join(format!("silo-{}", silo_id.simple()));
+        fs::create_dir_all(&browser_data).unwrap();
+        fs::create_dir_all(&host_profile).unwrap();
+        let supervisor_path = host_profile.with_extension("lock.supervisor");
+        let host_path = host_profile.with_extension("lock");
+        let directories = crate::engine::SiloEngineConfig::all_profile_directories(&browser_data);
+        assert!(!supervisor_path.exists());
+        assert!(!host_path.exists());
+        let maintenance = super::BrowserProfileLease::acquire(&directories).unwrap();
+        assert!(super::LinuxProfileFileLock::acquire(&supervisor_path).is_err());
+        assert!(super::LinuxProfileFileLock::acquire(&host_path).is_err());
+        assert!(
+            crate::linux::PosixProfileFileLease::acquire(&host_profile.join(".parentlock"))
+                .is_err()
+        );
+        drop(maintenance);
+        let supervisor = super::LinuxProfileFileLock::acquire(&supervisor_path).unwrap();
+        assert!(super::BrowserProfileLease::acquire(&directories).is_err());
+        drop(supervisor);
+        let maintenance = super::BrowserProfileLease::acquire(&directories).unwrap();
+        assert!(super::LinuxProfileFileLock::acquire(&supervisor_path).is_err());
+        drop(maintenance);
+        let runtime =
+            super::BrowserProfileLease::acquire_for_runtime(&directories, &browser_data).unwrap();
+        drop(super::LinuxProfileFileLock::acquire(&supervisor_path).unwrap());
+        assert!(super::BrowserProfileLease::acquire(&directories).is_err());
+        drop(runtime);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(target_os = "windows")]

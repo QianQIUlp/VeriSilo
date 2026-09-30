@@ -152,7 +152,10 @@ def load_asset_lock(path: Path | str | None = None, *, package_root: Path | str 
         raw = selected.read_bytes()
         parsed = strict_json_loads(raw, selected.name)
         if type(parsed) is dict and parsed.get("schema") == PACKAGE_ASSET_LOCK_SCHEMA:
-            return load_package_asset_lock(selected)
+            lock = load_package_asset_lock(selected)
+            if lock["platform"] != PLATFORM:
+                raise SystemExit(f"package platform {lock['platform']} cannot run on {PLATFORM}")
+            return lock
     except OSError as exc:
         raise SystemExit(f"asset lock is unreadable: {exc}") from exc
     try:

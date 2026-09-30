@@ -1,4 +1,6 @@
-//! Linux process and file ownership used by the desktop runtime.
+//! Linux x86-64 process and file ownership used by the desktop runtime.
+#[cfg(not(target_arch = "x86_64"))]
+compile_error!("The native Linux desktop currently supports x86-64 only.");
 use std::{fs, io, os::fd::AsRawFd, os::unix::fs::OpenOptionsExt, path::Path};
 
 extern "C" {
@@ -6,6 +8,66 @@ extern "C" {
     fn kill(pid: i32, signal: i32) -> i32;
     fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) -> i32;
     fn getppid() -> i32;
+    fn geteuid() -> u32;
+    fn fcntl(fd: i32, command: i32, ...) -> i32;
+}
+
+pub(crate) fn effective_uid() -> u32 {
+    unsafe { geteuid() }
+}
+
+#[repr(C)]
+struct PosixLock {
+    lock_type: i16,
+    whence: i16,
+    start: i64,
+    length: i64,
+    pid: i32,
+}
+
+pub(crate) struct PosixProfileFileLease {
+    _file: fs::File,
+}
+
+impl PosixProfileFileLease {
+    pub(crate) fn acquire(path: &Path) -> io::Result<Self> {
+        Self::acquire_inner(path, false)
+    }
+
+    pub(crate) fn acquire_for_maintenance(path: &Path) -> io::Result<Self> {
+        Self::acquire_inner(path, true)
+    }
+
+    fn acquire_inner(path: &Path, create: bool) -> io::Result<Self> {
+        // Maintenance also anchors first startup before Firefox creates its lock.
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(create)
+            .mode(0o600)
+            .custom_flags(0x20000)
+            .open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Firefox lease is not a regular file",
+            ));
+        }
+        let mut lock = PosixLock {
+            lock_type: 1,
+            whence: 0,
+            start: 0,
+            length: 0,
+            pid: 0,
+        }; // F_WRLCK, SEEK_SET, whole file
+           // OFD locks conflict with Firefox's POSIX lock, but remain held when a
+           // backup reader opens and closes another descriptor to this same file.
+        if unsafe { fcntl(file.as_raw_fd(), 37, &mut lock as *mut PosixLock) } != 0 {
+            // F_OFD_SETLK
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self { _file: file })
+    }
 }
 
 pub(crate) struct FileLease {
@@ -85,6 +147,32 @@ pub(crate) fn terminate_process_group(pid: u32, start_time: Option<u64>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn firefox_posix_lease_blocks_another_process_where_flock_does_not() {
+        let root =
+            std::env::temp_dir().join(format!("verisilo-linux-posix-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join(".parentlock");
+        std::fs::write(&path, []).unwrap();
+        let probe = || {
+            std::process::Command::new("/usr/bin/python3")
+            .args(["-c", "import os,sys,fcntl; fd=os.open(sys.argv[1],os.O_RDWR); fcntl.lockf(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)"])
+            .arg(&path).stderr(std::process::Stdio::null()).status().unwrap().success()
+        };
+        let host_lease = super::FileLease::acquire(&path).unwrap();
+        assert!(probe(), "flock cannot prove Firefox's POSIX lease is free");
+        drop(host_lease);
+        let browser_lease = super::PosixProfileFileLease::acquire(&path).unwrap();
+        drop(std::fs::File::open(&path).unwrap());
+        assert!(
+            !probe(),
+            "another process acquired an actively held Firefox lock"
+        );
+        drop(browser_lease);
+        assert!(probe());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn host_group_guard_stops_its_child_and_descendant() {
         let root =

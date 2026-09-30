@@ -522,7 +522,10 @@ fn excluded(relative: &Path) -> bool {
         && relative
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("silo-") && name.ends_with(".lock"))
+            .is_some_and(|name| {
+                name.starts_with("silo-")
+                    && (name.ends_with(".lock") || name.ends_with(".lock.supervisor"))
+            })
     {
         return true;
     }
@@ -875,8 +878,6 @@ struct ManagedLease {
     _browser: BrowserProfileLease,
     #[cfg(target_os = "windows")]
     _native: Vec<WindowsProfileFileLock>,
-    #[cfg(target_os = "linux")]
-    _native: Option<crate::linux::FileLease>,
 }
 
 fn profile_lease(
@@ -925,25 +926,7 @@ fn profile_lease(
             _native: native,
         })
     }
-    #[cfg(target_os = "linux")]
-    {
-        let host_parent = managed.join("profiles");
-        let native = if host_parent.is_dir() {
-            Some(
-                crate::linux::FileLease::acquire(
-                    &host_parent.join(format!("silo-{}.lock", id.simple())),
-                )
-                .map_err(|_| VaultError::SiloProfileInUse)?,
-            )
-        } else {
-            None
-        };
-        Ok(ManagedLease {
-            _browser: browser,
-            _native: native,
-        })
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(not(target_os = "windows"))]
     {
         Ok(ManagedLease { _browser: browser })
     }

@@ -43,6 +43,23 @@ test("Linux uses native target and committed dependencies; managed packages have
   assert.deepEqual(linux.bundle.targets, ["deb", "appimage"]);
   assert.deepEqual(linux.bundle.resources, []);
   assert.ok(linux.bundle.linux.deb.depends.includes("openssl"));
+  const managedLinux = JSON.parse(
+    readFileSync(
+      new URL(
+        "../apps/desktop/src-tauri/tauri.managed-browser.linux.conf.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  for (const fontDependency of [
+    "fontconfig",
+    "fonts-unfonts-core",
+    "fonts-unfonts-extra",
+  ]) {
+    assert.ok(managedLinux.bundle.linux.deb.depends.includes(fontDependency));
+    assert.ok(!linux.bundle.linux.deb.depends.includes(fontDependency));
+  }
 });
 
 test("packaging cannot silently omit the Managed engine or combine conflicting profiles", () => {

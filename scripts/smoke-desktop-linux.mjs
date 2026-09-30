@@ -142,6 +142,8 @@ try {
       "create",
       "--name",
       "linux-managed",
+      "--network",
+      "direct",
       "--preset",
       "balanced-en-us",
     ]);

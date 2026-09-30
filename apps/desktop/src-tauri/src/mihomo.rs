@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{self, Read, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
@@ -20,6 +20,8 @@ use thiserror::Error;
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
+#[cfg(windows)]
+use std::fs::File;
 use uuid::Uuid;
 
 use crate::{
@@ -180,13 +182,18 @@ impl MihomoRuntimeGuard {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ControllerTarget {
     Tcp(SocketAddr),
+    #[cfg(windows)]
     Pipe(String),
+    #[cfg(target_os = "linux")]
+    Unix(PathBuf),
 }
 
 enum ControllerConn {
     Tcp(TcpStream),
     #[cfg(windows)]
     Pipe(File),
+    #[cfg(target_os = "linux")]
+    Unix(std::os::unix::net::UnixStream),
 }
 
 #[derive(Debug, Error)]
@@ -509,8 +516,53 @@ fn controller_looks_like_clash(port: u16) -> bool {
     response_looks_like_clash(&mut stream, &request)
 }
 
+#[cfg(target_os = "linux")]
+fn linux_clash_socket_path() -> Result<PathBuf, MihomoError> {
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .ok_or(MihomoError::IsolatedConfigUnavailable)?;
+    if !data.is_absolute() {
+        return Err(MihomoError::UnsafeController);
+    }
+    Ok(data
+        .join("io.github.clash-verge-rev.clash-verge-rev")
+        .join("verge-mihomo.sock"))
+}
+
+#[cfg(target_os = "linux")]
+fn connect_linux_socket(path: &Path) -> io::Result<std::os::unix::net::UnixStream> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_socket() || metadata.uid() != crate::linux::effective_uid() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Clash controller must be a native socket owned by this user",
+        ));
+    }
+    std::os::unix::net::UnixStream::connect(path)
+}
+
 fn pipe_looks_like_clash(name: &str) -> bool {
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        if name != "verge-mihomo" {
+            return false;
+        }
+        let Ok(path) = linux_clash_socket_path() else {
+            return false;
+        };
+        let Ok(mut stream) = connect_linux_socket(&path) else {
+            return false;
+        };
+        let _ = stream.set_read_timeout(Some(LOCAL_PROBE_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(LOCAL_PROBE_TIMEOUT));
+        response_looks_like_clash(
+            &mut stream,
+            "GET /version HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = name;
         false
@@ -648,13 +700,19 @@ fn pin_isolated_mihomo(
         serde_yaml::from_slice(&source).map_err(|_| MihomoError::IsolatedConfigUnavailable)?;
     #[cfg(target_os = "linux")]
     {
-        let endpoint = parsed
-            .get("external-controller")
-            .and_then(serde_yaml::Value::as_str)
-            .and_then(|value| value.parse::<SocketAddr>().ok())
-            .ok_or(MihomoError::IsolatedConfigUnavailable)?;
-        if parse_controller_target(&binding.controller_url)? != ControllerTarget::Tcp(endpoint) {
-            return Err(MihomoError::PinnedInboundUnsupported);
+        match parse_controller_target(&binding.controller_url)? {
+            ControllerTarget::Tcp(endpoint)
+                if parsed
+                    .get("external-controller")
+                    .and_then(serde_yaml::Value::as_str)
+                    .and_then(|value| value.parse::<SocketAddr>().ok())
+                    == Some(endpoint) => {}
+            ControllerTarget::Unix(path)
+                if parsed
+                    .get("external-controller-unix")
+                    .and_then(serde_yaml::Value::as_str)
+                    .is_some_and(|value| Path::new(value) == path) => {}
+            _ => return Err(MihomoError::PinnedInboundUnsupported),
         }
     }
     let port = allocate_loopback_port()?;
@@ -1729,7 +1787,11 @@ fn parse_controller_target(controller_url: &str) -> Result<ControllerTarget, Mih
         {
             return Err(MihomoError::UnsafeController);
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            return Ok(ControllerTarget::Unix(linux_clash_socket_path()?));
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             return Err(MihomoError::UnsafeController);
         }
@@ -1767,24 +1829,19 @@ fn connect_controller(
     timeout: Duration,
 ) -> Result<ControllerConn, MihomoError> {
     match target {
+        #[cfg(target_os = "linux")]
+        ControllerTarget::Unix(path) => connect_linux_socket(path)
+            .map(ControllerConn::Unix)
+            .map_err(map_connect_error),
         ControllerTarget::Tcp(endpoint) => {
             let stream =
                 TcpStream::connect_timeout(endpoint, timeout).map_err(map_connect_error)?;
             Ok(ControllerConn::Tcp(stream))
         }
-        ControllerTarget::Pipe(name) => {
-            #[cfg(not(windows))]
-            {
-                let _ = name;
-                Err(MihomoError::UnsafeController)
-            }
-            #[cfg(windows)]
-            {
-                connect_windows_pipe(name, timeout)
-                    .map(ControllerConn::Pipe)
-                    .map_err(map_connect_error)
-            }
-        }
+        #[cfg(windows)]
+        ControllerTarget::Pipe(name) => connect_windows_pipe(name, timeout)
+            .map(ControllerConn::Pipe)
+            .map_err(map_connect_error),
     }
 }
 
@@ -1830,7 +1887,10 @@ impl ControllerTarget {
                 format!("[{}]:{}", endpoint.ip(), endpoint.port())
             }
             Self::Tcp(endpoint) => format!("{}:{}", endpoint.ip(), endpoint.port()),
+            #[cfg(windows)]
             Self::Pipe(_) => "localhost".to_owned(),
+            #[cfg(target_os = "linux")]
+            Self::Unix(_) => "localhost".to_owned(),
         }
     }
 }
@@ -1844,6 +1904,11 @@ impl ControllerConn {
             }
             #[cfg(windows)]
             Self::Pipe(_) => Ok(()),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => {
+                stream.set_read_timeout(timeout)?;
+                stream.set_write_timeout(timeout)
+            }
         }
     }
 }
@@ -1854,6 +1919,8 @@ impl Read for ControllerConn {
             Self::Tcp(stream) => stream.read(buf),
             #[cfg(windows)]
             Self::Pipe(file) => file.read(buf),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => stream.read(buf),
         }
     }
 }
@@ -1864,6 +1931,8 @@ impl Write for ControllerConn {
             Self::Tcp(stream) => stream.write(buf),
             #[cfg(windows)]
             Self::Pipe(file) => file.write(buf),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => stream.write(buf),
         }
     }
 
@@ -1872,6 +1941,8 @@ impl Write for ControllerConn {
             Self::Tcp(stream) => stream.flush(),
             #[cfg(windows)]
             Self::Pipe(file) => file.flush(),
+            #[cfg(target_os = "linux")]
+            Self::Unix(stream) => stream.flush(),
         }
     }
 }
@@ -2612,11 +2683,58 @@ mod tests {
             node_name: "US-01".to_owned(),
             controller_secret_reference: None,
         };
+        let result = super::pin_selected_inbound(&binding, None, uuid::Uuid::nil());
+        #[cfg(target_os = "linux")]
         assert!(matches!(
-            super::pin_selected_inbound(&binding, None, uuid::Uuid::nil()),
-            Err(MihomoError::PinnedInboundUnsupported)
+            result,
+            Err(MihomoError::PinnedInboundUnsupported | MihomoError::IsolatedConfigUnavailable)
         ));
+        #[cfg(not(target_os = "linux"))]
+        assert!(matches!(result, Err(MihomoError::PinnedInboundUnsupported)));
         server.join().expect("fake controller exits");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_controller_alias_uses_an_owned_native_socket() {
+        use std::os::unix::{fs::symlink, net::UnixListener};
+        let root = std::env::temp_dir().join(format!("vs-sock-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("controller.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 512];
+            let read = stream.read(&mut request).unwrap();
+            assert!(request[..read].starts_with(b"GET /version HTTP/1.1"));
+            let body = r#"{"meta":true,"version":"test"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let mut connection = super::connect_linux_socket(&path).unwrap();
+        assert!(super::response_looks_like_clash(
+            &mut connection,
+            "GET /version HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        ));
+        server.join().unwrap();
+        let alias = root.join("redirect.sock");
+        symlink(&path, &alias).unwrap();
+        assert!(super::connect_linux_socket(&alias).is_err());
+        let regular = root.join("regular");
+        std::fs::write(&regular, []).unwrap();
+        assert!(super::connect_linux_socket(&regular).is_err());
+        assert_eq!(
+            super::parse_controller_target("pipe://verge-mihomo/").unwrap(),
+            super::ControllerTarget::Unix(super::linux_clash_socket_path().unwrap())
+        );
+        assert!(super::parse_controller_target("pipe://other-controller/").is_err());
+        assert!(super::parse_controller_target("pipe://verge-mihomo/private").is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

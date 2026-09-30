@@ -57,7 +57,7 @@ def _name_conflicts_with(a: str, b: str) -> bool:
 def fc_list_families() -> list[str]:
     try:
         proc = subprocess.run(
-            ["fc-list", ": family"],
+            ["fc-list", "--format", "%{family}\n"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -66,11 +66,7 @@ def fc_list_families() -> list[str]:
         return []
     families = set()
     for line in proc.stdout.splitlines():
-        if ":" not in line:
-            continue
-        family_part = line.split(":", 1)[1]
-        family_part = family_part.split(":style=")[0]
-        for family in family_part.split(","):
+        for family in line.split(","):
             family = family.strip()
             if family:
                 families.add(family)

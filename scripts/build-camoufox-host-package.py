@@ -514,6 +514,24 @@ def _build_linux_supervisor(python: str, work_root: Path) -> Path:
     return executable
 
 
+def _copy_host_directory(source: Path, destination: Path, *, linux: bool) -> None:
+    if linux:
+        # PyInstaller 6 uses internal aliases extensively on Linux. Materialize
+        # only aliases within this verified one-folder output: the signed
+        # package remains a strict tree of regular files on both platforms.
+        source_root = source.resolve(strict=True)
+        for path in source.rglob("*"):
+            if path.is_symlink():
+                try:
+                    target = path.resolve(strict=True)
+                    target.relative_to(source_root)
+                    if target in path.parents:
+                        _fail(f"Host dependency alias recurses into its own parents: {path}")
+                except (OSError, RuntimeError, ValueError) as exc:
+                    _fail(f"Host dependency alias escapes its one-folder output: {path} ({exc})")
+    shutil.copytree(source, destination, symlinks=not linux)
+
+
 def _validate_linux_inputs(source_lock: Path, build_result: Path, browser_root: Path, tree_path: Path) -> dict[str, Any]:
     if sha256_file(source_lock) != FORMAL_V3_SOURCE_LOCK_SHA256:
         _fail("Linux source must use the pinned RC5 Formal-v3 source lock")
@@ -806,12 +824,12 @@ def _stage(
             if not host_directory.is_dir() or host_directory.is_symlink():
                 _fail("Host one-folder input must be a real directory")
             _validate_host_source_provenance(host_directory, host_source)
-            shutil.copytree(host_directory, layout.host.parent, symlinks=True)
+            _copy_host_directory(host_directory, layout.host.parent, linux=linux)
         else:
             host_executable = _build_pyinstaller(host_source, python, Path(temporary) / "pyinstaller", linux=linux)
             _write_host_source_provenance(host_executable.parent, host_source)
             # PyInstaller one-folder output has DLLs beside the executable.
-            shutil.copytree(host_executable.parent, layout.host.parent, symlinks=True)
+            _copy_host_directory(host_executable.parent, layout.host.parent, linux=linux)
         if layout.host.is_symlink() or not layout.host.is_file():
             _fail(f"staged Host one-folder output is missing {layout.host.name}")
         _validate_host_source_provenance(layout.host.parent, host_source)
