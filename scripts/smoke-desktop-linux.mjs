@@ -6,6 +6,7 @@ import {
   mkdirSync,
   writeFileSync,
   existsSync,
+  readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -83,10 +84,22 @@ async function startDesktop() {
       desktopLog = (desktopLog + data).slice(-16_384);
     });
   }
-  await waitFor(
-    () => cli(["app", "status"], undefined, true),
-    "desktop API startup",
+  const discoveryPath = join(
+    root,
+    "VeriSilo/vaults/linux-smoke/local-api.json",
   );
+  await waitFor(async () => {
+    if (!existsSync(discoveryPath)) return false;
+    const discovery = JSON.parse(readFileSync(discoveryPath, "utf8"));
+    try {
+      const response = await fetch(new URL("v1/health", discovery.url), {
+        signal: AbortSignal.timeout(500),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }, "desktop API startup");
 }
 
 async function stopDesktop() {
@@ -209,7 +222,6 @@ try {
   }
 
   await stopDesktop();
-  evidence.passed = true;
   await startDesktop();
   cli(["vault", "unlock"], `${password}\n`);
   assert(
@@ -217,6 +229,7 @@ try {
     "Silo persists across desktop restart.",
   );
   await stopDesktop();
+  evidence.passed = true;
   console.log(
     `Native Linux desktop smoke passed: WebView, Standard lifecycle, Vault persistence${values.managed ? ", Managed identity/control/backup/restore" : ""}.`,
   );

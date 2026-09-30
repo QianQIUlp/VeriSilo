@@ -5316,7 +5316,7 @@ fn valid_signature_value(value: &str) -> bool {
         })
 }
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(target_os = "windows", target_os = "linux", test))]
 fn manifest_signing_payload(manifest: &EnginePackageManifest) -> Result<Vec<u8>, EngineError> {
     let domain: &[u8] = match manifest.schema_version {
         2 => b"VeriSilo engine package manifest v2\0",

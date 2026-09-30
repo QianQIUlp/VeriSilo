@@ -71,9 +71,9 @@ const ENGINE_BOOTSTRAP_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 const ENGINE_BOOTSTRAP_ACK_TIMEOUT: Duration = Duration::from_secs(5);
 const ENGINE_INITIAL_RECEIPT_TIMEOUT: Duration = Duration::from_secs(5);
 const ENGINE_EXIT_RECEIPT_GRACE: Duration = Duration::from_millis(100);
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 const STOCK_BROWSER_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 const STOCK_BROWSER_OWNERSHIP_STABILITY: Duration = Duration::from_millis(350);
 const ENGINE_PROTOCOL_CHANNEL_CAPACITY: usize = 32;
 const HTTP_AUTH_EVIDENCE_LOOKBACK_SECONDS: i64 = 15;
@@ -4726,7 +4726,7 @@ fn process_is_alive(pid: u32) -> bool {
 
 #[cfg(target_os = "linux")]
 fn process_is_alive(pid: u32) -> bool {
-    Path::new("/proc").join(pid.to_string()).exists()
+    crate::linux::process_is_alive(pid)
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]

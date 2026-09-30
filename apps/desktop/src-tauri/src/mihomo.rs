@@ -599,11 +599,12 @@ pub fn verify_binding(
     validate_available_node(binding, secret)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn pin_isolated_mihomo(
     binding: &ExternalMihomoBinding,
     silo_id: Uuid,
 ) -> Result<PinnedInbound, MihomoError> {
+    #[cfg(windows)]
     if !matches!(
         parse_controller_target(&binding.controller_url)?,
         ControllerTarget::Pipe(ref name) if name == "verge-mihomo"
@@ -611,16 +612,29 @@ fn pin_isolated_mihomo(
         return Err(MihomoError::PinnedInboundUnsupported);
     }
 
+    #[cfg(windows)]
     let app_data = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .ok_or(MihomoError::IsolatedConfigUnavailable)?;
+    #[cfg(windows)]
     let program_files = std::env::var_os("PROGRAMFILES")
         .map(PathBuf::from)
         .ok_or(MihomoError::IsolatedConfigUnavailable)?;
+    #[cfg(windows)]
     let source_path = app_data
         .join("io.github.clash-verge-rev.clash-verge-rev")
         .join("clash-verge.yaml");
+    #[cfg(windows)]
     let binary = program_files.join("Clash Verge").join("verge-mihomo.exe");
+    #[cfg(target_os = "linux")]
+    let source_path = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .ok_or(MihomoError::IsolatedConfigUnavailable)?
+        .join("io.github.clash-verge-rev.clash-verge-rev")
+        .join("clash-verge.yaml");
+    #[cfg(target_os = "linux")]
+    let binary = PathBuf::from("/usr/bin/verge-mihomo");
     if !source_path.is_file() || !binary.is_file() {
         return Err(MihomoError::IsolatedConfigUnavailable);
     }
@@ -632,6 +646,17 @@ fn pin_isolated_mihomo(
     let source = Zeroizing::new(fs::read(source_path)?);
     let parsed: serde_yaml::Value =
         serde_yaml::from_slice(&source).map_err(|_| MihomoError::IsolatedConfigUnavailable)?;
+    #[cfg(target_os = "linux")]
+    {
+        let endpoint = parsed
+            .get("external-controller")
+            .and_then(serde_yaml::Value::as_str)
+            .and_then(|value| value.parse::<SocketAddr>().ok())
+            .ok_or(MihomoError::IsolatedConfigUnavailable)?;
+        if parse_controller_target(&binding.controller_url)? != ControllerTarget::Tcp(endpoint) {
+            return Err(MihomoError::PinnedInboundUnsupported);
+        }
+    }
     let port = allocate_loopback_port()?;
     let name = pinned_inbound_name(silo_id);
     let config = isolated_mihomo_config(&parsed, &binding.node_name, &name, port)?;
@@ -641,25 +666,36 @@ fn pin_isolated_mihomo(
             .into_bytes(),
     );
 
+    #[cfg(windows)]
     let local_data = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .ok_or(MihomoError::IsolatedConfigUnavailable)?;
-    let root = local_data
-        .join("io.verisilo.app")
-        .join("runtime")
-        .join("mihomo")
-        .join(format!(
-            "{}-{}",
-            silo_id.as_simple(),
-            Uuid::new_v4().as_simple()
-        ));
+    #[cfg(windows)]
+    let runtime_root = local_data.join("io.verisilo.app");
+    #[cfg(target_os = "linux")]
+    let runtime_root =
+        crate::domain::app_data_root().map_err(|_| MihomoError::IsolatedConfigUnavailable)?;
+    let root = runtime_root.join("runtime").join("mihomo").join(format!(
+        "{}-{}",
+        silo_id.as_simple(),
+        Uuid::new_v4().as_simple()
+    ));
     fs::create_dir_all(&root)?;
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
+    }
     let config_path = root.join("config.yaml");
     let result: Result<PinnedInbound, MihomoError> = (|| -> Result<_, MihomoError> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&config_path)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(0x20000);
+        }
+        let mut file = options.open(&config_path)?;
         file.write_all(&config_bytes)?;
         file.sync_all()?;
         drop(file);
@@ -674,7 +710,17 @@ fn pin_isolated_mihomo(
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         hide_windows_console(&mut command);
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::process::CommandExt;
+            let parent_pid = std::process::id();
+            command.process_group(0);
+            unsafe {
+                command.pre_exec(move || crate::linux::die_with_parent(parent_pid));
+            }
+        }
         let mut child = command.spawn()?;
+        #[cfg(windows)]
         let job_handle = match attach_kill_on_close_job(&child) {
             Ok(handle) => handle,
             Err(error) => {
@@ -686,6 +732,7 @@ fn pin_isolated_mihomo(
         let runtime = Arc::new(Mutex::new(IsolatedMihomoRuntime {
             child: Some(child),
             root: root.clone(),
+            #[cfg(windows)]
             job_handle,
         }));
         if let Err(error) = wait_for_socks_hello(port) {
@@ -709,7 +756,7 @@ fn pin_isolated_mihomo(
     result
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn pin_isolated_mihomo(
     _binding: &ExternalMihomoBinding,
     _silo_id: Uuid,

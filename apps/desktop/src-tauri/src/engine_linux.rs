@@ -3,7 +3,7 @@ use std::{
     fs,
     io::Write,
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Stdio},
 };
 
@@ -231,6 +231,77 @@ fn der<'a>(input: &mut &'a [u8], tag: u8) -> Result<&'a [u8], EngineError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn native_openssl_accepts_code_signer_and_rejects_tampered_payload_and_sha1() {
+        let directory = super::VerificationDirectory(
+            std::env::temp_dir().join(format!("verisilo-cms-test-{}", uuid::Uuid::new_v4())),
+        );
+        std::fs::create_dir(&directory.0).unwrap();
+        let key = directory.0.join("key.pem");
+        let cert = directory.0.join("cert.pem");
+        let content = directory.0.join("content");
+        let signed = directory.0.join("signed.der");
+        let certificate = super::openssl_command()
+            .unwrap()
+            .args([
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-days",
+                "1",
+                "-subj",
+                "/CN=VeriSilo Linux test",
+                "-addext",
+                "extendedKeyUsage=codeSigning",
+                "-keyout",
+            ])
+            .arg(&key)
+            .arg("-out")
+            .arg(&cert)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(certificate.success());
+        let payload = b"exact native manifest signing payload";
+        std::fs::write(&content, payload).unwrap();
+        for algorithm in ["sha256", "sha1"] {
+            let status = super::openssl_command()
+                .unwrap()
+                .args(["cms", "-sign", "-binary", "-md", algorithm, "-in"])
+                .arg(&content)
+                .arg("-signer")
+                .arg(&cert)
+                .arg("-inkey")
+                .arg(&key)
+                .args(["-outform", "DER", "-out"])
+                .arg(&signed)
+                .status()
+                .unwrap();
+            assert!(status.success());
+            let signature = std::fs::read(&signed).unwrap();
+            if algorithm == "sha256" {
+                let expected = super::openssl_command()
+                    .unwrap()
+                    .args(["x509", "-outform", "DER", "-in"])
+                    .arg(&cert)
+                    .output()
+                    .unwrap();
+                assert!(expected.status.success());
+                assert_eq!(
+                    super::verify_detached_cms_sha256(payload, &signature).unwrap(),
+                    expected.stdout
+                );
+                assert!(
+                    super::verify_detached_cms_sha256(b"tampered manifest", &signature).is_err()
+                );
+            } else {
+                assert!(super::verify_detached_cms_sha256(payload, &signature).is_err());
+            }
+        }
+    }
+
     #[test]
     fn cms_parser_rejects_truncation_indefinite_lengths_and_wrong_tags() {
         for input in [&[][..], &[0x30, 0x80], &[0x30, 0x81, 0], &[0x31, 0]] {

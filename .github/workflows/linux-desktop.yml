@@ -33,6 +33,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf openssl xvfb xauth dbus-x11
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
       - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
         with:
           version: 11.17.0
@@ -50,20 +53,16 @@ jobs:
           pnpm --filter @verisilo/desktop check
           pnpm --filter @verisilo/desktop test
           node --test scripts/build-linux-desktop.test.mjs
+      - name: Verify native package and Host process boundaries
+        run: |
+          python3 scripts/build-camoufox-host-package.py --self-test
+          python3 apps/camoufox-host/test_linux_package.py
       - name: Compile and test the native Linux desktop backend
         run: |
           cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-unknown-linux-gnu
           cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-unknown-linux-gnu
       - name: Build native Debian and AppImage packages
         run: pnpm desktop:package:linux --standard
-      - name: Exercise standalone AppImage desktop and CLI
-        run: |
-          image=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
-          test -n "$image"
-          image="$PWD/$image"
-          (cd "$RUNNER_TEMP" && "$image" --appimage-extract)
-          APPDIR="$RUNNER_TEMP/squashfs-root" xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop "$image" --cli "$RUNNER_TEMP/squashfs-root/usr/bin/verisilo-cli" --browser /usr/bin/google-chrome
-          cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/appimage.json
       - name: Verify installer contents
         run: |
           package=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)
@@ -73,7 +72,15 @@ jobs:
           grep '/usr/bin/verisilo-cli$' /tmp/verisilo-deb-files.txt
           sudo apt-get install -y "$PWD/$package"
       - name: Exercise installed desktop, Vault and real browser lifecycle
-        run: xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop /usr/bin/verisilo --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome
+        run: |
+          xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop /usr/bin/verisilo --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome
+          cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/deb.json
+      - name: Exercise AppImage desktop runtime
+        run: |
+          image=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
+          test -n "$image"
+          xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop "$PWD/$image" --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome
+          cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/appimage.json
       - name: Upload Linux build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -104,7 +111,7 @@ jobs:
         run: |
           # These are unused preinstalled toolchains on this disposable Actions runner.
           sudo rm -rf -- /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/swift
-          sudo fallocate -l 8G /verisilo-build.swap
+          sudo fallocate -l 24G /verisilo-build.swap
           sudo chmod 600 /verisilo-build.swap
           sudo mkswap /verisilo-build.swap
           sudo swapon /verisilo-build.swap
@@ -113,7 +120,7 @@ jobs:
       - name: Install native desktop and engine dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential git curl patch python3-dev libgtk-3-dev libdbus-glib-1-dev libasound2-dev libpulse-dev libx11-xcb-dev libxt-dev libsqlite3-dev nasm yasm unzip zip p7zip-full fontconfig libfontconfig1-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf openssl xvfb xauth dbus-x11 fonts-unfonts-core
+          sudo apt-get install -y --no-install-recommends build-essential git curl patch python3-dev libgtk-3-dev libdbus-glib-1-dev libasound2-dev libpulse-dev libx11-xcb-dev libxt-dev libsqlite3-dev nasm yasm unzip zip p7zip-full fontconfig libfontconfig1-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf openssl xvfb xauth dbus-x11 fonts-unfonts-core fonts-unfonts-extra
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
@@ -137,6 +144,10 @@ jobs:
           pnpm install --frozen-lockfile
           uv sync --project apps/camoufox-host --frozen --group build
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Verify native CMS signing and Host crash cleanup
+        run: |
+          apps/camoufox-host/.venv/bin/python scripts/build-camoufox-host-package.py --self-test
+          apps/camoufox-host/.venv/bin/python apps/camoufox-host/test_linux_package.py
       - name: Build pinned RC5-patched Camoufox natively for Linux
         if: inputs.engineBuildArtifactId == ''
         run: python apps/camoufox-host/build/linux/build.py --work-root "$RUNNER_TEMP/verisilo-engine-work" --out artifacts/linux-engine-build
@@ -171,21 +182,21 @@ jobs:
           xvfb-run -a dbus-run-session -- apps/camoufox-host/.venv/bin/python scripts/build-camoufox-host-package.py --out artifacts/linux-engine-package --browser-root artifacts/linux-engine-build/browser --browser-tree-manifest artifacts/linux-engine-build/browser-tree-manifest.json --build-result artifacts/linux-engine-build/linux-build-result.json --linux --sign --pem-certificate "$RUNNER_TEMP/linux-engine-cert.pem" --pem-private-key "$RUNNER_TEMP/linux-engine-key.pem"
       - name: Build self-contained Managed Debian and AppImage packages
         run: pnpm desktop:package:linux --engine-package artifacts/linux-engine-package --python apps/camoufox-host/.venv/bin/python
-      - name: Exercise standalone Managed AppImage and CLI
-        run: |
-          image=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
-          test -n "$image"
-          image="$PWD/$image"
-          (cd "$RUNNER_TEMP" && "$image" --appimage-extract)
-          APPDIR="$RUNNER_TEMP/squashfs-root" xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop "$image" --cli "$RUNNER_TEMP/squashfs-root/usr/bin/verisilo-cli" --browser /usr/bin/google-chrome --managed
-          cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/appimage.json
       - name: Install the exact Managed package
         run: |
           package=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)
           test -n "$package"
           sudo apt-get install -y "$PWD/$package"
       - name: Exercise packaged Managed Identity and browser lifecycle
-        run: xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop /usr/bin/verisilo --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome --managed
+        run: |
+          xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop /usr/bin/verisilo --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome --managed
+          cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/deb.json
+      - name: Exercise Managed AppImage runtime and pinned CMS helper
+        run: |
+          image=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
+          test -n "$image"
+          xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop "$PWD/$image" --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome --managed
+          cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/appimage.json
       - name: Upload evaluated Linux Managed artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

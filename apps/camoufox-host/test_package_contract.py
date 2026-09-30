@@ -172,7 +172,7 @@ def main() -> int:
         for preset in PROVISION_PRESETS.values()
         if preset["network"] == "direct"
     )
-    layout = PackageLayout.from_root("package")
+    layout = PackageLayout.from_root("package", platform="windows-x64")
     assert layout.asset_lock.name == "runtime-asset-lock.json"
     assert layout.supervisor.as_posix().endswith("host/verisilo-camoufox-supervisor.exe")
     assert layout.probe.as_posix().endswith("host/probe/probe.html")
@@ -344,7 +344,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="verisilo-package-large-tree-") as temporary:
         root = Path(temporary)
-        layout = PackageLayout.from_root(root)
+        layout = PackageLayout.from_root(root, platform="windows-x64")
         layout.browser_root.mkdir(parents=True)
         layout.host.parent.mkdir(parents=True)
         layout.host.write_bytes(b"host")
@@ -378,6 +378,8 @@ def main() -> int:
             assert recheck_package(root, large_manifest)["memberCount"] > 1500
             assert hashing.call_count == len(large_tree["entries"])
         fixture_lock = {
+            "platform": "windows-x86_64",
+            "sha256": FORMAL_V3_ARCHIVE_SHA256,
             "browserTreeManifestSha256": sha256_bytes(layout.browser_tree.read_bytes()),
             "executableRelativePath": "camoufox.exe",
             "buildId": "fixture",

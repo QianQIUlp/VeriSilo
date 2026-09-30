@@ -1831,6 +1831,21 @@ pub fn app_data_root() -> Result<PathBuf, DomainError> {
         })?;
         migrate_legacy_app_data(base)?;
     }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&root)?;
+        if fs::symlink_metadata(&root)?.file_type().is_symlink() {
+            return Err(DomainError::InvalidSilo(
+                "Application data directory cannot be a symbolic link.".to_owned(),
+            ));
+        }
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
+    }
+    #[cfg(not(target_os = "linux"))]
     fs::create_dir_all(&root)?;
     Ok(root)
 }
@@ -1964,6 +1979,7 @@ pub fn inspect_browser_executable(
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or_default();
+    #[cfg(not(target_os = "linux"))]
     let expected_filename = match kind {
         BrowserKind::Chrome => "chrome.exe",
         BrowserKind::Edge => "msedge.exe",
@@ -2404,6 +2420,55 @@ mod tests {
         assert!(source.contains("fn windows_file_product_version("));
         assert!(body.contains("browser_identity_output"));
         assert!(!body.contains("Command::new"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_browser_paths_accept_native_wrappers_and_chromium_distribution_version() {
+        let root = std::env::temp_dir().join(format!("verisilo-linux-browser-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        for (kind, name, output, version) in [
+            (
+                BrowserKind::Chrome,
+                "google-chrome",
+                "Google Chrome 152.0.4.28",
+                "152.0.4.28",
+            ),
+            (
+                BrowserKind::Chrome,
+                "chromium",
+                "Chromium 152.0.4.28 built on Debian GNU/Linux 12 (bookworm)",
+                "152.0.4.28",
+            ),
+            (
+                BrowserKind::Edge,
+                "microsoft-edge",
+                "Microsoft Edge 152.0.4.28",
+                "152.0.4.28",
+            ),
+        ] {
+            let executable = root.join(name);
+            fs::write(&executable, []).unwrap();
+            fs::write(executable.with_extension("version-output"), output).unwrap();
+            assert_eq!(
+                super::inspect_browser_executable(&kind, &executable)
+                    .unwrap()
+                    .version,
+                version
+            );
+        }
+        let redirected = root.join("google-chrome-stable");
+        std::os::unix::fs::symlink(root.join("google-chrome"), &redirected).unwrap();
+        assert_eq!(
+            super::inspect_browser_executable(&BrowserKind::Chrome, &redirected)
+                .unwrap()
+                .resolved_path,
+            root.join("google-chrome")
+                .canonicalize()
+                .unwrap()
+                .to_string_lossy()
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(target_os = "windows")]
