@@ -13,12 +13,15 @@ import tempfile
 import time
 import unittest
 import zipfile
+from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 HOST = Path(__file__).resolve().parent
 sys.path.insert(0, str(HOST))
 from browser_tree import build_tree_manifest
+import identity_policy
 from package_contract import (
     FORMAL_V3_SOURCE_LOCK_SHA256, LINUX_PLATFORM, PackageContractError,
     PackageLayout, build_package_tree, recheck_formal_package, sha256_file,
@@ -75,6 +78,7 @@ class NativePackageTests(unittest.TestCase):
             write_json(result, record)
             checked = builder._validate_linux_inputs(engine.LOCK, result, browser, tree)
             self.assertFalse(checked["assetLock"]["verified"])
+            self._assert_native_canvas_binding(root, checked["assetLock"])
             record["claims"]["runtimeVerified"] = True
             write_json(result, record)
             with self.assertRaisesRegex(PackageContractError, "patched candidate"):
@@ -84,6 +88,68 @@ class NativePackageTests(unittest.TestCase):
             archive.write_bytes(b"changed archive")
             with self.assertRaisesRegex(PackageContractError, "browser bytes"):
                 builder._validate_linux_inputs(engine.LOCK, result, browser, tree)
+
+    def _assert_native_canvas_binding(self, root: Path, asset: dict) -> None:
+        approval = builder._linux_canvas_approval(asset)
+        binding = approval["browserBinding"]
+        self.assertEqual(binding["archiveSha256"], asset["sha256"])
+        self.assertEqual(binding["archiveSizeBytes"], asset["sizeBytes"])
+        self.assertEqual(binding["buildId"], asset["buildId"])
+        self.assertEqual(binding["sourceStamp"], asset["sourceStamp"])
+        self.assertEqual(binding["propertiesJsonSha256"], asset["propertiesJsonSha256"])
+        host = root / "host"
+        internal = host / "_internal"
+        internal.mkdir(parents=True)
+        approval_file = internal / identity_policy.LINUX_CANVAS_BINDING_NAME
+        write_json(approval_file, approval)
+        builder._validate_linux_host_canvas_approval(host, approval)
+        with self.assertRaises(identity_policy.ArtifactIntegrityError):
+            identity_policy.canvas_policy_variant_for_browser_binding(binding)
+        with patch.object(identity_policy.sys, "platform", "linux"), \
+             patch.object(identity_policy.sys, "frozen", True, create=True), \
+             patch.object(identity_policy, "__file__", str(internal / "identity_policy.py")):
+            self.assertEqual(identity_policy.canvas_policy_variant_for_browser_binding(binding),
+                             identity_policy.DETERMINISTIC_CANVAS_POLICY_VARIANT)
+            artifact = json.loads((ROOT / "tests/fixtures/camoufox/identity-win-canvas-v1-a.json").read_bytes())
+            artifact["browserBinding"] = deepcopy(binding)
+            artifact["canonicalDigest"] = identity_policy.compute_artifact_digest(artifact)
+            identity_policy.validate_artifact_strict(artifact)
+            # Every native tuple member participates; no partial/foreign/
+            # cross-variant artifact may inherit this package's approval.
+            for field in binding:
+                changed = deepcopy(binding)
+                changed[field] = changed[field] + 1 if type(changed[field]) is int else "0" + changed[field][1:]
+                if changed[field] == binding[field]:
+                    changed[field] = "changed"
+                with self.subTest(field=field), self.assertRaises(identity_policy.ArtifactIntegrityError):
+                    identity_policy.canvas_policy_variant_for_browser_binding(changed)
+            for changed in ({**binding, "extra": True},
+                            {**binding, "archiveSizeBytes": True},
+                            {key: value for key, value in binding.items() if key != "sourceStamp"},
+                            identity_policy.FORMAL_R1_V3_CANVAS_BROWSER_BINDING):
+                with self.assertRaises(identity_policy.ArtifactIntegrityError):
+                    identity_policy.canvas_policy_variant_for_browser_binding(changed)
+            artifact["policy"]["canvasClassification"] = dict(identity_policy.CANVAS_CLASSIFICATION)
+            artifact["canonicalDigest"] = identity_policy.compute_artifact_digest(artifact)
+            with self.assertRaises(identity_policy.ArtifactIntegrityError):
+                identity_policy.validate_artifact_strict(artifact)
+            approval_file.unlink()
+            with self.assertRaises(identity_policy.ArtifactIntegrityError):
+                identity_policy.canvas_policy_variant_for_browser_binding(binding)
+            for changed in ({**approval, "variant": identity_policy.LEGACY_CANVAS_POLICY_VARIANT},
+                            {**approval, "browserBinding": {**binding, "archiveSizeBytes": True}},
+                            {**approval, "extra": True}):
+                write_json(approval_file, changed)
+                with self.assertRaises(identity_policy.ArtifactIntegrityError):
+                    identity_policy.canvas_policy_variant_for_browser_binding(binding)
+        write_json(approval_file, approval)
+        changed = deepcopy(approval)
+        changed["browserBinding"]["archiveSha256"] = "0" * 64
+        write_json(approval_file, changed)
+        with self.assertRaisesRegex(PackageContractError, "approval differs"):
+            builder._validate_linux_host_canvas_approval(host, approval)
+        self.assertEqual(identity_policy.canvas_policy_variant_for_browser_binding(
+            identity_policy.FORMAL_R1_V3_CANVAS_BROWSER_BINDING), identity_policy.DETERMINISTIC_CANVAS_POLICY_VARIANT)
 
     def test_native_package_bytes_and_platform_are_bound(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

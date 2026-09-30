@@ -56,6 +56,28 @@ with `build.py --restore-build <directory>`; its archive, recipe, patch inputs a
 tree must still match. Desktop/Host fixes do not require recompiling unchanged
 browser inputs.
 
+Main pushes and pull requests compile/test Linux and build and exercise the
+explicit Standard Debian and AppImage packages. The complete Managed build is
+manual because compiling Firefox can take several hours:
+
+```sh
+gh workflow run linux-desktop.yml --ref main -f buildManagedEngine=true
+```
+
+To rebuild the current desktop and Host with an unchanged browser, set
+`ENGINE_ARTIFACT_ID` to the Actions artifact ID of a saved
+`verisilo-linux-engine-build-...` artifact, then run:
+
+```sh
+gh workflow run linux-desktop.yml --ref main -f engineBuildArtifactId="$ENGINE_ARTIFACT_ID"
+```
+
+Both manual paths install and exercise the complete Managed Debian and AppImage
+packages, including Standard browser lifecycle. The separate Standard job is
+skipped on those runs. Browser artifact reuse verifies the frozen recipe,
+source lock, patch inputs, archive and browser tree before rebuilding the Host
+and desktop; an expired artifact must be replaced with a new native build.
+
 Managed font verification requires genuine system fonts distinct from the
 browser's bundled identity fonts. The Managed Debian package installs
 `fontconfig`, `fonts-unfonts-core` and `fonts-unfonts-extra` as dependencies.

@@ -26,6 +26,12 @@ if str(HOST_DIR) not in sys.path:
     sys.path.insert(0, str(HOST_DIR))
 
 from browser_tree import RUNTIME_TREE_EXTRAS, load_tree_manifest, verify_tree
+from identity_policy import (
+    DETERMINISTIC_CANVAS_POLICY_VARIANT,
+    LINUX_CANVAS_BINDING_NAME,
+    LINUX_CANVAS_BINDING_SCHEMA,
+    canonical_json_bytes,
+)
 from package_contract import (
     BROWSER_TREE_NAME,
     BROWSER_DIRECTORY,
@@ -438,7 +444,8 @@ def _link_or_copy_staged_file(source: str, destination: str) -> str:
     return destination
 
 
-def _build_pyinstaller(source: Path, python: str, work_root: Path, *, linux: bool = False) -> Path:
+def _build_pyinstaller(source: Path, python: str, work_root: Path, *, linux: bool = False,
+                      linux_canvas_approval: dict[str, Any] | None = None) -> Path:
     version = subprocess.run(
         [python, "-m", "PyInstaller", "--version"],
         check=True,
@@ -450,6 +457,14 @@ def _build_pyinstaller(source: Path, python: str, work_root: Path, *, linux: boo
     dist = work_root / "dist"
     work = work_root / "work"
     spec = work_root / "spec"
+    native_data: list[str] = []
+    if linux:
+        if linux_canvas_approval is None:
+            _fail("Linux PyInstaller Host requires the verified engine's Canvas approval")
+        work_root.mkdir(parents=True, exist_ok=True)
+        approval_path = work_root / LINUX_CANVAS_BINDING_NAME
+        _write_json(approval_path, linux_canvas_approval)
+        native_data = ["--add-data", f"{approval_path}{os.pathsep}."]
     subprocess.run(
         [
             python,
@@ -491,6 +506,7 @@ def _build_pyinstaller(source: Path, python: str, work_root: Path, *, linux: boo
             "language-tags",
             "--copy-metadata",
             "tzdata",
+            *native_data,
             str(source),
         ],
         check=True,
@@ -582,6 +598,32 @@ def _validate_linux_inputs(source_lock: Path, build_result: Path, browser_root: 
     from package_contract import _validate_package_asset_lock
     _validate_package_asset_lock(asset_lock)
     return {"source": source, "build": build, "browserTree": tree, "assetLock": asset_lock}
+
+
+def _linux_canvas_approval(asset_lock: dict[str, Any]) -> dict[str, Any]:
+    """Called only after the native build/archive/tree inputs were verified."""
+    from package_contract import _validate_package_asset_lock
+    _validate_package_asset_lock(asset_lock)
+    if asset_lock["platform"] != "linux-x86_64":
+        _fail("Linux Canvas approval requires the native RC5 asset lock")
+    return {
+        "schema": LINUX_CANVAS_BINDING_SCHEMA,
+        "variant": DETERMINISTIC_CANVAS_POLICY_VARIANT,
+        "browserBinding": {
+            "archiveSha256": asset_lock["sha256"],
+            "archiveSizeBytes": asset_lock["sizeBytes"],
+            "buildId": asset_lock["buildId"],
+            "sourceStamp": asset_lock["sourceStamp"],
+            "propertiesJsonSha256": asset_lock["propertiesJsonSha256"],
+        },
+    }
+
+
+def _validate_linux_host_canvas_approval(host_directory: Path, expected: dict[str, Any]) -> None:
+    path = host_directory / "_internal" / LINUX_CANVAS_BINDING_NAME
+    if (path.is_symlink() or not path.is_file()
+        or canonical_json_bytes(read_json(path)) != canonical_json_bytes(expected)):
+        _fail("Linux Host Canvas approval differs from the verified native engine")
 
 
 def _sign_linux_manifest(manifest: dict[str, Any], manifest_path: Path, payload_path: Path,
@@ -813,6 +855,7 @@ def _stage(
         browser_root,
         frozen_tree,
     )
+    linux_canvas_approval = _linux_canvas_approval(formal["assetLock"]) if linux else None
     if out.exists():
         _fail(f"output already exists: {out} (remove it explicitly before rebuilding)")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -826,13 +869,18 @@ def _stage(
             _validate_host_source_provenance(host_directory, host_source)
             _copy_host_directory(host_directory, layout.host.parent, linux=linux)
         else:
-            host_executable = _build_pyinstaller(host_source, python, Path(temporary) / "pyinstaller", linux=linux)
+            host_executable = _build_pyinstaller(
+                host_source, python, Path(temporary) / "pyinstaller", linux=linux,
+                linux_canvas_approval=linux_canvas_approval,
+            )
             _write_host_source_provenance(host_executable.parent, host_source)
             # PyInstaller one-folder output has DLLs beside the executable.
             _copy_host_directory(host_executable.parent, layout.host.parent, linux=linux)
         if layout.host.is_symlink() or not layout.host.is_file():
             _fail(f"staged Host one-folder output is missing {layout.host.name}")
         _validate_host_source_provenance(layout.host.parent, host_source)
+        if linux:
+            _validate_linux_host_canvas_approval(layout.host.parent, linux_canvas_approval)
         if supervisor is None:
             if not linux:
                 _fail("Windows Host packaging requires --supervisor")

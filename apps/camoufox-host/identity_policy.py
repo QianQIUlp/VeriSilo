@@ -55,6 +55,7 @@ import ipaddress
 import json
 import math
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -131,9 +132,12 @@ CANVAS_CLASSIFICATION = {
 # preserves the byte-for-byte policy embedded in the accepted official
 # Camoufox fixtures.  The deterministic variant is selected only by the exact
 # VeriSilo-patched Windows browser binding; no individual binding field is a
-# sufficient capability signal.
+# sufficient capability signal. A frozen Linux Host additionally receives one
+# exact binding embedded by the builder from its verified native engine input.
 LEGACY_CANVAS_POLICY_VARIANT = "legacy-session-variable"
 DETERMINISTIC_CANVAS_POLICY_VARIANT = "deterministic-artifact-v1"
+LINUX_CANVAS_BINDING_NAME = "verisilo-linux-canvas-binding.json"
+LINUX_CANVAS_BINDING_SCHEMA = "verisilo-camoufox-linux-canvas-binding/v1"
 
 LEGACY_BROWSER_BINDINGS = (
     {
@@ -709,8 +713,40 @@ def _browser_binding_matches_exact(actual: Any, expected: dict) -> bool:
     )
 
 
+def _load_linux_canvas_binding(path: Path) -> dict:
+    """Read the builder-generated member covered by the signed package tree."""
+    if path.is_symlink() or not path.is_file():
+        raise ArtifactIntegrityError("packaged Linux Canvas binding is missing or irregular")
+    approval = _strict_json_loads(path.read_bytes())
+    if (type(approval) is not dict or set(approval) != {"schema", "variant", "browserBinding"}
+        or approval["schema"] != LINUX_CANVAS_BINDING_SCHEMA
+        or approval["variant"] != DETERMINISTIC_CANVAS_POLICY_VARIANT):
+        raise ArtifactIntegrityError("packaged Linux Canvas approval is not exact")
+    binding = approval["browserBinding"]
+    if (type(binding) is not dict or set(binding) != REQUIRED_BINDING_KEYS
+        or any(type(binding[key]) is not str or not binding[key]
+               for key in REQUIRED_BINDING_KEYS - {"archiveSizeBytes"})
+        or type(binding["archiveSizeBytes"]) is not int or binding["archiveSizeBytes"] <= 0
+        or not HEX64_RE.fullmatch(binding["archiveSha256"])
+        or not HEX64_RE.fullmatch(binding["propertiesJsonSha256"])
+        or not re.fullmatch(r"[0-9]{14}", binding["buildId"])):
+        raise ArtifactIntegrityError("packaged Linux browser binding is not exact")
+    return binding
+
+
 def canvas_policy_variant_for_browser_binding(binding: Any) -> str:
     """Select exactly one Canvas Policy v3 variant or fail closed."""
+
+    if sys.platform == "linux" and getattr(sys, "frozen", False):
+        # Only this signed Host's embedded approval is selectable on native
+        # Linux. Artifact fields, environment and mutable asset locks cannot
+        # register another candidate or inherit a Windows approval.
+        expected = _load_linux_canvas_binding(Path(__file__).with_name(LINUX_CANVAS_BINDING_NAME))
+        if _browser_binding_matches_exact(binding, expected):
+            return DETERMINISTIC_CANVAS_POLICY_VARIANT
+        raise ArtifactIntegrityError(
+            "browserBinding does not select exactly one approved Canvas Policy v3 variant"
+        )
 
     matches: list[str] = []
     if any(

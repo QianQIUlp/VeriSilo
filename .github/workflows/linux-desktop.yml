@@ -2,7 +2,7 @@ name: Linux Desktop
 
 on:
   push:
-    branches: [main, qiu/rc5-linux-desktop]
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   native-linux-desktop:
-    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+    if: github.event_name != 'workflow_dispatch' || (!inputs.buildManagedEngine && inputs.engineBuildArtifactId == '')
     # Ubuntu 22.04 is the glibc baseline; newer Linux distributions can run its binaries.
     runs-on: ubuntu-22.04
     timeout-minutes: 60
@@ -103,9 +103,7 @@ jobs:
 
   native-linux-managed:
     # A native Firefox build is deliberately opt-in; ordinary PRs still compile Linux.
-    if: >-
-      (github.event_name == 'workflow_dispatch' && (inputs.buildManagedEngine || inputs.engineBuildArtifactId != '')) ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/qiu/rc5-linux-desktop' && (contains(github.event.head_commit.message, '[build-linux-engine]') || contains(github.event.head_commit.message, '[reuse-linux-engine:')))
+    if: github.event_name == 'workflow_dispatch' && (inputs.buildManagedEngine || inputs.engineBuildArtifactId != '')
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     env:
@@ -117,13 +115,8 @@ jobs:
       - name: Select frozen engine build inputs
         env:
           REQUESTED_ENGINE_ARTIFACT_ID: ${{ inputs.engineBuildArtifactId }}
-          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           artifact="$REQUESTED_ENGINE_ARTIFACT_ID"
-          if [[ -z "$artifact" && "$HEAD_COMMIT_MESSAGE" == *'[reuse-linux-engine:'* ]]; then
-            [[ "$HEAD_COMMIT_MESSAGE" =~ \[reuse-linux-engine:([1-9][0-9]*)\] ]]
-            artifact="${BASH_REMATCH[1]}"
-          fi
           if [[ -n "$artifact" ]]; then
             [[ "$artifact" =~ ^[1-9][0-9]*$ ]]
           fi
