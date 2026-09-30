@@ -143,7 +143,7 @@ jobs:
       - name: Install native desktop and engine dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential git curl patch python3-dev libgtk-3-dev libdbus-glib-1-dev libasound2-dev libpulse-dev libx11-xcb-dev libxt-dev libsqlite3-dev nasm yasm unzip zip p7zip-full fontconfig libfontconfig1-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf openssl xvfb xauth dbus-x11 fonts-unfonts-core fonts-unfonts-extra
+          sudo apt-get install -y --no-install-recommends build-essential binutils file git curl patch python3-dev libgtk-3-dev libdbus-glib-1-dev libasound2-dev libpulse-dev libx11-xcb-dev libxt-dev libsqlite3-dev nasm yasm unzip zip p7zip-full fontconfig libfontconfig1-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf openssl xvfb xauth dbus-x11 fonts-unfonts-core fonts-unfonts-extra
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
@@ -171,6 +171,7 @@ jobs:
         run: |
           apps/camoufox-host/.venv/bin/python scripts/build-camoufox-host-package.py --self-test
           apps/camoufox-host/.venv/bin/python apps/camoufox-host/test_linux_package.py
+          python scripts/check-linux-browser-dependencies.py --self-test
       - name: Build pinned RC5-patched Camoufox natively for Linux
         if: env.VERISILO_ENGINE_BUILD_ARTIFACT_ID == ''
         run: python apps/camoufox-host/build/linux/build.py --work-root "$RUNNER_TEMP/verisilo-engine-work" --out artifacts/linux-engine-build
@@ -197,6 +198,8 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Inspect every frozen browser ELF dependency
+        run: python scripts/check-linux-browser-dependencies.py --browser-root artifacts/linux-engine-build/browser --out artifacts/linux-engine-dependencies.json
       - name: Sign native engine package with an ephemeral validation certificate
         run: |
           openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 365 -subj '/CN=VeriSilo Linux CI Evaluation/' -addext 'extendedKeyUsage=codeSigning' -keyout "$RUNNER_TEMP/linux-engine-key.pem" -out "$RUNNER_TEMP/linux-engine-cert.pem"
@@ -229,6 +232,7 @@ jobs:
             apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
             artifacts/linux-engine-build/linux-build-result.json
             artifacts/linux-engine-build/runtime-asset-lock.json
+            artifacts/linux-engine-dependencies.json
             artifacts/linux-desktop-smoke/
           if-no-files-found: error
           compression-level: 0
@@ -238,6 +242,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: verisilo-linux-managed-smoke-${{ github.sha }}
-          path: artifacts/linux-desktop-smoke/
+          path: |
+            artifacts/linux-desktop-smoke/
+            artifacts/linux-engine-dependencies.json
           if-no-files-found: warn
           retention-days: 14

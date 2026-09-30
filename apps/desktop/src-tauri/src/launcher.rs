@@ -5015,6 +5015,8 @@ mod tests {
         NativeNetworkEvidenceInboxEntry, NativeNetworkHint, NativeReputationObservation,
         NativeReputationState, NETWORK_REPUTATION_EXPLANATION, PROTOCOL_VERSION,
     };
+    #[cfg(target_os = "linux")]
+    use crate::proxy_relay::linux_listener_inode;
     use crate::proxy_relay::{ProxyRelay, RelayAuthenticationEvidence};
     #[cfg(unix)]
     use crate::runtime_watchdog::RuntimeWatchdog;
@@ -6438,6 +6440,8 @@ process.stdin.on('end', () => {
             .expect("required proxy relay")
             .endpoint()
             .port;
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(relay_port).expect("exact relay is listening");
         let expected_proxy = format!("socks5://127.0.0.1:{relay_port}");
         let host = match runtime.engine_runtime.as_ref().expect("Host runtime") {
             super::EngineRuntimeProtocol::CamoufoxHost(host) => host,
@@ -6475,6 +6479,9 @@ process.stdin.on('end', () => {
             .stop_managed_camoufox(silo.id)
             .expect("stop required proxy Host");
         assert!(runtime.proxy_relay.is_none());
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(relay_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, relay_port)),
             Duration::from_millis(200),
@@ -6516,6 +6523,9 @@ process.stdin.on('end', () => {
                 .expect("required proxy relay")
                 .endpoint()
                 .port;
+            #[cfg(target_os = "linux")]
+            let listener_inode =
+                linux_listener_inode(relay_port).expect("exact relay is listening");
 
             let failure = wait_for_runtime_state(&mut runtime, RuntimeState::VerificationFailed);
             assert_eq!(
@@ -6531,6 +6541,9 @@ process.stdin.on('end', () => {
                 .health_context
                 .as_ref()
                 .is_some_and(|context| context.compromised));
+            #[cfg(target_os = "linux")]
+            assert_ne!(linux_listener_inode(relay_port), Some(listener_inode));
+            #[cfg(not(target_os = "linux"))]
             assert!(TcpStream::connect_timeout(
                 &SocketAddr::from((Ipv4Addr::LOCALHOST, relay_port)),
                 Duration::from_millis(200),
@@ -8664,6 +8677,8 @@ for raw in sys.stdin.buffer:
     fn mihomo_node_drift_atomically_closes_exact_relay_and_latches_recovery() {
         let (mut runtime, silo, old_port, _upstream, controller_worker, upstream_worker) =
             mihomo_runtime_manager(MihomoRuntimeFixture::NodeDrift);
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(old_port).expect("exact relay is listening");
         let launch_arguments = silo
             .network_profile
             .launch_arguments_with_proxy_override(Some(("127.0.0.1", old_port)))
@@ -8684,6 +8699,9 @@ for raw in sys.stdin.buffer:
             .health_context
             .as_ref()
             .is_some_and(|context| context.compromised));
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(old_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
             Duration::from_millis(200),
@@ -8730,6 +8748,8 @@ for raw in sys.stdin.buffer:
     fn mihomo_controller_process_exit_closes_relay_without_killing_owned_browser() {
         let (mut runtime, _silo, old_port, _upstream, controller_worker, upstream_worker) =
             mihomo_runtime_manager(MihomoRuntimeFixture::ControllerExit);
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(old_port).expect("exact relay is listening");
         controller_worker
             .join()
             .expect("Controller fixture exits after launch guard");
@@ -8741,6 +8761,9 @@ for raw in sys.stdin.buffer:
             .expect("controller failure evidence");
         assert_eq!(evidence.controller_binding, RuntimeEvidenceState::Failed);
         assert!(runtime.proxy_relay.is_none());
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(old_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
             Duration::from_millis(200),
@@ -8766,6 +8789,8 @@ for raw in sys.stdin.buffer:
     fn mihomo_config_drift_closes_old_listener_and_clears_configuration_evidence() {
         let (mut runtime, _silo, old_port, _upstream, controller_worker, upstream_worker) =
             mihomo_runtime_manager(MihomoRuntimeFixture::ConfigDrift);
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(old_port).expect("exact relay is listening");
 
         let activation = runtime.activation();
         assert_eq!(activation.state, RuntimeState::VerificationFailed);
@@ -8773,6 +8798,9 @@ for raw in sys.stdin.buffer:
         let evidence = activation.network_evidence.expect("failed config evidence");
         assert_eq!(evidence.configuration, RuntimeEvidenceState::Failed);
         assert_ne!(evidence.exit, RuntimeEvidenceState::Observed);
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(old_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
             Duration::from_millis(200),
@@ -8830,6 +8858,8 @@ for raw in sys.stdin.buffer:
         )
         .expect("start exact runtime relay");
         let old_port = relay.endpoint().port;
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(old_port).expect("exact relay is listening");
         let child = std::process::Command::new("sh")
             .args(["-c", "sleep 30"])
             .spawn()
@@ -8871,6 +8901,9 @@ for raw in sys.stdin.buffer:
             .health_context
             .as_ref()
             .is_some_and(|context| context.compromised && context.runtime_id == runtime_id));
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(old_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
             Duration::from_millis(200),
@@ -8941,23 +8974,6 @@ for raw in sys.stdin.buffer:
         upstream_worker
             .join()
             .expect("upstream health worker exits");
-    }
-
-    #[cfg(target_os = "linux")]
-    fn linux_listener_inode(port: u16) -> Option<u64> {
-        let address = format!("0100007F:{port:04X}");
-        fs::read_to_string("/proc/net/tcp")
-            .expect("read native listening socket identities")
-            .lines()
-            .skip(1)
-            .find_map(|line| {
-                let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
-                if fields.get(1) == Some(&address.as_str()) && fields.get(3) == Some(&"0A") {
-                    Some(fields[9].parse().expect("native socket inode"))
-                } else {
-                    None
-                }
-            })
     }
 
     #[cfg(unix)]
