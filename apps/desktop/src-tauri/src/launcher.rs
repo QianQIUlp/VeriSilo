@@ -71,8 +71,10 @@ const ENGINE_BOOTSTRAP_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 const ENGINE_BOOTSTRAP_ACK_TIMEOUT: Duration = Duration::from_secs(5);
 const ENGINE_INITIAL_RECEIPT_TIMEOUT: Duration = Duration::from_secs(5);
 const ENGINE_EXIT_RECEIPT_GRACE: Duration = Duration::from_millis(100);
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(target_os = "windows")]
 const STOCK_BROWSER_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(target_os = "linux")]
+const STOCK_BROWSER_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 const STOCK_BROWSER_OWNERSHIP_STABILITY: Duration = Duration::from_millis(350);
 const ENGINE_PROTOCOL_CHANNEL_CAPACITY: usize = 32;
@@ -4607,7 +4609,8 @@ fn verify_stock_browser_profile_ownership(
     }
     let _ = executable_path;
 
-    let deadline = Instant::now() + STOCK_BROWSER_STARTUP_TIMEOUT;
+    let started = Instant::now();
+    let deadline = started + STOCK_BROWSER_STARTUP_TIMEOUT;
     let mut sentinel_observed_at = None;
     loop {
         match child.try_wait() {
@@ -4618,6 +4621,13 @@ fn verify_stock_browser_profile_ownership(
             }
             Ok(None) => {}
             Err(error) => {
+                #[cfg(target_os = "linux")]
+                log_linux_stock_ownership_failure(
+                    child,
+                    profile_directory,
+                    started,
+                    sentinel_observed_at,
+                );
                 terminate_just_spawned_child(child);
                 return Err(LauncherError::Spawn(error));
             }
@@ -4634,6 +4644,13 @@ fn verify_stock_browser_profile_ownership(
                 sentinel_observed_at = None;
             }
             Err(error) => {
+                #[cfg(target_os = "linux")]
+                log_linux_stock_ownership_failure(
+                    child,
+                    profile_directory,
+                    started,
+                    sentinel_observed_at,
+                );
                 terminate_just_spawned_child(child);
                 return Err(LauncherError::BrowserStartup(format!(
                     "Chromium Profile sentinel probe failed closed: {error}"
@@ -4642,6 +4659,13 @@ fn verify_stock_browser_profile_ownership(
         }
 
         if Instant::now() >= deadline {
+            #[cfg(target_os = "linux")]
+            log_linux_stock_ownership_failure(
+                child,
+                profile_directory,
+                started,
+                sentinel_observed_at,
+            );
             terminate_just_spawned_child(child);
             return Err(LauncherError::BrowserStartup(
                 "the exact child stayed alive but no stable Chromium Profile sentinel appeared"
@@ -4650,6 +4674,50 @@ fn verify_stock_browser_profile_ownership(
         }
         thread::sleep(Duration::from_millis(25));
     }
+}
+
+#[cfg(target_os = "linux")]
+fn log_linux_stock_ownership_failure(
+    child: &mut Child,
+    profile_directory: &Path,
+    started: Instant,
+    sentinel_observed_at: Option<Instant>,
+) {
+    crate::domain::log_linux_browser_process_diagnostics(child, false);
+    let sentinels = crate::vault::CHROMIUM_PROFILE_SENTINEL_NAMES
+        .iter()
+        .map(|name| {
+            let path = profile_directory.join(name);
+            match fs::symlink_metadata(&path) {
+                Ok(metadata) => json!({
+                    "name": name,
+                    "isFile": metadata.is_file(),
+                    "isDirectory": metadata.is_dir(),
+                    "isSymlink": metadata.file_type().is_symlink(),
+                    // Chromium's lock link ends in its owner's decimal PID.
+                    // Do not emit arbitrary link text, Profile data or argv.
+                    "lockPid": (*name == "SingletonLock")
+                        .then(|| fs::read_link(&path).ok()
+                            .and_then(|target| target.to_str()?.rsplit_once('-')?.1.parse::<u32>().ok()))
+                        .flatten(),
+                }),
+                Err(error) => json!({
+                    "name": name,
+                    "errorKind": format!("{:?}", error.kind()),
+                    "errno": error.raw_os_error(),
+                }),
+            }
+        })
+        .collect::<Vec<_>>();
+    eprintln!(
+        "Linux stock Profile ownership failure: {}",
+        json!({
+            "pid": child.id(),
+            "elapsedMs": started.elapsed().as_millis(),
+            "stableSentinelMs": sentinel_observed_at.map(|observed| observed.elapsed().as_millis()),
+            "sentinels": sentinels,
+        })
+    );
 }
 
 fn expects_managed_relay(profile: &NetworkProfile) -> bool {
@@ -8150,6 +8218,73 @@ for raw in sys.stdin.buffer:
 
         fs::remove_dir_all(exe_root).expect("remove browser executable fixture root");
         fs::remove_dir_all(stale_profile).expect("remove unused test Profile fixture");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_stock_startup_requires_stable_profile_ownership_after_slow_initialization() {
+        let root = std::env::temp_dir().join(format!("verisilo-stock-startup-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let executable = std::path::Path::new("/usr/bin/python3");
+        let mut child = std::process::Command::new(executable)
+            .args([
+                "-c",
+                "import pathlib,sys,time; time.sleep(6); pathlib.Path(sys.argv[1], 'SingletonLock').touch(); sys.stdin.read()",
+            ])
+            .arg(&root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        let result = super::verify_stock_browser_profile_ownership(&mut child, &root, executable);
+        let alive = child.try_wait().unwrap().is_none();
+        super::terminate_just_spawned_child(&mut child);
+        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            alive,
+            "ownership cannot be accepted after the exact child exits"
+        );
+        assert!(started.elapsed() >= Duration::from_secs(6));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_stock_startup_rejects_unstable_sentinel_and_probe_errors() {
+        let root = std::env::temp_dir().join(format!("verisilo-stock-reject-{}", Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let executable = std::path::Path::new("/usr/bin/python3");
+        let mut child = std::process::Command::new(executable)
+            .args([
+                "-c",
+                "import pathlib,sys,time; p=pathlib.Path(sys.argv[1], 'SingletonLock'); p.touch(); time.sleep(.1); p.unlink(); time.sleep(.4)",
+            ])
+            .arg(&root)
+            .spawn()
+            .unwrap();
+        let result = super::verify_stock_browser_profile_ownership(&mut child, &root, executable);
+        super::terminate_just_spawned_child(&mut child);
+        assert!(
+            result.is_err(),
+            "an unstable sentinel is not ownership proof"
+        );
+
+        let invalid_profile = root.join("not-a-profile-directory");
+        fs::write(&invalid_profile, []).unwrap();
+        let mut child = std::process::Command::new(executable)
+            .args(["-c", "import sys; sys.stdin.read()"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let result =
+            super::verify_stock_browser_profile_ownership(&mut child, &invalid_profile, executable);
+        let exited = child.try_wait().unwrap().is_some();
+        super::terminate_just_spawned_child(&mut child);
+        assert!(result.is_err(), "Profile probe failures must fail closed");
+        assert!(exited, "failure must reap the exact owned child");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(target_os = "windows")]

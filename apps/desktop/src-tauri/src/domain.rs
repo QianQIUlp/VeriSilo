@@ -2318,7 +2318,7 @@ fn wait_child_output(
         }
     })();
     if timed_out {
-        log_linux_browser_probe_timeout(&mut child);
+        log_linux_browser_process_diagnostics(&mut child, true);
         eprintln!(
             "Linux browser version probe collected stdout: {:?}, stderr: {:?}",
             String::from_utf8_lossy(&stdout),
@@ -2338,7 +2338,10 @@ fn wait_child_output(
 }
 
 #[cfg(target_os = "linux")]
-fn log_linux_browser_probe_timeout(child: &mut std::process::Child) {
+pub(crate) fn log_linux_browser_process_diagnostics(
+    child: &mut std::process::Child,
+    version_probe: bool,
+) {
     use std::io::Read;
     use std::os::fd::{AsRawFd, RawFd};
     extern "C" {
@@ -2377,12 +2380,18 @@ fn log_linux_browser_probe_timeout(child: &mut std::process::Child) {
     }
     let pid = child.id();
     let root = PathBuf::from(format!("/proc/{pid}"));
+    let context = if version_probe {
+        "version probe"
+    } else {
+        "stock Profile ownership"
+    };
     eprintln!(
-        "Linux browser --version timeout: {}",
+        "Linux browser {context} failure: {}",
         serde_json::json!({
             "pid": pid,
             "exe": executable(pid),
-            "cmdline": proc_text(&root.join("cmdline"), 2048),
+            // Ordinary browser argv can include private URLs or launch input.
+            "cmdline": version_probe.then(|| proc_text(&root.join("cmdline"), 2048)),
             "status": proc_text(&root.join("status"), 4096),
             "wchan": proc_text(&root.join("wchan"), 128),
         })
@@ -2394,7 +2403,7 @@ fn log_linux_browser_probe_timeout(child: &mut std::process::Child) {
         .take(16)
     {
         eprintln!(
-            "Linux browser version probe direct child: {}",
+            "Linux browser {context} direct child: {}",
             serde_json::json!({
                 "pid": descendant,
                 "exe": executable(descendant),
@@ -2403,16 +2412,10 @@ fn log_linux_browser_probe_timeout(child: &mut std::process::Child) {
         );
     }
     if let Some(stdout) = child.stdout.as_mut() {
-        eprintln!(
-            "Linux browser version probe stdout: {:?}",
-            pipe_output(stdout)
-        );
+        eprintln!("Linux browser {context} stdout: {:?}", pipe_output(stdout));
     }
     if let Some(stderr) = child.stderr.as_mut() {
-        eprintln!(
-            "Linux browser version probe stderr: {:?}",
-            pipe_output(stderr)
-        );
+        eprintln!("Linux browser {context} stderr: {:?}", pipe_output(stderr));
     }
 }
 
