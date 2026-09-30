@@ -1130,6 +1130,18 @@ body.demo-expanded .portal-berth {
 .download-actions .text-link:hover {
   color: #a8c4ff;
 }
+.download-platform {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #7389ac;
+}
+.download-platform h3 {
+  margin: 0;
+  font: 550 22px/1.4 var(--font-display);
+}
+.download-platform .download-actions {
+  margin-top: 18px;
+}
 .download-version {
   display: block;
   font: 10px var(--font-mono);
@@ -1143,7 +1155,7 @@ body.demo-expanded .portal-berth {
   border-bottom: 1px solid #7389ac;
   padding-bottom: 4px;
 }
-.download-copy > p.download-note {
+.download-copy .download-note {
   font-size: 12px;
   color: #aebfda;
   margin-top: 20px;
@@ -1912,7 +1924,7 @@ body:has(.privacy-main) .site-header {
     right: -190px;
     top: 80px;
   }
-  .download-copy > p.download-note {
+  .download-copy .download-note {
     font-size: 12px;
   }
   .site-footer {

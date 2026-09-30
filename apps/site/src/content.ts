@@ -6,6 +6,9 @@ export const links = {
     "https://github.com/QianQIUlp/VeriSilo/releases/download/v0.1.0-rc5/VeriSilo-Managed-Browser-v0.1.0-rc5-x64-setup.exe",
   releaseCli:
     "https://github.com/QianQIUlp/VeriSilo/releases/download/v0.1.0-rc5/verisilo-cli.exe",
+  linuxBuild: "https://github.com/QianQIUlp/VeriSilo/actions/runs/36726390808",
+  linuxGuide:
+    "https://github.com/QianQIUlp/VeriSilo/blob/main/docs/linux-desktop.md",
   architecture:
     "https://github.com/QianQIUlp/VeriSilo/blob/main/docs/architecture.md",
   capabilities:
@@ -21,7 +24,7 @@ export const copy = {
     meta: {
       title: "VeriSilo — 每一种你，各有引力。",
       description:
-        "你的本地身份工作室。独立的浏览器空间、持久身份与看得见的运行证据。无需安装，先在官网亲手体验 VeriSilo。",
+        "Windows 与原生 Linux 上的本地身份工作室。独立的浏览器空间、持久身份与看得见的运行证据。无需安装，先在官网亲手体验 VeriSilo。",
     },
     homeLabel: "VeriSilo 首页",
     skipLink: "跳到主要内容",
@@ -36,7 +39,7 @@ export const copy = {
       body: "给身份一个持续存在的空间。\n让声明、运行与证据，在这里相遇。",
       enter: "进入你的下一种可能",
       secondary: "认识 VeriSilo",
-      note: "本地身份工作室 / WINDOWS · OPEN SOURCE",
+      note: "本地身份工作室 / WINDOWS · LINUX · OPEN SOURCE",
       interact: "点一下，换一种你",
       names: ["专注于工作", "保持好奇", "自由创作"],
       tags: ["WORK / 01", "EXPLORE / 02", "CREATE / 03"],
@@ -108,7 +111,11 @@ export const copy = {
       items: [
         {
           title: "Standard 与 Managed，有什么不同？",
-          text: "Standard Silo 在系统 Chrome 或 Edge 中隔离网站数据，设备身份跟随本机。Managed Silo 使用受控 Camoufox 引擎、独立 Profile 与身份 Artifact，并提供运行时观测。两种方式都保留，各有明确用途。",
+          text: "Standard Silo 使用 Windows 上的 Chrome、Edge，或 Linux 上的原生 Chrome、Chromium、Edge 隔离网站数据，设备身份跟随本机。Managed Silo 使用受控 Camoufox 引擎、独立 Profile 与身份 Artifact，并提供运行时观测。两种方式都保留，各有明确用途。",
+        },
+        {
+          title: "原生 Linux 桌面，与 WSL 有什么不同？",
+          text: "Linux 桌面直接在 Linux 上运行，提供 Debian 与 AppImage 安装格式，包含 Managed 托管身份。候选已在 Ubuntu 22.04 x86_64 的 X11 测试环境下通过验收；其他发行版、原生 Wayland 与 ARM 尚未验证。WSL、Windows Sandbox 和 Hyper-V 属于 Windows 专属运行位置。",
         },
         {
           title: "RC5 可以同时运行几个 Managed Silo？",
@@ -116,7 +123,7 @@ export const copy = {
         },
         {
           title: "Managed 冷备份能恢复什么？",
-          text: "停止目标 Silo 后，冷备份可保存其 Profile、原始身份 Artifact、绑定和必要网络配置，并恢复同一个身份。恢复限定在同一 Windows 机器、同一系统用户和同一 Vault 路径；它与 Vault 配置备份不同，不是跨机器迁移。恢复后需要重新取得当前运行证据。",
+          text: "停止目标 Silo 后，冷备份可保存其 Profile、原始身份 Artifact、绑定和必要网络配置，并恢复同一个身份。Windows 与 Linux 均限定在同一机器、同一系统用户、同一 Vault 和同一 Silo 内恢复；它与 Vault 配置备份不同，不是跨机器或跨系统迁移。恢复后需要重新取得当前运行证据。",
         },
         {
           title: "哪些事，VeriSilo 不会承诺？",
@@ -143,6 +150,12 @@ export const copy = {
       source: "打开源代码",
       verify: "版本功能、校验和与验收状态 ↗",
       note: "安装及安装文件核对已通过；RC5 安装后的 Managed 运行、修复、重装与卸载验收尚未完成，整体报告为 inconclusive。安装包未做 Windows 发布者签名；上方开发版演示可能与公开下载版不同。",
+      linux: {
+        version: "基于 RC5 · Linux x86_64 · Debian / AppImage · 验证构建",
+        action: "查看 Linux 构建",
+        guide: "Linux 构建与使用指南",
+        note: "包含托管身份与 CLI，已在 Ubuntu 22.04 x86_64 的 X11 测试环境下通过双会话隔离、冷备份恢复和桌面重启验收。下载 CI 验证构建需登录 GitHub，产物保留 14 天。AppImage 首次托管启动前需安装指南所列的字体依赖。",
+      },
       privacy: "隐私政策",
       license: "MPL-2.0 开源",
       footer: "身份有形，证据可见。",
@@ -152,7 +165,7 @@ export const copy = {
     meta: {
       title: "VeriSilo — Every you. Its own gravity.",
       description:
-        "Your local identity studio. Persistent browser spaces, controlled identities, and visible runtime evidence. Step inside an interactive VeriSilo demo. No install required.",
+        "Your local identity studio for Windows and native Linux. Persistent browser spaces, controlled identities, and visible runtime evidence. Step inside an interactive VeriSilo demo. No install required.",
     },
     homeLabel: "VeriSilo home",
     skipLink: "Skip to content",
@@ -167,7 +180,7 @@ export const copy = {
       body: "A lasting space for each identity.\nWhere intention, runtime, and evidence meet.",
       enter: "Step into your next possibility",
       secondary: "Meet VeriSilo",
-      note: "YOUR LOCAL IDENTITY STUDIO / WINDOWS · OPEN SOURCE",
+      note: "YOUR LOCAL IDENTITY STUDIO / WINDOWS · LINUX · OPEN SOURCE",
       interact: "Tap to meet another you",
       names: [
         "Deep in the work",
@@ -244,7 +257,11 @@ export const copy = {
       items: [
         {
           title: "How do Standard and Managed differ?",
-          text: "A Standard Silo separates website data in system Chrome or Edge while retaining the local device identity. A Managed Silo uses a controlled Camoufox engine, independent Profile and Identity Artifact, with runtime observations. Both remain available for distinct purposes.",
+          text: "A Standard Silo separates website data in Chrome or Edge on Windows, or native Chrome, Chromium, or Edge on Linux, while retaining the local device identity. A Managed Silo uses a controlled Camoufox engine, independent Profile and Identity Artifact, with runtime observations. Both remain available for distinct purposes.",
+        },
+        {
+          title: "How does the native Linux desktop differ from WSL?",
+          text: "The desktop runs directly on Linux and provides Debian and AppImage packages with Managed Identity. Candidates passed acceptance in an Ubuntu 22.04 x86_64 X11 test environment; other distributions, native Wayland, and ARM remain unverified. WSL, Windows Sandbox, and Hyper-V are Windows-specific run locations.",
         },
         {
           title: "How many Managed Silos can RC5 run at once?",
@@ -252,7 +269,7 @@ export const copy = {
         },
         {
           title: "What does a Managed cold backup restore?",
-          text: "After stopping the target Silo, a cold backup saves its Profile, original Identity Artifact, bindings, and required network settings to restore the same identity. Recovery is limited to the same Windows machine, system user, and Vault path. It is separate from a Vault configuration backup and is not a cross-machine transfer. Obtain fresh runtime evidence after restoring.",
+          text: "After stopping the target Silo, a cold backup saves its Profile, original Identity Artifact, bindings, and required network settings to restore the same identity. On Windows and Linux, recovery is limited to the same machine, operating-system user, Vault, and Silo. It is separate from a Vault configuration backup and is not a cross-machine or cross-OS transfer. Obtain fresh runtime evidence after restoring.",
         },
         {
           title: "What does VeriSilo never promise?",
@@ -279,6 +296,13 @@ export const copy = {
       source: "Explore the source",
       verify: "Release features, checksums & acceptance status ↗",
       note: "Installation and installed-file checks passed. Installed Managed runtime, repair, reinstall, and uninstall acceptance are incomplete; the RC5 report is inconclusive. The installer is not Windows publisher-signed, and the development demo above may differ from the public download.",
+      linux: {
+        version:
+          "RC5-based · Linux x86_64 · Debian / AppImage · Validated build",
+        action: "View Linux build",
+        guide: "Linux build & usage guide",
+        note: "Includes Managed Identity and the CLI. Two-session isolation, cold backup/restore, and desktop restart passed in an Ubuntu 22.04 x86_64 X11 test environment. Downloading CI evaluation builds requires GitHub sign-in; artifacts are retained for 14 days. Before the first AppImage Managed launch, install the font dependencies listed in the guide.",
+      },
       privacy: "Privacy",
       license: "MPL-2.0 open source",
       footer: "Identity, with form. Evidence, in view.",
