@@ -142,12 +142,26 @@ as verified when unavailable.
 
 ## Verification
 
+Installed Debian and AppImage acceptance passed for source
+`a9d00a3a424249a9d0d838d930c76a624563f19f` on native Ubuntu 22.04 x86_64
+under X11/Xvfb in [Linux Desktop run 36726390808](https://github.com/QianQIUlp/VeriSilo/actions/runs/36726390808).
+Both receipts confirm Standard lifecycle, matched Managed identity and page
+control, two concurrent Direct Managed Silos with isolated same-site storage,
+cold backup/restore while the other Silo remains running, and a complete desktop
+restart followed by matched identity and restored storage. AppImage's packaged
+CMS and complete engine tree also passed verification. The runtime receipts
+retain `installed-package` / `not_requested` / `observed` evidence states.
+The workflow's installer artifacts are evaluation candidates, not a public release.
+
 The native workflow compiles/tests the Linux backend, builds both package
 formats and exercises the actual desktop API and WebView, Standard browser
 lifecycle and Vault persistence. The Managed job additionally builds the patched
 engine and tests native Host ownership, signatures, matched identity/page control,
 screenshots, two concurrent Managed Silos with isolated same-site storage, and
-cold backup/restore while the other Silo remains running. Results are
+cold backup/restore while the other Silo remains running, and Managed identity
+and Profile persistence across a complete desktop restart. Persistent browser
+cache links are refreshed when AppImage mounts move between desktop launches.
+Results are
 written under `artifacts/linux-desktop-smoke/` and attached to the Actions run.
 
 Windows runtime evidence remains Windows-specific. Linux unit tests or a
