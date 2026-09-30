@@ -377,24 +377,46 @@ const demoHref = `${locale === "zh" ? "/demo/" : "/demo/en/"}?scene=matched`;
           <p class="eyebrow">{c.download.eyebrow}</p><h2 id="download-title">
             {c.download.title}
           </h2><p>{c.download.body}</p>
-          <div class="download-actions">
-            <a class="button button--light" href={links.releaseInstaller}
-              >{c.download.action}<span aria-hidden="true">↓</span></a
-            ><a class="text-link" href={links.releaseCli}
-              >{c.download.cli} ↓</a
-            ><a
-              class="text-link"
-              href={links.repository}
+          <section class="download-platform" aria-labelledby="download-windows">
+            <h3 id="download-windows">Windows</h3>
+            <div class="download-actions">
+              <a class="button button--light" href={links.releaseInstaller}
+                >{c.download.action}<span aria-hidden="true">↓</span></a
+              ><a class="text-link" href={links.releaseCli}
+                >{c.download.cli} ↓</a
+              ><a
+                class="text-link"
+                href={links.repository}
+                target="_blank"
+                rel="noreferrer">{c.download.source} ↗</a
+              >
+            </div>
+            <span class="download-version">{c.download.version}</span><a
+              class="release-details"
+              href={links.release}
               target="_blank"
-              rel="noreferrer">{c.download.source} ↗</a
-            >
-          </div>
-          <span class="download-version">{c.download.version}</span><a
-            class="release-details"
-            href={links.release}
-            target="_blank"
-            rel="noreferrer">{c.download.verify}</a
-          ><p class="download-note">{c.download.note}</p>
+              rel="noreferrer">{c.download.verify}</a
+            ><p class="download-note">{c.download.note}</p>
+          </section>
+          <section class="download-platform" aria-labelledby="download-linux">
+            <h3 id="download-linux">Linux</h3>
+            <div class="download-actions">
+              <a
+                class="button button--light"
+                href={links.linuxBuild}
+                target="_blank"
+                rel="noreferrer"
+                >{c.download.linux.action}<span aria-hidden="true">↗</span></a
+              ><a
+                class="text-link"
+                href={links.linuxGuide}
+                target="_blank"
+                rel="noreferrer">{c.download.linux.guide} ↗</a
+              >
+            </div>
+            <span class="download-version">{c.download.linux.version}</span>
+            <p class="download-note">{c.download.linux.note}</p>
+          </section>
         </div>
         <div class="download-brand" aria-hidden="true">
           <BrandMark size="large" />
