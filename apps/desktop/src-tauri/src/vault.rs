@@ -2909,6 +2909,7 @@ impl BrowserProfileLease {
             let mut host_paths = HashSet::new();
             let mut browser_locks = Vec::new();
             let mut browser_paths = HashSet::new();
+            let mut maintenance_firefox_profiles = Vec::new();
             for profile_directory in profile_directories {
                 if let Some(host_locks) = linux_host_profile_locks(profile_directory) {
                     let browser_lock = host_locks[0].with_extension("").join(".parentlock");
@@ -2924,6 +2925,8 @@ impl BrowserProfileLease {
                                     let lease = crate::linux::PosixProfileFileLease::acquire_for_maintenance(&browser_lock)
                                         .map_err(|_| VaultError::SiloProfileInUse)?;
                                     browser_locks.push(lease);
+                                    maintenance_firefox_profiles
+                                        .push(browser_lock.parent().unwrap().to_path_buf());
                                 } else {
                                     match fs::symlink_metadata(&browser_lock) {
                                         Ok(_) => {
@@ -2989,6 +2992,11 @@ impl BrowserProfileLease {
                     return Err(VaultError::SiloProfileInUse);
                 }
             }
+            // All Host, supervisor and Firefox leases must be held before any
+            // obsolete lock is removed. Runtime probes never enter this list.
+            for profile in maintenance_firefox_profiles {
+                remove_stale_linux_firefox_lock(&profile)?;
+            }
             Ok(Self {
                 _locks: locks,
                 _browser_locks: browser_locks,
@@ -2999,6 +3007,41 @@ impl BrowserProfileLease {
             Ok(Self {})
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn remove_stale_linux_firefox_lock(profile: &Path) -> Result<(), VaultError> {
+    let path = profile.join("lock");
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {}
+        Ok(_) => return Err(VaultError::UnmanagedProfile),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(VaultError::Filesystem(error)),
+    }
+    let target = fs::read_link(&path)?;
+    let (address, pid) = target
+        .to_str()
+        .and_then(|value| value.split_once(":+"))
+        .ok_or(VaultError::UnmanagedProfile)?;
+    let address_value = address
+        .parse::<std::net::Ipv4Addr>()
+        .map_err(|_| VaultError::UnmanagedProfile)?;
+    let pid_value = pid
+        .parse::<u32>()
+        .map_err(|_| VaultError::UnmanagedProfile)?;
+    if address_value.to_string() != address
+        || address_value == std::net::Ipv4Addr::BROADCAST
+        || pid_value == 0
+        || pid_value > i32::MAX as u32
+        || pid_value.to_string() != pid
+    {
+        return Err(VaultError::UnmanagedProfile);
+    }
+    // Firefox 152 nsProfileLock.cpp's IsSymlinkStaleLock treats IPv4:+PID as
+    // obsolete once the corresponding fcntl lock is acquired. Our OFD lock
+    // conflicts with that lock, even when the original PID has been recycled.
+    fs::remove_file(path)?;
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -7040,6 +7083,99 @@ mod tests {
         );
 
         fs::remove_dir_all(root).expect("remove test vault directory");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_maintenance_removes_only_obsolete_firefox_lock_symlinks() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("verisilo-linux-stale-{}", Uuid::new_v4()));
+        let profile = root
+            .join("profiles")
+            .join(format!("silo-{}", Uuid::new_v4().simple()));
+        fs::create_dir_all(&profile).unwrap();
+        let directories = [profile.clone()];
+        let path = profile.join("lock");
+        // An existing PID is not ownership evidence once the real fcntl lease
+        // is held; Firefox marks this exact '+' format as obsolete itself.
+        let target = format!("127.0.0.1:+{}", std::process::id());
+        symlink(&target, &path).unwrap();
+        let runtime =
+            super::BrowserProfileLease::acquire_for_runtime(&directories, &profile).unwrap();
+        assert_eq!(
+            fs::read_link(&path).unwrap(),
+            std::path::PathBuf::from(&target)
+        );
+        drop(runtime);
+        let maintenance = super::BrowserProfileLease::acquire(&directories).unwrap();
+        assert!(fs::symlink_metadata(&path).is_err());
+        super::ensure_tree_has_no_links_or_reparse_points(&profile).unwrap();
+        drop(maintenance);
+        for unexpected in [
+            "127.0.0.1:123",
+            "localhost:+123",
+            "127.0.0.1:+0",
+            "127.0.0.1:+01",
+            "127.0.0.1:+4294967295",
+            "../../user-data",
+        ] {
+            symlink(unexpected, &path).unwrap();
+            assert!(super::BrowserProfileLease::acquire(&directories).is_err());
+            assert_eq!(
+                fs::read_link(&path).unwrap(),
+                std::path::PathBuf::from(unexpected)
+            );
+            fs::remove_file(&path).unwrap();
+        }
+        fs::write(&path, b"user file").unwrap();
+        assert!(super::BrowserProfileLease::acquire(&directories).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"user file");
+        fs::remove_file(&path).unwrap();
+        let data = root.join("user-data");
+        fs::write(&data, b"preserved").unwrap();
+        let data_link = profile.join("data-link");
+        symlink(&data, &data_link).unwrap();
+        let maintenance = super::BrowserProfileLease::acquire(&directories).unwrap();
+        assert!(super::ensure_tree_has_no_links_or_reparse_points(&profile).is_err());
+        assert_eq!(fs::read_link(&data_link).unwrap(), data);
+        assert_eq!(fs::read(&data).unwrap(), b"preserved");
+        drop(maintenance);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_busy_profile_keeps_its_firefox_lock_symlink() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("verisilo-linux-busy-{}", Uuid::new_v4()));
+        let profile = root
+            .join("profiles")
+            .join(format!("silo-{}", Uuid::new_v4().simple()));
+        fs::create_dir_all(&profile).unwrap();
+        let directories = [profile.clone()];
+        let path = profile.join("lock");
+        let target = "127.0.0.1:+12345";
+        symlink(target, &path).unwrap();
+        for host_path in super::linux_host_profile_locks(&profile).unwrap() {
+            let held = super::LinuxProfileFileLock::acquire(&host_path).unwrap();
+            assert!(super::BrowserProfileLease::acquire(&directories).is_err());
+            assert_eq!(
+                fs::read_link(&path).unwrap(),
+                std::path::PathBuf::from(target)
+            );
+            drop(held);
+        }
+        let held = crate::linux::PosixProfileFileLease::acquire_for_maintenance(
+            &profile.join(".parentlock"),
+        )
+        .unwrap();
+        assert!(super::BrowserProfileLease::acquire(&directories).is_err());
+        assert_eq!(
+            fs::read_link(&path).unwrap(),
+            std::path::PathBuf::from(target)
+        );
+        drop(held);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(target_os = "linux")]

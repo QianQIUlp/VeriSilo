@@ -8896,6 +8896,8 @@ for raw in sys.stdin.buffer:
     fn native_watchdog_detects_mihomo_drift_without_a_desktop_status_poll() {
         let (runtime, _silo, old_port, _upstream, controller_worker, upstream_worker) =
             mihomo_runtime_manager(MihomoRuntimeFixture::NodeDrift);
+        #[cfg(target_os = "linux")]
+        let listener_inode = linux_listener_inode(old_port).expect("exact relay is listening");
         let runtime = Arc::new(Mutex::new(runtime));
         let mut watchdog = RuntimeWatchdog::start(&runtime).expect("start native watchdog");
 
@@ -8913,6 +8915,12 @@ for raw in sys.stdin.buffer:
             .health_context
             .as_ref()
             .is_some_and(|context| context.compromised));
+        // Shutdown joins the accept thread before returning. Linux can reuse
+        // the released ephemeral port for another parallel test immediately;
+        // check the original listening socket, rather than its former address.
+        #[cfg(target_os = "linux")]
+        assert_ne!(linux_listener_inode(old_port), Some(listener_inode));
+        #[cfg(not(target_os = "linux"))]
         assert!(TcpStream::connect_timeout(
             &SocketAddr::from((Ipv4Addr::LOCALHOST, old_port)),
             Duration::from_millis(200),
@@ -8933,6 +8941,23 @@ for raw in sys.stdin.buffer:
         upstream_worker
             .join()
             .expect("upstream health worker exits");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn linux_listener_inode(port: u16) -> Option<u64> {
+        let address = format!("0100007F:{port:04X}");
+        fs::read_to_string("/proc/net/tcp")
+            .expect("read native listening socket identities")
+            .lines()
+            .skip(1)
+            .find_map(|line| {
+                let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
+                if fields.get(1) == Some(&address.as_str()) && fields.get(3) == Some(&"0A") {
+                    Some(fields[9].parse().expect("native socket inode"))
+                } else {
+                    None
+                }
+            })
     }
 
     #[cfg(unix)]

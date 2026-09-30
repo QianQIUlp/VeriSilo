@@ -243,6 +243,7 @@ try {
     join(evidenceRoot, "result.json"),
     `${JSON.stringify(evidence, null, 2)}\n`,
   );
+  writeFileSync(join(evidenceRoot, "desktop.log"), desktopLog);
   if (fixture) await fixture.terminate();
   if (desktop?.exitCode === null) {
     cli(["service", "stop"], undefined, true);

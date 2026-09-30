@@ -712,6 +712,17 @@ fn read_plain<R: Read>(input: &mut R, len: usize) -> Result<Vec<u8>, VaultError>
     Ok(bytes)
 }
 
+fn create_private_directory(path: &Path, recursive: bool) -> std::io::Result<()> {
+    let mut options = fs::DirBuilder::new();
+    options.recursive(recursive);
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        options.mode(0o700);
+    }
+    options.create(path)
+}
+
 fn read_profile<R: Read>(input: &mut R, staged: Option<&Path>) -> Result<(u64, u64), VaultError> {
     let mut seen = HashSet::new();
     let mut files = 0_u64;
@@ -737,11 +748,11 @@ fn read_profile<R: Read>(input: &mut R, staged: Option<&Path>) -> Result<(u64, u
         if let Some(stage) = staged {
             let destination = stage.join(&relative);
             let parent = destination.parent().ok_or(VaultError::InvalidData)?;
-            fs::create_dir_all(parent)?;
+            create_private_directory(parent, true)?;
             #[cfg(target_os = "windows")]
             ensure_path_ancestors_have_no_links_or_reparse_points(parent)?;
             if kind == 1 {
-                fs::create_dir(&destination)?;
+                create_private_directory(&destination, false)?;
             }
         }
         if kind == 2 {
@@ -752,12 +763,14 @@ fn read_profile<R: Read>(input: &mut R, staged: Option<&Path>) -> Result<(u64, u
                 return Err(VaultError::InvalidData);
             }
             let mut destination = if let Some(stage) = staged {
-                Some(
-                    fs::OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .open(stage.join(&relative))?,
-                )
+                let mut options = fs::OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(target_os = "linux")]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600);
+                }
+                Some(options.open(stage.join(&relative))?)
             } else {
                 None
             };
@@ -878,6 +891,15 @@ struct ManagedLease {
     _browser: BrowserProfileLease,
     #[cfg(target_os = "windows")]
     _native: Vec<WindowsProfileFileLock>,
+}
+
+#[cfg(target_os = "linux")]
+fn linux_tree_lease(managed: &Path, id: Uuid) -> Result<BrowserProfileLease, VaultError> {
+    BrowserProfileLease::acquire(&[
+        managed.join("browser-data"),
+        managed.join("browser-data/engines/camoufox"),
+        host_profile_root(managed, id),
+    ])
 }
 
 fn profile_lease(
@@ -1197,10 +1219,10 @@ impl VaultRuntime {
         let source = archive_path(root, id, selected, false)?;
         let mut file = open_regular(&source)?;
         let journal = journal_path(root, id);
-        fs::create_dir(&journal)?;
+        create_private_directory(&journal, false)?;
         let staged = journal.join("staged-managed");
         let prepared = (|| {
-            fs::create_dir(&staged)?;
+            create_private_directory(&staged, false)?;
             let (mut snap, digest) =
                 read_archive(&mut file, root, id, &seed, passphrase, Some(&staged))?;
             if digest != expected_digest {
@@ -1214,7 +1236,7 @@ impl VaultRuntime {
                 return Err(VaultError::InvalidData);
             }
             let identity = staged.join("identity");
-            fs::create_dir(&identity)?;
+            create_private_directory(&identity, false)?;
             let artifact_path = identity.join(format!("{}.json", snap.artifact.artifact_id));
             ensure_exact_materialized_file(&artifact_path, snap.artifact.raw_json.as_bytes())?;
             let sidecar = format!(
@@ -1296,7 +1318,16 @@ impl VaultRuntime {
                 )?;
                 ensure_tree_has_no_links_or_reparse_points(&managed)?;
             }
-            drop(lease);
+            // Linux locks follow the opened inode across rename. Retain both
+            // trees so neither the old nor restored Profile can start before
+            // the restore transaction has committed.
+            #[cfg(target_os = "linux")]
+            let transition_leases = vec![lease._browser, linux_tree_lease(&staged, id)?];
+            #[cfg(not(target_os = "linux"))]
+            let transition_leases = {
+                drop(lease);
+                Vec::<BrowserProfileLease>::new()
+            };
             // The rollback envelope must represent the validated unlocked
             // state, even if the on-disk file was changed independently.
             self.persist(root)?;
@@ -1312,9 +1343,9 @@ impl VaultRuntime {
                 write_marker(&journal.join("old-missing"))?;
             }
             write_marker(&journal.join("prepared"))?;
-            Ok((data, snap.silo.clone()))
+            Ok((data, snap.silo.clone(), transition_leases))
         })();
-        let (data, restored) = match prepared {
+        let (data, restored, _transition_leases) = match prepared {
             Ok(value) => value,
             Err(error) => {
                 let _ = recover_one(root, id);
@@ -1331,7 +1362,7 @@ impl VaultRuntime {
             Ok(())
         })();
         if let Err(error) = transition {
-            if let Err(recovery_error) = recover_one(root, id) {
+            if let Err(recovery_error) = recover_one_under_lease(root, id) {
                 self.lock();
                 return Err(recovery_error);
             }
@@ -1388,6 +1419,23 @@ fn cleanup_committed(journal: &Path) -> Result<(), VaultError> {
 }
 
 fn recover_one(root: &Path, id: Uuid) -> Result<(), VaultError> {
+    #[cfg(target_os = "linux")]
+    let _leases = {
+        let journal = journal_path(root, id);
+        [
+            root.join("silos").join(id.to_string()),
+            journal.join("old-managed"),
+            journal.join("staged-managed"),
+            journal.join("discarded-managed"),
+        ]
+        .iter()
+        .map(|managed| linux_tree_lease(managed, id))
+        .collect::<Result<Vec<_>, _>>()?
+    };
+    recover_one_under_lease(root, id)
+}
+
+fn recover_one_under_lease(root: &Path, id: Uuid) -> Result<(), VaultError> {
     let journal = journal_path(root, id);
     let metadata = match fs::symlink_metadata(&journal) {
         Ok(metadata) => metadata,
@@ -1482,6 +1530,55 @@ mod tests {
     const PASSPHRASE: &str = "managed backup password for tests";
     const VAULT_PASSWORD: &str = "managed vault password for tests";
     const VERSION: &str = "123.4.5";
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_restore_lease_follows_the_staged_tree_after_rename() {
+        let root = root();
+        let id = Uuid::new_v4();
+        let staged = root.join("staged-managed");
+        fs::create_dir_all(host_profile_root(&staged, id)).unwrap();
+        let lease = linux_tree_lease(&staged, id).unwrap();
+        let committed = root.join("restored-managed");
+        fs::rename(&staged, &committed).unwrap();
+        for suffix in [".lock", ".lock.supervisor"] {
+            assert!(crate::linux::FileLease::acquire(
+                &committed
+                    .join("profiles")
+                    .join(format!("silo-{}{suffix}", id.simple()))
+            )
+            .is_err());
+        }
+        assert!(linux_tree_lease(&committed, id).is_err());
+        drop(lease);
+        assert!(linux_tree_lease(&committed, id).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_recovery_refuses_an_active_host_before_mutating_the_journal() {
+        let root = root();
+        let id = Uuid::new_v4();
+        let journal = journal_path(&root, id);
+        let staged = journal.join("staged-managed");
+        fs::create_dir_all(host_profile_root(&staged, id)).unwrap();
+        let lock = crate::linux::FileLease::acquire(
+            &staged
+                .join("profiles")
+                .join(format!("silo-{}.lock.supervisor", id.simple())),
+        )
+        .unwrap();
+        assert!(matches!(
+            recover_one(&root, id),
+            Err(VaultError::SiloProfileInUse)
+        ));
+        assert!(staged.is_dir());
+        drop(lock);
+        recover_one(&root, id).unwrap();
+        assert!(!journal.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -1733,6 +1830,18 @@ mod tests {
         assert_eq!(restored.id, a.id);
         assert!(restored.archived_at.is_some());
         assert_eq!(fs::read(&a_cookie).unwrap(), b"session-cookie");
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&a_cookie).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(&a_profile).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
         assert_eq!(fs::read(&b_cookie).unwrap(), b_before);
         assert_eq!(vault.list_silos().unwrap().len(), 2);
         fs::remove_dir_all(root).unwrap();
