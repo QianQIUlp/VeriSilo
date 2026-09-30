@@ -5699,12 +5699,16 @@ process.stdin.on('end', () => {
         protocol_fixture_with_behavior("complete")
     }
 
-    fn reserve_fake_controlled_engine_test() -> std::sync::MutexGuard<'static, ()> {
+    fn reserve_protocol_fixture() -> std::sync::MutexGuard<'static, ()> {
         static RESERVATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        static NODE_WARMUP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-        let reservation = RESERVATION
+        RESERVATION
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn reserve_fake_controlled_engine_test() -> std::sync::MutexGuard<'static, ()> {
+        static NODE_WARMUP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        let reservation = reserve_protocol_fixture();
         NODE_WARMUP.get_or_init(|| {
             // --version skips the V8 and redirected stdio startup exercised by
             // the protocol fixture. Complete that cold path before its deadline.
@@ -5731,6 +5735,54 @@ process.stdin.on('end', () => {
             );
         });
         reservation
+    }
+
+    fn reserve_fake_camoufox_host_test() -> std::sync::MutexGuard<'static, ()> {
+        static PYTHON_WARMUP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        let reservation = reserve_protocol_fixture();
+        PYTHON_WARMUP.get_or_init(|| {
+            // Exercise the real script's imports and redirected JSONL stdio
+            // before tests measure protocol deadlines. Node and Python fixtures
+            // share the reservation so parallel cold starts cannot starve them.
+            let (root, plan, arguments) = fake_camoufox_host_fixture("normal");
+            let mut child = std::process::Command::new(&plan.executable_path)
+                .args(arguments)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .expect("start Python Host fixture warmup");
+            let mut stdin = child.stdin.take().expect("warmup stdin");
+            std::io::Write::write_all(&mut stdin, b"{\"id\":\"warmup\",\"command\":\"hello\"}\n")
+                .expect("write Python Host warmup hello");
+            drop(stdin);
+            let output = child.wait_with_output().expect("finish Python Host warmup");
+            assert!(output.status.success(), "Python Host fixture warmup failed");
+            let response: serde_json::Value =
+                serde_json::from_slice(&output.stdout).expect("Python Host warmup JSONL");
+            assert_eq!(response["id"], "warmup");
+            assert_eq!(response["ok"], true);
+            fs::remove_dir_all(root).expect("remove Python Host warmup fixture");
+        });
+        reservation
+    }
+
+    fn wait_for_fake_host_ready(child: &mut std::process::Child, ready: &std::path::Path) {
+        let deadline = Instant::now() + super::ENGINE_BOOTSTRAP_ACK_TIMEOUT;
+        while !ready.is_file() {
+            assert!(
+                child
+                    .try_wait()
+                    .expect("inspect starting fake Host")
+                    .is_none(),
+                "fake Host exited before fixture readiness"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "fake Host fixture startup timed out"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fn fake_camoufox_host_script() -> PathBuf {
@@ -6244,6 +6296,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_host_jsonl_launch_close_shutdown_is_bound_and_secret_free() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let root =
             std::env::temp_dir().join(format!("verisilo-camoufox-host-test-{}", Uuid::new_v4()));
         let artifact_root = root.join("artifacts");
@@ -6383,6 +6436,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_startup_failure_is_typed_without_private_host_message() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, plan, arguments) = fake_camoufox_host_fixture("startup-rejected");
         let error = match super::spawn_camoufox_host(&plan, &arguments) {
             Ok(_) => panic!("Host startup rejection must stop launch"),
@@ -6395,6 +6449,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_required_proxy_receipt_is_exact_and_fail_closed() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, spawned_plan, arguments) = fake_camoufox_host_fixture("proxy-required");
         let mut spawned =
             super::spawn_camoufox_host(&spawned_plan, &arguments).expect("required proxy Host");
@@ -6423,6 +6478,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn camoufox_runtime_manager_binds_required_proxy_through_exact_relay() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let upstream = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind HTTP upstream");
         let upstream_port = upstream.local_addr().expect("HTTP upstream address").port();
         let credential_reference = Uuid::new_v4();
@@ -6509,6 +6565,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn camoufox_required_proxy_host_failures_revoke_relay_and_cannot_recover() {
+        let _reservation = reserve_fake_camoufox_host_test();
         for mode in ["status-proxy-mismatch"] {
             let upstream =
                 TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind required proxy upstream");
@@ -6606,6 +6663,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn camoufox_secret_sentinels_are_absent_from_launch_surfaces() {
+        let _reservation = reserve_fake_camoufox_host_test();
         const VAULT_SEED_SENTINEL: &str = "VAULT-SEED-SENTINEL-9d6f";
         const ARTIFACT_SEED_SENTINEL: &str = "ARTIFACT-SEED-SENTINEL-3a81";
         const TOKEN_SENTINEL: &str = "TOKEN-SENTINEL-6c44";
@@ -6749,6 +6807,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_host_timeout_and_early_exit_fail_closed() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let root =
             std::env::temp_dir().join(format!("verisilo-camoufox-host-failure-{}", Uuid::new_v4()));
         let artifact_root = root.join("artifacts");
@@ -6768,6 +6827,7 @@ process.stdin.on('end', () => {
         };
 
         for (mode, expected) in [("timeout", "timeout"), ("eof", "eof")] {
+            let ready = root.join(format!("{mode}.ready"));
             let arguments = vec![
                 std::ffi::OsString::from("-u"),
                 std::ffi::OsString::from(script.to_string_lossy().into_owned()),
@@ -6781,6 +6841,8 @@ process.stdin.on('end', () => {
                 std::ffi::OsString::from(browser_tree_manifest_path.to_string_lossy().into_owned()),
                 std::ffi::OsString::from("--mode"),
                 std::ffi::OsString::from(mode),
+                std::ffi::OsString::from("--ready-file"),
+                ready.as_os_str().to_owned(),
             ];
             let mut child = std::process::Command::new(python)
                 .args(&arguments)
@@ -6791,6 +6853,7 @@ process.stdin.on('end', () => {
                 .expect("start fake Host failure mode");
             let mut transport = super::CamoufoxHostTransport::attach(&mut child)
                 .expect("attach fake Host failure mode");
+            wait_for_fake_host_ready(&mut child, &ready);
             let error = transport
                 .request(
                     "hello",
@@ -6807,6 +6870,7 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_host_frozen_failure_matrix_fails_closed() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let modes = [
             "wrong-protocol",
             "wrong-host-version",
@@ -6845,15 +6909,19 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_host_stdin_eof_closes_exact_child() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, plan, arguments) = fake_camoufox_host_fixture("normal");
+        let ready = root.join("host.ready");
         let mut command = std::process::Command::new(&plan.executable_path);
         command.args(&arguments);
+        command.arg("--ready-file").arg(&ready);
         command.stdin(std::process::Stdio::piped());
         command.stdout(std::process::Stdio::piped());
         command.stderr(std::process::Stdio::null());
         let mut child = command.spawn().expect("start fake Host for stdin EOF");
         let mut transport = super::CamoufoxHostTransport::attach(&mut child)
             .expect("attach fake Host for stdin EOF");
+        wait_for_fake_host_ready(&mut child, &ready);
         transport
             .request("hello", serde_json::json!({}), Duration::from_secs(1))
             .expect("hello before stdin EOF");
@@ -6875,18 +6943,22 @@ process.stdin.on('end', () => {
 
     #[test]
     fn fake_camoufox_host_transport_correlates_requests_and_quarantines_after_late_response() {
+        let _reservation = reserve_fake_camoufox_host_test();
         // Part 1: healthy wire keeps strict request/response correlation:
         // request N -> response N, then request N+1 -> response N+1.
         {
             let (root, plan, arguments) = fake_camoufox_host_fixture("normal");
+            let ready = root.join("host.ready");
             let mut command = std::process::Command::new(&plan.executable_path);
             command.args(&arguments);
+            command.arg("--ready-file").arg(&ready);
             command.stdin(std::process::Stdio::piped());
             command.stdout(std::process::Stdio::piped());
             command.stderr(std::process::Stdio::null());
             let mut child = command.spawn().expect("start fake Host for sequencing");
             let mut transport = super::CamoufoxHostTransport::attach(&mut child)
                 .expect("attach fake Host for sequencing");
+            wait_for_fake_host_ready(&mut child, &ready);
             transport
                 .request("hello", serde_json::json!({}), Duration::from_secs(2))
                 .expect("hello matches request 1");
@@ -6927,10 +6999,13 @@ process.stdin.on('end', () => {
                 .join(format!("verisilo-camoufox-late-host-{}", Uuid::new_v4()));
             fs::create_dir_all(&root).expect("late-response temp root");
             let script = root.join("late-host.py");
+            let ready = root.join("host.ready");
             fs::write(
                 &script,
                 r#"
 import json, sys, time
+from pathlib import Path
+Path(sys.argv[1]).touch()
 for raw in sys.stdin.buffer:
     request = json.loads(raw)
     request_id = request.get("id")
@@ -6949,13 +7024,14 @@ for raw in sys.stdin.buffer:
                 "python3"
             };
             let mut command = std::process::Command::new(python);
-            command.arg(&script);
+            command.arg(&script).arg(&ready);
             command.stdin(std::process::Stdio::piped());
             command.stdout(std::process::Stdio::piped());
             command.stderr(std::process::Stdio::null());
             let mut child = command.spawn().expect("start fake Host for late response");
             let mut transport = super::CamoufoxHostTransport::attach(&mut child)
                 .expect("attach fake Host for late response");
+            wait_for_fake_host_ready(&mut child, &ready);
             transport
                 .request("hello", serde_json::json!({}), Duration::from_secs(2))
                 .expect("hello before the late page response");
@@ -7002,6 +7078,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_runtime_manager_preserves_evidence_and_releases_exact_ownership() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo_id) = fake_camoufox_runtime_manager("normal");
         let activation = runtime
             .stop_managed_camoufox(silo_id)
@@ -7035,6 +7112,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_runtime_manager_keeps_ownership_on_uncertain_tree_exit() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo_id) = fake_camoufox_runtime_manager("tree-exit-false");
         let error = runtime
             .stop_managed_camoufox(silo_id)
@@ -7100,6 +7178,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_runtime_manager_launch_stop_composition_is_bound_and_secret_free() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo) = fake_camoufox_runtime_launch_fixture(
             "normal",
             NetworkProfile::Direct {
@@ -7171,6 +7250,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_runtime_manager_active_session_failures_keep_ownership() {
+        let _reservation = reserve_fake_camoufox_host_test();
         for mode in ["active-session-eof", "active-session-crash"] {
             let (root, mut runtime, silo) = fake_camoufox_runtime_launch_fixture(
                 mode,
@@ -7220,6 +7300,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_user_closing_the_window_releases_the_session() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo) = fake_camoufox_runtime_launch_fixture(
             "browser-exited",
             NetworkProfile::Direct {
@@ -7240,6 +7321,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_stop_is_idempotent_after_external_browser_close() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo) = fake_camoufox_runtime_launch_fixture(
             "browser-exited",
             NetworkProfile::Direct {
@@ -7281,6 +7363,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn fake_camoufox_stop_rejects_a_different_active_silo() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, active_silo_id) = fake_camoufox_runtime_manager("normal");
         let wrong_silo_id = Uuid::new_v4();
         let error = runtime
@@ -9102,6 +9185,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn reobserve_binds_fresh_identity_evidence_to_the_active_session() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo, runtime_id, launch_observed_at) = reobserve_fixture("normal");
         let fresh = runtime
             .reobserve_active_camoufox_identity(silo.id, runtime_id)
@@ -9141,6 +9225,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn reobserve_rejects_a_response_that_does_not_bind_to_the_active_session() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo, runtime_id, _launch_observed_at) =
             reobserve_fixture("reobserve-wrong-session");
         let error = runtime
@@ -9155,6 +9240,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn recheck_active_reobserves_fresh_identity_for_the_running_managed_silo() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo, runtime_id, launch_observed_at) = reobserve_fixture("normal");
         let before_recheck = Utc::now();
         let activation = runtime
@@ -9183,6 +9269,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn recheck_active_reports_mismatched_fresh_identity_honestly() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo, _runtime_id, _launch_observed_at) =
             reobserve_fixture("reobserve-mismatched");
         let activation = runtime
@@ -9201,6 +9288,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn recheck_active_reports_failed_reobservation_without_fabricating_fresh_evidence() {
+        let _reservation = reserve_fake_camoufox_host_test();
         let (root, mut runtime, silo, _runtime_id, launch_observed_at) =
             reobserve_fixture("reobserve-error");
         let activation = runtime
@@ -9478,6 +9566,7 @@ for raw in sys.stdin.buffer:
 
     #[test]
     fn recheck_package_evidence_is_independent_of_fresh_identity_outcome() {
+        let _reservation = reserve_fake_camoufox_host_test();
         for (mode, expected_identity) in [
             ("normal", IdentityEvidenceState::Matched),
             ("reobserve-error", IdentityEvidenceState::Unavailable),

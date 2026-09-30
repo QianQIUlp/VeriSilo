@@ -120,8 +120,16 @@ function closeStandardBrowser(silo) {
   );
   assert.equal(record.siloId, silo.id);
   assert(Number.isSafeInteger(record.pid) && record.pid > 0);
-  const args = readFileSync(`/proc/${record.pid}/cmdline`, "utf8").split("\0");
-  assert(args.includes(`--user-data-dir=${resolve(silo.profileDirectory)}`));
+  // Chromium's setproctitle joins argv with spaces on Linux. The generated
+  // fixture Profile has no whitespace, so either representation is unambiguous.
+  assert(!/\s/u.test(silo.profileDirectory));
+  const args = readFileSync(`/proc/${record.pid}/cmdline`, "utf8").split(
+    /[\0\s]+/u,
+  );
+  assert(
+    args.includes(`--user-data-dir=${resolve(silo.profileDirectory)}`),
+    `Recorded PID ${record.pid} is not this fixture browser: ${JSON.stringify(args)}`,
+  );
   process.kill(record.pid, "SIGTERM");
 }
 
