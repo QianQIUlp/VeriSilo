@@ -28,7 +28,7 @@ use crate::domain::{
 };
 #[cfg(test)]
 use crate::engine::EngineAdapter;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 use crate::vault::chromium_profile_sentinel_exists;
 use crate::website_identity::{
     load_latest_observation, load_session_observation, WebsiteIdentityObservation,
@@ -148,7 +148,7 @@ pub struct RuntimeManager {
     health_context: Option<RuntimeHealthContext>,
     engine_runtime: Option<EngineRuntimeProtocol>,
     profile_lease: Option<BrowserProfileLease>,
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pending_stock_profile_release: Option<PathBuf>,
     record_path: Option<PathBuf>,
     record: Option<RuntimeRecord>,
@@ -1106,11 +1106,11 @@ impl RuntimeManager {
     }
 
     fn stock_profile_release_pending(&self) -> bool {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         {
             self.pending_stock_profile_release.is_some()
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         {
             false
         }
@@ -1403,7 +1403,7 @@ impl RuntimeManager {
         self.health_context = None;
         self.engine_runtime = None;
         self.profile_lease = None;
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         {
             self.pending_stock_profile_release = None;
         }
@@ -2240,7 +2240,7 @@ impl RuntimeManager {
             host_job,
         } = spawned;
 
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         if silo.engine.is_stock() {
             if let Err(error) = verify_stock_browser_profile_ownership(
                 &mut child,
@@ -3135,7 +3135,7 @@ impl RuntimeManager {
         cancelled: &AtomicBool,
         persist_runtime_record: bool,
     ) {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         if self.child.is_none() && self.refresh_pending_stock_profile_release() {
             return;
         }
@@ -3261,7 +3261,7 @@ impl RuntimeManager {
                 return;
             }
 
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             if let Some((silo_id, profile_directory)) = self
                 .health_context
                 .as_ref()
@@ -3302,12 +3302,12 @@ impl RuntimeManager {
                 }
             }
 
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             let stock_profile_release_completed =
                 self.health_context.as_ref().is_some_and(|context| {
                     context.silo.execution_target.is_local() && context.silo.engine.is_stock()
                 });
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(not(any(target_os = "windows", target_os = "linux")))]
             let stock_profile_release_completed = false;
             self.release_pinned_mihomo_inbound();
             self.profile_lease = None;
@@ -3487,7 +3487,7 @@ impl RuntimeManager {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     fn refresh_pending_stock_profile_release(&mut self) -> bool {
         let Some(profile_directory) = self.pending_stock_profile_release.clone() else {
             return false;
@@ -4595,7 +4595,7 @@ fn terminate_just_spawned_child(child: &mut Child) {
     let _ = child.wait();
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn verify_stock_browser_profile_ownership(
     child: &mut Child,
     profile_directory: &Path,

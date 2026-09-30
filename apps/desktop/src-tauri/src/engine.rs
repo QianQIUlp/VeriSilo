@@ -43,14 +43,52 @@ pub const CAMOUFOX_FORMAL_V3_ENGINE_VERSION: &str = "152.0.4-beta.28";
 pub const CAMOUFOX_FORMAL_V3_BROWSER_RELEASE: &str = "v152.0.4-beta.28";
 pub const CAMOUFOX_FORMAL_V3_ENGINE_REVISION: &str =
     "verisilo-camoufox-152.0.4-beta.28-r1-formal-v3";
+#[cfg(any(not(target_os = "linux"), test))]
 pub const CAMOUFOX_FORMAL_V3_BROWSER_ASSET_SHA256: &str =
     "8a3ef192e02cfb955bd3f9bcf71b009bd89f78e758e522b7cf373c6a0d988cbb";
+#[cfg(any(not(target_os = "linux"), test))]
 pub const CAMOUFOX_FORMAL_V3_BROWSER_ASSET_SIZE_BYTES: u64 = 493_496_137;
+#[cfg(any(not(target_os = "linux"), test))]
 pub const CAMOUFOX_FORMAL_V3_BROWSER_EXECUTABLE_SHA256: &str =
     "c5535c7ca64c1ed5096238d4267f4445203fd8d57b6da7760f6717dc9804b49e";
+#[cfg(all(target_os = "linux", not(test)))]
+pub const CAMOUFOX_FORMAL_V3_BROWSER_ASSET_SHA256: &str =
+    match option_env!("VERISILO_CAMOUFOX_LINUX_ASSET_SHA256") {
+        Some(value) => value,
+        None => "unavailable-native-build-pin",
+    };
+#[cfg(all(target_os = "linux", not(test)))]
+pub const CAMOUFOX_FORMAL_V3_BROWSER_EXECUTABLE_SHA256: &str =
+    match option_env!("VERISILO_CAMOUFOX_LINUX_EXECUTABLE_SHA256") {
+        Some(value) => value,
+        None => "unavailable-native-build-pin",
+    };
+#[cfg(all(target_os = "linux", not(test)))]
+pub const CAMOUFOX_FORMAL_V3_BROWSER_ASSET_SIZE_BYTES: u64 =
+    parse_asset_size(option_env!("VERISILO_CAMOUFOX_LINUX_ASSET_SIZE_BYTES"));
+
+#[cfg(all(target_os = "linux", not(test)))]
+const fn parse_asset_size(value: Option<&str>) -> u64 {
+    let Some(value) = value else { return 0 };
+    let bytes = value.as_bytes();
+    let mut total = 0_u64;
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] < b'0' || bytes[index] > b'9' {
+            return 0;
+        }
+        total = total * 10 + (bytes[index] - b'0') as u64;
+        index += 1;
+    }
+    total
+}
+
 pub const CAMOUFOX_PACKAGE_ASSET_LOCK_SCHEMA: &str = "verisilo-camoufox-package-asset/v1";
 pub const CAMOUFOX_PACKAGE_ASSET_KIND: &str = "self-built";
+#[cfg(not(target_os = "linux"))]
 pub const CAMOUFOX_PACKAGE_ASSET_PLATFORM: &str = "windows-x86_64";
+#[cfg(target_os = "linux")]
+pub const CAMOUFOX_PACKAGE_ASSET_PLATFORM: &str = "linux-x86_64";
 pub const CAMOUFOX_PACKAGE_ASSET_EVIDENCE_CLASS: &str = "compiled-not-runtime-verified";
 pub const CAMOUFOX_PACKAGE_PYTHON_PACKAGE: &str = "camoufox==0.5.4";
 const ENGINE_PACKAGE_MANIFEST: &str = "engine-package.json";
@@ -59,11 +97,27 @@ const MAX_ENGINE_MANIFEST_BYTES: u64 = 64 * 1024;
 const MAX_CAMOUFOX_BROWSER_TREE_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_CAMOUFOX_PACKAGE_TREE_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_ENGINE_EXECUTABLE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 const MAX_ENGINE_SIGNATURE_BYTES: usize = 48 * 1024;
 const MAX_SESSION_TOKEN_LIFETIME_MINUTES: i64 = 60;
 pub const DEFAULT_SESSION_TOKEN_LIFETIME_MINUTES: i64 = 30;
 const WINDOWS_X64_PLATFORM: &str = "windows-x64";
+#[cfg(not(target_os = "linux"))]
+const NATIVE_PLATFORM: &str = WINDOWS_X64_PLATFORM;
+#[cfg(target_os = "linux")]
+const NATIVE_PLATFORM: &str = "linux-x64";
+#[cfg(not(target_os = "linux"))]
+const CAMOUFOX_HOST_PATH: &str = "host/camoufox-host.exe";
+#[cfg(target_os = "linux")]
+const CAMOUFOX_HOST_PATH: &str = "host/camoufox-host";
+#[cfg(not(target_os = "linux"))]
+const CAMOUFOX_SUPERVISOR_PATH: &str = "host/verisilo-camoufox-supervisor.exe";
+#[cfg(target_os = "linux")]
+const CAMOUFOX_SUPERVISOR_PATH: &str = "host/verisilo-camoufox-supervisor";
+#[cfg(not(target_os = "linux"))]
+const CAMOUFOX_BROWSER_EXECUTABLE: &str = "camoufox.exe";
+#[cfg(target_os = "linux")]
+const CAMOUFOX_BROWSER_EXECUTABLE: &str = "camoufox-bin";
 const CMS_SHA256_ALGORITHM: &str = "cms-detached-sha256";
 const SESSION_TOKEN_DOMAIN: &[u8] = b"VeriSilo engine session token v1\0";
 const SESSION_TOKEN_ID_DOMAIN: &[u8] = b"VeriSilo engine session token id v1\0";
@@ -78,10 +132,23 @@ const MAX_RETAINED_ENGINE_FALLBACK_RECEIPTS: usize = 128;
 pub(crate) struct CamoufoxHostJobGuard {
     #[cfg(target_os = "windows")]
     handle: isize,
+    #[cfg(target_os = "linux")]
+    process_group: u32,
+    #[cfg(target_os = "linux")]
+    start_time: Option<u64>,
 }
 
 impl CamoufoxHostJobGuard {
     pub(crate) fn spawn(command: &mut Command) -> std::io::Result<(Child, Self)> {
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::process::CommandExt;
+            let parent_pid = std::process::id();
+            command.process_group(0);
+            unsafe {
+                command.pre_exec(move || crate::linux::die_with_parent(parent_pid));
+            }
+        }
         #[allow(unused_mut)]
         let mut child = command.spawn()?;
         #[cfg(target_os = "windows")]
@@ -93,7 +160,12 @@ impl CamoufoxHostJobGuard {
                 return Err(error);
             }
         };
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
+        let job = Self {
+            process_group: child.id(),
+            start_time: crate::linux::process_start_time(child.id()),
+        };
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         let job = Self::default();
         Ok((child, job))
     }
@@ -101,6 +173,8 @@ impl CamoufoxHostJobGuard {
 
 impl Drop for CamoufoxHostJobGuard {
     fn drop(&mut self) {
+        #[cfg(target_os = "linux")]
+        crate::linux::terminate_process_group(self.process_group, self.start_time);
         #[cfg(target_os = "windows")]
         if self.handle != 0 {
             unsafe { windows_sys::Win32::Foundation::CloseHandle(self.handle as _) };
@@ -1973,7 +2047,59 @@ impl EnginePackageVerifier for WindowsProductionEnginePackageVerifier {
         executable_path: &Path,
         manifest: &EnginePackageManifest,
     ) -> Result<EnginePackageVerification, EngineError> {
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
+        {
+            if !self
+                .trusted_signers
+                .contains_key(&manifest.signature.key_id)
+            {
+                return Err(EngineError::VerificationUnavailable(
+                    "manifest signer certificate is not pinned by this build".to_owned(),
+                ));
+            }
+            if hex_lower(&sha256_file(executable_path)?) != manifest.artifact_sha256 {
+                return Err(EngineError::VerificationUnavailable(
+                    "engine executable SHA-256 does not match the signed manifest".to_owned(),
+                ));
+            }
+            let signature = BASE64_STANDARD
+                .decode(manifest.signature.value.as_bytes())
+                .map_err(|_| {
+                    EngineError::VerificationUnavailable(
+                        "manifest CMS signature is not canonical base64".to_owned(),
+                    )
+                })?;
+            if signature.is_empty()
+                || signature.len() > MAX_ENGINE_SIGNATURE_BYTES
+                || BASE64_STANDARD.encode(&signature) != manifest.signature.value
+            {
+                return Err(EngineError::VerificationUnavailable(
+                    "manifest CMS signature has an invalid encoding or size".to_owned(),
+                ));
+            }
+            let signer_certificate = crate::engine_linux::verify_detached_cms_sha256(
+                &manifest_signing_payload(manifest)?,
+                &signature,
+            )?;
+            let signer_digest = hex_lower(&sha256_bytes(&signer_certificate));
+            if signer_digest != manifest.signature.key_id {
+                return Err(EngineError::VerificationUnavailable(
+                    "CMS signer certificate does not match manifest.signature.keyId".to_owned(),
+                ));
+            }
+            Ok(EnginePackageVerification {
+                verifier_id: format!("linux-openssl-cms-sha256-v1:{}", &signer_digest[..12]),
+                digest_verified: true,
+                signature_verified: true,
+                package_manifest_sha256: String::new(),
+                package_tree_sha256: None,
+                host_sha256: manifest.artifact_sha256.clone(),
+                signer_certificate_sha256: signer_digest,
+                engine_revision: None,
+                verified_at: Utc::now(),
+            })
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         {
             let _ = (executable_path, manifest);
             Err(EngineError::VerificationUnavailable(
@@ -2462,7 +2588,7 @@ impl EngineAdapter for StockChromiumAdapter {
                 .unwrap_or_else(|| "unknown".to_owned()),
             channel: EngineChannel::Stable,
             browser_family: BrowserFamily::Chromium,
-            platform: WINDOWS_X64_PLATFORM.to_owned(),
+            platform: NATIVE_PLATFORM.to_owned(),
             externally_packaged: false,
             emergency_disabled: self.emergency_disabled,
         }
@@ -3159,7 +3285,7 @@ impl EngineAdapter for ExternalPackageEngineAdapter {
                 .unwrap_or_else(|| "not-installed".to_owned()),
             channel: EngineChannel::Experimental,
             browser_family: self.family(),
-            platform: WINDOWS_X64_PLATFORM.to_owned(),
+            platform: NATIVE_PLATFORM.to_owned(),
             externally_packaged: true,
             emergency_disabled: self.emergency_disabled,
         }
@@ -3936,7 +4062,7 @@ fn validate_package_manifest(
         || !version_major(&manifest.engine_version)
             .is_some_and(|major| (100..=999).contains(&major))
         || manifest.channel != EngineChannel::Experimental
-        || manifest.platform != WINDOWS_X64_PLATFORM
+        || manifest.platform != NATIVE_PLATFORM
         || !is_lower_hex(&manifest.artifact_sha256, 64)
         || manifest.signature.algorithm != CMS_SHA256_ALGORITHM
         || !is_lower_hex(&manifest.signature.key_id, 64)
@@ -4008,7 +4134,7 @@ fn validate_package_manifest(
                 || manifest.artifact_sha256 != entrypoint.sha256
                 || !is_lower_hex(&tree_manifest.sha256, 64)
                 || !is_lower_hex(&browser_tree_manifest.sha256, 64)
-                || entrypoint.relative_path != "host/camoufox-host.exe"
+                || entrypoint.relative_path != CAMOUFOX_HOST_PATH
                 || tree_manifest.relative_path != "package-tree.json"
                 || browser_tree_manifest.relative_path != "browser-tree-manifest.json"
                 || entrypoint.relative_path == tree_manifest.relative_path
@@ -4220,8 +4346,8 @@ fn verify_camoufox_package_layout(
         ("runtime-asset-lock.json", PathKind::File),
         ("browser-tree-manifest.json", PathKind::File),
         ("package-tree.json", PathKind::File),
-        ("host/camoufox-host.exe", PathKind::File),
-        ("host/verisilo-camoufox-supervisor.exe", PathKind::File),
+        (CAMOUFOX_HOST_PATH, PathKind::File),
+        (CAMOUFOX_SUPERVISOR_PATH, PathKind::File),
         ("host/probe/probe.html", PathKind::File),
         ("browser", PathKind::Directory),
     ] {
@@ -4260,7 +4386,7 @@ fn verify_camoufox_package_layout(
         || !exact_string("platform", CAMOUFOX_PACKAGE_ASSET_PLATFORM)
         || !exact_string("pythonPackage", CAMOUFOX_PACKAGE_PYTHON_PACKAGE)
         || !exact_string("engineRevision", CAMOUFOX_FORMAL_V3_ENGINE_REVISION)
-        || !exact_string("executableRelativePath", "camoufox.exe")
+        || !exact_string("executableRelativePath", CAMOUFOX_BROWSER_EXECUTABLE)
         || !sha256_field("sha256", CAMOUFOX_FORMAL_V3_BROWSER_ASSET_SHA256)
         || !sha256_field(
             "browserExecutableSha256",
@@ -4276,7 +4402,7 @@ fn verify_camoufox_package_layout(
         .entrypoint
         .as_ref()
         .map(|entrypoint| entrypoint.relative_path.as_str())
-        != Some("host/camoufox-host.exe")
+        != Some(CAMOUFOX_HOST_PATH)
         || manifest
             .tree_manifest
             .as_ref()
@@ -5407,14 +5533,14 @@ fn sha256_compress(state: &mut [u32; 8], block: &[u8; 64]) {
 fn production_state_store(
     adapter_id: EngineAdapterId,
 ) -> Result<Option<EngineStateStore>, EngineError> {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
         let root = crate::domain::app_data_root_path()
             .map_err(|error| EngineError::VerificationUnavailable(error.to_string()))?
             .join("engine-state");
         EngineStateStore::new(root, adapter_id).map(Some)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         let _ = adapter_id;
         Ok(None)
@@ -6009,7 +6135,7 @@ mod tests {
         let root = test_root("camoufox-v3");
         let host_directory = root.join("host");
         fs::create_dir_all(&host_directory).expect("Host directory");
-        let host_path = host_directory.join("camoufox-host.exe");
+        let host_path = root.join(super::CAMOUFOX_HOST_PATH);
         fs::write(&host_path, b"fake Host entrypoint").expect("Host entrypoint");
         let host_sha = hex_lower(&sha256_file(&host_path).expect("Host digest"));
         let browser_tree = EngineBrowserTreeManifest {
@@ -6018,7 +6144,7 @@ mod tests {
             file_count: 1,
             total_bytes: 1,
             entries: vec![EngineBrowserTreeEntry {
-                path: "camoufox.exe".to_owned(),
+                path: super::CAMOUFOX_BROWSER_EXECUTABLE.to_owned(),
                 size: 1,
                 sha256: "4".repeat(64),
             }],
@@ -6029,9 +6155,9 @@ mod tests {
         let browser_tree_sha = hex_lower(&sha256_bytes(&browser_tree_bytes));
         let browser_root = root.join("browser");
         fs::create_dir_all(&browser_root).expect("browser root");
-        let browser_executable = browser_root.join("camoufox.exe");
+        let browser_executable = browser_root.join(super::CAMOUFOX_BROWSER_EXECUTABLE);
         fs::write(&browser_executable, b"fake browser executable").expect("browser asset");
-        let supervisor_path = host_directory.join("verisilo-camoufox-supervisor.exe");
+        let supervisor_path = root.join(super::CAMOUFOX_SUPERVISOR_PATH);
         fs::write(&supervisor_path, b"fake supervisor").expect("supervisor");
         let probe_directory = host_directory.join("probe");
         fs::create_dir_all(&probe_directory).expect("probe directory");
@@ -6049,7 +6175,7 @@ mod tests {
                 "platform": super::CAMOUFOX_PACKAGE_ASSET_PLATFORM,
                 "pythonPackage": super::CAMOUFOX_PACKAGE_PYTHON_PACKAGE,
                 "engineRevision": super::CAMOUFOX_FORMAL_V3_ENGINE_REVISION,
-                "executableRelativePath": "camoufox.exe",
+                "executableRelativePath": super::CAMOUFOX_BROWSER_EXECUTABLE,
                 "sha256": super::CAMOUFOX_FORMAL_V3_BROWSER_ASSET_SHA256,
                 "browserExecutableSha256": super::CAMOUFOX_FORMAL_V3_BROWSER_EXECUTABLE_SHA256,
                 "sizeBytes": super::CAMOUFOX_FORMAL_V3_BROWSER_ASSET_SIZE_BYTES,
@@ -6065,7 +6191,7 @@ mod tests {
                     sha256: browser_tree_sha.clone(),
                 },
                 EnginePackageTreeEntry {
-                    path: "host/camoufox-host.exe".to_owned(),
+                    path: super::CAMOUFOX_HOST_PATH.to_owned(),
                     sha256: host_sha.clone(),
                 },
                 EnginePackageTreeEntry {
@@ -6076,7 +6202,7 @@ mod tests {
                     ),
                 },
                 EnginePackageTreeEntry {
-                    path: "host/verisilo-camoufox-supervisor.exe".to_owned(),
+                    path: super::CAMOUFOX_SUPERVISOR_PATH.to_owned(),
                     sha256: hex_lower(&sha256_file(&supervisor_path).expect("supervisor digest")),
                 },
                 EnginePackageTreeEntry {
@@ -6084,7 +6210,7 @@ mod tests {
                     sha256: hex_lower(&sha256_file(&probe_path).expect("probe digest")),
                 },
                 EnginePackageTreeEntry {
-                    path: "browser/camoufox.exe".to_owned(),
+                    path: format!("browser/{}", super::CAMOUFOX_BROWSER_EXECUTABLE),
                     sha256: hex_lower(&sha256_file(&browser_executable).expect("browser digest")),
                 },
             ],
@@ -6098,7 +6224,7 @@ mod tests {
             engine_id: EngineAdapterId::Camoufox,
             engine_version: "152.0.4-beta.28".to_owned(),
             channel: EngineChannel::Experimental,
-            platform: "windows-x64".to_owned(),
+            platform: super::NATIVE_PLATFORM.to_owned(),
             executable_relative_path: String::new(),
             artifact_sha256: host_sha.clone(),
             signature: EnginePackageSignature {
@@ -6109,7 +6235,7 @@ mod tests {
             capabilities: super::identity_capabilities().into_iter().collect(),
             entrypoint: Some(EnginePackageEntrypoint {
                 kind: CAMOUFOX_HOST_ENTRYPOINT_KIND.to_owned(),
-                relative_path: "host/camoufox-host.exe".to_owned(),
+                relative_path: super::CAMOUFOX_HOST_PATH.to_owned(),
                 protocol: CAMOUFOX_HOST_PROTOCOL.to_owned(),
                 sha256: host_sha.clone(),
             }),
@@ -7250,7 +7376,7 @@ mod tests {
             engine_id: EngineAdapterId::Camoufox,
             engine_version: super::CAMOUFOX_FORMAL_V3_ENGINE_VERSION.to_owned(),
             channel: EngineChannel::Experimental,
-            platform: super::WINDOWS_X64_PLATFORM.to_owned(),
+            platform: super::NATIVE_PLATFORM.to_owned(),
             executable_relative_path: String::new(),
             artifact_sha256: "a".repeat(64),
             signature: EnginePackageSignature {
@@ -7261,7 +7387,7 @@ mod tests {
             capabilities: vec![EngineCapabilityId::IdentityTemplate],
             entrypoint: Some(EnginePackageEntrypoint {
                 kind: CAMOUFOX_HOST_ENTRYPOINT_KIND.to_owned(),
-                relative_path: "host/camoufox-host.exe".to_owned(),
+                relative_path: super::CAMOUFOX_HOST_PATH.to_owned(),
                 protocol: CAMOUFOX_HOST_PROTOCOL.to_owned(),
                 sha256: "c".repeat(64),
             }),
@@ -7369,7 +7495,7 @@ mod tests {
             engine_id: id,
             engine_version: version.to_owned(),
             channel: EngineChannel::Experimental,
-            platform: "windows-x64".to_owned(),
+            platform: super::NATIVE_PLATFORM.to_owned(),
             executable_relative_path: format!("bin/{executable}"),
             artifact_sha256: hex_lower(&sha256_file(&executable_path).expect("fixture digest")),
             signature: super::EnginePackageSignature {

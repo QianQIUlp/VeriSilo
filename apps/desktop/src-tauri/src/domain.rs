@@ -36,6 +36,7 @@ impl BrowserKind {
         }
     }
 
+    #[cfg(target_os = "windows")]
     fn known_relative_paths(&self) -> &'static [&'static str] {
         match self {
             Self::Chrome => &[
@@ -1905,11 +1906,32 @@ pub fn discover_browsers() -> Vec<BrowserCandidate> {
     let mut candidates = Vec::new();
     for kind in [BrowserKind::Chrome, BrowserKind::Edge] {
         let mut paths = Vec::new();
+        #[cfg(target_os = "windows")]
         for variable in ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"] {
             if let Some(base) = std::env::var_os(variable) {
                 for relative in kind.known_relative_paths() {
                     paths.push(PathBuf::from(&base).join(relative));
                 }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let names: &[&str] = match kind {
+                BrowserKind::Chrome => &[
+                    "google-chrome",
+                    "google-chrome-stable",
+                    "google-chrome-beta",
+                    "chromium",
+                    "chromium-browser",
+                ],
+                BrowserKind::Edge => &[
+                    "microsoft-edge",
+                    "microsoft-edge-stable",
+                    "microsoft-edge-beta",
+                ],
+            };
+            for directory in ["/usr/bin", "/usr/local/bin", "/snap/bin"] {
+                paths.extend(names.iter().map(|name| Path::new(directory).join(name)));
             }
         }
 
@@ -1948,7 +1970,28 @@ pub fn inspect_browser_executable(
     };
     #[cfg(target_os = "windows")]
     let filename_matches = filename.eq_ignore_ascii_case(expected_filename);
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    let filename_matches = match kind {
+        BrowserKind::Chrome => matches!(
+            filename,
+            "chrome"
+                | "google-chrome"
+                | "google-chrome-stable"
+                | "google-chrome-beta"
+                | "chromium"
+                | "chromium-browser"
+                | "chrome.exe"
+        ),
+        BrowserKind::Edge => matches!(
+            filename,
+            "msedge"
+                | "microsoft-edge"
+                | "microsoft-edge-stable"
+                | "microsoft-edge-beta"
+                | "msedge.exe"
+        ),
+    };
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     let filename_matches = filename.eq_ignore_ascii_case(expected_filename)
         || filename.eq_ignore_ascii_case(expected_filename.trim_end_matches(".exe"));
     if !filename_matches {
@@ -1960,8 +2003,18 @@ pub fn inspect_browser_executable(
         BrowserKind::Edge => "Microsoft Edge ",
     };
     let output = browser_identity_output(kind, prefix, &resolved_path)?;
-    let version = output
-        .strip_prefix(prefix)
+    let version_output = output.strip_prefix(prefix);
+    #[cfg(target_os = "linux")]
+    let version_output = version_output.or_else(|| {
+        (*kind == BrowserKind::Chrome)
+            .then(|| {
+                output
+                    .strip_prefix("Chromium ")
+                    .and_then(|version| version.split_ascii_whitespace().next())
+            })
+            .flatten()
+    });
+    let version = version_output
         .map(str::trim)
         .filter(|value| {
             !value.is_empty()
@@ -2039,7 +2092,7 @@ pub fn verify_browser_descriptor(descriptor: &BrowserDescriptor) -> BrowserVerif
         Some(_) => (
             BrowserVerificationState::Verified,
             format!(
-                "已核验 {} {} 的路径、类型、版本和发布者基线。",
+                "已核验 {} {} 的路径、类型和版本基线。",
                 descriptor.kind.display_name(),
                 inspection.version
             ),

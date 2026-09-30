@@ -236,9 +236,13 @@ def _families_via_gdiplus(fonts_dir: Path) -> set[str]:
 
 
 def _families_via_fc_scan(fonts_dir: Path) -> set[str]:
+    files = sorted(str(path) for path in fonts_dir.rglob("*")
+                   if path.is_file() and path.suffix.lower() in (".ttf", ".ttc", ".otf"))
+    if not files:
+        return set()
     try:
         proc = subprocess.run(
-            ["fc-scan", "--format", "%{family}\\n", str(fonts_dir)],
+            ["fc-scan", "--format", "%{family}\n", *files],
             capture_output=True,
             text=True,
             timeout=60,

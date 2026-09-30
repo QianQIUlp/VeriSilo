@@ -334,6 +334,8 @@ fn vault_passphrase_request(path: &str, mut passphrase: String) -> Result<Value,
 fn read_secret(prompt: &str) -> Result<String, String> {
     eprint!("{prompt}");
     io::stderr().flush().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "linux")]
+    let terminal = TerminalEchoGuard::disable()?;
     #[cfg(windows)]
     let console = unsafe {
         use windows_sys::Win32::System::Console::{
@@ -350,6 +352,8 @@ fn read_secret(prompt: &str) -> Result<String, String> {
     };
     let mut value = String::new();
     let read = io::stdin().read_line(&mut value);
+    #[cfg(target_os = "linux")]
+    drop(terminal);
     #[cfg(windows)]
     if let Some((handle, mode)) = console {
         unsafe {
@@ -366,6 +370,50 @@ fn read_secret(prompt: &str) -> Result<String, String> {
         return Err("保险库口令不能为空。".to_owned());
     }
     Ok(value)
+}
+
+#[cfg(target_os = "linux")]
+struct TerminalEchoGuard(Option<String>);
+
+#[cfg(target_os = "linux")]
+impl TerminalEchoGuard {
+    fn disable() -> Result<Self, String> {
+        use std::io::IsTerminal;
+        if !io::stdin().is_terminal() {
+            return Ok(Self(None));
+        }
+        let mode = Command::new("/usr/bin/stty")
+            .arg("-g")
+            .stdin(Stdio::inherit())
+            .output()
+            .map_err(|error| format!("无法读取终端设置：{error}"))?;
+        if !mode.status.success() {
+            return Err("无法读取终端设置；未读取口令。".to_owned());
+        }
+        let mode = String::from_utf8(mode.stdout).map_err(|_| "终端设置无效。".to_owned())?;
+        let disabled = Command::new("/usr/bin/stty")
+            .arg("-echo")
+            .stdin(Stdio::inherit())
+            .status()
+            .map_err(|error| format!("无法隐藏口令输入：{error}"))?;
+        if !disabled.success() {
+            return Err("无法隐藏口令输入；未读取口令。".to_owned());
+        }
+        Ok(Self(Some(mode.trim().to_owned())))
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for TerminalEchoGuard {
+    fn drop(&mut self) {
+        if let Some(mode) = &self.0 {
+            let _ = Command::new("/usr/bin/stty")
+                .arg(mode)
+                .stdin(Stdio::inherit())
+                .status();
+            eprintln!();
+        }
+    }
 }
 
 fn print_help() {

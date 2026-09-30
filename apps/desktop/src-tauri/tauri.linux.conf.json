@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": ["deb", "appimage"],
+    "icon": ["icons/icon.png"],
+    "resources": [],
+    "category": "Utility",
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libappindicator3-1",
+          "openssl"
+        ],
+        "files": {
+          "/usr/bin/verisilo-cli": "target/x86_64-unknown-linux-gnu/release/verisilo-cli"
+        }
+      },
+      "appimage": {
+        "files": {
+          "/usr/bin/verisilo-cli": "target/x86_64-unknown-linux-gnu/release/verisilo-cli",
+          "/usr/bin/openssl": "/usr/bin/openssl"
+        }
+      }
+    }
+  }
+}

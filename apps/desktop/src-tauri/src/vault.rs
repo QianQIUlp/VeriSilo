@@ -2813,7 +2813,12 @@ pub(crate) fn profile_has_browser_lock(profile_directory: &Path) -> bool {
 pub(crate) struct BrowserProfileLease {
     #[cfg(target_os = "windows")]
     _locks: Vec<WindowsProfileFileLock>,
+    #[cfg(target_os = "linux")]
+    _locks: Vec<LinuxProfileFileLock>,
 }
+
+#[cfg(target_os = "linux")]
+pub(super) type LinuxProfileFileLock = crate::linux::FileLease;
 
 impl BrowserProfileLease {
     pub(crate) fn acquire_for_runtime(
@@ -2896,7 +2901,33 @@ impl BrowserProfileLease {
             Ok(Self { _locks: locks })
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(target_os = "linux")]
+        {
+            let mut locks = Vec::new();
+            for profile_directory in profile_directories {
+                match fs::symlink_metadata(profile_directory) {
+                    Ok(metadata)
+                        if metadata.is_dir() && !metadata_is_link_or_reparse(&metadata) => {}
+                    Ok(_) => return Err(VaultError::UnmanagedProfile),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(VaultError::Filesystem(error)),
+                }
+                ensure_path_ancestors_have_no_links_or_reparse_points(profile_directory)?;
+                locks.push(
+                    LinuxProfileFileLock::acquire(
+                        &profile_directory.join(".verisilo-runtime.lock"),
+                    )
+                    .map_err(|_| VaultError::SiloProfileInUse)?,
+                );
+            }
+            for profile_directory in profile_directories {
+                if chromium_profile_sentinel_exists(profile_directory)? {
+                    return Err(VaultError::SiloProfileInUse);
+                }
+            }
+            Ok(Self { _locks: locks })
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         {
             Ok(Self {})
         }
@@ -3171,7 +3202,7 @@ fn ensure_exact_materialized_file(path: &Path, expected: &[u8]) -> Result<(), Va
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn ensure_path_ancestors_have_no_links_or_reparse_points(path: &Path) -> Result<(), VaultError> {
     for ancestor in path.ancestors() {
         match fs::symlink_metadata(ancestor) {

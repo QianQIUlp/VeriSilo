@@ -48,6 +48,9 @@ from package_contract import (
     FORMAL_V3_SOURCE_STAMP,
     FORMAL_V3_SOURCE_TREE,
     HOST_NAME,
+    LINUX_HOST_NAME,
+    LINUX_PLATFORM,
+    LINUX_SUPERVISOR_NAME,
     PACKAGE_MANIFEST_NAME,
     PACKAGE_TREE_NAME,
     PROBE_DIRECTORY,
@@ -113,6 +116,7 @@ HOST_SOURCE_PROVENANCE_NAME = "verisilo-host-source-provenance.json"
 HOST_SOURCE_FILES = (
     "apps/camoufox-host/browser_asset.py",
     "apps/camoufox-host/browser_tree.py",
+    "apps/camoufox-host/exit_supervisor.py",
     "apps/camoufox-host/host_fonts.py",
     "apps/camoufox-host/host_platform.py",
     "apps/camoufox-host/host_probe.py",
@@ -420,7 +424,7 @@ def _copy_regular(source: Path, destination: Path) -> None:
     if any(parent.is_symlink() for parent in destination.parent.parents) or destination.parent.is_symlink():
         _fail(f"package member parent is a symlink: {destination.parent}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, destination)
+    shutil.copy2(source, destination)
 
 
 def _link_or_copy_staged_file(source: str, destination: str) -> str:
@@ -434,7 +438,7 @@ def _link_or_copy_staged_file(source: str, destination: str) -> str:
     return destination
 
 
-def _build_pyinstaller(source: Path, python: str, work_root: Path) -> Path:
+def _build_pyinstaller(source: Path, python: str, work_root: Path, *, linux: bool = False) -> Path:
     version = subprocess.run(
         [python, "-m", "PyInstaller", "--version"],
         check=True,
@@ -491,10 +495,98 @@ def _build_pyinstaller(source: Path, python: str, work_root: Path) -> Path:
         ],
         check=True,
     )
-    executable = dist / "camoufox-host" / HOST_NAME
+    executable = dist / "camoufox-host" / (LINUX_HOST_NAME if linux else HOST_NAME)
     if not executable.is_file():
         _fail("PyInstaller did not produce the expected one-folder Host executable")
     return executable
+
+
+def _build_linux_supervisor(python: str, work_root: Path) -> Path:
+    subprocess.run([
+        python, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--console",
+        "--name", LINUX_SUPERVISOR_NAME, "--distpath", str(work_root / "dist"),
+        "--workpath", str(work_root / "work"), "--specpath", str(work_root / "spec"),
+        str(HOST_DIR / "exit_supervisor.py"),
+    ], check=True)
+    executable = work_root / "dist" / LINUX_SUPERVISOR_NAME
+    if not executable.is_file():
+        _fail("PyInstaller did not produce the Linux supervisor")
+    return executable
+
+
+def _validate_linux_inputs(source_lock: Path, build_result: Path, browser_root: Path, tree_path: Path) -> dict[str, Any]:
+    if sha256_file(source_lock) != FORMAL_V3_SOURCE_LOCK_SHA256:
+        _fail("Linux source must use the pinned RC5 Formal-v3 source lock")
+    source = _read_formal_json(source_lock)
+    validate_source_lock_content(source)
+    build = _read_formal_json(build_result)
+    if (build.get("recordType") != "verisilo-camoufox-linux-build/v1"
+        or build.get("platform") != "linux-x86_64"
+        or build.get("target") != "x86_64-pc-linux-gnu"
+        or build.get("engineRevision") != FORMAL_V3_ENGINE_REVISION
+        or build.get("upstream") != source["upstream"]
+        or build.get("completeAppliedPatchOrder") != FORMAL_V3_PATCH_ORDER
+        or build.get("claims") != {"compiled": True, "runtimeVerified": False, "windowsRuntimeObserved": False}):
+        _fail("Linux build record is not the native RC5 patched candidate")
+    binding = build.get("source")
+    if (type(binding) is not dict or binding.get("sourceLockSha256") != FORMAL_V3_SOURCE_LOCK_SHA256
+        or binding.get("recipeSha256") != sha256_file(HOST_DIR / "build/linux/build.py")):
+        _fail("Linux build recipe/source binding does not match this source")
+    tree = load_tree_manifest(tree_path)
+    if (build.get("browserTree") != {"sha256": sha256_file(tree_path), "sizeBytes": tree_path.stat().st_size}
+        or tree["treeRootLabel"] != browser_root.name):
+        _fail("Linux browser tree does not match the build record")
+    verify_tree(browser_root, tree)
+    archive = build.get("archive")
+    archive_path = build_result.parent / "camoufox-152.0.4-beta.28-verisilo-linux.x86_64.zip"
+    executable = browser_root / "camoufox-bin"
+    if (type(archive) is not dict or archive.get("name") != archive_path.name
+        or archive.get("sha256") != sha256_file(archive_path)
+        or archive.get("sizeBytes") != archive_path.stat().st_size
+        or archive.get("browserExecutableSha256") != sha256_file(executable)
+        or archive.get("propertiesJsonSha256") != sha256_file(browser_root / "properties.json")):
+        _fail("Linux native browser bytes do not match the build record")
+    with executable.open("rb") as stream:
+        header = stream.read(20)
+    if header[:5] != b"\x7fELF\x02" or header[18:20] != b"\x3e\x00":
+        _fail("Linux browser must be a native x86_64 ELF executable")
+    asset_lock = {
+        "schema": "verisilo-camoufox-package-asset/v1", "assetKind": "self-built", "verified": False,
+        "evidenceClass": "compiled-not-runtime-verified", "package": "camoufox", "release": FORMAL_V3_BROWSER_RELEASE,
+        "platform": "linux-x86_64", "pythonPackage": "camoufox==0.5.4", "engineRevision": FORMAL_V3_ENGINE_REVISION,
+        "sha256": archive["sha256"], "browserExecutableSha256": archive["browserExecutableSha256"],
+        "sizeBytes": archive["sizeBytes"], "executableRelativePath": "camoufox-bin", "buildId": archive["buildId"],
+        "sourceStamp": archive["sourceStamp"], "propertiesJsonSha256": archive["propertiesJsonSha256"],
+        "sourceBinding": {"commit": binding["commit"], "tree": binding["tree"], "sourceLockSha256": FORMAL_V3_SOURCE_LOCK_SHA256,
+                          "completeAppliedPatchOrder": FORMAL_V3_PATCH_ORDER},
+        "buildResultSha256": sha256_file(build_result), "browserTreeManifestSha256": sha256_file(tree_path),
+    }
+    from package_contract import _validate_package_asset_lock
+    _validate_package_asset_lock(asset_lock)
+    return {"source": source, "build": build, "browserTree": tree, "assetLock": asset_lock}
+
+
+def _sign_linux_manifest(manifest: dict[str, Any], manifest_path: Path, payload_path: Path,
+                         certificate: Path | None, private_key: Path | None, password_env: str) -> None:
+    if certificate is None or private_key is None or not certificate.is_file() or not private_key.is_file():
+        _fail("Linux --sign requires --pem-certificate and --pem-private-key")
+    der = subprocess.run(["openssl", "x509", "-in", str(certificate), "-outform", "DER"], check=True, capture_output=True).stdout
+    manifest["signature"]["keyId"] = sha256_bytes(der)
+    payload_path.write_bytes(manifest_signing_payload(manifest))
+    signature_path = payload_path.with_suffix(".cms")
+    subprocess.run([
+        "openssl", "cms", "-sign", "-binary", "-md", "sha256", "-nosmimecap", "-in", str(payload_path),
+        "-signer", str(certificate), "-inkey", str(private_key),
+        "-passin", f"env:{password_env}" if password_env in os.environ else "pass:",
+        "-outform", "DER", "-out", str(signature_path),
+    ], check=True, capture_output=True)
+    manifest["signature"]["value"] = base64.b64encode(signature_path.read_bytes()).decode("ascii")
+    verified_path = payload_path.with_suffix(".verified")
+    subprocess.run(["openssl", "cms", "-verify", "-binary", "-inform", "DER", "-in", str(signature_path),
+                    "-content", str(payload_path), "-noverify", "-out", str(verified_path)], check=True, capture_output=True)
+    if verified_path.read_bytes() != payload_path.read_bytes():
+        _fail("Linux CMS signature verification changed the payload")
+    _write_json(manifest_path, manifest)
 
 
 def _package_asset_lock(formal: dict[str, Any], browser_tree_sha256: str) -> dict[str, Any]:
@@ -533,7 +625,7 @@ def _write_json(path: Path, value: object) -> bytes:
     return raw
 
 
-def _smoke_packaged_host(layout: PackageLayout, temporary: Path) -> None:
+def _smoke_packaged_host(layout: PackageLayout, temporary: Path, asset_sha256: str = FORMAL_V3_ARCHIVE_SHA256) -> None:
     roots = temporary / "host-smoke"
     artifact_root = roots / "identity"
     profile_root = roots / "profiles"
@@ -569,7 +661,7 @@ def _smoke_packaged_host(layout: PackageLayout, temporary: Path) -> None:
         or type(result) is not dict
         or result.get("protocol") != "verisilo-camoufox-host/v1"
         or result.get("browserRelease") != FORMAL_V3_BROWSER_RELEASE
-        or result.get("assetSha256") != FORMAL_V3_ARCHIVE_SHA256
+        or result.get("assetSha256") != asset_sha256
         or result.get("state") != "idle"
         or result.get("verified") is not False
     ):
@@ -678,7 +770,7 @@ def _stage(
     *,
     browser_root: Path,
     frozen_tree: Path,
-    supervisor: Path,
+    supervisor: Path | None,
     probe: Path,
     host_executable: Path | None,
     host_directory: Path | None,
@@ -689,10 +781,15 @@ def _stage(
     sign: bool,
     pfx_path: Path | None,
     password_env: str,
+    linux: bool = False,
+    pem_certificate: Path | None = None,
+    pem_private_key: Path | None = None,
 ) -> dict[str, Any]:
     if host_executable is not None:
         _fail("--host-executable single-file bypass is not supported; use --host-directory")
-    formal = validate_formal_v3_inputs(
+    if linux and (sys.platform != "linux" or os.name == "nt"):
+        _fail("Linux Host packaging requires a native Linux Python/PyInstaller runtime")
+    formal = (_validate_linux_inputs if linux else validate_formal_v3_inputs)(
         source_lock,
         build_result,
         browser_root,
@@ -703,7 +800,7 @@ def _stage(
     out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="verisilo-camoufox-package-") as temporary:
         staging = Path(temporary) / "package"
-        layout = PackageLayout.from_root(staging)
+        layout = PackageLayout.from_root(staging, platform=LINUX_PLATFORM if linux else FORMAL_V3_PLATFORM)
         shutil.copytree(browser_root, layout.browser_root, symlinks=True)
         if host_directory is not None:
             if not host_directory.is_dir() or host_directory.is_symlink():
@@ -711,22 +808,26 @@ def _stage(
             _validate_host_source_provenance(host_directory, host_source)
             shutil.copytree(host_directory, layout.host.parent, symlinks=True)
         else:
-            host_executable = _build_pyinstaller(host_source, python, Path(temporary) / "pyinstaller")
+            host_executable = _build_pyinstaller(host_source, python, Path(temporary) / "pyinstaller", linux=linux)
             _write_host_source_provenance(host_executable.parent, host_source)
             # PyInstaller one-folder output has DLLs beside the executable.
             shutil.copytree(host_executable.parent, layout.host.parent, symlinks=True)
         if layout.host.is_symlink() or not layout.host.is_file():
-            _fail("staged Host one-folder output is missing camoufox-host.exe")
+            _fail(f"staged Host one-folder output is missing {layout.host.name}")
         _validate_host_source_provenance(layout.host.parent, host_source)
+        if supervisor is None:
+            if not linux:
+                _fail("Windows Host packaging requires --supervisor")
+            supervisor = _build_linux_supervisor(python, Path(temporary) / "supervisor")
         _copy_regular(supervisor, layout.supervisor)
         _stage_probe(probe, layout.probe)
         # Preserve the accepted Formal-v3 tree bytes and their raw digest;
         # reserializing the same entries would sever that exact binding.
         browser_tree_raw = frozen_tree.read_bytes()
-        if sha256_bytes(browser_tree_raw) != FORMAL_V3_RUNTIME_TREE_SHA256:
+        if not linux and sha256_bytes(browser_tree_raw) != FORMAL_V3_RUNTIME_TREE_SHA256:
             _fail("Formal-v3 browser tree changed after input validation")
         layout.browser_tree.write_bytes(browser_tree_raw)
-        package_asset = _package_asset_lock(formal, sha256_bytes(browser_tree_raw))
+        package_asset = formal["assetLock"] if linux else _package_asset_lock(formal, sha256_bytes(browser_tree_raw))
         _write_json(layout.asset_lock, package_asset)
         host_sha = sha256_file(layout.host)
         manifest = {
@@ -734,7 +835,7 @@ def _stage(
             "engineId": "camoufox",
             "engineVersion": FORMAL_V3_ENGINE_VERSION,
             "channel": FORMAL_V3_CHANNEL,
-            "platform": FORMAL_V3_PLATFORM,
+            "platform": LINUX_PLATFORM if linux else FORMAL_V3_PLATFORM,
             "artifactSha256": host_sha,
             "signature": {
                 "algorithm": "cms-detached-sha256",
@@ -744,7 +845,7 @@ def _stage(
             "capabilities": CAPABILITIES,
             "entrypoint": {
                 "kind": "camoufox-host-v1",
-                "relativePath": "host/camoufox-host.exe",
+                "relativePath": layout.host.relative_to(layout.root).as_posix(),
                 "protocol": "verisilo-camoufox-host/v1",
                 "sha256": host_sha,
             },
@@ -758,7 +859,7 @@ def _stage(
             },
             "hostVersion": FORMAL_V3_HOST_VERSION,
             "browserRelease": FORMAL_V3_BROWSER_RELEASE,
-            "browserAssetSha256": FORMAL_V3_ARCHIVE_SHA256,
+            "browserAssetSha256": package_asset["sha256"],
         }
 
         def _bind_package_tree(package_tree: dict | None = None) -> tuple[bytes, dict]:
@@ -782,7 +883,7 @@ def _stage(
         # Desktop/Host package recheck is exact, so the shipped package must
         # declare exactly those runtime-produced bytes; any other smoke
         # drift is a builder failure.
-        _smoke_packaged_host(layout, Path(temporary))
+        _smoke_packaged_host(layout, Path(temporary), package_asset["sha256"])
         post_smoke_tree = build_package_tree(staging)
         post_smoke_entries = {
             entry["path"]: entry["sha256"]
@@ -808,9 +909,12 @@ def _stage(
         payload_path = Path(temporary) / "engine-package.payload.bin"
         _write_json(unsigned_manifest_path, manifest)
         payload_path.write_bytes(payload)
-        if sign:
+        if sign and linux:
+            _sign_linux_manifest(manifest, layout.root / PACKAGE_MANIFEST_NAME, payload_path,
+                                 pem_certificate, pem_private_key, password_env)
+        elif sign:
             if os.name != "nt":
-                _fail("CMS signing is available only on Windows")
+                _fail("Windows CMS signing requires Windows; use --linux for a native Linux package")
             if pfx_path is None or not pfx_path.is_file():
                 _fail("--pfx-path must name an external PFX file when --sign is used")
             if not password_env or password_env not in os.environ:
@@ -926,6 +1030,9 @@ def main() -> int:
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--sign", action="store_true")
     parser.add_argument("--pfx-path", type=Path)
+    parser.add_argument("--linux", action="store_true", help="Build a native Linux Host with the separate Linux engine build record")
+    parser.add_argument("--pem-certificate", type=Path)
+    parser.add_argument("--pem-private-key", type=Path)
     parser.add_argument("--password-env", default="VERISILO_CAMOUFOX_PFX_PASSWORD")
     parser.add_argument("--check", type=Path, metavar="PACKAGE_ROOT")
     parser.add_argument(
@@ -954,8 +1061,9 @@ def main() -> int:
             "--out": args.out,
             "--browser-root": args.browser_root,
             "--browser-tree-manifest": args.browser_tree_manifest,
-            "--supervisor": args.supervisor,
         }
+        if not args.linux:
+            required["--supervisor"] = args.supervisor
         missing = [name for name, value in required.items() if value is None]
         if missing:
             parser.error("missing required options: " + ", ".join(missing))
@@ -963,7 +1071,7 @@ def main() -> int:
             args.out.absolute(),
             browser_root=args.browser_root.absolute(),
             frozen_tree=args.browser_tree_manifest.absolute(),
-            supervisor=args.supervisor.absolute(),
+            supervisor=args.supervisor.absolute() if args.supervisor else None,
             probe=args.probe.absolute(),
             host_executable=args.host_executable.absolute() if args.host_executable else None,
             host_directory=args.host_directory.absolute() if args.host_directory else None,
@@ -974,6 +1082,9 @@ def main() -> int:
             sign=args.sign,
             pfx_path=args.pfx_path.absolute() if args.pfx_path else None,
             password_env=args.password_env,
+            linux=args.linux,
+            pem_certificate=args.pem_certificate.absolute() if args.pem_certificate else None,
+            pem_private_key=args.pem_private_key.absolute() if args.pem_private_key else None,
         )
         print(json.dumps(result, sort_keys=True))
         return 0

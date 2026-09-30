@@ -1,0 +1,201 @@
+name: Linux Desktop
+
+on:
+  push:
+    branches: [main, qiu/rc5-linux-desktop]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      buildManagedEngine:
+        description: Build the pinned RC5-patched native Camoufox engine and self-contained Managed desktop (several hours)
+        type: boolean
+        default: false
+      engineBuildArtifactId:
+        description: Reuse an unchanged native engine build artifact ID instead of rebuilding Firefox
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  native-linux-desktop:
+    # Ubuntu 22.04 is the glibc baseline; newer Linux distributions can run its binaries.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+      VERISILO_BUILD_TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install native desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf openssl xvfb xauth dbus-x11
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+        with:
+          version: 11.17.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          toolchain: 1.88.0
+          targets: x86_64-unknown-linux-gnu
+      - run: pnpm install --frozen-lockfile
+      - name: Check desktop UI and Linux build routing
+        run: |
+          pnpm --filter @verisilo/desktop check
+          pnpm --filter @verisilo/desktop test
+          node --test scripts/build-linux-desktop.test.mjs
+      - name: Compile and test the native Linux desktop backend
+        run: |
+          cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-unknown-linux-gnu
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-unknown-linux-gnu
+      - name: Build native Debian and AppImage packages
+        run: pnpm desktop:package:linux --standard
+      - name: Exercise standalone AppImage desktop and CLI
+        run: |
+          image=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
+          test -n "$image"
+          image="$PWD/$image"
+          (cd "$RUNNER_TEMP" && "$image" --appimage-extract)
+          APPDIR="$RUNNER_TEMP/squashfs-root" xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop "$image" --cli "$RUNNER_TEMP/squashfs-root/usr/bin/verisilo-cli" --browser /usr/bin/google-chrome
+          cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/appimage.json
+      - name: Verify installer contents
+        run: |
+          package=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)
+          test -n "$package"
+          dpkg-deb --info "$package"
+          dpkg-deb --contents "$package" | tee /tmp/verisilo-deb-files.txt
+          grep '/usr/bin/verisilo-cli$' /tmp/verisilo-deb-files.txt
+          sudo apt-get install -y "$PWD/$package"
+      - name: Exercise installed desktop, Vault and real browser lifecycle
+        run: xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop /usr/bin/verisilo --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome
+      - name: Upload Linux build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-linux-x64-${{ github.sha }}
+          path: |
+            apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+            artifacts/linux-desktop-smoke/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  native-linux-managed:
+    # A native Firefox build is deliberately opt-in; ordinary PRs still compile Linux.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && (inputs.buildManagedEngine || inputs.engineBuildArtifactId != '')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/qiu/rc5-linux-desktop' && contains(github.event.head_commit.message, '[build-linux-engine]'))
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+      VERISILO_BUILD_TARGET: x86_64-unknown-linux-gnu
+      VERISILO_SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Prepare ephemeral native engine build runner
+        if: inputs.engineBuildArtifactId == ''
+        run: |
+          # These are unused preinstalled toolchains on this disposable Actions runner.
+          sudo rm -rf -- /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/swift
+          sudo fallocate -l 8G /verisilo-build.swap
+          sudo chmod 600 /verisilo-build.swap
+          sudo mkswap /verisilo-build.swap
+          sudo swapon /verisilo-build.swap
+          df -h .
+          free -h
+      - name: Install native desktop and engine dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential git curl patch python3-dev libgtk-3-dev libdbus-glib-1-dev libasound2-dev libpulse-dev libx11-xcb-dev libxt-dev libsqlite3-dev nasm yasm unzip zip p7zip-full fontconfig libfontconfig1-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf openssl xvfb xauth dbus-x11 fonts-unfonts-core
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@6b9c6063abd6010835644d4c2e1bef4cf5cd0fca # v6.0.1
+        with:
+          version: "0.11.0"
+          enable-cache: false
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+        with:
+          version: 11.17.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          toolchain: 1.88.0
+          targets: x86_64-unknown-linux-gnu
+      - name: Install committed frontend and Host dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          uv sync --project apps/camoufox-host --frozen --group build
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Build pinned RC5-patched Camoufox natively for Linux
+        if: inputs.engineBuildArtifactId == ''
+        run: python apps/camoufox-host/build/linux/build.py --work-root "$RUNNER_TEMP/verisilo-engine-work" --out artifacts/linux-engine-build
+      - name: Reuse unchanged native engine build
+        if: inputs.engineBuildArtifactId != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENGINE_ARTIFACT_ID: ${{ inputs.engineBuildArtifactId }}
+        run: |
+          [[ "$ENGINE_ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          mkdir -p artifacts/linux-engine-build
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ENGINE_ARTIFACT_ID/zip" > "$RUNNER_TEMP/engine-build-artifact.zip"
+          unzip -q "$RUNNER_TEMP/engine-build-artifact.zip" -d artifacts/linux-engine-build
+          python apps/camoufox-host/build/linux/build.py --restore-build artifacts/linux-engine-build
+      - name: Preserve immutable native engine inputs
+        if: inputs.engineBuildArtifactId == ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-linux-engine-build-${{ github.sha }}
+          path: |
+            artifacts/linux-engine-build/*.zip
+            artifacts/linux-engine-build/*.json
+            artifacts/linux-engine-build/engine-build.log
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Sign native engine package with an ephemeral validation certificate
+        run: |
+          openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 365 -subj '/CN=VeriSilo Linux CI Evaluation/' -addext 'extendedKeyUsage=codeSigning' -keyout "$RUNNER_TEMP/linux-engine-key.pem" -out "$RUNNER_TEMP/linux-engine-cert.pem"
+          pin=$(openssl x509 -in "$RUNNER_TEMP/linux-engine-cert.pem" -outform DER | sha256sum | cut -d' ' -f1)
+          echo "VERISILO_ENGINE_SIGNER_SHA256=$pin" >> "$GITHUB_ENV"
+          xvfb-run -a dbus-run-session -- apps/camoufox-host/.venv/bin/python scripts/build-camoufox-host-package.py --out artifacts/linux-engine-package --browser-root artifacts/linux-engine-build/browser --browser-tree-manifest artifacts/linux-engine-build/browser-tree-manifest.json --build-result artifacts/linux-engine-build/linux-build-result.json --linux --sign --pem-certificate "$RUNNER_TEMP/linux-engine-cert.pem" --pem-private-key "$RUNNER_TEMP/linux-engine-key.pem"
+      - name: Build self-contained Managed Debian and AppImage packages
+        run: pnpm desktop:package:linux --engine-package artifacts/linux-engine-package --python apps/camoufox-host/.venv/bin/python
+      - name: Exercise standalone Managed AppImage and CLI
+        run: |
+          image=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
+          test -n "$image"
+          image="$PWD/$image"
+          (cd "$RUNNER_TEMP" && "$image" --appimage-extract)
+          APPDIR="$RUNNER_TEMP/squashfs-root" xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop "$image" --cli "$RUNNER_TEMP/squashfs-root/usr/bin/verisilo-cli" --browser /usr/bin/google-chrome --managed
+          cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/appimage.json
+      - name: Install the exact Managed package
+        run: |
+          package=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)
+          test -n "$package"
+          sudo apt-get install -y "$PWD/$package"
+      - name: Exercise packaged Managed Identity and browser lifecycle
+        run: xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop /usr/bin/verisilo --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome --managed
+      - name: Upload evaluated Linux Managed artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verisilo-managed-browser-linux-x64-${{ github.sha }}
+          path: |
+            apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+            artifacts/linux-engine-build/linux-build-result.json
+            artifacts/linux-engine-build/runtime-asset-lock.json
+            artifacts/linux-desktop-smoke/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

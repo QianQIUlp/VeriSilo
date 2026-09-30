@@ -969,8 +969,10 @@ class CamoufoxHost:
             seed_camoufox_cache(lock, executable, install_dir=install_dir)
         if not self.supervisor.exists():
             raise SystemExit(f"missing native supervisor: {self.supervisor}")
-        if not IS_WINDOWS:
+        if not IS_WINDOWS and self.package_root is None:
             self.supervisor.chmod(0o755)
+        if not IS_WINDOWS and not os.access(self.supervisor, os.X_OK):
+            raise SystemExit(f"supervisor is not executable: {self.supervisor}")
         install_download_guard()
         DownloadGuard.reset()
         self.lock = lock
@@ -1404,6 +1406,9 @@ class CamoufoxHost:
         self.probe_port = server.server_address[1]
         session["probePort"] = self.probe_port
         os.environ["VERISILO_REAL_EXE"] = _process_path(self.executable)
+        if not IS_WINDOWS:
+            os.environ["VERISILO_HOST_PID"] = str(os.getpid())
+            os.environ["VERISILO_HOST_START_TICKS"] = str(proc_starttime_ticks(os.getpid()))
         os.environ["VERISILO_EXIT_FILE"] = str(session["exitFile"])
         os.environ["VERISILO_SUPERVISOR_FILE"] = str(
             session["sessionDir"] / "supervisor.json"

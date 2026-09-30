@@ -10,7 +10,8 @@
     "test": "vitest run",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:linux": "node ../../scripts/build-linux-desktop.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",

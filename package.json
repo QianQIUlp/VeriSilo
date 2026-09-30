@@ -11,7 +11,7 @@
   "scripts": {
     "build": "pnpm --recursive run build",
     "check": "pnpm --recursive run check",
-    "test": "pnpm --recursive run test && pnpm session-fixture:self-test && node --test scripts/dev-desktop.test.mjs",
+    "test": "pnpm --recursive run test && pnpm session-fixture:self-test && node --test scripts/dev-desktop.test.mjs scripts/build-linux-desktop.test.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "assets:generate": "pnpm --filter @verisilo/extension icons:generate && node scripts/generate-tauri-icon.mjs",
@@ -50,6 +50,8 @@
     "extension:dev": "pnpm --filter @verisilo/extension dev",
     "desktop:worktree": "node scripts/dev-desktop.mjs",
     "desktop:build": "pnpm --filter @verisilo/desktop build",
+    "desktop:package:linux": "node scripts/build-linux-desktop.mjs",
+    "desktop:package:windows": "pwsh -NoProfile -File scripts/build-managed-browser-release.ps1",
     "site:dev": "pnpm --filter @verisilo/site dev",
     "site:check": "pnpm --filter @verisilo/site check",
     "site:build": "pnpm --filter @verisilo/site build"

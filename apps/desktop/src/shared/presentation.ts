@@ -120,7 +120,11 @@ export function localePresetFromPreview(
     return "balanced-ar-eg";
   }
   if (language.startsWith("en")) {
-    const region = (language.split("-")[1] ?? preview.countryCode ?? "").toUpperCase();
+    const region = (
+      language.split("-")[1] ??
+      preview.countryCode ??
+      ""
+    ).toUpperCase();
     switch (region) {
       case "GB":
         return "balanced-en-gb";
@@ -157,7 +161,7 @@ export function siloBrowserLabel(silo: Silo): string {
 export function siloExecutionTargetLabel(silo: Silo): string {
   switch (silo.executionTarget.kind) {
     case "local":
-      return "这台 Windows 电脑";
+      return "这台电脑";
     case "wsl":
       return `WSL · ${silo.executionTarget.distribution}`;
     case "remote":
@@ -203,7 +207,7 @@ export function siloWebsiteIdentityBoundary(
 
   switch (silo.executionTarget.kind) {
     case "local":
-      return "Windows 浏览器；CPU、内存、Canvas、WebGL 与字体跟随本机";
+      return "本机浏览器；CPU、内存、Canvas、WebGL 与字体跟随本机";
     case "wsl":
       return "Linux Chromium；CPU、内存与图形特征跟随 WSL 和本机";
     case "remote":
