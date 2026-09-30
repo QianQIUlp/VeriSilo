@@ -25,6 +25,9 @@ jobs:
     # Ubuntu 22.04 is the glibc baseline; newer Linux distributions can run its binaries.
     runs-on: ubuntu-22.04
     timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
     env:
       APPIMAGE_EXTRACT_AND_RUN: "1"
       VERISILO_BUILD_TARGET: x86_64-unknown-linux-gnu
@@ -61,8 +64,10 @@ jobs:
         run: |
           cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-unknown-linux-gnu
           cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --target x86_64-unknown-linux-gnu
-      - name: Build native Debian and AppImage packages
-        run: pnpm desktop:package:linux --standard
+      - name: Build native Debian package
+        run: |
+          mkdir -p artifacts
+          pnpm desktop:package:linux --standard --bundles deb 2>&1 | tee artifacts/linux-desktop-build.log
       - name: Verify installer contents
         run: |
           package=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)
@@ -75,12 +80,16 @@ jobs:
         run: |
           xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop /usr/bin/verisilo --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome
           cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/deb.json
+          cp artifacts/linux-desktop-smoke/desktop.log artifacts/linux-desktop-smoke/deb-desktop.log
+      - name: Bundle AppImage from the evaluated native build
+        run: pnpm desktop:package:linux --standard --bundles appimage --bundle-only 2>&1 | tee artifacts/linux-desktop-appimage-bundle.log
       - name: Exercise AppImage desktop runtime
         run: |
           image=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
           test -n "$image"
           xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop "$PWD/$image" --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome
           cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/appimage.json
+          cp artifacts/linux-desktop-smoke/desktop.log artifacts/linux-desktop-smoke/appimage-desktop.log
       - name: Upload Linux build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -97,7 +106,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: verisilo-linux-smoke-${{ github.sha }}
-          path: artifacts/linux-desktop-smoke/
+          path: |
+            artifacts/linux-desktop-smoke/
+            artifacts/linux-desktop-*.log
           if-no-files-found: warn
           retention-days: 14
 
@@ -106,6 +117,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && (inputs.buildManagedEngine || inputs.engineBuildArtifactId != '')
     runs-on: ubuntu-22.04
     timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
     env:
       APPIMAGE_EXTRACT_AND_RUN: "1"
       VERISILO_BUILD_TARGET: x86_64-unknown-linux-gnu
@@ -197,8 +211,8 @@ jobs:
           pin=$(openssl x509 -in "$RUNNER_TEMP/linux-engine-cert.pem" -outform DER | sha256sum | cut -d' ' -f1)
           echo "VERISILO_ENGINE_SIGNER_SHA256=$pin" >> "$GITHUB_ENV"
           xvfb-run -a dbus-run-session -- apps/camoufox-host/.venv/bin/python scripts/build-camoufox-host-package.py --out artifacts/linux-engine-package --browser-root artifacts/linux-engine-build/browser --browser-tree-manifest artifacts/linux-engine-build/browser-tree-manifest.json --build-result artifacts/linux-engine-build/linux-build-result.json --linux --sign --pem-certificate "$RUNNER_TEMP/linux-engine-cert.pem" --pem-private-key "$RUNNER_TEMP/linux-engine-key.pem"
-      - name: Build self-contained Managed Debian and AppImage packages
-        run: pnpm desktop:package:linux --engine-package artifacts/linux-engine-package --python apps/camoufox-host/.venv/bin/python
+      - name: Build self-contained Managed Debian package
+        run: pnpm desktop:package:linux --engine-package artifacts/linux-engine-package --python apps/camoufox-host/.venv/bin/python --bundles deb 2>&1 | tee artifacts/linux-desktop-build.log
       - name: Install the exact Managed package
         run: |
           package=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)
@@ -208,12 +222,18 @@ jobs:
         run: |
           xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop /usr/bin/verisilo --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome --managed
           cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/deb.json
+          cp artifacts/linux-desktop-smoke/desktop.log artifacts/linux-desktop-smoke/deb-desktop.log
+      - name: Bundle Managed AppImage without modifying the signed engine tree
+        run: |
+          pnpm desktop:package:linux --engine-package artifacts/linux-engine-package --python apps/camoufox-host/.venv/bin/python --bundles appimage --bundle-only 2>&1 | tee artifacts/linux-desktop-appimage-bundle.log
+          cp apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/engine-package-check.json artifacts/linux-appimage-engine-verification.json
       - name: Exercise Managed AppImage runtime
         run: |
           image=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
           test -n "$image"
           xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop "$PWD/$image" --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome --managed
           cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/appimage.json
+          cp artifacts/linux-desktop-smoke/desktop.log artifacts/linux-desktop-smoke/appimage-desktop.log
       - name: Upload evaluated Linux Managed artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -224,6 +244,7 @@ jobs:
             artifacts/linux-engine-build/linux-build-result.json
             artifacts/linux-engine-build/runtime-asset-lock.json
             artifacts/linux-engine-dependencies.json
+            artifacts/linux-appimage-engine-verification.json
             artifacts/linux-desktop-smoke/
           if-no-files-found: error
           compression-level: 0
@@ -236,5 +257,7 @@ jobs:
           path: |
             artifacts/linux-desktop-smoke/
             artifacts/linux-engine-dependencies.json
+            artifacts/linux-appimage-engine-verification.json
+            artifacts/linux-desktop-*.log
           if-no-files-found: warn
           retention-days: 14

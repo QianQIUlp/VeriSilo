@@ -100,6 +100,15 @@ The default Linux packaging command requires a signed Managed engine package;
 it never silently omits Managed Identity. Windows remains available through
 `pnpm desktop:package:windows` and its existing release script options.
 
+The default builds the desktop once, packages Debian, then packages AppImage
+from those same binaries. `--bundles deb` selects the Debian step;
+`--bundles appimage --bundle-only` packages already-built binaries after
+rechecking the exact staged signed engine. Debian uses its existing
+`usr/lib/VeriSilo` resource directory. AppImage places the signed engine under
+`usr/share/VeriSilo/managed-browser/engine-package`, outside linuxdeploy's ELF
+rewrite pass, and verifies the complete packaged tree and CMS again afterward.
+The desktop derives this one AppImage path from its own executable prefix.
+
 ## Runtime and data
 
 The Linux desktop uses the existing React UI, Vault encryption, Silo identity,

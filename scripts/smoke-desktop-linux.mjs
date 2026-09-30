@@ -9,6 +9,12 @@ import {
   lstatSync,
   readlinkSync,
   readFileSync,
+  readdirSync,
+  openSync,
+  fstatSync,
+  readSync,
+  closeSync,
+  constants,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -346,6 +352,76 @@ function startManaged(siloId) {
   return activation;
 }
 
+function saveFailedHostLogs(evidenceRoot) {
+  const diagnose = (path, error) => {
+    (evidence.hostLogCopyErrors ??= []).push({
+      path,
+      error: error.code ?? String(error),
+    });
+  };
+  try {
+    let silosRoot = root;
+    for (const name of ["VeriSilo", "vaults", "linux-smoke", "silos"]) {
+      silosRoot = join(silosRoot, name);
+      const metadata = lstatSync(silosRoot);
+      if (!metadata.isDirectory() || metadata.isSymbolicLink()) return;
+    }
+    for (const entry of readdirSync(silosRoot, { withFileTypes: true })) {
+      if (
+        !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(
+          entry.name,
+        ) ||
+        !entry.isDirectory() ||
+        entry.isSymbolicLink()
+      ) {
+        continue;
+      }
+      const stateRoot = join(silosRoot, entry.name, "engine-state");
+      try {
+        const silo = lstatSync(join(silosRoot, entry.name));
+        if (!silo.isDirectory() || silo.isSymbolicLink()) continue;
+        const state = lstatSync(stateRoot);
+        if (!state.isDirectory() || state.isSymbolicLink()) continue;
+      } catch (error) {
+        if (error.code !== "ENOENT") diagnose(entry.name, error);
+        continue;
+      }
+      for (const name of ["host-stderr.log", "host-stderr.log.1"]) {
+        let fd;
+        try {
+          const path = join(stateRoot, name);
+          const metadata = lstatSync(path);
+          if (!metadata.isFile() || metadata.isSymbolicLink()) continue;
+          fd = openSync(
+            path,
+            constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+          );
+          const opened = fstatSync(fd);
+          if (!opened.isFile()) continue;
+          const size = Math.min(opened.size, 128 * 1024);
+          const tail = Buffer.alloc(size);
+          const bytes = readSync(fd, tail, 0, size, opened.size - size);
+          const destination = join(evidenceRoot, "host-logs", entry.name);
+          mkdirSync(destination, { recursive: true });
+          writeFileSync(join(destination, name), tail.subarray(0, bytes));
+        } catch (error) {
+          if (error.code !== "ENOENT") diagnose(`${entry.name}/${name}`, error);
+        } finally {
+          if (fd !== undefined) {
+            try {
+              closeSync(fd);
+            } catch (error) {
+              diagnose(`${entry.name}/${name}`, error);
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    diagnose("silos", error);
+  }
+}
+
 try {
   await startDesktop();
   cli(["vault", "init"], `${password}\n${password}\n`);
@@ -539,6 +615,7 @@ try {
   evidence.completedAt = new Date().toISOString();
   const evidenceRoot = resolve("artifacts/linux-desktop-smoke");
   mkdirSync(evidenceRoot, { recursive: true });
+  if (!evidence.passed) saveFailedHostLogs(evidenceRoot);
   writeFileSync(
     join(evidenceRoot, "result.json"),
     `${JSON.stringify(evidence, null, 2)}\n`,

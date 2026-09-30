@@ -23,6 +23,13 @@ use uuid::Uuid;
 fn resolve_managed_browser_package_root(resource_root: &std::path::Path) -> PathBuf {
     let packaged = resource_root.join("managed-browser").join("engine-package");
 
+    #[cfg(target_os = "linux")]
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(shared) = linux_installed_package_fallback(&packaged, &executable) {
+            return shared;
+        }
+    }
+
     #[cfg(debug_assertions)]
     if !packaged.is_dir() {
         if let Some(target_root) = resource_root.ancestors().find(|path| {
@@ -42,6 +49,30 @@ fn resolve_managed_browser_package_root(resource_root: &std::path::Path) -> Path
     packaged
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn linux_installed_package_fallback(
+    primary: &std::path::Path,
+    executable: &std::path::Path,
+) -> Option<PathBuf> {
+    // Preserve existing packages, including malformed paths which the engine
+    // must reject. AppImage keeps its signed tree outside linuxdeploy's usr/lib
+    // rewrite pass; derive that one location from the executing binary only.
+    match fs::symlink_metadata(primary) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        _ => return None,
+    }
+    if !executable.is_absolute() || executable.file_name()? != "verisilo" {
+        return None;
+    }
+    let bin = executable.parent()?;
+    let usr = bin.parent()?;
+    if bin.file_name()? != "bin" || usr.file_name()? != "usr" {
+        return None;
+    }
+    let shared = usr.join("share/VeriSilo/managed-browser/engine-package");
+    shared.is_dir().then_some(shared)
+}
+
 pub(crate) fn managed_browser_package_root(state: &DesktopCore) -> PathBuf {
     resolve_managed_browser_package_root(&state.resource_root)
 }
@@ -49,7 +80,8 @@ pub(crate) fn managed_browser_package_root(state: &DesktopCore) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        managed_proxy_error, managed_proxy_relay_error, resolve_managed_browser_package_root,
+        linux_installed_package_fallback, managed_proxy_error, managed_proxy_relay_error,
+        resolve_managed_browser_package_root,
     };
     use crate::domain::DomainError;
     use crate::proxy_relay::ProxyRelayError;
@@ -69,6 +101,58 @@ mod tests {
         fs::create_dir_all(&staged).unwrap();
 
         assert_eq!(resolve_managed_browser_package_root(&resource_root), staged);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn installed_package_fallback_uses_only_the_executing_usr_bin_prefix() {
+        let root = std::env::temp_dir().join(format!("verisilo-appimage-root-{}", Uuid::new_v4()));
+        let shared = root.join("usr/share/VeriSilo/managed-browser/engine-package");
+        let primary = root.join("usr/lib/VeriSilo/managed-browser/engine-package");
+        fs::create_dir_all(&shared).unwrap();
+
+        assert_eq!(
+            linux_installed_package_fallback(&primary, &root.join("usr/bin/verisilo")),
+            Some(shared),
+        );
+        for executable in [
+            root.join("bin/verisilo"),
+            root.join("usr/bin/other-program"),
+            std::path::PathBuf::from("usr/bin/verisilo"),
+        ] {
+            assert_eq!(
+                linux_installed_package_fallback(&primary, &executable),
+                None
+            );
+        }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn installed_package_fallback_preserves_primary_and_its_validation() {
+        let root = std::env::temp_dir().join(format!("verisilo-appimage-root-{}", Uuid::new_v4()));
+        let shared = root.join("usr/share/VeriSilo/managed-browser/engine-package");
+        let primary = root.join("usr/lib/VeriSilo/managed-browser/engine-package");
+        let executable = root.join("usr/bin/verisilo");
+        fs::create_dir_all(&shared).unwrap();
+        fs::create_dir_all(&primary).unwrap();
+        assert_eq!(
+            linux_installed_package_fallback(&primary, &executable),
+            None
+        );
+        assert_eq!(
+            resolve_managed_browser_package_root(primary.parent().unwrap().parent().unwrap()),
+            primary,
+        );
+
+        fs::remove_dir(&primary).unwrap();
+        fs::write(&primary, b"malformed primary must not be bypassed").unwrap();
+        assert_eq!(
+            linux_installed_package_fallback(&primary, &executable),
+            None
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
