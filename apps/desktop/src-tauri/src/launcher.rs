@@ -5706,13 +5706,29 @@ process.stdin.on('end', () => {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         NODE_WARMUP.get_or_init(|| {
-            let status = std::process::Command::new("node")
-                .arg("--version")
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
+            // --version skips the V8 and redirected stdio startup exercised by
+            // the protocol fixture. Complete that cold path before its deadline.
+            let mut child = std::process::Command::new("node")
+                .args(["-e", "process.stdin.pipe(process.stdout)"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
                 .expect("start Node protocol fixture warmup");
-            assert!(status.success(), "Node protocol fixture warmup failed");
+            let mut stdin = child.stdin.take().expect("warmup stdin");
+            std::io::Write::write_all(&mut stdin, b"ready").expect("write warmup probe");
+            drop(stdin);
+            let output = child
+                .wait_with_output()
+                .expect("finish Node fixture warmup");
+            assert!(
+                output.status.success(),
+                "Node protocol fixture warmup failed"
+            );
+            assert_eq!(
+                output.stdout, b"ready",
+                "Node warmup must echo the exact probe"
+            );
         });
         reservation
     }

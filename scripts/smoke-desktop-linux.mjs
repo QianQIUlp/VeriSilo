@@ -9,7 +9,7 @@ import {
   readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
@@ -31,6 +31,7 @@ const backupPassword = "linux smoke isolated backup passphrase";
 let desktop;
 let desktopLog = "";
 let fixture;
+let standard;
 const evidence = {
   platform: "linux-x64",
   standard: false,
@@ -107,6 +108,33 @@ async function stopDesktop() {
   await waitFor(() => desktop.exitCode !== null, "desktop shutdown");
 }
 
+function closeStandardBrowser(silo) {
+  // RC5 Standard browsers are closed by the user, not the Managed stop API.
+  // Signal only the real browser launched with this isolated smoke's Profile.
+  assert(resolve(silo.profileDirectory).startsWith(`${root}${sep}`));
+  const record = JSON.parse(
+    readFileSync(
+      join(root, "VeriSilo/vaults/linux-smoke/runtime/browser-session.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(record.siloId, silo.id);
+  assert(Number.isSafeInteger(record.pid) && record.pid > 0);
+  const args = readFileSync(`/proc/${record.pid}/cmdline`, "utf8").split("\0");
+  assert(args.includes(`--user-data-dir=${resolve(silo.profileDirectory)}`));
+  process.kill(record.pid, "SIGTERM");
+}
+
+function startManaged(siloId) {
+  const activation = cli(["start", siloId]);
+  (evidence.managedLaunches ??= []).push(activation);
+  assert.equal(activation.state, "running");
+  assert.equal(activation.engineEvidence?.verifiedAdapter, "camoufox");
+  assert.equal(activation.engineEvidence?.packageVerification, "verified");
+  assert.equal(activation.engineEvidence?.hostLaunch, "verified");
+  assert.equal(activation.identityEvidence?.state, "matched");
+}
+
 try {
   await startDesktop();
   cli(["vault", "init"], `${password}\n${password}\n`);
@@ -132,8 +160,14 @@ try {
     resolve(values.browser),
   ]);
   assert(silo.id);
+  standard = silo;
   assert.equal(cli(["start", silo.id]).state, "running");
-  cli(["stop", silo.id]);
+  closeStandardBrowser(silo);
+  await waitFor(
+    () => cli(["status", silo.id]).activation?.state === "stopped",
+    "Standard browser close reconciliation",
+  );
+  standard = null;
   assert(cli(["silos"]).some((item) => item.id === silo.id));
   evidence.standard = true;
 
@@ -162,7 +196,7 @@ try {
       fixture.once("error", reject);
     });
     const fixtureUrl = `http://127.0.0.1:${port}/`;
-    assert.equal(cli(["start", managed.id]).state, "running");
+    startManaged(managed.id);
     cli(["page", managed.id, "goto", fixtureUrl]);
     assert.equal(
       cli(
@@ -172,9 +206,17 @@ try {
       "saved",
     );
     const windows = cli(["page", managed.id, "windows"]);
-    assert(windows, "Managed page control must return a receipt.");
+    assert.equal(
+      windows.available,
+      false,
+      "Native OS window enumeration is unavailable on Linux.",
+    );
+    assert(
+      windows.page?.innerWidth > 0,
+      "Managed page metrics must be observed.",
+    );
     const snapshot = cli(["page", managed.id, "snapshot"]);
-    assert(snapshot, "Managed identity/page snapshot must return a receipt.");
+    assert.equal(snapshot.url, fixtureUrl);
     const screenshot = cli(["page", managed.id, "screenshot"]);
     assert(
       existsSync(screenshot.path),
@@ -191,7 +233,7 @@ try {
       `${backupPassword}\n`,
     );
     assert.match(inspection.archiveSha256, /^[a-f0-9]{64}$/);
-    assert.equal(cli(["start", managed.id]).state, "running");
+    startManaged(managed.id);
     cli(["page", managed.id, "goto", fixtureUrl]);
     cli(
       ["page", managed.id, "evaluate"],
@@ -209,7 +251,7 @@ try {
       ],
       `${backupPassword}\n`,
     );
-    assert.equal(cli(["start", managed.id]).state, "running");
+    startManaged(managed.id);
     cli(["page", managed.id, "goto", fixtureUrl]);
     assert.equal(
       cli(
@@ -245,6 +287,13 @@ try {
   );
   writeFileSync(join(evidenceRoot, "desktop.log"), desktopLog);
   if (fixture) await fixture.terminate();
+  if (standard) {
+    try {
+      closeStandardBrowser(standard);
+    } catch {
+      /* Already exited or no longer this fixture. */
+    }
+  }
   if (desktop?.exitCode === null) {
     cli(["service", "stop"], undefined, true);
     desktop.kill("SIGTERM");
