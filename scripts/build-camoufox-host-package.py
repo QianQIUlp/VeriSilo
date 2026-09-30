@@ -14,10 +14,12 @@ import argparse
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -630,23 +632,143 @@ def _sign_linux_manifest(manifest: dict[str, Any], manifest_path: Path, payload_
                          certificate: Path | None, private_key: Path | None, password_env: str) -> None:
     if certificate is None or private_key is None or not certificate.is_file() or not private_key.is_file():
         _fail("Linux --sign requires --pem-certificate and --pem-private-key")
-    der = subprocess.run(["openssl", "x509", "-in", str(certificate), "-outform", "DER"], check=True, capture_output=True).stdout
+    der = _run_openssl(["x509", "-in", str(certificate), "-outform", "DER"])
     manifest["signature"]["keyId"] = sha256_bytes(der)
     payload_path.write_bytes(manifest_signing_payload(manifest))
     signature_path = payload_path.with_suffix(".cms")
-    subprocess.run([
-        "openssl", "cms", "-sign", "-binary", "-md", "sha256", "-nosmimecap", "-in", str(payload_path),
+    _run_openssl([
+        "cms", "-sign", "-binary", "-md", "sha256", "-nosmimecap", "-in", str(payload_path),
         "-signer", str(certificate), "-inkey", str(private_key),
         "-passin", f"env:{password_env}" if password_env in os.environ else "pass:",
         "-outform", "DER", "-out", str(signature_path),
-    ], check=True, capture_output=True)
+    ])
     manifest["signature"]["value"] = base64.b64encode(signature_path.read_bytes()).decode("ascii")
-    verified_path = payload_path.with_suffix(".verified")
-    subprocess.run(["openssl", "cms", "-verify", "-binary", "-inform", "DER", "-in", str(signature_path),
-                    "-content", str(payload_path), "-noverify", "-out", str(verified_path)], check=True, capture_output=True)
-    if verified_path.read_bytes() != payload_path.read_bytes():
-        _fail("Linux CMS signature verification changed the payload")
+    _verify_linux_manifest_signature(manifest, trusted_pins=manifest["signature"]["keyId"])
     _write_json(manifest_path, manifest)
+
+
+def _run_openssl(arguments: list[str]) -> bytes:
+    env = os.environ.copy()
+    for name in ("OPENSSL_CONF", "OPENSSL_MODULES", "LD_PRELOAD", "LD_LIBRARY_PATH"):
+        env.pop(name, None)
+    env["LC_ALL"] = "C"
+    executable = "/usr/bin/openssl" if sys.platform == "linux" else "openssl"
+    try:
+        return subprocess.run([executable, *arguments], check=True, capture_output=True,
+                              stdin=subprocess.DEVNULL, env=env, timeout=30).stdout
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        _fail(f"Linux CMS OpenSSL {arguments[0]} failed: {type(exc).__name__}")
+
+
+def _validate_linux_cms_structure(signature: bytes) -> None:
+    # The same narrow SignedData shape as engine_linux.rs: detached data,
+    # one SHA-256 digest and exactly one SHA-256 SignerInfo. OpenSSL owns all
+    # certificate and signature parsing/cryptography after these checks.
+    def take(data: bytes, tag: int) -> tuple[bytes, bytes]:
+        if len(data) < 2 or data[0] != tag:
+            _fail("Linux CMS DER structure is invalid")
+        length, header = data[1], 2
+        if length >= 128:
+            count = length & 127
+            if count == 0 or count > 4 or len(data) < 2 + count or data[2] == 0:
+                _fail("Linux CMS DER length is invalid")
+            header += count
+            length = int.from_bytes(data[2:header], "big")
+            if length < 128:
+                _fail("Linux CMS DER length is not canonical")
+        if header + length > len(data):
+            _fail("Linux CMS DER is truncated")
+        return data[header:header + length], data[header + length:]
+
+    def sha256_algorithm(data: bytes) -> None:
+        oid, parameters = take(data, 6)
+        if oid != bytes.fromhex("608648016503040201") or parameters not in (b"", b"\x05\x00"):
+            _fail("Linux CMS requires exactly the SHA-256 digest")
+
+    outer, trailing = take(signature, 0x30)
+    oid, outer = take(outer, 6)
+    explicit, outer = take(outer, 0xa0)
+    signed, explicit = take(explicit, 0x30)
+    if trailing or outer or explicit or oid != bytes.fromhex("2a864886f70d010702"):
+        _fail("Linux CMS must be exact SignedData without trailing bytes")
+    _, signed = take(signed, 2)
+    digests, signed = take(signed, 0x31)
+    algorithm, digests = take(digests, 0x30)
+    sha256_algorithm(algorithm)
+    if digests:
+        _fail("Linux CMS requires exactly one digest")
+    content, signed = take(signed, 0x30)
+    oid, content = take(content, 6)
+    if content or oid != bytes.fromhex("2a864886f70d010701"):
+        _fail("Linux CMS content must be detached")
+    for tag in (0xa0, 0xa1):
+        if signed and signed[0] == tag:
+            _, signed = take(signed, tag)
+    signers, signed = take(signed, 0x31)
+    signer, signers = take(signers, 0x30)
+    if signed or signers:
+        _fail("Linux CMS requires exactly one signer")
+    _, signer = take(signer, 2)
+    if not signer or signer[0] not in (0x30, 0x80):
+        _fail("Linux CMS signer identity is invalid")
+    _, signer = take(signer, signer[0])
+    algorithm, _ = take(signer, 0x30)
+    sha256_algorithm(algorithm)
+
+
+def _verify_linux_manifest_signature(manifest: dict[str, Any], *, trusted_pins: str | None = None) -> str:
+    if trusted_pins is None:
+        trusted_pins = os.environ.get("VERISILO_ENGINE_SIGNER_SHA256", "")
+    pins = [pin.strip() for pin in trusted_pins.split(",")]
+    signature = manifest["signature"]
+    if not pins or any(re.fullmatch(r"[0-9a-f]{64}", pin) is None for pin in pins):
+        _fail("Linux CMS checking requires VERISILO_ENGINE_SIGNER_SHA256 certificate pins")
+    if signature["algorithm"] != "cms-detached-sha256" or signature["keyId"] not in pins:
+        _fail("Linux CMS signer certificate is not pinned by this build")
+    try:
+        raw_signature = base64.b64decode(signature["value"], validate=True)
+    except (ValueError, TypeError):
+        _fail("Linux CMS signature is not canonical base64")
+    if (not raw_signature or len(raw_signature) > 48 * 1024
+        or base64.b64encode(raw_signature).decode("ascii") != signature["value"]):
+        _fail("Linux CMS signature has an invalid encoding or size")
+    _validate_linux_cms_structure(raw_signature)
+    payload = manifest_signing_payload(manifest)
+    with tempfile.TemporaryDirectory(prefix="verisilo-linux-cms-") as temporary:
+        root = Path(temporary)
+        signature_path, payload_path = root / "signature.der", root / "payload.bin"
+        signer_path, verified_path = root / "signer.pem", root / "verified.bin"
+        signature_path.write_bytes(raw_signature)
+        payload_path.write_bytes(payload)
+        # The exact DER certificate pin replaces chain trust; content and
+        # cryptographic signature verification remain enabled.
+        _run_openssl(["cms", "-verify", "-binary", "-inform", "DER", "-in", str(signature_path),
+                      "-content", str(payload_path), "-noverify", "-signer", str(signer_path),
+                      "-out", str(verified_path)])
+        if verified_path.read_bytes() != payload:
+            _fail("Linux CMS content differs from the exact manifest signing payload")
+        if signer_path.read_text(encoding="ascii").count("-----BEGIN CERTIFICATE-----") != 1:
+            _fail("Linux CMS requires exactly one signer certificate")
+        signer_der = _run_openssl(["x509", "-in", str(signer_path), "-outform", "DER"])
+        signer_pin = sha256_bytes(signer_der)
+        if signer_pin != signature["keyId"] or signer_pin not in pins:
+            _fail("Linux CMS signer certificate does not match the exact manifest certificate pin")
+        info = _run_openssl(["x509", "-in", str(signer_path), "-noout", "-startdate", "-enddate",
+                             "-ext", "extendedKeyUsage"]).decode("ascii")
+        try:
+            dates = {name: datetime.strptime(value, "%b %d %H:%M:%S %Y GMT").replace(tzinfo=timezone.utc)
+                     for name, value in re.findall(r"(?m)^(notBefore|notAfter)=(.+)$", info)}
+        except ValueError:
+            _fail("Linux CMS signer certificate validity is invalid")
+        now = datetime.now(timezone.utc)
+        if set(dates) != {"notBefore", "notAfter"} or not dates["notBefore"] <= now <= dates["notAfter"]:
+            _fail("Linux CMS signer certificate is not currently valid")
+        lines = info.splitlines()
+        eku_start = next((index for index, line in enumerate(lines) if "Extended Key Usage:" in line), None)
+        eku = "\n".join(lines[eku_start + 1:]) if eku_start is not None else ""
+        if not any(usage.strip() == "Code Signing" for usage in eku.split(",")):
+            _fail("Linux CMS signer certificate must explicitly declare the code-signing EKU")
+        return signer_pin
 
 
 def _package_asset_lock(formal: dict[str, Any], browser_tree_sha256: str) -> dict[str, Any]:
@@ -1115,12 +1237,18 @@ def main() -> int:
             root = args.check.absolute()
             manifest = _read_formal_json(root / PACKAGE_MANIFEST_NAME)
             validate_v3_manifest(manifest, allow_unsigned=not args.require_signed)
+            signer_pin = None
+            if manifest["platform"] == LINUX_PLATFORM and manifest["signature"]["value"]:
+                signer_pin = _verify_linux_manifest_signature(manifest)
             result = recheck_formal_package(root, manifest)
             _validate_host_source_provenance(
                 root / "host", args.host_source.absolute()
             )
             _validate_packaged_probe_parity(root)
             result["signed"] = bool(manifest["signature"]["value"])
+            if manifest["platform"] == LINUX_PLATFORM:
+                result["signatureVerified"] = signer_pin is not None
+                result["signerCertificateSha256"] = signer_pin
             print(json.dumps(result, sort_keys=True))
             return 0
         required = {

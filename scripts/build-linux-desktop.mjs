@@ -84,9 +84,12 @@ if (values["dry-run"]) {
     const manifest = JSON.parse(
       readFileSync(resolve(packageRoot, "engine-package.json"), "utf8"),
     );
+    const verification = JSON.parse(checked.stdout);
     if (
       manifest.platform !== "linux-x64" ||
-      !pins.includes(manifest.signature?.keyId)
+      !pins.includes(manifest.signature?.keyId) ||
+      verification.signatureVerified !== true ||
+      verification.signerCertificateSha256 !== manifest.signature.keyId
     ) {
       throw new Error(
         "The engine package must be native linux-x64 and signed by a release-embedded certificate pin.",

@@ -208,7 +208,7 @@ jobs:
         run: |
           xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop /usr/bin/verisilo --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome --managed
           cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/deb.json
-      - name: Exercise Managed AppImage runtime and pinned CMS helper
+      - name: Exercise Managed AppImage runtime
         run: |
           image=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
           test -n "$image"

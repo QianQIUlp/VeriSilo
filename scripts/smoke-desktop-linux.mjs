@@ -132,11 +132,30 @@ async function closeStandardBrowser(silo) {
     args.includes(`--user-data-dir=${resolve(silo.profileDirectory)}`),
     `Recorded PID ${record.pid} is not this fixture browser: ${JSON.stringify(args)}`,
   );
+  await waitFor(() => {
+    const observed = standardBrowserWindows(record.pid, true);
+    evidence.standardWindowFirst ??= observed;
+    evidence.standardClose = observed;
+    return observed.windows.length > 0;
+  }, "Standard browser's own visible X11 window");
+}
+
+function standardBrowserWindows(pid, close) {
   const closeWindow = String.raw`
 import ctypes as C, json, sys
 pid = int(sys.argv[1])
+send_close = sys.argv[2] == "1"
 x = C.CDLL("libX11.so.6")
 window = C.c_ulong
+class Attributes(C.Structure):
+    _fields_ = [(name, C.c_int) for name in ("x", "y", "width", "height", "border_width", "depth")] + [
+        ("visual", C.c_void_p), ("root", window), ("window_class", C.c_int),
+        ("bit_gravity", C.c_int), ("win_gravity", C.c_int), ("backing_store", C.c_int),
+        ("backing_planes", C.c_ulong), ("backing_pixel", C.c_ulong), ("save_under", C.c_int),
+        ("colormap", window), ("map_installed", C.c_int), ("map_state", C.c_int),
+        ("all_event_masks", C.c_long), ("your_event_mask", C.c_long), ("do_not_propagate_mask", C.c_long),
+        ("override_redirect", C.c_int), ("screen", C.c_void_p),
+    ]
 x.XOpenDisplay.restype = C.c_void_p
 x.XOpenDisplay.argtypes = [C.c_char_p]
 d = x.XOpenDisplay(None)
@@ -148,6 +167,7 @@ signatures = {
     "XQueryTree": (C.c_int, [C.c_void_p, window, C.POINTER(window), C.POINTER(window), C.POINTER(C.POINTER(window)), C.POINTER(C.c_uint)]),
     "XGetWindowProperty": (C.c_int, [C.c_void_p, window, window, C.c_long, C.c_long, C.c_int, window, C.POINTER(window), C.POINTER(C.c_int), C.POINTER(C.c_ulong), C.POINTER(C.c_ulong), C.POINTER(C.POINTER(C.c_ubyte))]),
     "XGetWMProtocols": (C.c_int, [C.c_void_p, window, C.POINTER(C.POINTER(window)), C.POINTER(C.c_int)]),
+    "XGetWindowAttributes": (C.c_int, [C.c_void_p, window, C.POINTER(Attributes)]),
     "XFree": (C.c_int, [C.c_void_p]),
     "XSendEvent": (C.c_int, [C.c_void_p, window, C.c_int, C.c_long, C.c_void_p]),
     "XFlush": (C.c_int, [C.c_void_p]),
@@ -165,12 +185,14 @@ class Event(C.Union):
 pid_atom = x.XInternAtom(d, b"_NET_WM_PID", False)
 delete_atom = x.XInternAtom(d, b"WM_DELETE_WINDOW", False)
 protocol_atom = x.XInternAtom(d, b"WM_PROTOCOLS", False)
+type_atom = x.XInternAtom(d, b"_NET_WM_WINDOW_TYPE", False)
+normal_atom = x.XInternAtom(d, b"_NET_WM_WINDOW_TYPE_NORMAL", False)
 root, parent, children, count = window(), window(), C.POINTER(window)(), C.c_uint()
-closed = []
+closed, owned = [], []
 try:
     if not x.XQueryTree(d, x.XDefaultRootWindow(d), C.byref(root), C.byref(parent), C.byref(children), C.byref(count)):
         raise RuntimeError("Cannot enumerate Xvfb top-level windows")
-    for index in range(count.value):
+    for index in range(min(count.value, 128)):
         w = children[index]
         kind, fmt, items, remaining, value = window(), C.c_int(), C.c_ulong(), C.c_ulong(), C.POINTER(C.c_ubyte)()
         x.XGetWindowProperty(d, w, pid_atom, 0, 1, False, 6, C.byref(kind), C.byref(fmt), C.byref(items), C.byref(remaining), C.byref(value))
@@ -178,6 +200,22 @@ try:
         if value:
             x.XFree(value)
         if not matches:
+            continue
+        attributes = Attributes()
+        if not x.XGetWindowAttributes(d, w, C.byref(attributes)):
+            continue
+        value = C.POINTER(C.c_ubyte)()
+        x.XGetWindowProperty(d, w, type_atom, 0, 16, False, 4, C.byref(kind), C.byref(fmt), C.byref(items), C.byref(remaining), C.byref(value))
+        types = list(C.cast(value, C.POINTER(C.c_ulong))[:items.value]) if value and kind.value == 4 and fmt.value == 32 else []
+        if value:
+            x.XFree(value)
+        is_normal = normal_atom in types
+        owned.append({"id": w, "types": types, "normal": is_normal, "mapState": attributes.map_state,
+                      "geometry": [attributes.x, attributes.y, attributes.width, attributes.height],
+                      "overrideRedirect": bool(attributes.override_redirect)})
+        # PID and WM_DELETE_WINDOW also occur on Chromium's hidden startup
+        # windows. A user can close only a mapped, normal browser window.
+        if not send_close or not is_normal or attributes.map_state != 2 or attributes.override_redirect or attributes.width <= 0 or attributes.height <= 0:
             continue
         protocols, length = C.POINTER(window)(), C.c_int()
         supports_close = x.XGetWMProtocols(d, w, C.byref(protocols), C.byref(length)) and delete_atom in protocols[:length.value]
@@ -195,20 +233,20 @@ finally:
     if children:
         x.XFree(children)
     x.XCloseDisplay(d)
-print(json.dumps({"pid": pid, "windows": closed}))
+print(json.dumps({"pid": pid, "windows": closed, "ownedWindows": owned}))
 `;
-  await waitFor(() => {
-    const result = spawnSync("python3", ["-c", closeWindow, String(record.pid)], {
+  const result = spawnSync(
+    "python3",
+    ["-c", closeWindow, String(pid), close ? "1" : "0"],
+    {
       encoding: "utf8",
       timeout: 5_000,
-    });
-    assert.equal(result.status, 0, result.stderr || String(result.error));
-    const closed = JSON.parse(result.stdout);
-    assert.equal(closed.pid, record.pid);
-    if (!closed.windows.length) return false;
-    evidence.standardClose = closed;
-    return true;
-  }, "Standard browser's own X11 window");
+    },
+  );
+  assert.equal(result.status, 0, result.stderr || String(result.error));
+  const observed = JSON.parse(result.stdout);
+  assert.equal(observed.pid, pid);
+  return observed;
 }
 
 function standardDiagnostics(silo) {
@@ -230,9 +268,18 @@ function standardDiagnostics(silo) {
   } catch {
     /* Keep partial or unreadable records in the diagnostic. */
   }
+  let windows = null;
+  if (pid) {
+    try {
+      windows = standardBrowserWindows(pid, false);
+    } catch (error) {
+      windows = { error: String(error) };
+    }
+  }
   return {
     lastStatus: evidence.standardClose?.lastStatus,
     record,
+    windows,
     process: pid
       ? {
           pid,
@@ -260,10 +307,42 @@ function startManaged(siloId) {
   const activation = cli(["start", siloId]);
   (evidence.managedLaunches ??= []).push(activation);
   assert.equal(activation.state, "running");
-  assert.equal(activation.engineEvidence?.verifiedAdapter, "camoufox");
-  assert.equal(activation.engineEvidence?.packageVerification, "verified");
-  assert.equal(activation.engineEvidence?.hostLaunch, "verified");
+  const engine = activation.engineEvidence;
+  assert.equal(engine?.configuredAdapter, "camoufox");
+  assert.equal(engine?.launchedAdapter, "camoufox");
+  // RC5 authenticates the package at the installer build boundary. Loading
+  // the installed package does not re-hash or CMS-verify the entire tree.
+  assert.equal(engine?.verifiedAdapter, null);
+  assert.equal(engine?.packageVerification, "not_requested");
+  assert.equal(engine?.hostLaunch, "observed");
+  const binding = engine?.packageVerificationDetails;
+  assert.equal(binding?.verifierId, "installed-package");
+  assert.equal(binding?.digestVerified, false);
+  assert.equal(binding?.signatureVerified, false);
+  assert.equal(
+    binding?.engineRevision,
+    "verisilo-camoufox-152.0.4-beta.28-r1-formal-v3",
+  );
+  for (const field of [
+    "artifactSha256",
+    "packageManifestSha256",
+    "packageTreeSha256",
+    "hostSha256",
+    "signerCertificateSha256",
+  ]) {
+    assert.match(binding[field], /^[a-f0-9]{64}$/u, field);
+  }
+  assert.equal(binding.artifactSha256, binding.hostSha256);
+  assert(
+    (process.env.VERISILO_ENGINE_SIGNER_SHA256 ?? "")
+      .split(",")
+      .map((pin) => pin.trim())
+      .includes(binding.signerCertificateSha256),
+    "Installed package must retain this build's exact signer certificate pin.",
+  );
   assert.equal(activation.identityEvidence?.state, "matched");
+  assert.equal(activation.identityEvidence?.siloId, siloId);
+  assert.equal(activation.identityEvidence?.engineAdapter, "camoufox");
   return activation;
 }
 
@@ -302,6 +381,10 @@ try {
       return status?.state === "stopped";
     },
     "Standard browser close reconciliation",
+  );
+  evidence.standardClose.after = standardBrowserWindows(
+    evidence.standardClose.pid,
+    false,
   );
   standard = null;
   assert(cli(["silos"]).some((item) => item.id === silo.id));

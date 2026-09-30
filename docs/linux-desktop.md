@@ -46,8 +46,13 @@ The signing certificate must currently be valid and explicitly declare the
 code-signing EKU. Keep private keys outside the repository. An encrypted PEM
 key's password is read from the environment variable named by `--password-env`.
 The desktop embeds the public certificate pin and the newly compiled Linux
-browser's exact asset hashes; runtime verification checks detached SHA-256 CMS,
-the signer pin, and package-tree bindings before activating the engine.
+browser's exact asset hashes. Packaging verifies detached SHA-256 CMS, the
+signer pin and the complete package tree before producing the installers.
+Explicit engine install/update/rollback uses the production CMS verifier.
+Bundled-engine activation retains RC5's installed-package trust model: it
+checks fixed layout and asset bindings without rehashing the complete installed
+tree on each health query or launch. Runtime evidence records that distinction;
+matched identity requires observations from the actual launched browser.
 
 The Linux workflow uses an ephemeral evaluation certificate. Its artifacts are
 CI candidates; the workflow does not publish a GitHub release or reuse the

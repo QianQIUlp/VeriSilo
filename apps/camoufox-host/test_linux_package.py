@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import base64
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -194,6 +197,40 @@ class NativePackageTests(unittest.TestCase):
             manifest["browserAssetSha256"] = "c" * 64
             with self.assertRaisesRegex(PackageContractError, "binding differ"):
                 recheck_formal_package(root, manifest)
+            if shutil.which("openssl"):
+                manifest["browserAssetSha256"] = asset["sha256"]
+                self._assert_signed_linux_check(root, layout, manifest)
+
+    def _assert_signed_linux_check(self, root: Path, layout: PackageLayout, manifest: dict) -> None:
+        layout.probe.write_bytes(builder.CANONICAL_PROBE.read_bytes())
+        builder._write_host_source_provenance(layout.host.parent, HOST / "host_v1.py")
+        write_json(layout.package_tree, build_package_tree(root))
+        manifest["treeManifest"]["sha256"] = sha256_file(layout.package_tree)
+        # Signing inputs/sidecars stay outside the exact package tree.
+        with tempfile.TemporaryDirectory() as temporary:
+            signing = Path(temporary)
+            cert, key = signing / "cert.pem", signing / "key.pem"
+            subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                            "-subj", "/CN=VeriSilo package check test", "-addext", "extendedKeyUsage=codeSigning",
+                            "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True, timeout=30)
+            manifest_path = root / "engine-package.json"
+            builder._sign_linux_manifest(manifest, manifest_path, signing / "payload.bin", cert, key, "NO_PASSWORD")
+            with patch.dict(os.environ, {"VERISILO_ENGINE_SIGNER_SHA256": manifest["signature"]["keyId"]}), \
+                 patch.object(sys, "argv", ["build-package", "--check", str(root), "--require-signed"]):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(builder.main(), 0)
+                checked = json.loads(output.getvalue())
+                self.assertTrue(checked["signatureVerified"])
+                self.assertEqual(checked["signerCertificateSha256"], manifest["signature"]["keyId"])
+                # Preserve a pinned keyId and canonical base64 of valid size:
+                # the old text/tree-only check would accept this forged CMS.
+                manifest["signature"]["value"] = base64.b64encode(b"forged CMS" * 32).decode("ascii")
+                write_json(manifest_path, manifest)
+                errors = io.StringIO()
+                with contextlib.redirect_stderr(errors):
+                    self.assertEqual(builder.main(), 2)
+                self.assertIn("CMS DER structure", errors.getvalue())
 
     def test_zip_rejects_escaping_members_and_preserves_exec(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -220,14 +257,107 @@ class NativePackageTests(unittest.TestCase):
             root = Path(temporary)
             cert, key = root / "cert.pem", root / "key.pem"
             subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
-                            "-subj", "/CN=VeriSilo Linux package test", "-keyout", str(key), "-out", str(cert)],
-                           check=True, capture_output=True)
+                            "-subj", "/CN=VeriSilo Linux package test", "-addext", "extendedKeyUsage=codeSigning",
+                            "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True, timeout=30)
             manifest = {"signature": {"algorithm": "cms-detached-sha256", "keyId": "0" * 64, "value": ""}}
             manifest_path, payload = root / "manifest.json", root / "payload.bin"
             builder._sign_linux_manifest(manifest, manifest_path, payload, cert, key, "VERISILO_TEST_NO_PASSWORD")
             self.assertNotEqual(manifest["signature"]["keyId"], "0" * 64)
             self.assertEqual(payload.read_bytes(), builder.manifest_signing_payload(manifest))
             self.assertGreater(len(manifest["signature"]["value"]), 256)
+            pin = manifest["signature"]["keyId"]
+            with patch.dict(os.environ, {"VERISILO_ENGINE_SIGNER_SHA256": pin}):
+                self.assertEqual(builder._verify_linux_manifest_signature(manifest), pin)
+            with self.assertRaisesRegex(PackageContractError, "not pinned"):
+                builder._verify_linux_manifest_signature(manifest, trusted_pins="0" * 64)
+            with self.assertRaisesRegex(PackageContractError, "requires VERISILO_ENGINE_SIGNER"):
+                builder._verify_linux_manifest_signature(manifest, trusted_pins="")
+            changed = deepcopy(manifest)
+            changed["hostVersion"] = "tampered"
+            with self.assertRaisesRegex(PackageContractError, "OpenSSL cms failed"):
+                builder._verify_linux_manifest_signature(changed, trusted_pins=pin)
+            changed = deepcopy(manifest)
+            changed["signature"]["keyId"] = "0" * 64
+            with self.assertRaises(PackageContractError):
+                builder._verify_linux_manifest_signature(changed, trusted_pins="0" * 64)
+            changed = deepcopy(manifest)
+            changed["signature"]["value"] = base64.b64encode(b"fake CMS bytes").decode("ascii")
+            with self.assertRaisesRegex(PackageContractError, "DER"):
+                builder._verify_linux_manifest_signature(changed, trusted_pins=pin)
+            changed["signature"]["value"] = manifest["signature"]["value"] + "\n"
+            with self.assertRaisesRegex(PackageContractError, "base64"):
+                builder._verify_linux_manifest_signature(changed, trusted_pins=pin)
+            for name, extra, expected in (("sha1", ["-md", "sha1"], "SHA-256"),
+                                          ("attached", ["-md", "sha256", "-nodetach"], "detached")):
+                signature = root / f"{name}.der"
+                subprocess.run(["openssl", "cms", "-sign", "-binary", "-nosmimecap", "-in", str(payload),
+                                "-signer", str(cert), "-inkey", str(key), "-outform", "DER", "-out", str(signature),
+                                *extra], check=True, capture_output=True, timeout=30)
+                changed = deepcopy(manifest)
+                changed["signature"]["value"] = base64.b64encode(signature.read_bytes()).decode("ascii")
+                with self.subTest(name=name), self.assertRaisesRegex(PackageContractError, expected):
+                    builder._verify_linux_manifest_signature(changed, trusted_pins=pin)
+            changed = deepcopy(manifest)
+            changed["signature"]["value"] = base64.b64encode(
+                base64.b64decode(manifest["signature"]["value"]) + b"trailing bytes").decode("ascii")
+            with self.assertRaisesRegex(PackageContractError, "trailing bytes"):
+                builder._verify_linux_manifest_signature(changed, trusted_pins=pin)
+
+            other_cert, other_key = root / "other.pem", root / "other-key.pem"
+            subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                            "-subj", "/CN=VeriSilo other signer", "-keyout", str(other_key), "-out", str(other_cert)],
+                           check=True, capture_output=True, timeout=30)
+            # A forged keyId may name a trusted certificate while the actual
+            # signer is different, even with a cryptographically valid CMS.
+            other_pin = builder.sha256_bytes(subprocess.run(
+                ["openssl", "x509", "-in", str(other_cert), "-outform", "DER"],
+                check=True, capture_output=True, timeout=30).stdout)
+            changed = deepcopy(manifest)
+            changed["signature"]["keyId"] = other_pin
+            payload.write_bytes(builder.manifest_signing_payload(changed))
+            forged = root / "forged-pin.der"
+            subprocess.run(["openssl", "cms", "-sign", "-binary", "-md", "sha256", "-nosmimecap", "-in", str(payload),
+                            "-signer", str(cert), "-inkey", str(key), "-outform", "DER", "-out", str(forged)],
+                           check=True, capture_output=True, timeout=30)
+            changed["signature"]["value"] = base64.b64encode(forged.read_bytes()).decode("ascii")
+            with self.assertRaisesRegex(PackageContractError, "exact manifest certificate pin"):
+                builder._verify_linux_manifest_signature(changed, trusted_pins=other_pin)
+            unsigned = {"signature": {"algorithm": "cms-detached-sha256", "keyId": "0" * 64, "value": ""}}
+            with self.assertRaisesRegex(PackageContractError, "code-signing EKU"):
+                builder._sign_linux_manifest(unsigned, manifest_path, payload, other_cert, other_key, "NO_PASSWORD")
+            # Re-sign the good payload with two real signers; both signatures
+            # are valid but the package contract requires one SignerInfo.
+            payload.write_bytes(builder.manifest_signing_payload(manifest))
+            multiple = root / "multiple.der"
+            subprocess.run(["openssl", "cms", "-sign", "-binary", "-md", "sha256", "-nosmimecap", "-in", str(payload),
+                            "-signer", str(cert), "-inkey", str(key), "-signer", str(other_cert), "-inkey", str(other_key),
+                            "-outform", "DER", "-out", str(multiple)], check=True, capture_output=True, timeout=30)
+            changed = deepcopy(manifest)
+            changed["signature"]["value"] = base64.b64encode(multiple.read_bytes()).decode("ascii")
+            with self.assertRaisesRegex(PackageContractError, "one signer"):
+                builder._verify_linux_manifest_signature(changed, trusted_pins=pin)
+            # Issue real expired/future certificates without modifying the
+            # system clock or mocking certificate parsing/verification.
+            csr = root / "dated.csr"
+            subprocess.run(["openssl", "req", "-new", "-key", str(key), "-subj", "/CN=VeriSilo expired signer",
+                            "-addext", "extendedKeyUsage=codeSigning", "-out", str(csr)],
+                           check=True, capture_output=True, timeout=30)
+            index, serial, config = root / "index.txt", root / "serial.txt", root / "ca.cnf"
+            config.write_text(
+                f'[ca]\ndefault_ca=fixture\n[fixture]\ndatabase="{index.as_posix()}"\n'
+                f'new_certs_dir="{root.as_posix()}"\nserial="{serial.as_posix()}"\n'
+                'default_md=sha256\npolicy=names\nx509_extensions=signer\n'
+                '[names]\ncommonName=supplied\n[signer]\nextendedKeyUsage=codeSigning\n', encoding="ascii")
+            for name, start, end in (("expired", "20000101000000Z", "20010101000000Z"),
+                                     ("future", "20990101000000Z", "21000101000000Z")):
+                index.write_text("", encoding="ascii")
+                serial.write_text("01\n", encoding="ascii")
+                dated = root / f"{name}.pem"
+                subprocess.run(["openssl", "ca", "-selfsign", "-batch", "-notext", "-config", str(config),
+                                "-cert", str(cert), "-keyfile", str(key), "-in", str(csr), "-startdate", start,
+                                "-enddate", end, "-out", str(dated)], check=True, capture_output=True, timeout=30)
+                with self.subTest(name=name), self.assertRaisesRegex(PackageContractError, "not currently valid"):
+                    builder._sign_linux_manifest(unsigned, manifest_path, payload, dated, key, "NO_PASSWORD")
 
 
 @unittest.skipUnless(sys.platform == "linux", "native Linux process ownership")
