@@ -212,6 +212,7 @@ jobs:
           echo "VERISILO_ENGINE_SIGNER_SHA256=$pin" >> "$GITHUB_ENV"
           xvfb-run -a dbus-run-session -- apps/camoufox-host/.venv/bin/python scripts/build-camoufox-host-package.py --out artifacts/linux-engine-package --browser-root artifacts/linux-engine-build/browser --browser-tree-manifest artifacts/linux-engine-build/browser-tree-manifest.json --build-result artifacts/linux-engine-build/linux-build-result.json --linux --sign --pem-certificate "$RUNNER_TEMP/linux-engine-cert.pem" --pem-private-key "$RUNNER_TEMP/linux-engine-key.pem"
       - name: Build self-contained Managed Debian package
+        id: managed_deb_build
         run: pnpm desktop:package:linux --engine-package artifacts/linux-engine-package --python apps/camoufox-host/.venv/bin/python --bundles deb 2>&1 | tee artifacts/linux-desktop-build.log
       - name: Install the exact Managed package
         run: |
@@ -219,15 +220,19 @@ jobs:
           test -n "$package"
           sudo apt-get install -y "$PWD/$package"
       - name: Exercise packaged Managed Identity and browser lifecycle
+        id: managed_deb_smoke
         run: |
           xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-linux.mjs --desktop /usr/bin/verisilo --cli /usr/bin/verisilo-cli --browser /usr/bin/google-chrome --managed
           cp artifacts/linux-desktop-smoke/result.json artifacts/linux-desktop-smoke/deb.json
           cp artifacts/linux-desktop-smoke/desktop.log artifacts/linux-desktop-smoke/deb-desktop.log
       - name: Bundle Managed AppImage without modifying the signed engine tree
+        id: managed_appimage_bundle
+        if: always() && steps.managed_deb_build.outcome == 'success'
         run: |
           pnpm desktop:package:linux --engine-package artifacts/linux-engine-package --python apps/camoufox-host/.venv/bin/python --bundles appimage --bundle-only 2>&1 | tee artifacts/linux-desktop-appimage-bundle.log
           cp apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/engine-package-check.json artifacts/linux-appimage-engine-verification.json
       - name: Exercise Managed AppImage runtime
+        if: steps.managed_deb_smoke.outcome == 'success' && steps.managed_appimage_bundle.outcome == 'success'
         run: |
           image=$(find apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
           test -n "$image"

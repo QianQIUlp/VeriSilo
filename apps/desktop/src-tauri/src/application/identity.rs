@@ -438,7 +438,10 @@ pub(crate) fn provision_managed_artifact(
                     timezone: intent.timezone.as_deref(),
                 },
             )
-            .map_err(managed_identity_generation_error)
+            .map_err(|error| {
+                eprintln!("{}", engine::camoufox_provision_error_diagnostic(&error));
+                managed_identity_generation_error(error)
+            })
     })();
     drop(relay);
     if let (Some(binding), Some(inbound)) = (
@@ -446,6 +449,22 @@ pub(crate) fn provision_managed_artifact(
         pinned_inbound.as_ref(),
     ) {
         let _ = mihomo::unpin_inbound(binding, mihomo_authentication.as_ref(), inbound);
+    }
+    if result.is_err() {
+        match engine::failed_camoufox_provision_log_tail(&roots.state_root) {
+            Ok(Some(tail)) if !tail.is_empty() => {
+                use std::io::Write;
+                let mut stderr = std::io::stderr().lock();
+                let _ = writeln!(
+                    stderr,
+                    "Camoufox failed provisioning Host log (bounded tail):"
+                );
+                let _ = stderr.write_all(&tail);
+                let _ = writeln!(stderr);
+            }
+            Err(_) => eprintln!("Camoufox failed provisioning Host diagnostic unavailable"),
+            _ => {}
+        }
     }
     let cleanup = match fs::remove_dir_all(&managed_root) {
         Ok(()) => Ok(()),

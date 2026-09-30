@@ -207,6 +207,87 @@ pub enum EngineError {
     InvalidRuntimeReceipt(String),
 }
 
+pub(crate) fn camoufox_provision_error_diagnostic(error: &EngineError) -> String {
+    match error {
+        EngineError::Io(error) => format!(
+            "Camoufox provisioning failure: variant=io kind={:?} errno={:?}",
+            error.kind(),
+            error.raw_os_error()
+        ),
+        EngineError::HostProvisionRejected { code, .. } => {
+            let code = match code.as_str() {
+                "provision_rejected"
+                | "provision_failed"
+                | "startup_rejected"
+                | "tree_integrity_failed"
+                | "network_observation_failed"
+                | "network_locale_unavailable"
+                | "package_required"
+                | "unknown_field"
+                | "bad_type"
+                | "provision_response_too_large" => code.as_str(),
+                _ => "unknown",
+            };
+            format!("Camoufox provisioning failure: variant=host_rejected code={code}")
+        }
+        other => {
+            let variant = match other {
+                EngineError::CapabilityUnavailable(_) => "capability_unavailable",
+                EngineError::InvalidIdentityTemplate(_) => "invalid_identity_template",
+                EngineError::InvalidPackage(_) => "invalid_package",
+                EngineError::VerificationUnavailable(_) => "verification_unavailable",
+                EngineError::EmergencyDisabled(_) => "emergency_disabled",
+                EngineError::InvalidTransition(_) => "invalid_transition",
+                EngineError::UnsafePath(_) => "unsafe_path",
+                EngineError::Serialization(_) => "serialization",
+                EngineError::InvalidBootstrap(_) => "invalid_bootstrap",
+                EngineError::InvalidRuntimeReceipt(_) => "invalid_runtime_receipt",
+                _ => "unknown",
+            };
+            format!("Camoufox provisioning failure: variant={variant}")
+        }
+    }
+}
+
+pub(crate) fn failed_camoufox_provision_log_tail(
+    state_root: &Path,
+) -> Result<Option<Vec<u8>>, EngineError> {
+    use std::io::{Seek, SeekFrom};
+    const LIMIT: u64 = 128 * 1024;
+    // Read only this Host diagnostic file, never the request or Artifact tree.
+    let path = match secure_package_member(state_root, Path::new("host-stderr.log"), PathKind::File)
+    {
+        Ok(path) => path,
+        Err(EngineError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(None)
+        }
+        Err(error) => return Err(error),
+    };
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(0x20000 | 0x800); // O_NOFOLLOW | O_NONBLOCK
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    }
+    let mut file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata_is_link_or_reparse(&metadata) {
+        return Err(EngineError::UnsafePath(
+            "provision diagnostic is not a regular file".to_owned(),
+        ));
+    }
+    file.seek(SeekFrom::Start(metadata.len().saturating_sub(LIMIT)))?;
+    let mut tail = Vec::new();
+    file.take(LIMIT).read_to_end(&mut tail)?;
+    Ok(Some(tail))
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "kebab-case")]
 pub enum EngineAdapterId {
@@ -7638,6 +7719,73 @@ mod tests {
 
     fn test_root(label: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("verisilo-engine-{label}-{}", Uuid::new_v4()))
+    }
+
+    #[test]
+    fn provision_failure_diagnostics_exclude_private_error_fields() {
+        let private = "private-seed-frame-artifact-passphrase";
+        for error in [
+            super::EngineError::Io(std::io::Error::other(private)),
+            super::EngineError::InvalidBootstrap(private.to_owned()),
+            super::EngineError::HostProvisionRejected {
+                code: "provision_failed".to_owned(),
+                message: private.to_owned(),
+            },
+            super::EngineError::HostProvisionRejected {
+                code: private.to_owned(),
+                message: private.to_owned(),
+            },
+        ] {
+            let diagnostic = super::camoufox_provision_error_diagnostic(&error);
+            assert!(!diagnostic.contains(private), "{diagnostic}");
+        }
+        let diagnostic = super::camoufox_provision_error_diagnostic(&super::EngineError::Io(
+            std::io::Error::from_raw_os_error(13),
+        ));
+        assert!(diagnostic.contains("errno=Some(13)"));
+    }
+
+    #[test]
+    fn failed_provision_log_reads_only_a_bounded_fixed_regular_file_tail() {
+        let root = test_root("provision-diagnostics");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("request.json"), "private input must not be read").unwrap();
+        assert!(super::failed_camoufox_provision_log_tail(&root)
+            .unwrap()
+            .is_none());
+        let log = root.join("host-stderr.log");
+        let mut bytes = vec![b'x'; 128 * 1024 + 10];
+        bytes.extend_from_slice(b"provision failed: ValueError: diagnostic\n");
+        fs::write(&log, &bytes).unwrap();
+        let tail = super::failed_camoufox_provision_log_tail(&root)
+            .unwrap()
+            .unwrap();
+        assert_eq!(tail, bytes[bytes.len() - 128 * 1024..]);
+        fs::remove_file(&log).unwrap();
+        fs::create_dir(&log).unwrap();
+        assert!(super::failed_camoufox_provision_log_tail(&root).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn failed_provision_log_rejects_file_and_parent_symlinks() {
+        let root = test_root("provision-diagnostic-links");
+        fs::create_dir_all(&root).unwrap();
+        let external = root.join("private.log");
+        fs::write(&external, "private seed must not be read").unwrap();
+        let state = root.join("engine-state");
+        fs::create_dir(&state).unwrap();
+        std::os::unix::fs::symlink(&external, state.join("host-stderr.log")).unwrap();
+        assert!(super::failed_camoufox_provision_log_tail(&state).is_err());
+        fs::remove_file(state.join("host-stderr.log")).unwrap();
+        fs::remove_dir(&state).unwrap();
+        let external_dir = root.join("external");
+        fs::create_dir(&external_dir).unwrap();
+        fs::write(external_dir.join("host-stderr.log"), "private input").unwrap();
+        std::os::unix::fs::symlink(&external_dir, &state).unwrap();
+        assert!(super::failed_camoufox_provision_log_tail(&state).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

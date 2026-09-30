@@ -782,6 +782,30 @@ def report_startup_failure(provision_artifact: bool) -> None:
     _send({"id": request_id, "ok": False, "error": error})
 
 
+def _log_provision_failure(exc: BaseException, code: str) -> None:
+    """Locate a failed guard without rendering request-derived exception text."""
+    known_codes = {
+        "provision_eof", "provision_frame_too_large", "frame_too_large",
+        "invalid_utf8", "duplicate_key", "invalid_number", "invalid_json",
+        "frame_not_object", "unknown_field", "bad_type", "provision_rejected",
+        "network_observation_failed", "network_locale_unavailable",
+        "tree_integrity_failed", "provision_failed",
+    }
+    code = code if code in known_codes else "unclassified"
+    source = "unavailable"
+    frame = exc.__traceback__
+    while frame is not None:
+        filename = Path(frame.tb_frame.f_code.co_filename).name
+        if filename in {
+            "host_v1.py", "provision_artifact.py", "identity_policy.py",
+            "host_runtime.py", "browser_asset.py", "browser_tree.py",
+            "package_contract.py",
+        }:
+            source = f"{filename}:{frame.tb_lineno}"
+        frame = frame.tb_next
+    _log(f"provision failed: code={code} type={type(exc).__name__} source={source}")
+
+
 def run_provision(host: CamoufoxHost) -> int:
     if host.package_root is None:
         raise ProtocolError("package_required", "provision-artifact requires --package-root")
@@ -796,26 +820,27 @@ def run_provision(host: CamoufoxHost) -> int:
             cache_root=host.state_root / "camoufox-cache",
         )
     except ProtocolError as exc:
+        _log_provision_failure(exc, exc.code)
         write_provision_frame({"ok": False, "error": {"code": exc.code, "message": str(exc)}})
         return 2
     except ProvisionError as exc:
+        _log_provision_failure(exc, exc.code)
         write_provision_frame({"ok": False, "error": {"code": exc.code, "message": str(exc)}})
         return 2
     except TreeIntegrityError as exc:
-        _log(f"provision package tree rejected: {exc}")
+        _log_provision_failure(exc, "tree_integrity_failed")
         write_provision_frame(
             {"ok": False, "error": {"code": "tree_integrity_failed", "message": "browser package tree verification failed"}}
         )
         return 2
     except Exception as exc:  # noqa: BLE001 - never expose input values
-        detail = str(exc).replace("\n", " ").strip()[:180]
-        _log(f"provision failed: {type(exc).__name__}: {detail}")
+        _log_provision_failure(exc, "provision_failed")
         write_provision_frame(
             {
                 "ok": False,
                 "error": {
                     "code": "provision_failed",
-                    "message": f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__,
+                    "message": type(exc).__name__,
                 },
             }
         )

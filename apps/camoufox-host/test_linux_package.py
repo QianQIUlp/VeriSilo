@@ -47,6 +47,44 @@ def write_json(path: Path, value: dict) -> None:
 
 
 class NativePackageTests(unittest.TestCase):
+    def test_provision_failure_logs_locate_guards_without_request_secrets(self) -> None:
+        from types import SimpleNamespace
+        import host_v1
+        import provision_artifact
+
+        secret = "request-seed-proxy-artifact-sentinel"
+        host = SimpleNamespace(package_root=Path("package"), artifact_root=Path("identity"),
+                               state_root=Path("state"))
+        request = {"seed": secret, "preset": "balanced-en-us"}
+        cases = [
+            (provision_artifact.ProvisionError(secret), "provision_rejected", 2),
+            (host_v1.ProtocolError("unknown_field", secret), "unknown_field", 2),
+            (host_v1.TreeIntegrityError(secret), "tree_integrity_failed", 2),
+            (RuntimeError(secret), "provision_failed", 1),
+        ]
+        for error, code, exit_code in cases:
+            with self.subTest(code=code), patch.object(host_v1, "read_provision_frame", return_value=request), \
+                    patch.object(provision_artifact, "provision_artifact", side_effect=error), \
+                    patch.object(host_v1, "_log") as log, patch.object(host_v1, "write_provision_frame") as reply:
+                self.assertEqual(host_v1.run_provision(host), exit_code)
+                line = log.call_args.args[0]
+                self.assertEqual(log.call_count, 1)
+                self.assertIn(f"code={code} type={type(error).__name__} source=host_v1.py:", line)
+                self.assertNotIn(secret, line)
+                self.assertEqual(reply.call_args.args[0]["error"]["code"], code)
+                if code == "provision_failed":
+                    self.assertEqual(reply.call_args.args[0]["error"]["message"], "RuntimeError")
+
+        try:
+            provision_artifact.decode_seed(secret)
+        except provision_artifact.ProvisionError as error:
+            with patch.object(host_v1, "_log") as log:
+                host_v1._log_provision_failure(error, secret)
+            self.assertRegex(log.call_args.args[0], r"code=unclassified type=ProvisionError source=provision_artifact\.py:\d+$")
+            self.assertNotIn(secret, log.call_args.args[0])
+        else:
+            self.fail("invalid seed did not reach the real provisioning guard")
+
     def test_native_recipe_keeps_the_frozen_rc5_patchset(self) -> None:
         self.assertEqual(engine.pinned_lock()["completeAppliedPatchOrder"], engine.ORDER)
 
