@@ -185,14 +185,21 @@ mod tests {
             .arg(&pid_file);
         let (mut child, guard) = crate::engine::CamoufoxHostJobGuard::spawn(&mut command).unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        while !pid_file.exists() && std::time::Instant::now() < deadline {
+        let descendant = loop {
+            if let Some(pid) = std::fs::read_to_string(&pid_file)
+                .ok()
+                .filter(|value| value.ends_with('\n'))
+                .and_then(|value| value.trim().parse::<u32>().ok())
+                .filter(|pid| *pid > 0)
+            {
+                break pid;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "shell did not publish a complete descendant PID"
+            );
             std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        let descendant: u32 = std::fs::read_to_string(&pid_file)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
+        };
         assert!(super::process_is_alive(descendant));
         drop(guard);
         child.wait().unwrap();
