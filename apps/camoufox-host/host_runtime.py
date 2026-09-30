@@ -306,6 +306,10 @@ def configure_camoufox_cache(cache_root: Path) -> Path:
 def _link_or_copy_browser_tree(source: Path, destination: Path) -> bool:
     """Prefer a directory junction/symlink so first launch does not copy ~1 GiB."""
 
+    # AppImage mounts change across Desktop launches; the per-Silo cache persists.
+    if sys.platform.startswith("linux") and destination.is_symlink():
+        if destination.resolve() != source.resolve():
+            destination.unlink()
     if (destination / EXECUTABLE_REL).exists():
         return False
     destination.parent.mkdir(parents=True, exist_ok=True)

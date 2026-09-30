@@ -47,6 +47,42 @@ def write_json(path: Path, value: dict) -> None:
 
 
 class NativePackageTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform.startswith("linux"), "native Linux symlink boundary")
+    def test_persistent_browser_cache_retargets_changed_appimage_mount(self) -> None:
+        from host_runtime import _link_or_copy_browser_tree, EXECUTABLE_REL
+
+        for old_mount_disappears in (False, True):
+            with self.subTest(old_mount_disappears=old_mount_disappears), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                previous, current = root / "old-mount", root / "new-mount"
+                previous.mkdir()
+                current.mkdir()
+                (previous / EXECUTABLE_REL).write_bytes(b"old")
+                (current / EXECUTABLE_REL).write_bytes(b"new")
+                destination = root / "persistent-state/cache/browser"
+                self.assertTrue(_link_or_copy_browser_tree(previous, destination))
+                self.assertTrue(destination.is_symlink())
+                if old_mount_disappears:
+                    previous.rename(root / "unmounted")
+                    self.assertFalse((destination / EXECUTABLE_REL).exists())
+                self.assertTrue(_link_or_copy_browser_tree(current, destination))
+                self.assertTrue(destination.is_symlink())
+                self.assertEqual(destination.resolve(), current.resolve())
+                self.assertEqual((destination / EXECUTABLE_REL).read_bytes(), b"new")
+                self.assertFalse(_link_or_copy_browser_tree(current, destination))
+                self.assertEqual((root / ("unmounted" if old_mount_disappears else "old-mount") / EXECUTABLE_REL).read_bytes(), b"old")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, directory = root / "source", root / "ordinary-cache-directory"
+            source.mkdir()
+            directory.mkdir()
+            (source / EXECUTABLE_REL).write_bytes(b"new")
+            (directory / EXECUTABLE_REL).write_bytes(b"existing")
+            self.assertFalse(_link_or_copy_browser_tree(source, directory))
+            self.assertFalse(directory.is_symlink())
+            self.assertEqual((directory / EXECUTABLE_REL).read_bytes(), b"existing")
+
     def test_provision_failure_logs_locate_guards_without_request_secrets(self) -> None:
         from types import SimpleNamespace
         import host_v1

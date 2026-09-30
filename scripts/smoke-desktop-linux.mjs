@@ -40,6 +40,7 @@ let desktop;
 let desktopLog = "";
 let fixture;
 let standard;
+let managedRestart;
 const evidence = {
   platform: "linux-x64",
   standard: false,
@@ -595,7 +596,7 @@ try {
     assert.equal(cli(["status", concurrent.id]).activation?.state, "running");
     cli(["stop", concurrent.id]);
     evidence.managedConcurrency = true;
-    evidence.managed = true;
+    managedRestart = { siloId: managed.id, url: fixtureUrl };
   }
 
   await stopDesktop();
@@ -605,6 +606,21 @@ try {
     cli(["silos"]).some((item) => item.id === silo.id),
     "Silo persists across desktop restart.",
   );
+  if (managedRestart) {
+    startManaged(managedRestart.siloId);
+    cli(["page", managedRestart.siloId, "goto", managedRestart.url]);
+    assert.equal(
+      cli(
+        ["page", managedRestart.siloId, "evaluate"],
+        '() => localStorage.getItem("smoke")',
+      ).value,
+      "saved",
+      "Managed identity and restored Profile must survive desktop restart.",
+    );
+    cli(["stop", managedRestart.siloId]);
+    evidence.managedDesktopRestart = true;
+    evidence.managed = true;
+  }
   await stopDesktop();
   evidence.passed = true;
   console.log(
