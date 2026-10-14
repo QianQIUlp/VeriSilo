@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IdentityMark } from "../../shared/IdentityMark.js";
 import {
   type ManagedIdentityPreview,
@@ -8,6 +8,12 @@ import {
 import { idleRuntimeActivation, sessionNeedsManagement } from "../../runtime-status.js";
 
 import { type RecentRunRecord, type RuntimeActivation, type Silo } from "@verisilo/contracts";
+
+import {
+  collectParallelExitFindings,
+  parallelExitLaunchHint,
+  type ParallelExitFinding,
+} from "../network/parallel-exit.js";
 
 import {
   formatDate,
@@ -50,6 +56,25 @@ function canRunBesideManaged(silo: Silo): boolean {
       silo.networkProfile.mode === "fixed_proxy" && silo.networkProfile.externalMihomo === undefined);
 }
 
+/** One honest sentence per peer finding; basis wording must not be mixed. */
+export function parallelExitNoteText(finding: ParallelExitFinding): string {
+  if (finding.basis === "observed") {
+    return `最近的出口检查记录显示，与「${finding.peerName}」的出口地址相同（${finding.sharedExitLabel}）。同一出口 IP 有机会被网站用来关联并行的身份；这来自历史检查，不是当前运行的实时验证。`;
+  }
+  if (finding.sharedExitLabel === "直连（本机网络）") {
+    return `与「${finding.peerName}」按当前配置都是直连，会共用同一本机网络出口。网站有机会通过出口 IP 关联并行的身份。`;
+  }
+  return `与「${finding.peerName}」在配置里使用同一个代理入口（${finding.sharedExitLabel}）。若代理分配了相同出口 IP，网站有机会借此关联并行的身份；实际出口以打开后的出口检查为准。`;
+}
+
+/** Pre-launch wording: what would be shared if this Silo opened now. */
+export function parallelExitLaunchHintText(finding: ParallelExitFinding): string {
+  if (finding.sharedExitLabel === "直连（本机网络）") {
+    return `现在打开会与「${finding.peerName}」共用同一本机网络出口（直连），网站有机会通过出口 IP 关联并行的身份。可先停止对方，或为本 Silo 配置不同的固定代理出口。`;
+  }
+  return `现在打开会与「${finding.peerName}」使用同一个代理入口（${finding.sharedExitLabel}）。若代理分配相同出口 IP，两个身份有机会被网站关联；可先停止对方，或改用不同的代理出口。`;
+}
+
 /**
  * One per-silo scene. Memoized so unrelated workspace renders (notices,
  * polls, unrelated state) do not re-render every silo; props are per-silo
@@ -71,6 +96,8 @@ export const SiloScene = memo(function SiloScene({
   recentRun = null,
   recentRunsError = null,
   storageBytes,
+  parallelExitFindings = [],
+  launchExitHint = null,
   lens,
   openLens,
   closeLens,
@@ -99,6 +126,8 @@ export const SiloScene = memo(function SiloScene({
   recentRun?: RecentRunRecord | null;
   recentRunsError?: string | null;
   storageBytes: number | null | undefined;
+  parallelExitFindings?: ParallelExitFinding[];
+  launchExitHint?: ParallelExitFinding | null;
   lens: LensKind | null;
   openLens: (next: LensKind, trigger: HTMLButtonElement) => void;
   closeLens: () => void;
@@ -419,6 +448,29 @@ export const SiloScene = memo(function SiloScene({
               {launchBlockReason}
             </p>
           ) : null}
+          {isActive && parallelExitFindings.length > 0 ? (
+            <aside className="parallel-exit-note" role="note">
+              <strong>共用出口提醒 · 不阻止运行</strong>
+              <ul>
+                {parallelExitFindings.map((finding) => (
+                  <li key={`${finding.basis}:${finding.peerSiloId}`}>
+                    {parallelExitNoteText(finding)}
+                  </li>
+                ))}
+              </ul>
+              <p>
+                同一出口只是被关联的条件之一；VeriSilo
+                无法知道网站是否已经把它们关联起来。要分开出口，可以为其中一个
+                Silo 配置不同的固定代理。
+              </p>
+            </aside>
+          ) : null}
+          {!isActive && launchExitHint !== null ? (
+            <p className="parallel-exit-note launch-hint" role="note">
+              <strong>共用出口提醒 · 不阻止运行 </strong>
+              {parallelExitLaunchHintText(launchExitHint)}
+            </p>
+          ) : null}
         </div>
       </div>
       <aside
@@ -646,6 +698,27 @@ export function SiloList({
   const [selectedId, setSelectedId] = useState<string>();
   const [lens, setLens] = useState<LensKind | null>(null);
   const lensTrigger = useRef<HTMLButtonElement | null>(null);
+  // Evidence freshness is checked against a minute-granularity clock so the
+  // parallel-exit note stops claiming an observation once a record expires,
+  // without recomputing on every poll.
+  const [exitCheckNow, setExitCheckNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setExitCheckNow(Date.now()),
+      60_000,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
+  const parallelExitFindingsBySilo = useMemo(
+    () =>
+      collectParallelExitFindings({
+        silos,
+        sessions,
+        networkEvidence,
+        now: exitCheckNow,
+      }),
+    [silos, sessions, networkEvidence, exitCheckNow],
+  );
   const selected =
     silos.find((silo) => silo.id === (focusedSiloId ?? selectedId))?.id ??
     silos[0]?.id;
@@ -766,6 +839,16 @@ export function SiloList({
                   busy={busy || siloBusyIds.has(silo.id)}
                   choose={choose}
                   closeLens={closeLens}
+                  launchExitHint={
+                    isActive || launchBlockReason !== null
+                      ? null
+                      : parallelExitLaunchHint(silo, silos, sessions)
+                  }
+                  parallelExitFindings={
+                    isActive
+                      ? parallelExitFindingsBySilo.get(silo.id) ?? []
+                      : []
+                  }
                   identityPreview={identityPreviews[silo.id]}
                   recentRun={recentRuns[silo.id] ?? null}
                   recentRunsError={recentRunsError}

@@ -207,6 +207,8 @@ rc2 验收期间的已知观察项 `MANAGED_STOP_TRANSIENT_NETWORK_POLICY_MESSAG
 
 2026-09-28 用户授权的 [RC5 发布](acceptance/managed-browser-rc5.md)已完成：从 `86ee698e5d7d7838b29478625be71a0d905885c6` 开始，固定候选 source `7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027` 并公开 prerelease。单独的 bounded installed report 记录 `INCONCLUSIVE — installed files matched; Managed runtime/repair/uninstall flow not completed`，范围见 [RC5 smoke procedure](qa/rc5-installed-smoke.md)；完整旧合同 `windows-acceptance-report.json` 保持 `Pending`。当前没有活动中的 RC Gate、fingerprint Gate 或已知待集成的产品代码分支；下一产品任务尚未指定。
 
+在此之后的正常产品开发切片：[并行同出口提醒 v1](parallel-exit-caution-v1.md) 已实现——本地 Managed 并发会话与现有会话共用网络出口（配置面直连/同入口，或观测面相同出口地址）时，UI 给出非阻塞提醒；`configured` 与 `observed` 依据分开标注，过期记录不冒充当前观测。纯 UI 切片，由单测与 Preview 覆盖，不构成 runtime 或安装证据。
+
 本次 RC5 继承未受影响的产品证据，只对实际候选增加有边界的安装检查。不要默认重跑 FP1–FP4、开启 FP5、继续当前 Codex worktree 的 ACL 深挖或重跑已完成的性能/Managed 生命周期验收。未来若正常产品目录和正常用户上下文出现同类启动故障，再对那个确切环境采集原生证据；旧工作树失败不是当前产品 blocker。
 
 近期性能与响应性工作已完成：[处置和原生 Windows 开发生命周期证据](qa/performance-architecture-2026-09-27.md)记录 Managed 创建 2.952/1.136 秒、创建期间 Vault 读取 25.9 毫秒、两次启动 25.171/13.920 秒、reobserve 1.873 秒、stop 约 1 秒，及页面 ready、122 秒存活、最终 owned processes 0。这些是有边界的开发运行证据，不是普遍性能保证或 rc5 安装验收。[目录 ACL 对照](qa/managed-engine-directory-acl-2026-09-27.md)证明继承 DACL 对当前工作树启动失败的因果作用；尚未识别具体 ACE、Windows API 错误或更深层机制。

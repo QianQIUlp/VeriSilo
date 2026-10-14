@@ -463,3 +463,85 @@ describe("recent-run integration", () => {
     expect(markup).not.toContain("当前会话完整性");
   });
 });
+
+describe("Parallel same-exit caution", () => {
+  const noAction = async () => {};
+  const directManaged = (id: string, name: string) => ({
+    ...previewManagedSilo,
+    id,
+    name,
+    networkProfile: { mode: "direct", proxyRequired: false } as const,
+  });
+  type ListProps = ComponentProps<typeof SiloList>;
+
+  function listProps(
+    required: Pick<ListProps, "sessions" | "silos">,
+    overrides: Partial<ListProps> = {},
+  ): ListProps {
+    return {
+      busy: false,
+      siloBusyIds: new Set<string>(),
+      launchingSiloIds: new Set<string>(),
+      managedSessionLimit: 2,
+      managedEngineReady: true,
+      networkEvidence: [],
+      identityPreviews: {},
+      storageUsage: {},
+      onArchive: noAction,
+      onCreate: noAction,
+      onEdit: noAction,
+      onLaunch: noAction,
+      onRebindMihomo: noAction,
+      onRecheckBrowser: noAction,
+      onRecheckRuntime: noAction,
+      onStop: noAction,
+      ...required,
+      ...overrides,
+    };
+  }
+
+  it("cautions two parallel direct Managed sessions without blocking them", () => {
+    const a = directManaged("a2222222-2222-4222-8222-222222222222", "托管 A");
+    const b = directManaged("a3333333-3333-4333-8333-333333333333", "托管 B");
+    const markup = renderToStaticMarkup(createElement(SiloList, listProps({
+      sessions: [
+        { siloId: a.id, activation: previewRuntimeActivation(a) },
+        { siloId: b.id, activation: previewRuntimeActivation(b) },
+      ],
+      silos: [a, b],
+    })));
+    expect(markup).toContain("共用出口提醒");
+    expect(markup).toContain("不阻止运行");
+    expect(markup).toContain("按当前配置都是直连");
+    expect(markup).toContain(">停止</button>");
+  });
+
+  it("does not caution a direct and a proxy session about each other by configuration", () => {
+    const a = directManaged("a2222222-2222-4222-8222-222222222222", "托管 A");
+    const b = { ...previewManagedSilo, name: "托管 B" };
+    const markup = renderToStaticMarkup(createElement(SiloList, listProps({
+      sessions: [
+        { siloId: a.id, activation: previewRuntimeActivation(a) },
+        { siloId: b.id, activation: previewRuntimeActivation(b) },
+      ],
+      silos: [a, b],
+    })));
+    expect(markup).not.toContain("共用出口提醒");
+  });
+
+  it("hints before a direct Managed Silo joins a running direct session", () => {
+    const running = directManaged("a2222222-2222-4222-8222-222222222222", "托管 A");
+    const idle = directManaged("a3333333-3333-4333-8333-333333333333", "托管 B");
+    const markup = renderToStaticMarkup(createElement(SiloList, listProps(
+      {
+        sessions: [
+          { siloId: running.id, activation: previewRuntimeActivation(running) },
+        ],
+        silos: [running, idle],
+      },
+      { focusedSiloId: idle.id },
+    )));
+    expect(markup).toContain("现在打开会与");
+    expect(markup).toContain("共用同一本机网络出口");
+  });
+});

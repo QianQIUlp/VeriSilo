@@ -3,6 +3,7 @@ import type {
   DesktopStatus,
   EngineAdapterStatus,
   ManagedIdentityPreview,
+  SiloNetworkEvidence,
 } from "../desktop-api.js";
 
 export const previewSilo: Silo = {
@@ -239,6 +240,63 @@ export function previewRuntimeActivation(
       browserRouting: proxy ? "applied" : "not_applicable", exit: "observed",
       dns: "unavailable", webRtc: "unavailable", safeguards: [],
       endpointLabel: proxy ? "预览代理节点（非出口 IP）" : "直连",
+    },
+  };
+}
+
+/** Synthetic exit-check record for visual QA of the parallel-exit caution. */
+export function previewSiloNetworkEvidence(
+  silo: Silo,
+  address: string,
+): SiloNetworkEvidence {
+  const receivedAt = new Date(Date.now() - 60_000).toISOString();
+  return {
+    schemaVersion: 1,
+    protocolVersion: 1,
+    evidenceId: crypto.randomUUID(),
+    requestId: crypto.randomUUID(),
+    siloId: silo.id,
+    receivedAt,
+    expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    coverage: {
+      trigger: "user_initiated",
+      transport: "companion_extension_fetch",
+      ip: "third_party_https_observation",
+      publicDns: "public_doh_answer_comparison",
+      actualDnsPath: "not_observed",
+      webRtc: "not_observed",
+      quic: "not_observed",
+    },
+    result: {
+      schemaVersion: 2,
+      checkedAt: receivedAt,
+      ip: {
+        address,
+        version: "IPv4",
+        country: "US",
+        countryCode: "US",
+        region: "California",
+        city: "Los Angeles",
+        asn: "AS64512",
+        organization: "Preview Transit",
+        isp: "Preview Transit",
+        timezone: "America/Los_Angeles",
+        networkHint: "unknown",
+        latitude: null,
+        longitude: null,
+      },
+      dns: {
+        state: "consistent",
+        dnssec: "validated",
+        queryName: "example.com",
+        providers: [],
+      },
+      reputation: {
+        state: "not_scored",
+        explanation:
+          "未查询商业信誉库或黑名单；运营商与机房线索不能代表 IP 一定干净或一定有风险。",
+      },
+      errors: [],
     },
   };
 }

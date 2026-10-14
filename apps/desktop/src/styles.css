@@ -935,6 +935,42 @@ button:disabled {
   line-height: 1.55;
 }
 
+.parallel-exit-note {
+  margin: -0.25rem 0 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent);
+  border-left: 3px solid var(--warn);
+  border-radius: 0 9px 9px 0;
+  padding: 0.65rem 0.8rem;
+  color: var(--muted);
+  background: var(--warn-soft);
+  font-size: 0.68rem;
+  line-height: 1.6;
+}
+
+.parallel-exit-note strong {
+  display: block;
+  color: var(--warn);
+  margin-bottom: 0.2rem;
+}
+
+.parallel-exit-note ul {
+  margin: 0;
+  padding-left: 1.1em;
+}
+
+.parallel-exit-note li + li {
+  margin-top: 0.25rem;
+}
+
+.parallel-exit-note p {
+  margin: 0.35rem 0 0;
+}
+
+.parallel-exit-note.launch-hint strong {
+  display: inline;
+  margin-right: 0.35rem;
+}
+
 .edit-clash-card {
   margin: 0.9rem 0;
 }

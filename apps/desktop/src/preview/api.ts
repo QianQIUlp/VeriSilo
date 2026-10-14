@@ -16,6 +16,7 @@ import {
   previewManagedSilo,
   previewRuntimeActivation,
   previewSilo,
+  previewSiloNetworkEvidence,
   previewStatus,
 } from "./fixtures.js";
 
@@ -282,7 +283,21 @@ export function installPreviewApi(scenario: string) {
     },
     listManagedIdentityPreviews: async () => structuredClone(previews),
     listLegacyEnvironmentArtifacts: async () => [],
-    listNetworkEvidence: async () => [],
+    listNetworkEvidence: async () => {
+      // The concurrent scenario also demonstrates the parallel same-exit
+      // caution: B and C share an observed exit address, while the base
+      // Managed Silo shares only its configured proxy entry with them.
+      if (!concurrent) return [];
+      const siloBySiloId = (id: string) =>
+        silos.find((s) => s.id === id)!;
+      const b = siloBySiloId("a2222222-2222-4222-8222-222222222222");
+      const c = siloBySiloId("a3333333-3333-4333-8333-333333333333");
+      return [
+        previewSiloNetworkEvidence(silos[0]!, "198.51.100.7"),
+        previewSiloNetworkEvidence(b, "198.51.100.23"),
+        previewSiloNetworkEvidence(c, "198.51.100.23"),
+      ];
+    },
     listRecentRuns: async () => {
       unlocked();
       if (scenario === "history-error") throw new Error("模拟：最近运行记录读取失败。");
