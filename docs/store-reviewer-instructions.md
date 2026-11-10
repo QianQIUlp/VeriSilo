@@ -1,8 +1,8 @@
 # Store reviewer test instructions
 
-- 状态：**粘贴到 Chrome Web Store / Edge Partner Center 的 Test instructions 草稿**
-- 对应扩展包：`VeriSilo-Companion-0.2.11-chrome-edge.zip`（MV3）
-- 注意：本扩展与桌面端通过 Native Messaging 协作，但**扩展本身可独立工作**。请勿把"桌面端未安装时桥接不可用"判定为缺陷——这是设计内的降级行为。
+- Status: **draft of the Test instructions to paste into the Chrome Web Store / Edge Partner Center**
+- Corresponding extension package: `VeriSilo-Companion-0.2.11-chrome-edge.zip` (MV3)
+- Note: this extension works with the desktop app through Native Messaging, but **the extension itself works independently**. Do not judge "the bridge is unavailable when the desktop app is not installed" to be a defect. It is by-design degradation.
 
 ## Before you start
 
@@ -18,7 +18,7 @@ For the full feature set, additionally install the VeriSilo Desktop (Windows) so
 
 ## Test 2 — Language
 
-1. Use the language selector in the panel to switch between English and 简体中文.
+1. Use the language selector in the panel to switch between English and 简体中文 (Simplified Chinese).
 2. Expected: interface copy changes language; the red/green status notices are dismissible.
 
 ## Test 3 — Scan a page

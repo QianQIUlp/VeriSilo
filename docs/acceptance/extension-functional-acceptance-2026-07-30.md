@@ -1,92 +1,94 @@
-# 插件端功能验收记录（2026-07-30）
+# Extension functional acceptance record (2026-07-30)
 
-> **Historical acceptance record.** 本文只适用于标题所列日期、浏览器和环境；不决定当前产品阶段、
-> 当前 RC 或下一任务。当前路由见 [Camoufox 状态页](../camoufox-program-status.md)。
+> Translated from the original Chinese on 2026-11-10. The original text is in Git history at commit 1cf0f29. For historical evidence, the original wording governs if the two differ.
 
-## 结论
+> **Historical acceptance record.** This document applies only to the date, browser and environment named in the title. It does not decide the current
+> product stage, the current RC or the next task. For current routing, see the [Camoufox status page](../camoufox-program-status.md).
 
-本轮从 `main` 的 `e5eaeb8` 开始，在真实 Chromium 中逐项操作插件，并在同一变更集中修复发现的问题。结论分两层：
+## Conclusion
 
-- **核心功能回归通过**：Chrome for Testing 151.0.7922.34、Linux/X11 环境下，插件入口、扫描、报告、历史、导出、网络检查、轻量隔离、权限、Labs、隐私窗口及桌面端不可用降级均得到真实浏览器证据。
-- **插件发布验收尚未通过**：Windows 10/11 上的 Chrome Stable 与 Edge Stable、正式扩展 ID、真实 Native Host/桌面联动、浏览器升级/扩展更新/崩溃恢复仍未执行，不能以本记录替代。
+This round started from `e5eaeb8` on `main`. It operated the extension item by item in a real Chromium and fixed the problems it found within the same change set. The conclusion has two layers:
 
-本记录里的“通过”只适用于列明的浏览器与场景；自动化测试、静态源码门禁和真实 Windows 结果分别记录，不互相替代。
+- **Core functional regression passed**: On Chrome for Testing 151.0.7922.34 in a Linux/X11 environment, the extension entry point, scan, report, history, export, network check, lightweight isolation, permissions, Labs, privacy windows and the degraded behavior when the desktop is unavailable all have real-browser evidence.
+- **Extension release acceptance has not passed**: Chrome Stable and Edge Stable on Windows 10/11, the official extension IDs, real Native Host/desktop integration, and browser upgrade/extension update/crash recovery have not been run. This record cannot substitute for them.
 
-## 验收环境与证据边界
+"Passed" in this record applies only to the listed browsers and scenarios. Automated tests, static source-code gates and real Windows results are recorded separately and do not substitute for one another.
 
-| 项目     | 本次基线                                                                                   |
-| -------- | ------------------------------------------------------------------------------------------ |
-| 起始代码 | `main` / `e5eaeb8`，加上本次验收修复工作树                                                 |
-| 浏览器   | Chrome for Testing `151.0.7922.34`                                                         |
-| 操作系统 | Linux + Xvfb；**不是 Windows 或 Edge 证据**                                                |
-| 插件形式 | `apps/extension/dist` unpacked MV3；真实 action、Side Panel、扩展权限弹窗和无痕窗口        |
-| 测试站点 | 仓库内 loopback fixture `127.0.0.1:4173`，另用 `localhost:4173` 验证跨 origin 导航         |
-| 桌面端   | Native Host 故意不可用，用于验收独立运行与明确降级提示                                     |
-| 自动化   | 扩展 TypeScript、43 项 Vitest、contracts 46 项、生产构建、bundle remote-code/manifest 审计 |
+## Acceptance environment and evidence boundary
 
-未记录实际出口 IP、Cookie、token、canary 或未脱敏报告内容。
+| Item             | This baseline                                                                                                    |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Starting code    | `main` / `e5eaeb8`, plus the worktree with this round's acceptance fixes                                         |
+| Browser          | Chrome for Testing `151.0.7922.34`                                                                               |
+| Operating system | Linux + Xvfb; **not Windows or Edge evidence**                                                                   |
+| Extension form   | `apps/extension/dist` unpacked MV3; real action, Side Panel, extension permission prompt and incognito window    |
+| Test site        | In-repository loopback fixture `127.0.0.1:4173`; `localhost:4173` is also used to verify cross-origin navigation |
+| Desktop          | Native Host deliberately unavailable, to verify standalone operation and explicit degradation messages           |
+| Automation       | Extension TypeScript, 43 Vitest tests, 46 contracts tests, production build, bundle remote-code/manifest audit   |
 
-## 真实浏览器结果
+No actual exit IP, Cookie, token, canary or unredacted report content was recorded.
 
-| 范围               | 结果       | 已验证行为                                                                                                                                    |
-| ------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| 安装与入口         | 通过       | unpacked 插件加载；点击 action 打开真实 Side Panel；四个页面可达；控制台无阻断错误。                                                          |
-| 当前站点权限       | 通过       | 由用户点击触发站点授权；浏览器权限弹窗允许后可扫描/Labs；撤销后 `permissions.contains` 为 false。                                             |
-| 站点扫描           | 通过       | 扫描保持 busy 直到报告到达；fixture 产生 16 个信号；MAIN-world 失败仍保留 isolated-world 结果；超时有界。                                     |
-| 报告与标签页切换   | 通过       | 空态/结果互斥；切换到无报告标签页会清空结果，切回恢复对应报告，不展示旧标签页内容。                                                           |
-| 历史记录           | 通过       | 普通窗口保存脱敏历史；清除操作的取消分支不删除，确认分支删除；当前会话报告仍可导出。                                                          |
-| JSON/HTML 导出     | 通过       | 两种下载均成功；高敏感 WebGL renderer 哨兵不出现在文件中；HTML 摘要来自脱敏报告。                                                             |
-| 隐私窗口           | 通过       | 明确提示 Chrome 无痕 / Edge InPrivate 是一个共享临时空间；普通/无痕 localStorage 与 Cookie 分离；关闭全部无痕窗口后临时状态清除。             |
-| 无痕持久化边界     | 通过       | 无痕扫描不写普通 `storage.local` 报告历史；无痕 Labs 启用/停止前后本地收据数保持不变，状态只存在于会话内。                                    |
-| 可选隐私控制       | 通过       | 用户点击触发 `privacy` 权限；WebRTC 非代理 UDP 与网络预测设置应用并复查；恢复原值后撤销权限。                                                 |
-| 网络检查           | 通过       | 用户明确授权三个端点后，出口观察和公共 DoH 比对完成且无错误；桌面不可用时标为“仅本地”；清除同时撤销端点权限。                                 |
-| 桌面入口/降级      | 通过       | Native Host 缺失时显示明确错误而非假成功；“打开桌面端”和项目页是两个独立入口。                                                                |
-| Labs 默认态与范围  | 通过       | 默认关闭；Cookie 虚拟化和 Set-Cookie 截获保持不可选；无桌面时明确标为最多 2 分钟、本机临时、非 Silo。                                         |
-| Labs 启用/显式停止 | 通过       | MAIN world 的 `Worker` 确实被包装；同源/blob classic Worker 与 about:blank iframe 自检后在界面标为“有限覆盖”；停止后主世界恢复原生 `Worker`。 |
-| Labs 自动恢复      | 通过       | 页面 ErrorEvent、同文档 `history.pushState`、跨 origin 导航均停止运行；同文档场景实测状态对象消失且 `Worker` 恢复为原生构造器。               |
-| Labs 收据          | 通过       | 展示 Observe/Apply/Verify/Restore 阶段、证据码、覆盖范围、停止原因与恢复结果；只显示最近 8 份；清除取消不变、确认后 14→0。                    |
-| Labs 延迟泄漏监测  | 自动化通过 | 5 秒非重叠 canary 监测可在延迟泄漏时恢复并停止，已停止/被替换运行不会被旧扫描再次处理；尚未做真实恶意站点长时压力测试。                       |
+## Real-browser results
 
-## 本轮修复清单
+| Scope                          | Result               | Verified behavior                                                                                                                                                                                                                                           |
+| ------------------------------ | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Install and entry point        | Passed               | The unpacked extension loaded; clicking the action opened the real Side Panel; the four pages were reachable; no blocking console errors.                                                                                                                   |
+| Current-site permission        | Passed               | Site authorization is triggered by a user click; after the browser permission prompt allowed it, scan/Labs worked; after revocation `permissions.contains` was false.                                                                                       |
+| Site scan                      | Passed               | The scan stayed busy until the report arrived; the fixture produced 16 signals; a MAIN-world failure still kept the isolated-world result; the timeout is bounded.                                                                                          |
+| Report and tab switching       | Passed               | The empty state and the result are mutually exclusive; switching to a tab without a report clears the result, and switching back restores the matching report without showing the old tab's content.                                                        |
+| History                        | Passed               | A normal window saved redacted history; the cancel branch of the clear action deleted nothing and the confirm branch deleted; the current session's report could still be exported.                                                                         |
+| JSON/HTML export               | Passed               | Both downloads succeeded; the high-sensitivity WebGL renderer sentinel did not appear in the files; the HTML summary came from the redacted report.                                                                                                         |
+| Privacy window                 | Passed               | It clearly states that Chrome incognito / Edge InPrivate is one shared temporary space; normal and incognito localStorage and Cookie are separate; temporary state was cleared after all incognito windows were closed.                                     |
+| Incognito persistence boundary | Passed               | An incognito scan did not write to the normal `storage.local` report history; the local receipt count did not change before and after enabling/stopping Labs in incognito, and the state existed only in the session.                                       |
+| Optional privacy control       | Passed               | The `privacy` permission was triggered by a user click; the WebRTC non-proxied UDP and network prediction settings were applied and rechecked; after restoring the original values, the permission was revoked.                                             |
+| Network check                  | Passed               | After the user explicitly authorized three endpoints, the exit observation and the public DoH comparison completed with no errors; when the desktop was unavailable it was labeled “仅本地” ("local only"); clearing also revoked the endpoint permissions. |
+| Desktop entry / degradation    | Passed               | When the Native Host was missing, an explicit error was shown instead of a false success; “打开桌面端” ("Open desktop") and the project page are two separate entry points.                                                                                 |
+| Labs default state and scope   | Passed               | Off by default; Cookie virtualization and Set-Cookie interception stay unselectable; without the desktop it is explicitly labeled as at most 2 minutes, local temporary, not a Silo.                                                                        |
+| Labs enable / explicit stop    | Passed               | The MAIN-world `Worker` was indeed wrapped; the same-origin/blob classic Worker and the about:blank iframe passed the self-check and the UI labeled them “有限覆盖” ("limited coverage"); after stop, the main world restored the native `Worker`.          |
+| Labs automatic recovery        | Passed               | A page ErrorEvent, a same-document `history.pushState` and a cross-origin navigation all stopped the run; in the same-document scenario the state object disappeared and `Worker` was measured to be the native constructor again.                          |
+| Labs receipts                  | Passed               | Shows the Observe/Apply/Verify/Restore phases, evidence codes, coverage, stop reason and restore result; shows only the latest 8; canceling clear changed nothing, and after confirming it went 14→0.                                                       |
+| Labs delayed-leak monitoring   | Passed in automation | The 5-second non-overlapping canary monitor can restore and stop on a delayed leak, and a stopped or replaced run is not processed again by an old scan; no long-running stress test against a real malicious site has been done.                           |
 
-| 严重度 | 问题                                                               | 收口结果                                                                                                           |
-| ------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| P1     | `.result-stack { display:grid }` 覆盖 `hidden`，空态与报告同时出现 | 全局 `[hidden]` 规则恢复可靠隐藏。                                                                                 |
-| P1     | 标签页切换后仍展示旧报告/Labs 状态                                 | 增加激活/更新监听与版本守卫。                                                                                      |
-| P1     | Labs about:blank iframe 被误判为 `origin=null`，自检恒失败         | 只沿可访问且确实继承的 about:blank/srcdoc owner/parent 链确认站点 realm。                                          |
-| P1     | HTML 导出摘要使用未脱敏报告，可能泄露高敏感值                      | HTML 与 JSON 均只基于脱敏报告生成；增加哨兵回归。                                                                  |
-| P1     | 无痕报告和 Labs 收据可能进入共享本地历史                           | 只允许明确的非无痕 tab 持久化；未知 tab 状态按不持久化处理。                                                       |
-| P1     | Labs 只在启用时扫描 canary，延迟泄漏不被发现                       | 增加有界、非重叠、可取消的运行期监测。                                                                             |
-| P1     | 权限请求离开用户点击栈，真实 Chrome 拒绝                           | 站点、Labs 和 privacy 权限都直接在点击回调中发起。                                                                 |
-| P1     | 扫描消息先返回“已开始”，UI 过早结束 busy 并读取旧报告              | 清除旧报告、按扫描 generation 隔离、内容采集超时、UI 有界轮询到结果。                                              |
-| P1     | Labs 导航停止把同文档 `loading` 当作旧 realm 已销毁，收据伪报恢复  | 导航始终先探测/恢复当前 realm；跨 origin 不可访问时才视为旧 realm 已销毁；真实 `pushState` 回归确认原生 `Worker`。 |
-| P2     | 站点权限目标缓存可能被较慢的旧标签页查询覆盖                       | 切换时同步清空、版本守卫异步结果，并监听窗口焦点变化。                                                             |
-| P2     | 桌面消息可能无限等待，入口存在但 UI 不可达                         | Native Messaging 统一 10 秒超时；补齐桌面入口与错误提示。                                                          |
-| P2     | 网络结果清除后仍保留三个端点权限                                   | 清除结果时一并撤销权限并更新文案。                                                                                 |
-| P2     | Labs 收据只显示总数，恢复/覆盖信息不足；干净导航被标失败           | 展开完整阶段与覆盖；成功生命周期停止统一标为 `restored`。                                                          |
+## Fix list for this round
 
-## 尚未收口的插件缺口
+| Severity | Problem                                                                                                                        | Closure                                                                                                                                                                                                                               |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1       | `.result-stack { display:grid }` overrode `hidden`, so the empty state and the report appeared together                        | A global `[hidden]` rule restores reliable hiding.                                                                                                                                                                                    |
+| P1       | The old report/Labs state was still shown after a tab switch                                                                   | Added activate/update listeners and a version guard.                                                                                                                                                                                  |
+| P1       | The Labs about:blank iframe was misjudged as `origin=null`, so the self-check always failed                                    | Confirm the site realm only along an accessible about:blank/srcdoc owner/parent chain that really inherits.                                                                                                                           |
+| P1       | The HTML export summary used the unredacted report and could leak high-sensitivity values                                      | HTML and JSON are both generated only from the redacted report; added a sentinel regression.                                                                                                                                          |
+| P1       | Incognito reports and Labs receipts could enter the shared local history                                                       | Only an explicitly non-incognito tab may persist; an unknown tab state is treated as not persisting.                                                                                                                                  |
+| P1       | Labs scanned the canary only at enable time, so a delayed leak went undetected                                                 | Added a bounded, non-overlapping, cancelable runtime monitor.                                                                                                                                                                         |
+| P1       | A permission request left the user click stack, and real Chrome rejected it                                                    | Site, Labs and privacy permissions are all requested directly in the click callback.                                                                                                                                                  |
+| P1       | The scan message returned "started" first, so the UI ended busy too early and read an old report                               | Clear the old report, isolate by scan generation, add a content-collection timeout, and make the UI poll with a bound until the result arrives.                                                                                       |
+| P1       | Labs navigation stop treated same-document `loading` as the old realm being destroyed, so the receipt falsely reported restore | Navigation always probes/restores the current realm first; the old realm is treated as destroyed only when it becomes inaccessible because of a cross-origin navigation; a real `pushState` regression confirmed the native `Worker`. |
+| P2       | The site-permission target cache could be overwritten by a slower query from an old tab                                        | Clear synchronously on switch, guard async results with a version, and listen for window focus changes.                                                                                                                               |
+| P2       | A desktop message could wait forever, and the entry point existed but was unreachable in the UI                                | Native Messaging uses a uniform 10-second timeout; the desktop entry point and error message were completed.                                                                                                                          |
+| P2       | The three endpoint permissions were kept after the network result was cleared                                                  | Clearing the result also revokes the permissions and updates the copy.                                                                                                                                                                |
+| P2       | Labs receipts showed only a total, with insufficient restore/coverage information; a clean navigation was labeled as a failure | Expanded to the full phases and coverage; a successful lifecycle stop is uniformly labeled `restored`.                                                                                                                                |
 
-以下不是本轮 Chrome/Linux 核心回归失败，但在插件阶段关闭前必须继续跟踪：
+## Extension gaps not yet closed out
 
-1. **Windows Chrome/Edge 兼容性**：真实 Chrome Stable、Edge Stable、无痕/InPrivate、Side Panel、权限 UI、下载策略和 `addHostAccessRequest` 兼容分支均待 Windows 10/11 实测。
-2. **真实桌面联动**：目前只验证了 Native Host 缺失降级；完整报告不会传给桌面，当前跨端桥只提交有界网络证据。
-3. **运行中桌面状态同步**：网络提交 badge 只按过期时间刷新；Vault 锁定/Silo 停止没有主动推送到已打开 Side Panel。Labs 启动后也未持续重新校验 Silo/Vault 绑定。
-4. **生命周期压力**：浏览器升级、插件更新、Service Worker 被回收、扩展 reload、浏览器崩溃/恢复和多窗口快速切换需做长期回归。
-5. **下载完成证明**：当前 UI 能触发下载，但没有 `downloads` 权限，因此无法区分浏览器策略拦截和真实落盘；发布矩阵需从外部确认文件。
-6. **生产包装**：扩展已经使用与网站一致的完整 icon 集合；商店 ID、Edge ID、Native Host allowlist 与正式包仍未绑定。
-7. **Labs 授权记录治理**：桌面 Silo 模式的 `labs-authorization:*` 记录没有独立 UI/清理策略；当前本机临时与无痕模式不会写入该记录。
+The following are not failures of this round's Chrome/Linux core regression, but they must keep being tracked until the extension stage closes:
 
-## 下一验收门槛
+1. **Windows Chrome/Edge compatibility**: Real Chrome Stable, Edge Stable, incognito/InPrivate, Side Panel, permission UI, download policy and the `addHostAccessRequest` compatibility branch all await testing on Windows 10/11.
+2. **Real desktop integration**: Only the degradation for a missing Native Host has been verified. The full report is not passed to the desktop, and the current cross-device bridge submits only bounded network evidence.
+3. **Desktop state sync while running**: The network-submission badge refreshes only by expiry time. A Vault lock or Silo stop is not actively pushed to an already-open Side Panel. After Labs starts, the Silo/Vault binding is also not continuously revalidated.
+4. **Lifecycle stress**: Browser upgrade, extension update, Service Worker eviction, extension reload, browser crash/recovery and fast multi-window switching need long-term regression.
+5. **Proof of download completion**: The current UI can trigger a download, but it has no `downloads` permission, so it cannot tell a browser-policy block from a real write to disk. The release matrix must confirm the file externally.
+6. **Production packaging**: The extension already uses the full icon set consistent with the website. The store ID, Edge ID, Native Host allowlist and the official package are still not bound.
+7. **Labs authorization record governance**: The `labs-authorization:*` records of the desktop Silo mode have no separate UI or cleanup policy. The current local-temporary and incognito modes do not write these records.
 
-插件端的下一步不是签名发布，而是在真实 Windows 机器执行：
+## Next acceptance threshold
 
-- Windows 10 x64 × Chrome Stable；
-- Windows 10 x64 × Edge Stable；
-- Windows 11 x64 × Chrome Stable；
-- Windows 11 x64 × Edge Stable；
+The next step for the extension is not signed release. It is to run on real Windows machines:
 
-四个单元都要重复本文件的真实浏览器表，并加入正式 Native Host/桌面联动。任一 `SKIP`、`BLOCKED` 或未保存证据的口头结果都不能把插件阶段标为最终通过。
+- Windows 10 x64 × Chrome Stable;
+- Windows 10 x64 × Edge Stable;
+- Windows 11 x64 × Chrome Stable;
+- Windows 11 x64 × Edge Stable;
 
-逐步操作、PowerShell 命令、通过条件和证据模板见
-[Chrome、Edge 与 Windows 桌面端手工验收操作手册](manual-windows-acceptance-runbook.md)。
+All four cells must repeat the real-browser table in this file and add the official Native Host/desktop integration. Any `SKIP`, `BLOCKED` or verbal result without saved evidence cannot mark the extension stage as finally passed.
+
+For step-by-step operations, PowerShell commands, pass conditions and the evidence template, see the
+[Manual acceptance runbook for Chrome, Edge and the Windows desktop](manual-windows-acceptance-runbook.md).

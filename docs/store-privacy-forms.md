@@ -1,8 +1,8 @@
 # Store privacy form answers
 
-- 状态：**粘贴用草稿**
-- 事实基线：[`extension-data-flow-inventory.md`](extension-data-flow-inventory.md) 与 [`store-disclosure.md`](store-disclosure.md)
-- 适用：Chrome Web Store Developer Dashboard 与 Microsoft Partner Center 的隐私/权限表单
+- Status: **draft for pasting**
+- Factual baseline: [`extension-data-flow-inventory.md`](extension-data-flow-inventory.md) and [`store-disclosure.md`](store-disclosure.md)
+- Applies to: the privacy/permission forms of the Chrome Web Store Developer Dashboard and Microsoft Partner Center
 
 ## Chrome Web Store
 
@@ -12,7 +12,7 @@
 
 ### Privacy practices — Permission justification
 
-| 权限                            | 用途说明（表单文案）                                                                                                                       |
+| Permission                      | Purpose statement (form text)                                                                                                              |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `storage`                       | Keeps the current scan report and a bounded, clearable local history (max 20 redacted reports, 30 days) inside trusted extension contexts. |
 | `sidePanel`                     | Provides the Companion side-panel UI.                                                                                                      |
@@ -24,21 +24,21 @@
 
 ### Privacy practices — Data usage
 
-- 收集的数据：用户触发扫描产生的浏览器可见信号摘要；用户触发的网络检查结果。
-- 用途：本地显示与解释；无服务器上传。
-- 是否出售/传输：否。网络检查会向 ipwho.is、Cloudflare 1.1.1.1、Google Public DNS 发出固定查询；ipwho.is 不可用时改用 api.ipify.org 或 api.ip.sb 作为出口 IP fallback（对方看到请求 IP）。
-- 保留：session 报告随会话消失；本地历史最多 20 条 / 30 天；用户可清除。
-- Remote code：无（bundle gate 校验）。
+- Data collected: summaries of browser-visible signals produced by user-triggered scans, and results of user-triggered network checks.
+- Purpose: local display and interpretation. No upload to a server.
+- Sold/transmitted: no. The network check sends fixed queries to ipwho.is, Cloudflare 1.1.1.1 and Google Public DNS. When ipwho.is is unavailable, it uses api.ipify.org or api.ip.sb as a fallback for the exit IP (the other side sees the request IP).
+- Retention: session reports disappear with the session. Local history keeps at most 20 entries / 30 days. The user can clear it.
+- Remote code: none (checked by the bundle gate).
 
-## Microsoft Edge Add-ons（Partner Center）
+## Microsoft Edge Add-ons (Partner Center)
 
-### Single purpose（新版隐私页）
+### Single purpose (new privacy page)
 
 > VeriSilo Companion is a single-purpose inspection tool: it helps users understand the observable exposure of their current browsing environment through user-initiated scans, an optional network check, and explicit temporary controls. Network checks and privacy controls serve this same purpose and never run automatically.
 
-### Permission justification（逐项，与 Chrome 相同文案可用）
+### Permission justification (per item; the same text as Chrome can be used)
 
-同上表；Edge 额外注意：`proxy` / `declarativeNetRequest` 未声明（bundle gate 明确拒绝其作为 optional）。
+Same as the table above. One extra Edge note: `proxy` / `declarativeNetRequest` are not declared (the bundle gate explicitly rejects them as optional).
 
 ### Remote code
 
@@ -46,11 +46,11 @@
 
 ### Data usage
 
-- 同 Chrome 的 Data usage 文案。
-- 补充：Extension does not collect payment data, personal communications, or user activity for advertising.
+- Same Data usage text as Chrome.
+- Addition: Extension does not collect payment data, personal communications, or user activity for advertising.
 
-## 提交前人工复核项
+## Manual review items before submission
 
-- [ ] 表单文字与 `docs/store-disclosure.md` 逐条对照（该文档受 bundle gate 校验，是当前最完整披露）。
-- [ ] 确认 Network Check 端点仍是 ipwho.is / api.ipify.org / api.ip.sb / cloudflare-dns.com / dns.google（ipify 与 ip.sb 仅为主服务不可用时的出口 IP fallback）且无新增 URL（`scripts/verify-extension-bundle.mjs` 已校验，人工复核一次）。
-- [ ] 隐私政策 URL 填写 `https://verisilo.qiu.works/privacy`（上线后验证 HTTPS 可访问）。
+- [ ] Compare the form text item by item with `docs/store-disclosure.md` (that document is checked by the bundle gate and is the most complete current disclosure).
+- [ ] Confirm that the Network Check endpoints are still ipwho.is / api.ipify.org / api.ip.sb / cloudflare-dns.com / dns.google (ipify and ip.sb are only the exit-IP fallback when the primary service is unavailable) and that no URL was added (`scripts/verify-extension-bundle.mjs` already checks this; review it manually once).
+- [ ] Enter `https://verisilo.qiu.works/privacy` as the privacy policy URL (after it goes live, verify that it is reachable over HTTPS).

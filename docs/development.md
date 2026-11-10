@@ -20,7 +20,7 @@ pnpm desktop:worktree core --port 1422 # Mode B: real Tauri desktop dev; fronten
 ```
 
 Use the cheapest execution mode that exercises the changed behavior; see
-[three-tier dev loop](development-worktrees.md#三档开发循环). RC installer builds and
+[three-tier dev loop](development-worktrees.md#three-tier-development-loop). RC installer builds and
 acceptance follow the release workflow and the
 [Windows acceptance runbook](acceptance/manual-windows-acceptance-runbook.md),
 not the normal development loop.

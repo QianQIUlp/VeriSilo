@@ -111,20 +111,20 @@ and reinstall boundary, inspect the owned process/lifecycle state before moving
 on. Record the following `lifecycle` object with exactly these keys and boolean
 values; do not replace them with renamed fields or prose:
 
-| Output key                 | Direct observation                                                                                                            |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `hostExitZero`             | The Host exits with code 0 on the expected clean shutdown paths.                                                              |
-| `browserProcessTreeEmpty`  | No owned browser process or descendant remains.                                                                               |
-| `jobActiveCountZero`       | The owned job has zero active members.                                                                                        |
-| `relayClosed`              | The network/proxy relay is closed.                                                                                            |
-| `profileOwnershipReleased` | Profile ownership/lock is released.                                                                                           |
-| `residualPidEmpty`         | No owned residual PID remains.                                                                                                |
-| `userClosePassed`          | The user-close path completes with the lifecycle checks above satisfied.                                                      |
-| `stopPassed`               | **Stop Silo** completes with the lifecycle checks above satisfied.                                                            |
-| `applicationExitPassed`    | Tray **退出 VeriSilo** completes only after the lifecycle checks above; window X alone is the documented hide-to-tray action. |
-| `failedLaunchPassed`       | The expected required-proxy launch failure completes cleanly.                                                                 |
-| `applicationRemoved`       | Uninstall removes the application.                                                                                            |
-| `dataPreserved`            | `%LOCALAPPDATA%\io.verisilo.app` remains intact after uninstall.                                                              |
+| Output key                 | Direct observation                                                                                                                              |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hostExitZero`             | The Host exits with code 0 on the expected clean shutdown paths.                                                                                |
+| `browserProcessTreeEmpty`  | No owned browser process or descendant remains.                                                                                                 |
+| `jobActiveCountZero`       | The owned job has zero active members.                                                                                                          |
+| `relayClosed`              | The network/proxy relay is closed.                                                                                                              |
+| `profileOwnershipReleased` | Profile ownership/lock is released.                                                                                                             |
+| `residualPidEmpty`         | No owned residual PID remains.                                                                                                                  |
+| `userClosePassed`          | The user-close path completes with the lifecycle checks above satisfied.                                                                        |
+| `stopPassed`               | **Stop Silo** completes with the lifecycle checks above satisfied.                                                                              |
+| `applicationExitPassed`    | Tray **退出 VeriSilo** ("Quit VeriSilo") completes only after the lifecycle checks above; window X alone is the documented hide-to-tray action. |
+| `failedLaunchPassed`       | The expected required-proxy launch failure completes cleanly.                                                                                   |
+| `applicationRemoved`       | Uninstall removes the application.                                                                                                              |
+| `dataPreserved`            | `%LOCALAPPDATA%\io.verisilo.app` remains intact after uninstall.                                                                                |
 
 If a future authorized run is performed, its `runtimeAcceptance` object must
 contain only these verifier-bound fields: `os` (`name: "Windows 11"` and the

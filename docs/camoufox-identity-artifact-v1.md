@@ -1,6 +1,6 @@
 # VeriSilo M1.1 + M2-0 + M2.0.1 + M2.0.2 + M2.0.3 — Resolved Camoufox Identity Artifact
 
-> 历史阶段报告：下表保留 M2.0.3 当时的 Gate 判定。M2-W 此后已经 Accepted，PR #10 已合入 `main`；当前阶段与下一任务以 [Camoufox 状态页](camoufox-program-status.md)为准。
+> Historical stage report: the table below keeps the Gate verdicts of M2.0.3 as they were at that time. M2-W has since been Accepted, and PR #10 has been merged into `main`. For the current stage and the next task, the authority is the [Camoufox status page](camoufox-program-status.md).
 
 Status: **M2.0.3 accepted on this host — observations only,
 `verified: false` everywhere. Host v1 is a runnable Linux prototype; the
@@ -9,144 +9,162 @@ explicitly rejected.**
 
 ## Gate summary
 
-| Gate                              | 判定                                                          |
-| --------------------------------- | ------------------------------------------------------------- |
-| 有效 Artifact 的 Linux 重放正确性 | 通过（v3 Artifact / v2 ObservedWebsiteDigest）                |
-| 稳定性与身份分离                  | 通过（inherit fontMode，字体宽度不入摘要）                    |
-| 递归严格 Artifact 边界            | 通过（嵌套必需字段 + 未知字段 + 顶层 scalar 闭包）            |
-| Schema/摘要版本冻结               | **通过（M2.0.2：v3/v2 升级 + 旧版显式拒绝）**                 |
-| Host 重启持久化                   | 通过（固定 origin + Cookie API/页面/cookies.sqlite 三类证据） |
-| 正常生命周期与进程树清理          | 通过                                                          |
-| 异常进程无法退出时 fail-closed    | **通过（M2.0.3：全树身份确认 + 三态原子 quarantine）**        |
-| 严格 Artifact JSON / RFC3339 边界 | **通过（M2.0.3）**                                            |
-| 证据冻结到 Git                    | 通过（tracked fixtures + manifest + code revision）           |
-| M2-W Windows 手工 Gate            | **本文当时允许；后续已 Accepted**                             |
-| 接入 Tauri / EngineAdapter        | 暂不允许                                                      |
+| Gate                                             | Verdict                                                                               |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Linux replay correctness of a valid Artifact     | Passed (v3 Artifact / v2 ObservedWebsiteDigest)                                       |
+| Stability and identity separation                | Passed (inherit fontMode, font widths not in the digest)                              |
+| Recursive strict Artifact boundary               | Passed (nested required fields + unknown fields + top-level scalar closure)           |
+| Schema/digest version freeze                     | **Passed (M2.0.2: v3/v2 upgrade + explicit rejection of old versions)**               |
+| Host restart persistence                         | Passed (fixed origin + three kinds of evidence: Cookie API / page / cookies.sqlite)   |
+| Normal lifecycle and process-tree cleanup        | Passed                                                                                |
+| Fail-closed when an abnormal process cannot exit | **Passed (M2.0.3: whole-tree identity confirmation + three-state atomic quarantine)** |
+| Strict Artifact JSON / RFC3339 boundary          | **Passed (M2.0.3)**                                                                   |
+| Evidence frozen into Git                         | Passed (tracked fixtures + manifest + code revision)                                  |
+| M2-W Windows manual Gate                         | **Allowed at the time of this document; since Accepted**                              |
+| Integration into Tauri / EngineAdapter           | Not allowed yet                                                                       |
 
-M0.1 保持“本机兼容性 Gate 通过”的收紧表述：`noCamoufoxWebdlAttemptObserved`
-只证明 `camoufox.webdl` 未触发（`outboundNetworkFullyObserved: false`），
-且原始报告位于 gitignored 目录——不是供应链或网络行为验证。
+M0.1 keeps the tightened wording "local compatibility Gate passed":
+`noCamoufoxWebdlAttemptObserved` proves only that `camoufox.webdl` was not
+triggered (`outboundNetworkFullyObserved: false`), and the raw report is in a
+gitignored directory. It is not a verification of the supply chain or of
+network behavior.
 
-## 版本契约（M2.0.2）
+## Version contract (M2.0.2)
 
-- Artifact：`verisilo-camoufox-resolved-identity/v3`。
-- Policy：`verisilo-camoufox-identity-policy/v3`（含必需 `fontMode`）。
-- Projection：`verisilo-camoufox-stable-signal-projection/v3`。
-- ObservedWebsiteDigest：`verisilo-camoufox-observed-website/v2`。
-- M1 run report：`verisilo-camoufox-m1-run-report/v3`。
-- 旧 `…/v2` Artifact 在 schema 检查阶段返回
-  `UnsupportedSchemaVersionError`（协议码 `unsupported_schema_version`），
-  **不会**被当作普通 missing-field 处理；未知/未来版本同样显式拒绝。
+- Artifact: `verisilo-camoufox-resolved-identity/v3`.
+- Policy: `verisilo-camoufox-identity-policy/v3` (including the required `fontMode`).
+- Projection: `verisilo-camoufox-stable-signal-projection/v3`.
+- ObservedWebsiteDigest: `verisilo-camoufox-observed-website/v2`.
+- M1 run report: `verisilo-camoufox-m1-run-report/v3`.
+- An old `…/v2` Artifact returns `UnsupportedSchemaVersionError` (protocol
+  code `unsupported_schema_version`) at the schema check stage. It is **not**
+  handled as an ordinary missing-field case. Unknown and future versions are
+  likewise rejected explicitly.
 
-## 被证明的链路
+## The proven chain
 
 ```text
-磁盘 Artifact（单次字节读取）
-→ schema 版本契约检查（旧版显式拒绝）
-→ expectedArtifactFileSha256 + sidecar 校验
-→ 统一顶层 closed schema（含 47 键 resolvedConfig 闭包；
-  嵌套必需字段、未知字段、类型全部递归校验）
-→ generatedBy 非空字符串；generatedAtUtc 严格 RFC 3339 UTC（规范化为 Z）
-→ browser binding（archive SHA、BuildID、SourceStamp、properties.json SHA）
-→ 解压树 manifest 校验（689 文件 / 1,284,408,846 字节；
-  symlink / 非 regular 文件同样拒绝）
+Artifact on disk (single byte read)
+→ schema version contract check (old versions explicitly rejected)
+→ expectedArtifactFileSha256 + sidecar check
+→ unified top-level closed schema (including the 47-key resolvedConfig closure;
+  nested required fields, unknown fields and types all validated recursively)
+→ generatedBy non-empty string; generatedAtUtc strict RFC 3339 UTC (normalized to Z)
+→ browser binding (archive SHA, BuildID, SourceStamp, properties.json SHA)
+→ unpacked tree manifest check (689 files / 1,284,408,846 bytes;
+  symlinks / non-regular files are likewise rejected)
 → deepcopy config → configuredIdentityDigest
-→ launch_options() 发送完全相同的 CAMOU_CONFIG（零变异门禁）
-→ 网站每次看到稳定、可区分的 ObservedWebsiteSignals
-→ ObservedWebsiteDigest v2（无 artifactId、无内部 seed、无 canvas、
-  inherit 模式下无字体宽度）
+→ launch_options() sends the exact same CAMOU_CONFIG (zero-mutation gate)
+→ the website sees stable, distinguishable ObservedWebsiteSignals every time
+→ ObservedWebsiteDigest v2 (no artifactId, no internal seed, no canvas,
+  no font widths in inherit mode)
 ```
 
-## 严格校验（M2.0.2）
+## Strict validation (M2.0.2)
 
-- 顶层使用**统一 closed schema**：schema、artifactId、policy、
-  browserRelease、browserBinding、generatedBy、generatedAtUtc、
-  generatorVersions、resolvedConfig、stableSignalsDeclared、exclusions、
-  configuredIdentityDigest、canonicalDigest 全部要求存在且类型正确。
-- `generatedBy`：非空字符串。
-- `generatedAtUtc`：严格 RFC 3339 UTC，末尾必须为 `Z`（`+00:00`、
-  非 UTC 偏移、非 RFC3339 字符串均拒绝）。
-- RFC3339 校验使用**显式正则 + 日期解析**：只接受
-  `YYYY-MM-DDTHH:MM:SS[.fraction]Z`；空格分隔、basic form、缺秒、非 UTC
-  表示全部拒绝。
-- `browserRelease`：非空字符串。
-- `configuredIdentityDigest` / `canonicalDigest`：`sha256:<64 hex>`。
-- Artifact JSON 使用**严格解析器**：递归拒绝重复 key（嵌套对象同样拒绝）、
-  拒绝 NaN/Infinity、顶层必须是 object；违规统一返回
-  `integrity_rejected`，不会表现为 `internal_error`，也不会因解析器选择
-  不同重复值而产生歧义（为未来 Rust/Python 共享格式铺路）。
-- `type(x) is int` / `bool` 被拒绝；所有嵌套对象拒绝未知字段且要求
-  必需字段齐全；`.sha256` sidecar 必需；Artifact 字节只读取一次（无
-  TOCTOU）。
+- The top level uses a **unified closed schema**: schema, artifactId, policy,
+  browserRelease, browserBinding, generatedBy, generatedAtUtc,
+  generatorVersions, resolvedConfig, stableSignalsDeclared, exclusions,
+  configuredIdentityDigest and canonicalDigest must all be present and have
+  the correct type.
+- `generatedBy`: non-empty string.
+- `generatedAtUtc`: strict RFC 3339 UTC, and it must end in `Z` (`+00:00`,
+  non-UTC offsets and non-RFC3339 strings are all rejected).
+- RFC3339 validation uses an **explicit regex + date parsing**: it accepts
+  only `YYYY-MM-DDTHH:MM:SS[.fraction]Z`. Space-separated forms, the basic
+  form, missing seconds and non-UTC representations are all rejected.
+- `browserRelease`: non-empty string.
+- `configuredIdentityDigest` / `canonicalDigest`: `sha256:<64 hex>`.
+- Artifact JSON uses a **strict parser**: it recursively rejects duplicate
+  keys (nested objects too) and NaN/Infinity, and the top level must be an
+  object. Violations uniformly return `integrity_rejected`. They do not show
+  up as `internal_error`, and the parser's choice among duplicate values
+  creates no ambiguity (this paves the way for a future shared Rust/Python
+  format).
+- `type(x) is int` / `bool` are rejected. All nested objects reject unknown
+  fields and require all required fields. The `.sha256` sidecar is required.
+  Artifact bytes are read only once (no TOCTOU).
 
-## 双摘要规则
+## Dual digest rules
 
-规范 JSON：UTF-8、递归排序键、紧凑分隔符、`ensure_ascii=false`、
-`allow_nan=false`。
+Canonical JSON: UTF-8, recursively sorted keys, compact separators,
+`ensure_ascii=false`, `allow_nan=false`.
 
-- Artifact canonicalDigest：去掉 `canonicalDigest` 后的规范 JSON 摘要。
-- ConfiguredIdentityDigest（v1 语义不变）：resolvedConfig 的规范摘要
-  （可含 seed，不含 artifactId）。
-- ObservedWebsiteDigest（v2）：仅网站可见值（不含 artifactId、内部 seed、
-  canvas、Artifact 字体输入；inherit 模式不含字体宽度）。
+- Artifact canonicalDigest: the digest of the canonical JSON after removing
+  `canonicalDigest`.
+- ConfiguredIdentityDigest (v1 semantics unchanged): the canonical digest of
+  resolvedConfig (may contain the seed, does not contain artifactId).
+- ObservedWebsiteDigest (v2): website-visible values only (no artifactId, no
+  internal seed, no canvas, no Artifact font input; no font widths in inherit
+  mode).
 
-## 字体策略
+## Font policy
 
-`policy.fontMode` 二分为 `inherit` / `managed`：
+`policy.fontMode` has two values, `inherit` and `managed`:
 
-- `inherit`（当前三个 fixture）：`fontUniverseWidths` 是 **host-bound**
-  证据，不进入 ObservedWebsiteDigest；`fontNegativeControls`（伪造字体）
-  保留。
-- `managed`：只有全部宿主 negative controls 在页面中 unavailable 时，
-  字体宽度才进入摘要；否则浏览器会被**临时启动并探测**，随后清理，
-  launch 在进入 `running` 之前失败（`host_font_masking_failed`）。这
-  **不是**“浏览器启动前失败”——检测必须在真实页面中完成。
+- `inherit` (the current three fixtures): `fontUniverseWidths` is
+  **host-bound** evidence and does not enter the ObservedWebsiteDigest.
+  `fontNegativeControls` (forged fonts) are kept.
+- `managed`: font widths enter the digest only when all host negative controls
+  are unavailable in the page. Otherwise the browser is **launched
+  temporarily and probed**, then cleaned up, and the launch fails before it
+  enters `running` (`host_font_masking_failed`). This is **not** a "failure
+  before the browser starts", because the detection must be done in a real
+  page.
 
-当前宿主字体遮蔽仍未解决，因此：同一 Linux 主机上摘要可稳定；跨主机
-字体相关摘要未必稳定；字体隔离**不宣称**。
+Host font masking is still unsolved. Therefore the digest can be stable on
+the same Linux host, font-related digests are not necessarily stable across
+hosts, and font isolation is **not claimed**.
 
-## 进程身份与 quarantine（M2.0.2）
+## Process identity and quarantine (M2.0.2)
 
-- `exit_supervisor` 写入 supervisor PID、child PID、start-time ticks、
-  process group；Host 据此建立受管进程身份，不再用 `/proc` cmdline 猜 PID。
-- 发信号前核对 **PID + start-time**：PID 被复用但 start-time 不同时，
-  不会被当作原进程，也不会被误杀。
-- 正常 close/fail：确认整个受管进程树退出后才释放 profile lock。
-- 无法确认退出（`processTreeExit.exited !== true`）：状态为
-  **quarantined**，当前 Host **继续持有 profile lock**，写入
-  `stateRoot/quarantine/<profile>.json`（含 PID、start-time、process
-  group），绝不标记为 exited。
-- M2.0.3：`exited=true` 只在**所有捕获的 PID+start-time identity（根与
-  后代）**都消失后返回；存活后代计入 `remaining` 并写入 quarantine。
-- quarantine 记录采用**三态读取**（absent / valid / invalid）：文件存在但
-  截断、缺字段、类型错误或不可读时**阻止接管**；写入为原子替换
-  （同目录临时文件 + fsync + `os.replace` + 目录 fsync），写入/删除失败
-  fail-closed。
-- 新 Host 只有验证 quarantine 记录中所有 PID+start-time 身份已不存在后
-  才能清理记录并接管；否则返回 `profile_quarantined`。
+- `exit_supervisor` writes the supervisor PID, child PID, start-time ticks
+  and process group. The Host uses them to establish the managed process
+  identity, and no longer guesses the PID from the `/proc` cmdline.
+- Before signaling, it checks **PID + start-time**. When a PID is reused but
+  the start-time differs, it is not treated as the original process and is not
+  killed by mistake.
+- Normal close/fail: the profile lock is released only after the whole managed
+  process tree is confirmed to have exited.
+- When exit cannot be confirmed (`processTreeExit.exited !== true`): the state
+  is **quarantined**, the current Host **keeps holding the profile lock**, and
+  writes `stateRoot/quarantine/<profile>.json` (containing the PID,
+  start-time and process group). It is never marked as exited.
+- M2.0.3: `exited=true` is returned only after **all captured PID+start-time
+  identities (root and descendants)** have disappeared. Surviving descendants
+  are counted in `remaining` and written to quarantine.
+- The quarantine record uses a **three-state read** (absent / valid /
+  invalid): when the file exists but is truncated, is missing fields, has a
+  type error or is unreadable, it **blocks takeover**. Writes are atomic
+  replacements (same-directory temp file + fsync + `os.replace` + directory
+  fsync), and a write/delete failure is fail-closed.
+- A new Host can clean up the record and take over only after it has verified
+  that all PID+start-time identities in the quarantine record no longer
+  exist. Otherwise it returns `profile_quarantined`.
 
-## Canvas 分类（不变）
+## Canvas classification (unchanged)
 
-raw 像素稳定但 seed 噪声未通过本探针场景体现；export（toDataURL）跨重启
-不稳定。两者都不计入 ObservedWebsiteDigest。
+Raw pixels are stable, but seed noise was not exhibited by this probe
+scenario. The export (toDataURL) is not stable across restarts. Neither is
+counted in the ObservedWebsiteDigest.
 
-## 测试结果（M2.0.2 最终）
+## Test results (M2.0.2 final)
 
-### 稳定性：identity-a × 5 冷启动
+### Stability: identity-a × 5 cold starts
 
-Accepted run：**`run-1786158540-228a3340`**
-（report.sha256 `b15625fd…b323d`）。
+Accepted run: **`run-1786158540-228a3340`**
+(report.sha256 `b15625fd…b323d`).
 
-| Start | disk==sent | diff | 退出码 | exit 文件 | Profile fresh | ObservedWebsiteDigest v2                                                  |
-| ----- | ---------- | ---- | ------ | --------- | ------------- | ------------------------------------------------------------------------- |
-| 1–5   | true       | 空   | 0      | 存在      | 是            | `sha256:70f71b5ca7ee287a4d5e989086a990264433129615f0ee988aa18c135385d0ff` |
+| Start | disk==sent | diff  | Exit code | exit file | Profile fresh | ObservedWebsiteDigest v2                                                  |
+| ----- | ---------- | ----- | --------- | --------- | ------------- | ------------------------------------------------------------------------- |
+| 1–5   | true       | empty | 0         | present   | yes           | `sha256:70f71b5ca7ee287a4d5e989086a990264433129615f0ee988aa18c135385d0ff` |
 
-5/5 摘要一致；`artifactFileSha256EveryStart` 5 次相同；`fontModeEveryStart`
-全为 `inherit`。**通过。**
+5/5 digests identical; `artifactFileSha256EveryStart` is the same all 5
+times; `fontModeEveryStart` is `inherit` throughout. **Passed.**
 
-### 分离：identity-a/b/c
+### Separation: identity-a/b/c
 
-Accepted run：**`run-1786158560-43ea2bd1`**。
+Accepted run: **`run-1786158560-43ea2bd1`**.
 
 | Artifact   | canonicalDigest        | ObservedWebsiteDigest v2 |
 | ---------- | ---------------------- | ------------------------ |
@@ -154,44 +172,49 @@ Accepted run：**`run-1786158560-43ea2bd1`**。
 | identity-b | `sha256:0cb8e396…42f7` | `sha256:8559d3e0…6324`   |
 | identity-c | `sha256:d6b8ad04…713f` | `sha256:f873b3dd…6de13`  |
 
-两两不同；退出码 0、exit 文件存在、Profile fresh、config 零变异全部满足。
-**通过。**
+All pairwise different. Exit code 0, exit file present, Profile fresh and
+zero config mutation are all satisfied. **Passed.**
 
-### Tamper：四模式启动前拒绝
+### Tamper: four modes rejected before launch
 
-Accepted run：**`run-1786158573-fef25c08`**。digest / missing-field /
-type-error / policy-mismatch 全部拒绝；Host 集成测试额外验证删除
-`policy.canonicalJsonRule`（重算摘要与 sidecar）在启动前
-`integrity_rejected`。
+Accepted run: **`run-1786158573-fef25c08`**. digest / missing-field /
+type-error / policy-mismatch are all rejected. The Host integration test
+additionally verifies that deleting `policy.canonicalJsonRule` (with the
+digest and sidecar recomputed) gives `integrity_rejected` before launch.
 
-### 解压树
+### Unpacked tree
 
-`browser-tree-manifest.json`（689 文件、1,284,408,846 字节，manifest SHA
-`20807dd2…bae75`）每次运行前验证；缺失/多余/修改文件、symlink、FIFO 等
-非 regular 条目全部拒绝。
+`browser-tree-manifest.json` (689 files, 1,284,408,846 bytes, manifest SHA
+`20807dd2…bae75`) is verified before every run. Missing / extra / modified
+files, symlinks, FIFOs and other non-regular entries are all rejected.
 
-## 单元与集成测试
+## Unit and integration tests
 
-- `test_identity_artifact.py`：21/21 通过（新增：旧 v2 Artifact →
-  `UnsupportedSchemaVersionError`；`generatedBy` 非字符串拒绝；
-  `generatedAtUtc` bool / 非 RFC3339 / 非 UTC / 非 Z 规范化拒绝；
-  `browserRelease` 与 digest 格式拒绝；RFC3339 宽松形式拒绝；严格 JSON
-  解析器拒绝重复 key / NaN / 非 object）。
-- `test_host_v1.py`：19/19 通过（新增：协议级 v2 → `unsupported_schema_version`；
-  managed 字体失败后浏览器清理且状态从未 `running`；quarantine 阻止接管
-  直到原进程身份消失；PID 相同但 start-time 不同不被视为原进程；
-  quarantine 保留 profile lock；根退出 + 忽略 SIGTERM 后代存活的反例；
-  损坏 quarantine 文件阻止接管；原子写入/失败 fail-closed；非 object /
-  重复 key / NaN Artifact 协议级 `integrity_rejected`）。
+- `test_identity_artifact.py`: 21/21 passed (new: old v2 Artifact →
+  `UnsupportedSchemaVersionError`; non-string `generatedBy` rejected;
+  `generatedAtUtc` bool / non-RFC3339 / non-UTC / non-Z normalization
+  rejected; `browserRelease` and digest format rejected; loose RFC3339 forms
+  rejected; the strict JSON parser rejects duplicate keys / NaN / non-object).
+- `test_host_v1.py`: 19/19 passed (new: protocol-level v2 →
+  `unsupported_schema_version`; after a managed font failure the browser is
+  cleaned up and the state was never `running`; quarantine blocks takeover
+  until the original process identity disappears; same PID with a different
+  start-time is not treated as the original process; quarantine keeps the
+  profile lock; counter-example with the root exiting and a SIGTERM-ignoring
+  descendant surviving; a corrupt quarantine file blocks takeover; atomic
+  write / failure is fail-closed; non-object / duplicate key / NaN Artifact
+  gives protocol-level `integrity_rejected`).
 
 ## M2 gate
 
-**允许进入 M2-W（Windows 手工 Gate）**：Linux standalone Host v1 作为
-“可运行的 Linux 原型”已通过 M2.0.2 修正与验收（版本契约冻结、顶层类型
-闭包、进程身份/start-time 校验、quarantine fail-closed）。M3
-（EngineAdapter/Tauri）仍不允许；Vault、代理、UI 顺序不变。
+**Entry into M2-W (the Windows manual Gate) is allowed.** The Linux
+standalone Host v1, as a "runnable Linux prototype", has passed the M2.0.2
+corrections and acceptance (version contract freeze, top-level type closure,
+process identity / start-time check, quarantine fail-closed). M3
+(EngineAdapter/Tauri) is still not allowed. The order of Vault, proxy and UI
+is unchanged.
 
-## 复现
+## Reproduction
 
 ```bash
 cd apps/camoufox-host
@@ -204,6 +227,6 @@ uv run python run_identity_spike.py separation --artifacts ../../tests/fixtures/
 uv run python run_identity_spike.py tamper --artifact ../../tests/fixtures/camoufox/identity-a.json --out-dir ../../artifacts/camoufox-m1/tampered
 ```
 
-证据索引：`tests/fixtures/camoufox/evidence-manifest.json`（tracked，
-含 run-id、报告摘要、raw file SHA、browserBinding、解压树摘要、schema
-版本契约与代码 Git revision）。
+Evidence index: `tests/fixtures/camoufox/evidence-manifest.json` (tracked;
+contains run-ids, report digests, raw file SHAs, browserBinding, the unpacked
+tree digest, the schema version contract and the code Git revision).

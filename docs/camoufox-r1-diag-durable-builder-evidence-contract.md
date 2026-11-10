@@ -1,26 +1,30 @@
 # R1-diag Durable Builder Evidence & Rehydration Contract
 
-> **历史 builder 合同**：diagnostic build/provenance 已关闭；本文不再是当前执行约束。
-> 仅在审计对应 builder evidence 时读取，当前路线见
-> [状态页](camoufox-program-status.md)。
+> Translated from the original Chinese on 2026-11-10. The original text is in Git history at commit 1cf0f29. For historical evidence, the original wording governs if the two differ.
 
-- 状态：**Accepted for implementation**
-- 形成日期：2026-08-23
-- 起始 checkpoint：`f267bb4ff3f00115a37546bbe0649d0db889a7d3`
-- 起始 tree：`d923535f105169b40d3ae091b9b925c864a086d7`
-- 执行边界：offline / no-engine / no-browser
+> **Historical builder contract**: the diagnostic build/provenance is closed, and this
+> document is no longer a current execution constraint. Read it only when auditing the
+> corresponding builder evidence. For the current route, see the
+> [status page](camoufox-program-status.md).
 
-本文冻结 Phase B builder identity 的 durable retention 与 Docker image
-rehydration 合同。它不改变 R1 diagnostic engine recipe、patch series 或运行时语义，
-也不授权 Phase B-2、Phase C-2、Phase D、Browser 或 V1–V4。
+- Status: **Accepted for implementation**
+- Date formed: 2026-08-23
+- Starting checkpoint: `f267bb4ff3f00115a37546bbe0649d0db889a7d3`
+- Starting tree: `d923535f105169b40d3ae091b9b925c864a086d7`
+- Execution boundary: offline / no-engine / no-browser
 
-## 1. 历史与当前状态
+This document freezes the durable retention of the Phase B builder identity and the Docker
+image rehydration contract. It does not change the R1 diagnostic engine recipe, the patch
+series, or the runtime semantics, and it does not authorize Phase B-2, Phase C-2, Phase D,
+Browser, or V1–V4.
 
-`r1diag-builder-20260823t0504z` 曾合法产生 image
-`sha256:f46ec076dcde9b3759007c3683c07e5a3c563f9145475b335b6f40a82bb6732c`，
-并在 `f267bb4` 被正确写入 v2 source lock。宿主 deallocate/reboot 后，Azure
-Temporary Storage 被 cloud-init 重新格式化，Phase-B material evidence 与 Docker
-content store 同时永久丢失。因此：
+## 1. History and current state
+
+`r1diag-builder-20260823t0504z` legitimately produced the image
+`sha256:f46ec076dcde9b3759007c3683c07e5a3c563f9145475b335b6f40a82bb6732c`, which was correctly
+written into the v2 source lock at `f267bb4`. After the host was deallocated/rebooted, Azure
+Temporary Storage was reformatted by cloud-init, and the Phase-B material evidence and the
+Docker content store were permanently lost at the same time. Therefore:
 
 ```text
 Phase B-1 / Phase C-1 identity history: Accepted and immutable
@@ -28,15 +32,17 @@ Phase C-1 operational consumability:   Superseded / unavailable
 Current builder binding:                must return to unbound
 ```
 
-`f267bb4` 不删除、不改写。新的 checkpoint 通过 Git 历史和 lock 内的 operational
-lineage 指针保留该事实，不把旧 result、archive 或 image 冒充为当前可消费材料。
-历史成功 run `r1diag-builder-20260823t0504z` 与更早失败 run
-`r1diag-builder-20260823t0435z` 均永久 retired；未来 Phase B-2 即使位于全新 scratch/
-durable filesystem 也必须拒绝复用这两个 run-id。
+`f267bb4` is neither deleted nor rewritten. The new checkpoint preserves this fact through Git
+history and the operational lineage pointer inside the lock. It does not pass off the old
+result, archive, or image as currently consumable material. The historically successful run
+`r1diag-builder-20260823t0504z` and the earlier failed run `r1diag-builder-20260823t0435z` are
+both permanently retired. A future Phase B-2 must refuse to reuse these two run IDs, even if it
+sits on a brand-new scratch/durable filesystem.
 
 ## 2. v2 compatibility decision
 
-当前 Dockerfile、embedded strict driver 与 diagnostic gate 均固定读取：
+The current Dockerfile, the embedded strict driver, and the diagnostic gate all read these
+fixed values:
 
 ```text
 camoufox-v152.0.4-beta.28-verisilo-r1-diag-v2-source.json
@@ -44,40 +50,43 @@ schema verisilo-r1-diag-source-binding/v2
 engineRevision verisilo-camoufox-152.0.4-beta.28-r1-diag-v2
 ```
 
-本任务禁止修改这些 container recipe bytes。因此不新建 strict driver 无法消费的 v3
-execution schema。新的 Phase-A checkpoint 更新现行 v2 lock 的 host-evidence contract，
-并保持 Dockerfile、strict driver、diag gate、engine revision 与六个 patch bytes 不变。
-历史 v2 binding 由 `f267bb4` 及 lock 内 lineage 字段保存。
+This task forbids modifying these container recipe bytes. So no v3 execution schema that the
+strict driver cannot consume is created. The new Phase-A checkpoint updates the
+host-evidence contract of the current v2 lock, and keeps the Dockerfile, strict driver, diag
+gate, engine revision, and the six patch bytes unchanged. The historical v2 binding is
+preserved by `f267bb4` and by the lineage fields inside the lock.
 
-## 3. Scratch 与 durable evidence 分层
+## 3. Layers of scratch and durable evidence
 
 ```text
 scratch root:
   /mnt/camoufox-build
-  可用于可重建的 source/build/work/output
-  允许宿主重启后丢失
+  usable for rebuildable source/build/work/output
+  may be lost on host restart
 
 durable evidence root:
   /var/lib/verisilo/camoufox-build-evidence
-  只保存 builder evidence bundle 与 durable-root qualification
-  必须跨宿主重启保持
+  stores only the builder evidence bundle and the durable-root qualification
+  must survive host restarts
 ```
 
-两个路径均由 launcher 常量冻结；不接受环境变量、任意 lock path、任意 evidence path
-或 CLI root override。durable root 必须由宿主预先创建并允许 launcher 写入；launcher
-不得执行 `chmod`、`chown` 或 privileged filesystem repair。
+Both paths are frozen as launcher constants. The launcher accepts no environment variable, no
+arbitrary lock path, no arbitrary evidence path, and no CLI root override. The durable root
+must be created in advance by the host and must allow the launcher to write to it. The
+launcher must not run `chmod`, `chown`, or a privileged filesystem repair.
 
-每次使用 durable root 前必须 fail closed 验证：
+Before each use of the durable root, the following must be verified fail-closed:
 
-1. root 是真实目录且不是 symlink；
-2. root 与 scratch root 的 `st_dev` 不同；
-3. 记录 `findmnt` 的 mount target/source、filesystem type 与 UUID；
-4. 当前 mount identity 与 reboot qualification 完全一致；
-5. launcher 可直接创建、fsync、重读证据，不借助 `sudo` 修复文件权限。
+1. The root is a real directory and not a symlink.
+2. The `st_dev` of the root and of the scratch root differ.
+3. Record the mount target/source, filesystem type, and UUID from `findmnt`.
+4. The current mount identity exactly matches the reboot qualification.
+5. The launcher can directly create, fsync, and re-read the evidence, without using `sudo` to
+   repair file permissions.
 
 ## 4. Reboot qualification
 
-Phase B-2 前必须完成一次 versioned qualification：
+Before Phase B-2, one versioned qualification must be completed:
 
 ```text
 stage-durable-root-qualification
@@ -85,23 +94,24 @@ stage-durable-root-qualification
   → sentinel + request JSON
   → fsync file and directory
 
-宿主 reboot/deallocate/restart
+host reboot/deallocate/restart
 
 verify-durable-root-qualification
-  → boot ID 必须不同
-  → mount identity 必须相同
-  → sentinel size/SHA 必须相同
-  → 写入 exclusive qualified-after-reboot result
+  → boot ID must differ
+  → mount identity must be the same
+  → sentinel size/SHA must be the same
+  → write an exclusive qualified-after-reboot result
   → fsync + re-read
 ```
 
-qualification ID 只能选择固定 root 下的一个直接子目录，不能成为路径注入通道。
-Phase B `prepare-image` 必须显式绑定一个已通过的 qualification ID；缺失、同 boot、
-mount drift、sentinel drift 或 result drift 均在 Docker build 前拒绝。
+The qualification ID may only select one direct child directory under the fixed root. It must
+not become a path-injection channel. The Phase B `prepare-image` must explicitly bind one
+qualification ID that already passed. A missing one, the same boot, mount drift, sentinel
+drift, or result drift is rejected before the Docker build.
 
 ## 5. Durable Phase-B bundle
 
-每个新 Phase-B run 对应：
+Each new Phase-B run corresponds to:
 
 ```text
 /var/lib/verisilo/camoufox-build-evidence/<run-id>/
@@ -117,151 +127,171 @@ mount drift、sentinel drift 或 result drift 均在 Docker build 前拒绝。
   retention-receipt.json
 ```
 
-在任何 Docker build 前，launcher 必须以新 run-id exclusive 创建 bundle directory，
-写入并 fsync/re-read `retention-preflight.json`，绑定 qualification result 与当前 mount
-identity，并证明 launcher 当前仍能直接 create/write/fsync/read。reservation 失败或目录
-已存在时不得进入 Docker；成功后的 reservation 即使后续失败也永久保留，禁止同 run-id
-重试。
+Before any Docker build, the launcher must create the bundle directory exclusively with a new
+run-id, write and fsync/re-read `retention-preflight.json`, bind the qualification result and
+the current mount identity, and prove that the launcher can still directly
+create/write/fsync/read. If the reservation fails or the directory already exists, it must not
+enter Docker. After a successful reservation, the reservation is kept permanently even if
+later steps fail, and a retry under the same run-id is forbidden.
 
-其余七个 payload 文件必须从 scratch provenance 以 exclusive create 复制；每个目标文件由
-launcher 写入、flush、`fsync`、关闭后重新 hash/stat。bundle directory pre-exists
-（除本次 launcher 刚创建并验证的 exact preflight reservation）即拒绝，不覆盖、不删除、
-不在同一 run-id 重试。复制失败可保留 partial bundle，
-但不得生成 accepted manifest。
+The other seven payload files must be copied from the scratch provenance with exclusive create.
+The launcher writes each target file, flushes it, runs `fsync`, closes it, and then re-hashes
+and re-stats it. If the bundle directory pre-exists (except for the exact preflight reservation
+that this launcher just created and verified), reject: do not overwrite, do not delete, and do
+not retry under the same run-id. If a copy fails, the partial bundle may be kept, but no
+accepted manifest may be generated.
 
-`durable-manifest.json` 在七个 payload 之后写入，至少包含：
+`durable-manifest.json` is written after the seven payloads and contains at least:
 
-- schema、runId、writtenAt、`retained=true`、`fsyncCompleted=true`；
-- source commit/tree/lock、imageId、binding proposal canonical SHA；
-- durable qualification ID/result SHA 与 mount identity；
-- preflight 与其余七个 payload 文件的精确 basename、size 和 SHA-256；
-- manifest canonical SHA-256。
+- schema, runId, writtenAt, `retained=true`, `fsyncCompleted=true`;
+- source commit/tree/lock, imageId, binding proposal canonical SHA;
+- the durable qualification ID/result SHA and the mount identity;
+- the exact basename, size, and SHA-256 of the preflight and of the other seven payload files;
+- the manifest canonical SHA-256.
 
-manifest canonical hash 的输入定义为“移除
-`manifestCanonicalSha256` 字段后的 compact/sorted-key UTF-8 JSON object”；manifest
-本身不列入 files，避免自引用。manifest 写入并 fsync 后，launcher 必须从 durable
-root 重新打开并完整验证 payload、manifest、qualification 和 image identity。只有该
-重读通过，才写入最终 exclusive+fsync `retention-receipt.json`；receipt 至少绑定
-manifest raw/canonical SHA、builder result SHA、proposal canonical SHA、qualification
-result SHA、source lineage，并声明 `retained=true / reReadable=true`。receipt 自身采用
-移除 `receiptCanonicalSha256` 后的同一 canonical JSON 规则，写入后还须再次完整重读。
+The input of the manifest canonical hash is defined as "the compact/sorted-key UTF-8 JSON
+object after removing the `manifestCanonicalSha256` field". The manifest itself is not listed
+in files, to avoid self-reference. After the manifest is written and fsynced, the launcher
+must reopen from the durable root and fully verify the payload, the manifest, the
+qualification, and the image identity. Only after that re-read passes is the final
+exclusive+fsync `retention-receipt.json` written. The receipt binds at least the manifest
+raw/canonical SHA, the builder result SHA, the proposal canonical SHA, the qualification result
+SHA, and the source lineage, and declares `retained=true / reReadable=true`. The receipt
+itself uses the same canonical JSON rule after removing `receiptCanonicalSha256`, and after it
+is written it must also be fully re-read again.
 
-manifest 是 payload commit marker；receipt 才是“payload 已从 durable root 重读闭合”的
-transaction marker。manifest 已存在但 receipt 缺失、漂移或不可重读时，Phase B/Phase C
-都必须拒绝，避免把“准备重读”误报为“已经重读”。
+The manifest is the payload commit marker. The receipt is the transaction marker that "the
+payload has been re-read and closed from the durable root". If the manifest exists but the
+receipt is missing, drifted, or cannot be re-read, both Phase B and Phase C must reject, so
+that "ready to re-read" is not misreported as "already re-read".
 
-`builder-image-result.json` 在 retention 前生成，状态为
-`prepared-awaiting-durable-retention`。它不单独代表 accepted Phase B；
-`retention-receipt.json` 的
-`durably-retained-reread-verified-awaiting-source-lock-binding` 状态才是 Phase C-2
-可接受的 transaction boundary。
+`builder-image-result.json` is generated before retention, with the status
+`prepared-awaiting-durable-retention`. It does not by itself represent an accepted Phase B. The
+`durably-retained-reread-verified-awaiting-source-lock-binding` status of
+`retention-receipt.json` is the transaction boundary that Phase C-2 can accept.
 
-Phase B 从 buildx metadata 得到 immutable config digest 并完成 exact inspect 后，
-`docker image save` 必须按该 ID
-保存，不能继续按 mutable tag 保存。launcher 还必须解析 Docker archive 的
-`manifest.json` 与 config member，验证 config bytes 的 SHA-256 恰为 proposal image
-ID；仅凭 save command 成功不能证明 tar 与已 inspect identity 相同。
+After Phase B obtains the immutable config digest from the buildx metadata and completes the
+exact inspect, `docker image save` must save by that ID. It must not keep saving by the mutable
+tag. The launcher must also parse the `manifest.json` and the config member of the Docker
+archive and verify that the SHA-256 of the config bytes is exactly the proposal image ID. A
+successful save command alone cannot prove that the tar has the same identity as the inspected
+image.
 
-BuildKit 不得在 recipe 校验后继续读取可变 live checkout directory。launcher 必须把
-Dockerfile、strict driver、diag gate 与 host launcher 的受锁 bytes 冻结为 deterministic
-`builder-build-context.tar`，以同一个 `O_NOFOLLOW` FD 做 pre-hash、buildx binary stdin
-和 post-hash；该 tar 进入 durable bundle，并由 Phase C evidence 绑定 SHA/size。buildx
-完成后，image identity 取自 metadata 的 immutable `containerimage.config.digest`，随后按
-该 digest inspect；inspect ID 与四个 frozen recipe-source labels 必须全部一致。mutable
-tag 只用于本地 `--load` 命名，不得成为 inspect/save/binding authority。
+BuildKit must not keep reading a mutable live checkout directory after the recipe is verified.
+The launcher must freeze the locked bytes of the Dockerfile, the strict driver, the diag gate,
+and the host launcher into a deterministic `builder-build-context.tar`, and use the same
+`O_NOFOLLOW` FD for the pre-hash, the buildx binary stdin, and the post-hash. This tar enters
+the durable bundle, and the Phase C evidence binds its SHA/size. After buildx completes, the
+image identity is taken from the immutable `containerimage.config.digest` of the metadata, and
+then inspected by that digest. The inspect ID and the four frozen recipe-source labels must all
+match. The mutable tag is used only for the local `--load` naming and must not become the
+inspect/save/binding authority.
 
-## 6. Bound evidence 与 rehydration
+## 6. Bound evidence and rehydration
 
-Phase C-2 将来必须同时冻结：
+A future Phase C-2 must freeze all of the following together:
 
-- exact `builderImageBinding`；
-- builder result SHA；
-- binding proposal canonical SHA；
-- durable manifest raw/canonical SHA；
-- retention receipt raw/canonical SHA 与 `reReadable=true`；
-- deterministic build-context tar SHA/size；
-- durable qualification ID/result SHA；
-- `retained=true` 与 source commit/tree/lock lineage。
-- `builderOperationalLineage.current` 必须从 exact unbound state 原子推进为
+- the exact `builderImageBinding`;
+- the builder result SHA;
+- the binding proposal canonical SHA;
+- the durable manifest raw/canonical SHA;
+- the retention receipt raw/canonical SHA and `reReadable=true`;
+- the deterministic build-context tar SHA/size;
+- the durable qualification ID/result SHA;
+- `retained=true` and the source commit/tree/lock lineage;
+- `builderOperationalLineage.current` must advance atomically from the exact unbound state to
   `bindingState=bound / durableEvidence=retained-and-reread / phaseB2=accepted /
-  reasonCodes=[]`；不得留下“顶层已 bound、lineage 仍 unbound”的矛盾。
+reasonCodes=[]`. It must not leave the contradiction "the top level is bound while the
+  lineage is still unbound".
 
-`prepare-bound-image` 不再消费任意 `--source-run-root`。它只按 source run ID 从固定
-durable root 读取 bundle，先完整验证 manifest/files/result/binding，再检查 Docker store：
+`prepare-bound-image` no longer consumes an arbitrary `--source-run-root`. It reads the bundle
+from the fixed durable root only, by source run ID. It first fully verifies the
+manifest/files/result/binding, and then checks the Docker store:
 
 ```text
-bound image ID 已存在且 inspect ID 精确相等
+bound image ID already exists and the inspect ID is exactly equal
   → action = already-present
 
-bound image ID 不存在
-  → docker image load（verified tar 作为 binary stdin）
-  → load exit 必须为 0
-  → 重新 inspect immutable image ID
-  → loaded ID 必须等于 lock binding
+bound image ID does not exist
+  → docker image load (the verified tar as binary stdin)
+  → the load exit must be 0
+  → inspect the immutable image ID again
+  → the loaded ID must equal the lock binding
 ```
 
-rehydration 只反序列化已冻结 image archive，不是新 build。禁止 network pull、
-`docker build`、tag authority、shell redirection、`--entrypoint`、driver injection 或
-手工 filesystem repair。load 输出不构成 identity；load 后的 immutable inspect ID
-才构成 Gate。
+Rehydration only deserializes the already-frozen image archive. It is not a new build. The
+following are forbidden: network pull, `docker build`, tag authority, shell redirection,
+`--entrypoint`, driver injection, and manual filesystem repair. The load output does not
+constitute identity. The immutable inspect ID after the load is what constitutes the Gate.
 
-load 路径必须以 `O_NOFOLLOW`（平台支持时）打开一个 regular-file archive FD；pre-load
-hash/fstat、Docker stdin 与 post-load hash/fstat 使用同一个已打开 FD，避免“校验一个
-path、加载另一个 bytes”的 TOCTOU。任何 inode/size/hash 漂移均拒绝。
+The load path must open one regular-file archive FD with `O_NOFOLLOW` (where the platform
+supports it). The pre-load hash/fstat, the Docker stdin, and the post-load hash/fstat use that
+same open FD, to avoid the TOCTOU of "verifying one path and loading other bytes". Any
+inode/size/hash drift is rejected.
 
-`build-engine` 仅接受状态为 `prepared-from-durable-builder-binding`、
-`retained=true` 且 proposal/manifest 与 bound lock 精确相等的 preparation record；
-该 record 不是独立 authority：engine path 必须按其 source run ID 再次从固定 durable root
-重读 manifest、receipt、全部 payload 并与 bound lock 精确比较，然后才在 `docker run`
-前再次 inspect exact image ID。若 image 在 prepare 与 build 之间丢失，
-build fail closed，不在 build path 隐式 load/pull/build。
-`docker run` 必须显式携带 `--pull=never`，不能依赖 Docker 对 image-ID reference 的
-隐式解析行为。
+`build-engine` accepts only a preparation record whose status is
+`prepared-from-durable-builder-binding`, with `retained=true`, and whose proposal/manifest
+exactly equal the bound lock. This record is not an independent authority: the engine path
+must, by its source run ID, re-read the manifest, the receipt, and all payloads from the fixed
+durable root again and compare them exactly with the bound lock. Only then, before
+`docker run`, does it inspect the exact image ID again. If the image is lost between prepare
+and build, the build fails closed and does not implicitly load/pull/build in the build path.
+`docker run` must explicitly carry `--pull=never` and must not rely on Docker's implicit
+resolution behavior for an image-ID reference.
 
-所有 Docker 调用使用冻结的绝对 executable path 与最小净化环境；
-`DOCKER_HOST`、`DOCKER_CONTEXT`、proxy、任意 `PATH` 或继承环境不得改变 daemon、
-network 或命令解析。证据 JSON 必须拒绝 duplicate keys；exclusive JSON write 必须
-使用原子 exclusive-create 语义，不能采用 `exists()` 后普通覆盖写的 TOCTOU 模式。
+All Docker invocations use the frozen absolute executable path and a minimal sanitized
+environment. `DOCKER_HOST`, `DOCKER_CONTEXT`, proxy, an arbitrary `PATH`, or an inherited
+environment must not change the daemon, the network, or the command resolution. Evidence JSON
+must reject duplicate keys. An exclusive JSON write must use atomic exclusive-create semantics
+and must not use the TOCTOU pattern of an ordinary overwrite write after `exists()`.
 
-## 7. 必须覆盖的 no-browser regressions
+## 7. No-browser regressions that must be covered
 
-至少覆盖：
+Cover at least:
 
-1. durable root 与 scratch 同 filesystem、symlink 或 mount drift 拒绝；
-2. qualification 同 boot、sentinel drift、result drift 拒绝；
-3. Docker 前 durable reservation/preflight 失败时不启动 build；ephemeral success 但
-   durable copy/fsync/re-read/receipt 任一步失败时 Phase B 失败；
-4. manifest 缺文件、未知文件、path traversal、hash/size drift 拒绝；
-5. bundle pre-exists 不覆盖；partial bundle、仅有 manifest 但无 receipt 都不可接受；
-6. copy/fsync 后从 durable root 重新读取；模拟 reboot 后仍可验证；
-7. image absent + valid tar 进入 load；already present + exact ID 不 load；
-8. tar drift 在 load 前拒绝；load nonzero 或 loaded ID mismatch 拒绝；
-9. rehydration 路径无 chmod/chown、pull、build、tag trust；
-10. Phase C/Phase D 只消费 `retained=true / reReadable=true` 且
-    manifest+receipt-bound evidence；
-11. 历史 `f46ec076…`/run 只存在于 superseded lineage，不成为当前 binding；
-12. Dockerfile、strict driver、diag gate 与 0000–0004/9000 bytes 保持不变。
-13. inspect 后 tag 被重定向、tar config digest 不等于 image ID、JSON duplicate key
-    与 hostile Docker environment 全部拒绝。
-14. 两个历史 Phase-B run-id 永久拒绝复用；bound/unbound lock 与 operational lineage
-    current 状态不一致时拒绝。
+1. A durable root on the same filesystem as scratch, a symlink, or mount drift is rejected.
+2. A qualification with the same boot, sentinel drift, or result drift is rejected.
+3. When the durable reservation/preflight fails before Docker, the build does not start. When
+   the ephemeral part succeeds but any step of the durable copy/fsync/re-read/receipt fails,
+   Phase B fails.
+4. A manifest with a missing file, an unknown file, path traversal, or hash/size drift is
+   rejected.
+5. A pre-existing bundle is not overwritten. A partial bundle, or one with only a manifest and
+   no receipt, is not acceptable.
+6. Re-read from the durable root after copy/fsync. It can still be verified after a simulated
+   reboot.
+7. Image absent + valid tar goes into load. Already present + exact ID does not load.
+8. Tar drift is rejected before load. A nonzero load exit or a loaded ID mismatch is rejected.
+9. The rehydration path has no chmod/chown, pull, build, or tag trust.
+10. Phase C/Phase D consume only evidence with `retained=true / reReadable=true` that is
+    manifest+receipt-bound.
+11. The historical `f46ec076…`/run exists only in the superseded lineage and does not become
+    the current binding.
+12. The bytes of the Dockerfile, the strict driver, the diag gate, and 0000–0004/9000 stay
+    unchanged.
+13. A tag redirected after inspect, a tar config digest not equal to the image ID, a JSON
+    duplicate key, and a hostile Docker environment are all rejected.
+14. The two historical Phase-B run IDs are permanently refused for reuse. A bound/unbound lock
+    that is inconsistent with the current state of the operational lineage is rejected.
 
-## 8. 允许、禁止与停止条件
+## 8. Allowed, forbidden, and stop conditions
 
-允许修改：
+Allowed to modify:
 
 ```text
 apps/camoufox-host/build/r1-diag-v1/build_host.py
 apps/camoufox-host/test_r1_diag_*.py
 apps/camoufox-host/lock/camoufox-...-r1-diag-v2-source.json
 docs/camoufox-program-status.md
-本文
+this document
 ```
 
-禁止修改或执行：Dockerfile、strict_build.py、diag_gate.py、0000–0004、9000、
-engine source、Artifact、probe、FP2 comparator、Phase B-2、Phase C-2、
-prepare-bound-image 实机消费、Phase D、Browser、V1–V4。
+Forbidden to modify or execute: the Dockerfile, strict_build.py, diag_gate.py, 0000–0004, 9000,
+the engine source, the Artifact, the probe, the FP2 comparator, Phase B-2, Phase C-2, a
+real-machine consumption of prepare-bound-image, Phase D, Browser, V1–V4.
 
-实现必须以全部 no-browser tests、`py_compile`、`git diff --check`、scope diff 与 clean
-checkpoint 收口后停止，返回主脑 Gate。实际 durable-root sentinel/reboot qualification
-属于 checkpoint Accepted 后的独立 host qualification，不在本离线实现中偷偷执行。
+The implementation must close with all the no-browser tests, `py_compile`,
+`git diff --check`, the scope diff, and a clean checkpoint, then stop and return to the lead
+agent Gate. The actual durable-root sentinel/reboot qualification is an independent host
+qualification after the checkpoint is Accepted, and is not secretly executed in this offline
+implementation.

@@ -1,371 +1,424 @@
-# M3-WI 原生 Windows Desktop / Real Host 集成任务合同
-
-> **历史合同通告（2026-08-10）**：本文原冻结合同已执行并进入失败调查。
-> 下方“Frozen，等待执行 Agent”及其 1–16 验收矩阵现只保留为当时任务合同，
-> 不是当前 Gate。当前状态以本节和[Camoufox 状态页](camoufox-program-status.md)
-> 为准；不得使用原合同的“等待执行”覆盖下述 Failed/Inconclusive 结论。
-
-## 2026-08-10 主脑 Gate 与第二 Host 生命周期调查收口
-
-### Gate 结论
-
-- M3-WI Gate：**Failed**。
-- 本次根因调查：**Inconclusive**。
-- 最后 Accepted checkpoint 仍为 M3-0
-  `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`；它只证明 fake Host contract。
-- 没有 production fix、focused regression 或 post-fix final real verification。
-- Camoufox Windows Managed 继续保持 `experimental`；不得宣称 M3-WI Accepted、
-  Windows Managed verified 或 Managed Identity 已 shipped。
-
-调查结束时 HEAD 为
-`186484feb935076766beab09595a9270f86f78ef`，tree 为
-`e33d6d68586a79796ffb9bcc668392e369dc97c6`，`e96ef3f` 是其祖先，tracked
-working tree clean。调查没有 tracked 修改或新 commit；所有临时诊断位于当时执行
-checkout 的 gitignored `artifacts/cfx-life/run-0cdd1ed6/`。
-
-### 受限调查 receipt
-
-该本地 bundle 不是 manifest-bound evidence，没有进入 Git，也不能单独支持 Accepted。
-本文只绑定三份脱离执行 checkout 就无法再现的摘要字节：
-
-| 本地相对路径                                              | SHA-256                                                            | 证据限制                                          |
-| --------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------- |
-| `artifacts/cfx-life/run-0cdd1ed6/experiment1-result.json` | `5ec698262a9438cc89f011c7e13ca79fb14f38ea06efac719b8f4d7b9984b51c` | 修复前的成功对照，非 post-fix verification        |
-| `artifacts/cfx-life/run-0cdd1ed6/experiment2-result.json` | `3fbc6c090d31630c1eab50598ea362be30969b1886a5633037fbce4ed9ec561a` | 绕过 Host/supervisor，且摘要自身没有 `sourceHead` |
-| `artifacts/cfx-life/run-0cdd1ed6/experiment3-result.json` | `e49b1bbc0bfd0f4183f48c1e6d873feb8d7fc17bef92c323f3d6009e40da8c8d` | 只完成第一 Host，被独立 close 失败截断            |
-
-历史 raw stage log 已在 R2H 准备期间被清理，因而无法从仓库重建旧 120 秒失败的
-最后协议阶段。以下 Security 4688 链与时间戳只是**执行 Agent 报告的历史 OS
-观察**，对应 raw record 已不可恢复，不写成仓库已独立验证的证据：
-
-- venv launcher PID `4632` → 实际 Host PID `8220` → Playwright Node PID `8724`
-  → supervisor PID `8676` → Camoufox PID `2996` 及其完整子树；
-- 最后报告事件是 `2026-08-10T04:19:58.8647846Z` 创建低完整性 Camoufox
-  PID `2052`。
-
-该观察可将历史停顿缩小到：请求已进入第二 Host，完成 `_prepare`、stdin
-读取/dispatch、Artifact/browser-tree 校验、Profile byte `0` / `1` 取得、
-`launch_options`、Playwright driver 启动，并实际 spawn Camoufox 进程树。它不能证明
-`launch_persistent_context` 已返回。Persistent Firefox 会先初始化 default context /
-`about:blank`，显式页面则使用独立 new-page/target 路径；OS PID 不携带 target ID，
-所以不能由 PID 区分两者。对应上游路径参见
-[Playwright v1.60 Firefox 源码](https://github.com/microsoft/playwright/blob/v1.60.0/packages/playwright-core/src/server/firefox/firefox.ts#L84-L105)
-和 [Camoufox TargetRegistry](https://github.com/daijro/camoufox/blob/v152.0.4-beta.28/additions/juggler/TargetRegistry.js#L304-L357)。
-
-剩余最小候选集是：
-
-1. `launch_persistent_context` 的 default-context / 初始页面最终握手；
-2. `ctx.new_page()` 等待独立页面/target 就绪；
-3. 页面返回后 fonts、media、identity 或 cookie 的无界 Playwright RPC。
-
-Persistent context 返回后、`ctx.new_page()` 之前还有最多约 5 秒的 supervisor
-metadata / Job 绑定等待；这是已有界的独立接缝，不是历史 120 秒候选。
-
-被调查的精确 120 秒表象来自 direct Python harness
-`apps/camoufox-host/test_windows_host.py` 的 `stdout.readline()` watchdog，不是该次
-RuntimeManager receipt，也不是 Camoufox 自带的 120 秒。Host 协议只在整个 launch
-完成后调用 `_send`，不发送中间进度帧；上述任一调用未返回时，父端只能观察到
-120 秒没有 stdout 最终行。Rust launcher 中另有 test-only
-`M3_WI_REAL_HOST_TIMEOUT = 120s`；因此只能说本次受查失败的 120 秒来自 direct
-harness，不能泛化成“Rust 没有 120 秒”。已确定属于 test-only 的是 120 秒
-表象和 raw 诊断丢失，不是底层挂起本身。
-
-### 三个真实浏览器序列的限定结果
-
-1. **Direct two-Host / same-Profile**：两次 launch 均通过，第二次为
-   `12.047s`；boot count `1 → 2`、Cookie/digest、clean close、Job active count `0`、
-   进程树退出和两个锁字节释放成立。这是修复前对照，不能冒充修复后验证。
-2. **Direct fixed Camoufox / Playwright reopen**：绕过 Host/supervisor 对同一
-   Profile 启停两次，两次都通过且进程全部退出。它只排除“当前环境下确定性
-   Profile reopen 上游失败”；结果自身没有 `sourceHead`，证据等级更低。
-3. **Deep persistent/new-page/goto/evaluate/cookie/stdout 包围**：第一 Host
-   完成 launch 和最终 response，并观察到 `noViewport=true`；`page.close` 成功后
-   `ctx.close` 约 10 秒超时，Job 被强制清空，`exit.json` 缺失，session 状态为
-   `failed`，因而没有进入第二 Host。摘要顶层 `closeOk=true` 只表示 close 命令
-   返回了协议响应，不表示 session clean close。
-
-实验结束后任务相关进程数为 `0`。实验 3 虽然 close failed，但 Job active
-count 为 `0`、树已退出，Host/Profile 两个锁字节可再取得，匹配的 lease token
-随后释放。这不能恢复历史失败第二 session 在超时瞬间的锁持有者和进程存活状态：
-当时未启用 Security 4689，raw 目录也已删除。
-
-三个有判别力的序列已用完；第一、第二个未复现，第三个被独立 close 缺陷
-截断。因此不能将旧 120 秒归因为 production lifecycle、固定上游缺陷或 test-only
-race，也不实施猜测性修复。
-
-### 主脑抽取与下一任务
-
-- 未来产品分支必须提取的 production diff：**无**。
-- 必须提取的 focused regression：**无**；当前证据不足以编码唯一根因。
-- 不得整支 merge 本研究分支。已 tracked 的 R1/R2/R2H runner、freezer、
-  manifest/schema/receipt/debug 设施保留为研究历史，但明确排除在未来产品
-  patch extraction 之外；本次 gitignored 临时脚本、timeline、runtime、Profile 和
-  cache 同样不得进入。
-- 不再执行旧 R2/R2H 矩阵或选择性重试。只有未来自然再现且获得真实
-  protocol-stage/target 证据后，才基于届时产品基线重建最小修复与单一回归。
-- 当前任务转为 standalone Host 上的
-  [FP1 Deterministic Artifact Projection](camoufox-fp1-deterministic-artifact-projection-task.md)。
-  FP1→FP2→FP3→FP4 之后，才使用届时最终 Managed Engine 冻结一份全新的 clean
-  M3-WI 合同；不复活本文旧合同。
-
-## 以下为 2026-08-09 冻结合同原文（历史）
-
-- 状态：**Frozen，等待执行 Agent**
-- 冻结日期：2026-08-09
-- 执行分支：`codex/camoufox-m3-engine-adapter`
-- M3-0 Accepted checkpoint：`e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`
-- M3-WI 实现代码基线：`e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`
-- 上一 Gate：M3-0 **Accepted**；只证明 fake Host contract，不包含真实浏览器 run-id
-
-本文既是 M3-WI 的冻结任务卡，也是交给执行 Agent 的提示词。首次完整包含本文与
-对应状态更新的纯文档 Git commit 是执行起始 checkpoint；主脑在派发提示词中固定其
-完整 SHA。执行 Agent 必须确认 HEAD 精确等于该 SHA 且工作树 clean；不匹配即停止，
-不得自行 reset、rebase、cherry-pick 或改写历史。
-
-执行前必须依次完整阅读：
-
-1. 根 `AGENTS.md`；
-2. [身份平台北极星](identity-platform-north-star.md)；
-3. [Camoufox-first 决策](camoufox-managed-engine-decision.md)；
-4. [Agent 协作协议](agent-operating-model.md)；
-5. [Camoufox 当前状态](camoufox-program-status.md)；
-6. [M3-0 任务与 Gate 结果](camoufox-m3-engine-adapter-task.md)；
-7. 本文；
-8. [EngineAdapter 现状](engine-adapters.md)、[Host v1](camoufox-host-v1.md)和
-   [M2-W Accepted Gate](camoufox-m2w-windows.md)；
-9. 只为理解接缝而阅读相关实现和测试，不扩张到 UI、installer 或其他 engine。
-
-## 角色与 Gate 含义
-
-你是本阶段的**执行 Agent**，不是重新决定产品方向的主脑。你的任务是在原生
-Windows 交互式桌面中，用真实 standalone Python Host 和固定 Camoufox 浏览器关闭
-M3-0 之后仍存在的运行时风险，并返回可审计证据；你不能自行宣布 M3-WI Accepted、
-产品已 shipped，或把这一主机上的观察提升为跨主机验证。
-
-M3-WI 要证明的是：桌面后端现有 `RuntimeManager`、EngineAdapter launch plan、
-`camoufox-host-jsonl-v1` transport、Artifact/Profile binding 和 stop/refresh 生命周期，
-能够真正驱动 `apps/camoufox-host/host_v1.py`，再由 Host 驱动固定的 Windows
-Camoufox 树。它不是 UI Gate、签名发布 Gate、installer Gate 或生产 package Gate。
-
-## 当前真实差距
-
-M3-0 已关闭 fake Host 的 package、transport、failure matrix、生命周期和 evidence
-合同，但仍没有执行真实 Python Host 或真实浏览器。与此同时：
-
-- production external-engine verifier 没有受信 signer pin，必须继续 fail-closed；
-- 仓库没有签名 Host package、发布 runtime 或 installer；
-- 当前 v3 package 合同把 package entrypoint 定义为 Host executable，而开发树中的
-  真实 Host 仍是锁定 Python 环境中的 `host_v1.py`；
-- 因此不能通过放宽 production verifier、伪造签名或把系统 Python 当成签名 package
-  成员来完成本 Gate。
-
-M3-WI 必须诚实拆分两类证据：
-
-1. M3-0 已接受的 production-shaped package/transport **合同证据**；
-2. 本 Gate 新产生的 native-Windows integration-only **真实 Host/浏览器执行证据**。
-
-两者同时成立仍不等于已有可发布的受信 Host package。
-
-## 冻结目标
-
-在一个原生 Windows 交互式桌面会话中，从精确 clean checkpoint 启动，完成以下
-最小真实垂直切片：
-
-1. `RuntimeManager.launch_with_identity_deriver` 通过一个编译期隔离的
-   integration-only adapter/entrypoint 形成 Camoufox Host plan；
-2. 真实 `spawn_engine_child` 启动锁定的 `uv/Python + host_v1.py`，不是 fake Host；
-3. 同一条生产 Host transport 完成 `hello → launch → status → close → shutdown`；
-4. Host 启动 release `v152.0.4-beta.28` 的真实 Windows Camoufox，并使用 Windows
-   Artifact v3、browser tree 和 Persistent Profile；
-5. 两个不同 Host child / 两个新 `RuntimeManager` 周期重用同一 Profile，证明
-   Cookie、LocalStorage、cookies.sqlite 与 boot count 延续；
-6. 正常停止、Host EOF/crash 和桌面父级关闭都保持精确 process/profile ownership，
-   不遗留 Camoufox/supervisor 子树，也不误杀无关进程；
-7. `RuntimeActivation`、持久化 `RuntimeRecord` 与新 tracked receipt 只记录有依据的
-   `configured/applied/observed/unavailable`，保持 `verified: false` 和
-   `verifiedAdapter = null`。
-
-所有可写 app/artifact/profile/state/cache/report root 必须位于本次唯一 run-id 拥有的
-`artifacts/camoufox-m3-wi-windows-gate/` 子树；不得复用或清理普通用户 Profile，也不得
-写入 accepted fixture 目录。
-
-## 原生 Windows 与固定输入
-
-所有 Gate 证据必须来自原生 Windows，不接受 Linux、WSL、Wine、容器、虚拟浏览器
-或 fake Host 替代。执行会话必须有真实交互式桌面（可为 RDP），并记录 Windows
-edition/version/build、session、architecture、Python、uv、Rust、Camoufox、Playwright
-和 BrowserForge 版本。
-
-固定输入如下：
-
-- Camoufox Python package：`0.5.4`；
-- Playwright：`1.60.0`；
-- BrowserForge：`1.2.4`；
-- browser release：`v152.0.4-beta.28`；
-- Windows asset lock：
-  `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-windows-x86_64.json`；
-- archive SHA-256：
-  `386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d`；
-- browser tree：`tests/fixtures/camoufox/browser-tree-manifest-windows.json`，
-  canonical manifest SHA-256
-  `1c749534d139b7efcb425faf03de9cfe1d59004034a1fe1c5ba423b86239c37b`；
-- Artifact：`tests/fixtures/camoufox/identity-win-a.json`，raw SHA-256
-  `a214c21ccf4a68c97040af6e5f81b05e40903a127dea33ace6dce7d8f133279f`；
-- dependency lock：`apps/camoufox-host/uv.lock`；运行必须使用
-  `uv run --frozen --offline`，不得下载或更新依赖、addon 或浏览器资产。
-
-执行前必须重新计算实际 tracked bytes、sidecar、树和本地 archive/cache 绑定；任一
-不匹配即在浏览器启动前 fail-closed。不得为让测试通过而重生成 accepted Artifact、
-M2-W manifest 或 browser tree。
-
-## integration-only 启动接缝
-
-因为 production signer/package 尚不存在，本 Gate 允许一个最小、显式且不可发布的
-真实 Host 启动接缝。它必须满足全部约束：
-
-- 只能存在于 `#[cfg(test)]`、Windows-only ignored integration test，或等价的
-  non-shipping test target 中；production build 不得引用或选择它；
-- 可以把锁定 `uv`/Python 解释器和 `host_v1.py` 组合为测试命令，但必须记录解释器
-  路径与版本、`host_v1.py` raw SHA、`uv.lock` raw SHA 和全部固定输入 SHA；
-- 必须复用真实 `RuntimeManager` launch/refresh/stop、`spawn_engine_child`、
-  `CamoufoxHostTransport`、Artifact/Profile roots、runtime record 和 evidence 映射；
-- 不得用另一个直接 Python driver 绕过桌面接缝来冒充 M3-WI；既有 standalone
-  driver 只能作为回归或反例证据；
-- 不得把 test verifier 的结果写成 production signature verification；tracked receipt
-  必须明确记录 `integrationPath=test-only-real-host`、
-  `productionPackageVerified=false`、`shipped=false`；
-- `ExternalPackageEngineAdapter::production_prototype` 在缺少 signer pin 时必须继续
-  fail-closed，并保留独立回归测试；
-- 不得增加 production dependency、私钥、证书、signer pin、隐藏 feature flag、环境
-  后门或可从 release build 触发的 verifier bypass。
-
-若无法在这些约束内启动真实 Host，停止并报告 package/runtime 交付缺口；不要把
-M3-WI 静默扩大为签名和发布项目。
-
-## 允许修改
-
-- `apps/desktop/src-tauri/src/engine.rs`、`launcher.rs` 及相邻的 Windows-only/test-only
-  集成 harness；
-- `apps/camoufox-host/` 中为真实桌面接缝所必需的最小、向后兼容测试或 evidence
-  支持；
-- 新的 M3-WI Windows runner/freezer、JSON schema 和
-  `tests/fixtures/camoufox/evidence-manifest-m3-wi-windows.json`；
-- 与实际行为同步的 `docs/engine-adapters.md`、本文和状态页；
-- 必需的 test target/Cargo 配置，但不得引入新的 production dependency。
-
-允许范围不是必须修改清单。优先复用 M3-0 与 M2-W 已有实现，不重写 Host、Artifact
-生成器、Windows supervisor 或 generic desktop launcher。
-
-## 禁止修改与禁止宣称
-
-- 不改 Artifact/Policy/Projection v3、ObservedWebsiteDigest v2 或 Host v1 的既有
-  语义；若真实 response 缺少不可替代的绑定字段，先停止交回主脑裁决；
-- 不改写、删除或重新生成 M0–M2-W accepted evidence、run-id、fixture 或 protected
-  hashes；
-- 不增加 UI、Managed Identity 菜单、installer、auto-download/update、代理注入、
-  network geo coupling、site fallback、Controlled Chromium、JS stealth、WSL、VMware、
-  Hyper-V 或 Remote backend；
-- 不加入真实 signer、签名 package、发布 runtime 或 production verifier bypass；
-- 不把 Camoufox 宣传为 Chrome 模拟；它是 Firefox 身份引擎；
-- 不宣称字体隔离、Canvas 稳定身份、TLS/QUIC 身份、跨主机复现、不可检测或
-  `verified: true`；
-- 不把 integration-only run 写成 shipped Tauri product、production package evidence
-  或真实用户可用能力。
-
-## 验收矩阵
-
-以下 1–16 项必须逐项返回 `passed`、`failed` 或 `blocked`，不得用总体测试通过替代。
-
-### Baseline 与信任边界
-
-1. **原生基线**：确认原始 Windows checkout、精确起始 commit、clean 工作树、原生
-   Windows/交互式 session；执行前后没有本任务遗留的 Host/Camoufox/supervisor。
-2. **固定输入闭环**：dependency lock、asset lock/archive、browser tree、Artifact raw
-   bytes/sidecar 与上文固定值一致；全程 offline，DownloadGuard 未观测到 webdl。
-3. **test-only 隔离**：真实 Host 启动接缝不能进入 production build；缺 signer pin 的
-   production adapter 仍在 spawn 前 fail-closed，receipt 不声称 package verified。
-
-### 真实 Host / browser 垂直切片
-
-4. **真实路径**：证据证明调用链实际经过
-   `RuntimeManager → adapter.launch_plan → spawn_engine_child → host_v1.py → Camoufox`；
-   Host PID、browser/supervisor ownership 与 run-id 可交叉绑定，fake Host 未参与。
-5. **hello/launch binding**：protocol、Host version、platform、release、asset SHA、browser
-   tree 路径/SHA、Artifact ID/raw SHA、Profile ID 全部精确一致；任一 mismatch 在
-   Running 前拒绝。
-6. **真实观测**：真实 browser launch 返回 Artifact/config binding、
-   ObservedWebsiteDigest v2、media-device match 和 `evidenceClass`；只记本机 observed，
-   不据此升级 fingerprint、Canvas、font、TLS/QUIC 或跨主机结论。
-
-### Persistent Profile 与生命周期
-
-7. **跨桌面周期持久化**：从本 Gate 新建、run-owned 的空 Profile root 开始，两个不同
-   Host PID、两个新 `RuntimeManager` 实例顺序使用同一 Silo/Profile/Artifact；boot
-   count `1 → 2`，Cookie API、document cookie、cookies.sqlite 与 LocalStorage 延续，
-   两个 run 都绑定相同 Artifact raw SHA。
-8. **正常停止**：只有 `close.processTreeExit.exited=true`、Windows Job active process
-   count `0`、`shutdown` 与精确 Host child exit 全部确认后，才发布 `Stopped` 并释放
-   Profile lease。
-9. **EOF/crash/desktop close**：活动 session 中分别覆盖 Host EOF/异常退出和桌面父级
-   关闭；只回收本 RuntimeManager 精确拥有的 child/tree。无法确认全树退出时状态必须
-   为 `VerificationFailed` 或 `RecoveryRequired`，Profile lease 不得被错误释放。
-10. **并发与无关进程**：第二个相同 Profile launch 被拒绝；预先创建的无关进程和
-    无关浏览器不被等待、终止、接管或写入 evidence。
-
-### Fail-closed 与秘密边界
-
-11. **跨接缝反例**：至少覆盖 Artifact raw SHA、browser tree SHA、Host hello binding、
-    profile-in-use、active-tree exit unconfirmed、malformed/oversize frame、timeout 和
-    early-exit；失败有界且不能错误进入 Running。
-12. **网络策略**：真实成功 run 只能使用 `Direct { proxy_required: false }`；required
-    proxy、FixedProxy、PAC 与非空 fallback 在 Host spawn 前拒绝，不能回退或偷偷把
-    Chromium proxy argv 传给 Host。
-13. **秘密扫描**：Vault deriver sentinel、Artifact seed、token value、proxy username /
-    password sentinel 不得出现在 Host/browser argv、环境快照、plan、JSONL wire、错误、
-    `RuntimeActivation`、持久化 `RuntimeRecord` 或 tracked/raw evidence。
-
-### Evidence 与回归
-
-14. **语义诚实**：真实 Host 成功仅把 `hostLaunch` 记为 `Observed`；generic bootstrap /
-    receipt 字段保持 `NotApplicable`，`verifiedAdapter=null`、`verified:false`。失败后旧
-    observed evidence 不得继续有效。
-15. **回归**：M3-0 package/transport tests、Stock Chrome/Edge、Controlled Chromium
-    bootstrap/receipt/fallback、Artifact 25/25、Desktop Rust 全套 check/test/clippy 和
-    JS contracts/desktop/extension 测试继续通过。
-16. **可审计 receipt**：新增独立 M3-WI tracked manifest，绑定 receipt-producing
-    commit/tree、原生 Windows host、固定输入 SHA、每个 run-id/report/sidecar SHA、
-    lifecycle/secret scan 结果和明确的 test-only/未发布边界；raw profiles/reports 保持
-    gitignored，manifest 不含秘密或用户路径之外的敏感数据。
-
-## 真实运行与 evidence 冻结顺序
-
-1. 在 clean 文档 checkpoint 上实现并运行不启动浏览器的快速测试；
-2. 提交完整 receipt-producing code，记录完整 commit 与 tree hash；
-3. 再次确认 clean，在该精确 commit 的原生 Windows 交互式桌面运行 M3-WI real suite；
-4. 原始 report 与 sidecar 写入新的 gitignored
-   `artifacts/camoufox-m3-wi-windows-gate/runs/`，每次运行使用唯一 run-id；
-5. freezer 只从已完成、sidecar 验证通过且 `codeGitRevision` 精确一致的报告派生新的
-   tracked manifest；
-6. 用后续 evidence-only 提交冻结 manifest。若此后修改任何 receipt-producing runtime、
-   harness 或 schema，必须重新运行受影响 Gate；不得 amend/rebase 旧 evidence 来伪装
-   同一 revision。
-
-不得复用 M2-W run-id 冒充本 Gate，也不得把 M3-0 fake Host 测试命名为真实浏览器
-run。新 manifest 至少记录：
-
-- schema `verisilo-camoufox-m3-wi-windows-evidence-manifest/v1`；
-- `codeGitRevision`、`codeTreeHash`、branch、host/session/tool versions；
-- `integrationPath=test-only-real-host`、`productionPackageVerified=false`、
-  `shipped=false`、`verified=false`、`evidenceClass=observed-on-this-windows-host`；
-- Host source/lock、asset/archive、browser tree、Artifact 的精确 SHA；
-- real launch、persistence、clean stop、EOF/crash/desktop-close 和 negative matrix 的
-  run-id、report 路径与 SHA-256；
-- `productionVerifierFailClosed=true`、DownloadGuard、secret scan、residual process 与
-  protected accepted-file hash 结果。
-
-## 必跑验证
-
-至少执行并报告实际命令、退出码和计数：
+# M3-WI native Windows Desktop / Real Host integration task contract
+
+> Translated from the original Chinese on 2026-11-10. The original text is in Git history at commit 1cf0f29. For historical evidence, the original wording governs if the two differ.
+
+> **Historical contract notice (2026-08-10)**: the frozen contract in this document was
+> executed and entered a failure investigation. The "Frozen, awaiting execution agent" status
+> below and its 1–16 acceptance matrix are kept only as the task contract of that time. They
+> are not the current Gate. The current status is governed by this section and the
+> [Camoufox status page](camoufox-program-status.md). The "awaiting execution" of the original
+> contract must not be used to override the Failed/Inconclusive conclusions below.
+
+## 2026-08-10 lead agent Gate and closure of the second-Host lifecycle investigation
+
+### Gate conclusion
+
+- M3-WI Gate: **Failed**.
+- This root-cause investigation: **Inconclusive**.
+- The last Accepted checkpoint is still M3-0
+  `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`. It proves only the fake Host contract.
+- There is no production fix, no focused regression, and no post-fix final real verification.
+- Camoufox Windows Managed stays `experimental`. Do not claim M3-WI Accepted, Windows Managed
+  verified, or Managed Identity shipped.
+
+At the end of the investigation HEAD was `186484feb935076766beab09595a9270f86f78ef`, the tree
+was `e33d6d68586a79796ffb9bcc668392e369dc97c6`, `e96ef3f` is its ancestor, and the tracked
+working tree was clean. The investigation made no tracked modification and no new commit. All
+temporary diagnostics lie in the gitignored `artifacts/cfx-life/run-0cdd1ed6/` of the
+execution checkout of that time.
+
+### Restricted investigation receipt
+
+This local bundle is not manifest-bound evidence, did not enter Git, and cannot support
+Accepted on its own. This document binds only three digest byte strings that cannot be
+reproduced once away from the execution checkout:
+
+| Local relative path                                       | SHA-256                                                            | Evidence limitation                                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `artifacts/cfx-life/run-0cdd1ed6/experiment1-result.json` | `5ec698262a9438cc89f011c7e13ca79fb14f38ea06efac719b8f4d7b9984b51c` | A successful control before the fix, not a post-fix verification        |
+| `artifacts/cfx-life/run-0cdd1ed6/experiment2-result.json` | `3fbc6c090d31630c1eab50598ea362be30969b1886a5633037fbce4ed9ec561a` | Bypasses the Host/supervisor, and the digest itself has no `sourceHead` |
+| `artifacts/cfx-life/run-0cdd1ed6/experiment3-result.json` | `e49b1bbc0bfd0f4183f48c1e6d873feb8d7fc17bef92c323f3d6009e40da8c8d` | Completed only the first Host, cut off by an independent close failure  |
+
+The historical raw stage log was cleaned up during the R2H preparation, so the last protocol
+stage of the old 120-second failure cannot be rebuilt from the repository. The Security 4688
+chain and timestamps below are only **historical OS observations reported by the execution
+agent**. The corresponding raw records can no longer be recovered, and they are not written
+up as evidence that the repository independently verified:
+
+- venv launcher PID `4632` → actual Host PID `8220` → Playwright Node PID `8724` →
+  supervisor PID `8676` → Camoufox PID `2996` and its complete child tree;
+- the last reported event is the creation of a low-integrity Camoufox PID `2052` at
+  `2026-08-10T04:19:58.8647846Z`.
+
+This observation can narrow the historical stall to: the request entered the second Host, and
+completed `_prepare`, the stdin read/dispatch, the Artifact/browser-tree verification, the
+acquisition of Profile byte `0` / `1`, `launch_options`, and the Playwright driver startup, and
+actually spawned the Camoufox process tree. It cannot prove that `launch_persistent_context`
+returned. A persistent Firefox first initializes the default context / `about:blank`, while an
+explicit page uses a separate new-page/target path. An OS PID carries no target ID, so a PID
+cannot tell the two apart. For the corresponding upstream paths, see the
+[Playwright v1.60 Firefox source](https://github.com/microsoft/playwright/blob/v1.60.0/packages/playwright-core/src/server/firefox/firefox.ts#L84-L105)
+and the [Camoufox TargetRegistry](https://github.com/daijro/camoufox/blob/v152.0.4-beta.28/additions/juggler/TargetRegistry.js#L304-L357).
+
+The remaining minimal candidate set is:
+
+1. the final handshake of the default context / initial page of `launch_persistent_context`;
+2. `ctx.new_page()` waiting for an independent page/target to be ready;
+3. an unbounded Playwright RPC for fonts, media, identity, or cookies after the page returns.
+
+After the persistent context returns and before `ctx.new_page()`, there is also a wait of up to
+about 5 seconds for the supervisor metadata / Job binding. This is an already-bounded
+independent seam, not a candidate for the historical 120 seconds.
+
+The exact 120-second symptom under investigation came from the `stdout.readline()` watchdog of
+the direct Python harness `apps/camoufox-host/test_windows_host.py`. It was not that run's
+RuntimeManager receipt, and it was not a 120 seconds built into Camoufox. The Host protocol
+calls `_send` only after the whole launch completes and sends no intermediate progress frames.
+When any call above does not return, the parent can only observe 120 seconds without a final
+stdout line. The Rust launcher also has a test-only `M3_WI_REAL_HOST_TIMEOUT = 120s`. It can
+therefore only be said that the 120 seconds of this investigated failure came from the direct
+harness. This must not be generalized into "Rust has no 120 seconds". What is established as
+test-only is the 120-second symptom and the loss of raw diagnostics, not the underlying hang
+itself.
+
+### Qualified results of the three real-browser sequences
+
+1. **Direct two-Host / same-Profile**: both launches passed, the second taking `12.047s`. The
+   boot count `1 → 2`, Cookie/digest, clean close, Job active count `0`, process tree exit,
+   and the release of the two lock bytes all hold. This is a control before the fix and cannot
+   pass for a post-fix verification.
+2. **Direct fixed Camoufox / Playwright reopen**: it bypasses the Host/supervisor and starts
+   and stops the same Profile twice. Both passed and all processes exited. It only rules out
+   "a deterministic Profile reopen upstream failure in the current environment". The result
+   itself has no `sourceHead`, so its evidence level is lower.
+3. **Deep persistent/new-page/goto/evaluate/cookie/stdout enclosure**: the first Host
+   completed the launch and the final response, and `noViewport=true` was observed. After
+   `page.close` succeeded, `ctx.close` timed out after about 10 seconds, the Job was forcibly
+   emptied, `exit.json` was missing, and the session state was `failed`, so the second Host
+   was never entered. The top-level `closeOk=true` of the digest only means that the close
+   command returned a protocol response. It does not mean that the session closed cleanly.
+
+After the experiments, the number of task-related processes was `0`. Although experiment 3's
+close failed, the Job active count was `0`, the tree had exited, the Host/Profile lock bytes
+could be acquired again, and the matching lease token was released afterward. This cannot
+restore the lock holder and the process liveness state of the historically failed second
+session at the instant of the timeout: Security 4689 was not enabled at that time, and the raw
+directory has also been deleted.
+
+The three discriminating sequences are used up. The first and second did not reproduce, and
+the third was cut off by an independent close defect. The old 120 seconds therefore cannot be
+attributed to the production lifecycle, a fixed upstream defect, or a test-only race, and no
+speculative fix is implemented.
+
+### Lead agent extraction and the next task
+
+- The production diff that a future product branch must extract: **none**.
+- The focused regression that must be extracted: **none**. The current evidence is not enough
+  to encode a single root cause.
+- Do not merge this research branch wholesale. The already tracked R1/R2/R2H runners, freezer,
+  and manifest/schema/receipt/debug facilities are kept as research history but are explicitly
+  excluded from the future product patch extraction. This run's gitignored temporary scripts,
+  timeline, runtime, Profile, and cache must likewise not enter.
+- Do not run the old R2/R2H matrix again or do selective retries. Only if it naturally recurs
+  in the future and real protocol-stage/target evidence is obtained, rebuild a minimal fix and
+  a single regression on the product baseline of that time.
+- The current task turns to the
+  [FP1 Deterministic Artifact Projection](camoufox-fp1-deterministic-artifact-projection-task.md)
+  on the standalone Host. Only after FP1→FP2→FP3→FP4 will a brand-new clean M3-WI contract be
+  frozen using the final Managed Engine of that time. This document's old contract is not
+  revived.
+
+## The original text of the 2026-08-09 frozen contract follows (historical)
+
+- Status: **Frozen, awaiting execution agent**
+- Freeze date: 2026-08-09
+- Execution branch: `codex/camoufox-m3-engine-adapter`
+- M3-0 Accepted checkpoint: `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`
+- M3-WI implementation code baseline: `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`
+- Previous Gate: M3-0 **Accepted**; it proves only the fake Host contract and contains no
+  real-browser run ID
+
+This document is both the frozen task card for M3-WI and the prompt handed to the execution
+agent. The documentation-only Git commit that first fully contains this document and the
+corresponding status update is the execution starting checkpoint. The lead agent fixes its
+full SHA in the dispatch prompt. The execution agent must confirm that HEAD equals that SHA
+exactly and that the worktree is clean. If they do not match, stop. Do not reset, rebase,
+cherry-pick, or rewrite history on your own.
+
+Before execution, read the following completely and in order:
+
+1. The root `AGENTS.md`;
+2. [Identity platform north star](identity-platform-north-star.md);
+3. [Camoufox-first decision](camoufox-managed-engine-decision.md);
+4. [Agent operating model](agent-operating-model.md);
+5. [Camoufox current status](camoufox-program-status.md);
+6. [M3-0 task and Gate result](camoufox-m3-engine-adapter-task.md);
+7. This document;
+8. [EngineAdapter current state](engine-adapters.md), [Host v1](camoufox-host-v1.md), and the
+   [M2-W Accepted Gate](camoufox-m2w-windows.md);
+9. Read the related implementation and tests only to understand the seams. Do not expand into
+   UI, the installer, or other engines.
+
+## Role and Gate meaning
+
+You are the **execution agent** for this phase, not the lead agent who re-decides the product
+direction. Your task is, in a native Windows interactive desktop, to use the real standalone
+Python Host and the fixed Camoufox browser to close the runtime risks that remain after M3-0,
+and to return auditable evidence. You cannot declare M3-WI Accepted on your own, declare the
+product shipped, or promote an observation on this one host to cross-host verification.
+
+What M3-WI must prove is that the existing desktop-backend `RuntimeManager`, the
+EngineAdapter launch plan, the `camoufox-host-jsonl-v1` transport, the Artifact/Profile
+binding, and the stop/refresh lifecycle can truly drive `apps/camoufox-host/host_v1.py`, and
+that the Host in turn drives the fixed Windows Camoufox tree. It is not a UI Gate, a signed
+release Gate, an installer Gate, or a production package Gate.
+
+## Current real gap
+
+M3-0 closed the package, transport, failure matrix, lifecycle, and evidence contract of the
+fake Host, but it still did not execute a real Python Host or a real browser. Meanwhile:
+
+- The production external-engine verifier has no trusted signer pin and must keep failing
+  closed.
+- The repository has no signed Host package, published runtime, or installer.
+- The current v3 package contract defines the package entrypoint as a Host executable, while
+  the real Host in the development tree is still the `host_v1.py` in a locked Python
+  environment.
+- So this Gate cannot be completed by loosening the production verifier, forging a signature,
+  or treating the system Python as a member of a signed package.
+
+M3-WI must honestly split the evidence into two kinds:
+
+1. The production-shaped package/transport **contract evidence** accepted in M3-0;
+2. The native-Windows integration-only **real Host/browser execution evidence** newly produced
+   by this Gate.
+
+Both holding at the same time is still not equal to having a releasable trusted Host package.
+
+## Frozen goal
+
+In one native Windows interactive desktop session, starting from the exact clean checkpoint,
+complete the following minimal real vertical slice:
+
+1. `RuntimeManager.launch_with_identity_deriver` forms a Camoufox Host plan through a
+   compile-time-isolated integration-only adapter/entrypoint;
+2. The real `spawn_engine_child` launches the locked `uv/Python + host_v1.py`, not a fake Host;
+3. The same production Host transport completes `hello → launch → status → close → shutdown`;
+4. The Host launches the real Windows Camoufox of release `v152.0.4-beta.28`, using the
+   Windows Artifact v3, the browser tree, and a Persistent Profile;
+5. Two different Host children / two new `RuntimeManager` cycles reuse the same Profile,
+   proving that the Cookie, LocalStorage, cookies.sqlite, and boot count carry over;
+6. Normal stop, Host EOF/crash, and desktop parent shutdown all keep exact process/profile
+   ownership, leave no Camoufox/supervisor subtree behind, and do not kill unrelated
+   processes;
+7. `RuntimeActivation`, the persisted `RuntimeRecord`, and the new tracked receipt record only
+   evidence-backed `configured/applied/observed/unavailable`, keeping `verified: false` and
+   `verifiedAdapter = null`.
+
+All writable app/artifact/profile/state/cache/report roots must lie in the
+`artifacts/camoufox-m3-wi-windows-gate/` subtree owned by this one unique run-id. Do not reuse
+or clean an ordinary user Profile, and do not write into the accepted fixture directories.
+
+## Native Windows and fixed inputs
+
+All Gate evidence must come from native Windows. Linux, WSL, Wine, containers, virtual
+browsers, or a fake Host are not accepted as substitutes. The execution session must have a
+real interactive desktop (RDP is acceptable), and must record the Windows edition/version/build,
+session, architecture, and the Python, uv, Rust, Camoufox, Playwright, and BrowserForge
+versions.
+
+The fixed inputs are:
+
+- Camoufox Python package: `0.5.4`;
+- Playwright: `1.60.0`;
+- BrowserForge: `1.2.4`;
+- browser release: `v152.0.4-beta.28`;
+- Windows asset lock:
+  `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-windows-x86_64.json`;
+- archive SHA-256:
+  `386fc2f41139685f9a1a9cef0d024bc041d899c315ea538d561171b5b282e57d`;
+- browser tree: `tests/fixtures/camoufox/browser-tree-manifest-windows.json`, canonical
+  manifest SHA-256
+  `1c749534d139b7efcb425faf03de9cfe1d59004034a1fe1c5ba423b86239c37b`;
+- Artifact: `tests/fixtures/camoufox/identity-win-a.json`, raw SHA-256
+  `a214c21ccf4a68c97040af6e5f81b05e40903a127dea33ace6dce7d8f133279f`;
+- dependency lock: `apps/camoufox-host/uv.lock`; runs must use
+  `uv run --frozen --offline` and must not download or update dependencies, addons, or browser
+  assets.
+
+Before execution, recompute the actual tracked bytes, the sidecars, the tree, and the local
+archive/cache bindings. Any mismatch fails closed before the browser launches. Do not
+regenerate the accepted Artifact, the M2-W manifest, or the browser tree to make the test
+pass.
+
+## Integration-only launch seam
+
+Because the production signer/package does not yet exist, this Gate allows one minimal,
+explicit, non-releasable real-Host launch seam. It must satisfy all of these constraints:
+
+- It may exist only in `#[cfg(test)]`, a Windows-only ignored integration test, or an
+  equivalent non-shipping test target. The production build must not reference or select it.
+- It may combine the locked `uv`/Python interpreter and `host_v1.py` into a test command, but
+  it must record the interpreter path and version, the raw SHA of `host_v1.py`, the raw SHA of
+  `uv.lock`, and all the fixed input SHAs.
+- It must reuse the real `RuntimeManager` launch/refresh/stop, `spawn_engine_child`,
+  `CamoufoxHostTransport`, the Artifact/Profile roots, the runtime record, and the evidence
+  mapping.
+- It must not use another direct Python driver to bypass the desktop seam and pass for M3-WI.
+  The existing standalone driver can serve only as regression or counterexample evidence.
+- It must not write the result of the test verifier up as production signature verification.
+  The tracked receipt must explicitly record `integrationPath=test-only-real-host`,
+  `productionPackageVerified=false`, and `shipped=false`.
+- `ExternalPackageEngineAdapter::production_prototype` must keep failing closed when the signer
+  pin is missing, and must keep an independent regression test.
+- Do not add a production dependency, private key, certificate, signer pin, hidden feature
+  flag, environment backdoor, or a verifier bypass that a release build can trigger.
+
+If the real Host cannot be launched within these constraints, stop and report the
+package/runtime delivery gap. Do not silently expand M3-WI into a signing and release project.
+
+## Allowed modifications
+
+- `apps/desktop/src-tauri/src/engine.rs`, `launcher.rs`, and the adjacent Windows-only/test-only
+  integration harness;
+- minimal, backward-compatible tests or evidence support in `apps/camoufox-host/` that is
+  necessary for the real desktop seam;
+- a new M3-WI Windows runner/freezer, JSON schema, and
+  `tests/fixtures/camoufox/evidence-manifest-m3-wi-windows.json`;
+- `docs/engine-adapters.md`, this document, and the status page, kept in sync with the actual
+  behavior;
+- necessary test target/Cargo configuration, but no new production dependency.
+
+The allowed scope is not a list of things that must be modified. Prefer reusing the existing
+implementations of M3-0 and M2-W. Do not rewrite the Host, the Artifact generator, the Windows
+supervisor, or the generic desktop launcher.
+
+## Forbidden modifications and forbidden claims
+
+- Do not change the existing semantics of Artifact/Policy/Projection v3, ObservedWebsiteDigest
+  v2, or Host v1. If the real response lacks an irreplaceable binding field, stop and hand it
+  back to the lead agent for a ruling.
+- Do not rewrite, delete, or regenerate the M0–M2-W accepted evidence, run IDs, fixtures, or
+  protected hashes.
+- Do not add UI, a Managed Identity menu, an installer, auto-download/update, proxy injection,
+  network geo coupling, site fallback, Controlled Chromium, JS stealth, WSL, VMware, Hyper-V,
+  or a Remote backend.
+- Do not add a real signer, a signed package, a published runtime, or a production verifier
+  bypass.
+- Do not promote Camoufox as a Chrome emulation. It is a Firefox identity engine.
+- Do not claim font isolation, Canvas stable identity, TLS/QUIC identity, cross-host
+  reproduction, undetectability, or `verified: true`.
+- Do not write an integration-only run up as a shipped Tauri product, production package
+  evidence, or a capability real users can use.
+
+## Acceptance matrix
+
+Items 1–16 below must each return `passed`, `failed`, or `blocked`. An overall test pass must
+not be used instead.
+
+### Baseline and trust boundary
+
+1. **Native baseline**: confirm the original Windows checkout, the exact starting commit, a
+   clean worktree, and a native Windows/interactive session. Before and after execution there
+   is no Host/Camoufox/supervisor left over from this task.
+2. **Fixed-input closure**: the dependency lock, asset lock/archive, browser tree, and Artifact
+   raw bytes/sidecar match the fixed values above. The whole run is offline, and DownloadGuard
+   observed no webdl.
+3. **Test-only isolation**: the real-Host launch seam cannot enter the production build. The
+   production adapter without a signer pin still fails closed before spawn, and the receipt
+   does not claim package verified.
+
+### Real Host / browser vertical slice
+
+4. **Real path**: the evidence proves that the call chain actually went through
+   `RuntimeManager → adapter.launch_plan → spawn_engine_child → host_v1.py → Camoufox`. The
+   Host PID, the browser/supervisor ownership, and the run-id can be cross-bound, and no fake
+   Host took part.
+5. **hello/launch binding**: the protocol, Host version, platform, release, asset SHA, browser
+   tree path/SHA, Artifact ID/raw SHA, and Profile ID all match exactly. Any mismatch is
+   rejected before Running.
+6. **Real observation**: the real browser launch returns the Artifact/config binding,
+   ObservedWebsiteDigest v2, the media-device match, and `evidenceClass`. Record only observed
+   on this machine, and do not upgrade any fingerprint, Canvas, font, TLS/QUIC, or cross-host
+   conclusion from it.
+
+### Persistent Profile and lifecycle
+
+7. **Cross-desktop-cycle persistence**: starting from an empty Profile root newly created by
+   this Gate and owned by the run, two different Host PIDs and two new `RuntimeManager`
+   instances use the same Silo/Profile/Artifact in sequence. The boot count goes `1 → 2`. The
+   Cookie API, document cookie, cookies.sqlite, and LocalStorage carry over, and both runs
+   bind the same Artifact raw SHA.
+8. **Normal stop**: `Stopped` is published and the Profile lease released only after all of
+   `close.processTreeExit.exited=true`, Windows Job active process count `0`, `shutdown`, and
+   the exit of the exact Host child are confirmed.
+9. **EOF/crash/desktop close**: within an active session, cover separately a Host EOF/abnormal
+   exit and a desktop parent shutdown. Reclaim only the child/tree that this RuntimeManager
+   owns exactly. When a full-tree exit cannot be confirmed, the state must be
+   `VerificationFailed` or `RecoveryRequired`, and the Profile lease must not be released
+   wrongly.
+10. **Concurrency and unrelated processes**: a second launch of the same Profile is rejected.
+    A pre-created unrelated process and unrelated browser are not waited for, terminated,
+    taken over, or written into evidence.
+
+### Fail-closed and secret boundary
+
+11. **Cross-seam counterexamples**: cover at least the Artifact raw SHA, the browser tree SHA,
+    the Host hello binding, profile-in-use, active-tree exit unconfirmed, a malformed/oversize
+    frame, timeout, and early-exit. The failures are bounded and cannot wrongly enter Running.
+12. **Network policy**: the real successful run may use only `Direct { proxy_required: false }`.
+    A required proxy, FixedProxy, PAC, and non-empty fallback are rejected before the Host
+    spawn, and the run cannot fall back or quietly pass a Chromium proxy argv to the Host.
+13. **Secret scan**: the Vault deriver sentinel, the Artifact seed, the token value, and the
+    proxy username/password sentinels must not appear in the Host/browser argv, the
+    environment snapshot, the plan, the JSONL wire, errors, `RuntimeActivation`, the persisted
+    `RuntimeRecord`, or tracked/raw evidence.
+
+### Evidence and regression
+
+14. **Honest semantics**: a successful real Host records only `hostLaunch` as `Observed`. The
+    generic bootstrap / receipt fields stay `NotApplicable`, and `verifiedAdapter=null`,
+    `verified:false`. After a failure, the old observed evidence must not remain valid.
+15. **Regression**: the M3-0 package/transport tests, Stock Chrome/Edge, Controlled Chromium
+    bootstrap/receipt/fallback, Artifact 25/25, the full Desktop Rust check/test/clippy, and
+    the JS contracts/desktop/extension tests keep passing.
+16. **Auditable receipt**: add a separate M3-WI tracked manifest that binds the
+    receipt-producing commit/tree, the native Windows host, the fixed input SHAs, each
+    run-id/report/sidecar SHA, the lifecycle/secret-scan results, and an explicit
+    test-only/unpublished boundary. The raw profiles/reports stay gitignored, and the manifest
+    contains no secrets or sensitive data beyond the user path.
+
+## Real-run and evidence freeze order
+
+1. On the clean documentation checkpoint, implement and run the fast tests that do not launch
+   a browser;
+2. Commit the complete receipt-producing code and record the full commit and tree hash;
+3. Confirm clean again, and run the M3-WI real suite on the native Windows interactive desktop
+   at that exact commit;
+4. Write the original report and sidecar into the new gitignored
+   `artifacts/camoufox-m3-wi-windows-gate/runs/`, with a unique run-id for each run;
+5. The freezer derives the new tracked manifest only from reports that are complete, whose
+   sidecar verification passed, and whose `codeGitRevision` matches exactly;
+6. Freeze the manifest with a subsequent evidence-only commit. If any receipt-producing
+   runtime, harness, or schema is modified afterward, the affected Gate must be rerun. Do not
+   amend/rebase old evidence to pass it off as the same revision.
+
+Do not reuse an M2-W run-id to pass for this Gate, and do not name an M3-0 fake Host test a
+real-browser run. The new manifest records at least:
+
+- schema `verisilo-camoufox-m3-wi-windows-evidence-manifest/v1`;
+- `codeGitRevision`, `codeTreeHash`, branch, and the host/session/tool versions;
+- `integrationPath=test-only-real-host`, `productionPackageVerified=false`, `shipped=false`,
+  `verified=false`, `evidenceClass=observed-on-this-windows-host`;
+- the exact SHAs of the Host source/lock, asset/archive, browser tree, and Artifact;
+- the run-id, report path, and SHA-256 of the real launch, persistence, clean stop,
+  EOF/crash/desktop-close, and negative matrix;
+- the results for `productionVerifierFailClosed=true`, DownloadGuard, the secret scan,
+  residual processes, and the protected accepted-file hashes.
+
+## Required verification
+
+Run and report at least the actual commands, exit codes, and counts:
 
 ```powershell
 pnpm check
@@ -379,49 +432,63 @@ Set-Location apps/camoufox-host
 uv run --frozen --offline python test_identity_artifact.py
 ```
 
-此外必须执行一个命名明确、单线程、有界超时的 Windows-only M3-WI real integration
-命令，输出新的 run-id 和 summary sidecar。若实现为 ignored Rust test，命令必须形如：
+You must also run one clearly named, single-threaded, bounded-timeout, Windows-only M3-WI real
+integration command that outputs a new run-id and a summary sidecar. If implemented as an
+ignored Rust test, the command must have the form:
 
 ```powershell
-cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml <精确测试名> -- --ignored --nocapture --test-threads=1
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml <exact test name> -- --ignored --nocapture --test-threads=1
 ```
 
-若修改 `apps/camoufox-host/host_v1.py`、`host_platform.py`、`browser_tree.py`、Windows
-supervisor 或 accepted Windows fixtures，则除 M3-WI suite 外，还必须重跑完整
-`test_windows_host.py`，并把影响交回主脑重新判断；没有修改这些文件时，不要求为了
-形式重跑全部 M2-W 长矩阵，但第 7–11 项的跨桌面接缝证据仍不可省略。
+If `apps/camoufox-host/host_v1.py`, `host_platform.py`, `browser_tree.py`, the Windows
+supervisor, or the accepted Windows fixtures are modified, then in addition to the M3-WI suite
+the complete `test_windows_host.py` must be rerun, and the impact must be handed back to the
+lead agent for a new judgment. If these files were not modified, you need not rerun the whole
+long M2-W matrix for form's sake, but the cross-desktop-seam evidence of items 7–11 still
+cannot be omitted.
 
-## 停止条件
+## Stop conditions
 
-出现任一情况立即停止并返回 `blocked` 或 `failed`，不得自行扩大：
+On any of the following, stop immediately and return `blocked` or `failed`. Do not expand on
+your own:
 
-- 实际权限、cwd、分支、起始 commit、工作树或原生 Windows/交互式 desktop 不符合；
-- 固定 archive/cache/uv 环境不存在或不匹配，继续需要网络下载或更新 lock；
-- 真实 Host 只能通过 production verifier bypass、伪签名、真实 signer 或发布 package
-  才能启动；
-- 必须改变 Artifact v3、ObservedWebsiteDigest v2、Host v1 语义或 accepted M0–M2-W
-  evidence；
-- 必须增加 production dependency、UI、installer、代理、Controlled Chromium 或其他
-  延后后端；
-- 浏览器/Job tree 退出无法确认、Profile ownership 不确定、出现无关进程误杀或秘密
-  泄漏；
-- 真实 run 不是由最终 receipt-producing commit 生成，且无法安全重跑。
+- The actual permissions, cwd, branch, starting commit, worktree, or the native
+  Windows/interactive desktop do not match.
+- The fixed archive/cache/uv environment does not exist or does not match, and continuing
+  would need a network download or a lock update.
+- The real Host can start only through a production verifier bypass, a forged signature, a
+  real signer, or a published package.
+- It would be necessary to change Artifact v3, ObservedWebsiteDigest v2, the Host v1 semantics,
+  or the accepted M0–M2-W evidence.
+- It would be necessary to add a production dependency, UI, an installer, a proxy, Controlled
+  Chromium, or another deferred backend.
+- The exit of the browser/Job tree cannot be confirmed, the Profile ownership is uncertain, an
+  unrelated process was killed by mistake, or a secret leaked.
+- The real run was not generated by the final receipt-producing commit and cannot be safely
+  rerun.
 
-## 执行 Agent 结果包
+## Execution agent result package
 
-最终返回必须按以下顺序：
+The final return must follow this order:
 
-1. 执行结论：`passed`、`failed` 或 `blocked`；不得自行写 Accepted；
-2. 原生 Windows host/session、精确起始 commit、receipt-producing commit、evidence
-   commit、branch/upstream、工作树与 push/PR 状态；
-3. 逐项 1–16 Gate 矩阵及每项对应的 run-id、测试名或代码证据；
-4. 真实调用链与 integration-only 隔离说明，明确 production verifier 仍 fail-closed；
-5. 固定 Artifact/asset/browser tree/Host/lock SHA 与真实 Host/browser PID/Job ownership；
-6. real launch、两周期 persistence、clean stop、EOF/crash/desktop-close、negative matrix
-   的 summary/report/sidecar 路径和 SHA；
-7. 完整测试命令、计数、失败后修正记录和未运行项目；
-8. secret scan、residual process、临时目录、网络下载和外部副作用结论；
-9. 修改文件、禁止范围 diff、未验证边界和下一 Gate 输入。
+1. The execution conclusion: `passed`, `failed`, or `blocked`. Do not write Accepted on your
+   own;
+2. The native Windows host/session, the exact starting commit, the receipt-producing commit,
+   the evidence commit, the branch/upstream, the worktree, and the push/PR status;
+3. The item-by-item 1–16 Gate matrix, with the run-id, test name, or code evidence for each;
+4. The real call chain and the integration-only isolation notes, explicitly stating that the
+   production verifier still fails closed;
+5. The fixed Artifact/asset/browser tree/Host/lock SHAs and the real Host/browser PID/Job
+   ownership;
+6. The summary/report/sidecar paths and SHAs of the real launch, two-cycle persistence, clean
+   stop, EOF/crash/desktop-close, and negative matrix;
+7. The complete test commands, counts, the post-failure correction record, and the items not
+   run;
+8. The conclusions on the secret scan, residual processes, temporary directories, network
+   downloads, and external side effects;
+9. The modified files, the diff against the forbidden scope, the unverified boundaries, and
+   the inputs for the next Gate.
 
-执行结束后等待主脑按成本受控协议审阅。fake Host 全绿、真实 browser 单次打开、
-standalone M2-W 旧 receipt 或执行 Agent 自报 `passed` 都不能单独关闭 M3-WI。
+After execution ends, wait for the lead agent to review under the cost-controlled protocol. An
+all-green fake Host, a single real browser open, an old standalone M2-W receipt, or a
+`passed` self-reported by the execution agent cannot close M3-WI on its own.

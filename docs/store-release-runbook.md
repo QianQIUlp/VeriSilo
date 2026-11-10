@@ -1,20 +1,20 @@
-# Store release runbook — Native Host dual store IDs
+# Store release runbook: Native Host dual store IDs
 
-- 状态：**P5/P6 操作手册**
-- 前置：Chrome Web Store 与 Microsoft Edge Add-ons 各有一个 Draft item，且已取得两个商店扩展 ID
-- 相关能力全部已实现：`scripts/prepare-native-host-release.mjs`、`scripts/install-native-host.ps1`、`scripts/verify-native-host-install.ps1`、`apps/desktop/src-tauri/build.rs` 与 `native_host.rs` 编译期/运行期校验。本手册只讲顺序。
+- Status: **P5/P6 operations runbook**
+- Prerequisite: Chrome Web Store and Microsoft Edge Add-ons each have a Draft item, and both store extension IDs have been obtained
+- All related capabilities are implemented: `scripts/prepare-native-host-release.mjs`, `scripts/install-native-host.ps1`, `scripts/verify-native-host-install.ps1`, and the compile-time/runtime checks in `apps/desktop/src-tauri/build.rs` and `native_host.rs`. This runbook covers only the order of steps.
 
-## 0. 为什么不能跳过
+## 0. Why this cannot be skipped
 
-两个商店给同一份 ZIP 分配**不同**的扩展 ID；Native Host 的 `allowed_origins` 不能写通配符。Chrome 侧只认 `chrome-extension://<Chrome ID>/`，Edge 侧只认 `chrome-extension://<Edge ID>/`。因此发布前必须把两个 ID 同时：写入 release config、编译进 Host、写入两个 HKCU 注册的 manifest。
+The two stores assign **different** extension IDs to the same ZIP, and the Native Host `allowed_origins` cannot use wildcards. The Chrome side accepts only `chrome-extension://<Chrome ID>/`, and the Edge side accepts only `chrome-extension://<Edge ID>/`. Before release, both IDs must therefore be: written into the release config, compiled into the Host, and written into the two HKCU-registered manifests.
 
-## 1. 拿 ID（P5，账号持有人）
+## 1. Get the IDs (P5, account holder)
 
-- Chrome：Developer Dashboard → Add new item → 上传 `VeriSilo-Companion-0.2.11-chrome-edge.zip`（SHA-256 见 [`store-release-evidence.md`](store-release-evidence.md)）→ 保存 Draft → 记下 Item ID。
-- Edge：Partner Center → Microsoft Edge → 创建 Extension → 上传同一 ZIP → 保存 Draft → 记下扩展 ID。
-- 注意：本计划采用 **CWS 自动生成 key**。因此本地旁加载的 unpacked ID 与商店 ID 不同，无法在提交前用商店 ID 做本地正握手；正握手安排在商店侧可安装后（unlisted / trusted testers / 审核通过未发布）。
+- Chrome: Developer Dashboard → Add new item → upload `VeriSilo-Companion-0.2.11-chrome-edge.zip` (for its SHA-256 see [`store-release-evidence.md`](store-release-evidence.md)) → save the Draft → note the Item ID.
+- Edge: Partner Center → Microsoft Edge → create an Extension → upload the same ZIP → save the Draft → note the extension ID.
+- Note: this plan uses the **key that the CWS generates automatically**. The unpacked ID from local sideloading therefore differs from the store ID, and a local positive handshake with the store ID cannot be done before submission. The positive handshake is scheduled for after the store version can be installed (unlisted / trusted testers / review passed but not published).
 
-## 2. 生成 release config（P6）
+## 2. Generate the release config (P6)
 
 ```powershell
 $env:VERISILO_CHROME_EXTENSION_ID = '<Chrome Store Item ID>'
@@ -22,19 +22,19 @@ $env:VERISILO_EDGE_EXTENSION_ID = '<Edge Add-ons ID>'
 node scripts/prepare-native-host-release.mjs --out artifacts/native-host
 ```
 
-脚本拒绝空值、非 `[a-p]{32}`、占位符 ID 和字符多样性不足的 ID。生成的 `artifacts/native-host/native-host-release-config.json` 是公开标识符，不是秘密；但**在拿到真实商店 ID 前不要提交生成物**（见 [`development.md`](development.md)）。
+The script rejects empty values, values that do not match `[a-p]{32}`, placeholder IDs, and IDs with too little character diversity. The generated `artifacts/native-host/native-host-release-config.json` holds public identifiers, not secrets. But **do not commit the generated output before the real store IDs are obtained** (see [`development.md`](development.md)).
 
-## 3. 在同一环境构建 Host
+## 3. Build the Host in the same environment
 
 ```powershell
 cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --release --features native-host --bin verisilo-native-host
 ```
 
-`build.rs` 会因 env 变化重编；`native_host.rs` 在运行期再次校验编译进去的 ID，缺失或畸形时拒绝授权任何生产扩展。
+`build.rs` rebuilds when the env changes. `native_host.rs` validates the compiled-in IDs again at runtime, and refuses to authorize any production extension when they are missing or malformed.
 
-## 4. 安装并验证
+## 4. Install and verify
 
-把 `verisilo-native-host.exe` 与 `verisilo.exe` 放到同一目录（Host 只允许唤醒同目录 `verisilo.exe`），然后以**标准用户**运行：
+Put `verisilo-native-host.exe` and `verisilo.exe` in the same directory (the Host may only wake the `verisilo.exe` in its own directory), then run as a **standard user**:
 
 ```powershell
 pwsh -File scripts/install-native-host.ps1 `
@@ -45,26 +45,26 @@ pwsh -File scripts/verify-native-host-install.ps1 `
   -ReleaseConfigPath 'artifacts\native-host\native-host-release-config.json'
 ```
 
-`install-native-host.ps1` 写 `HKCU:\Software\Google\Chrome\NativeMessagingHosts\io.verisilo.host` 与 `HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\io.verisilo.host`，各自指向只含本商店 ID 的 manifest；失败时事务回滚。验证脚本核对 manifest 字段、origin 精确匹配、注册表指向、install-record 一致性，并拒绝 reparse point。
+`install-native-host.ps1` writes `HKCU:\Software\Google\Chrome\NativeMessagingHosts\io.verisilo.host` and `HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\io.verisilo.host`. Each points to a manifest that contains only that store's ID. On failure the transaction is rolled back. The verification script checks the manifest fields, the exact origin match, the registry targets and the consistency of the install-record, and it rejects reparse points.
 
-## 5. 负向测试（本机可做，无需商店 ID）
+## 5. Negative tests (can be done locally, no store ID needed)
 
-按 [`release.md`](release.md) 第 331–335 条核对：
+Check against items 331–335 of [`release.md`](release.md):
 
-1. 生产 Host 拒绝错误/缺失 ID、非授权 origin、未知字段、秘密形态字段、协议不匹配和 >16 KiB 消息；
-2. `open_desktop` 只启动同目录 `verisilo.exe` 且无参数；过期/畸形 snapshot 绝不作为当前状态返回；
-3. `uninstall-native-host.ps1` 连续执行两次：两个浏览器注册与 manifest 全部消失，而 Vault、报告和 Silo Profile 目录保留。
+1. The production Host rejects a wrong or missing ID, an unauthorized origin, unknown fields, secret-shaped fields, a protocol mismatch and messages larger than 16 KiB;
+2. `open_desktop` starts only the `verisilo.exe` in the same directory, with no arguments. An expired or malformed snapshot is never returned as the current state;
+3. Run `uninstall-native-host.ps1` twice in a row: both browser registrations and manifests are gone, while the Vault, the reports and the Silo Profile directories are kept.
 
-## 6. 正握手测试（需要商店侧可安装）
+## 6. Positive handshake test (needs a store-side installable version)
 
-顺序建议：Chrome 先走 trusted testers 或 Deferred Publishing（审核通过不自动公开），Edge 用 draft 的可见性选项；两浏览器各安装一次商店版本后验证：
+Suggested order: Chrome first goes through trusted testers or Deferred Publishing (a passed review does not publish automatically), and Edge uses the visibility option of the draft. After installing the store version once in each browser, verify:
 
-1. 扩展内状态从 `local_only` 变为绑定状态（桌面端运行、Vault 解锁、Silo 匹配）；
-2. Network Check 结果经 `submit_network_evidence` 进入桌面端 Vault 历史；
-3. 无桌面端/未解锁时优雅降级为 `local_only`，不报"功能坏了"。
+1. The in-extension state changes from `local_only` to the bound state (desktop app running, Vault unlocked, Silo matched);
+2. The Network Check result enters the desktop Vault history through `submit_network_evidence`;
+3. Without the desktop app, or when locked, it degrades gracefully to `local_only` and does not report "the feature is broken".
 
-## 7. 收口
+## 7. Closure
 
-- 把两个商店 ID 与验证结果补记进 [`store-release-evidence.md`](store-release-evidence.md)（ID 是公开标识符，可入仓库）。
-- 对照商店 listing 确认两个 ID 确实属于各自 listing（语法合法 ≠ 拥有权，见 [`release.md`](release.md)）。
-- 之后才允许 Submit for Review（Chrome 建议 Deferred Publishing）。
+- Add the two store IDs and the verification results to [`store-release-evidence.md`](store-release-evidence.md) (IDs are public identifiers and may go into the repository).
+- Check against the store listings that each of the two IDs really belongs to its own listing (syntactically valid ≠ ownership, see [`release.md`](release.md)).
+- Only after that is Submit for Review allowed (for Chrome, Deferred Publishing is recommended).

@@ -1,44 +1,46 @@
-# Windows Managed Engine 目录启动差异：ACL 因果对照
+# Windows Managed Engine directory launch difference: ACL causal comparison
 
-日期：2026-09-27。候选源码：`origin/baseline/dev` 的 `b6f6b67d3348921fc179aa2225896ef3472e7aca`。环境：原生 Windows `10.0.26200.0`。本调查只处理开发工作树中的 Camoufox/Gecko 启动差异，没有改产品代码、Engine 内容、安全策略或安装流程。
+> Translated from the original Chinese on 2026-11-10. The original text is in Git history at commit 1cf0f29. For historical evidence, the original wording governs if the two differ.
 
-## 结论与边界
+Date: 2026-09-27. Candidate source: `b6f6b67d3348921fc179aa2225896ef3472e7aca` of `origin/baseline/dev`. Environment: native Windows `10.0.26200.0`. This investigation addresses only the Camoufox/Gecko launch difference in the development worktree. It did not change product code, Engine content, security policy or the install flow.
 
-**已确认的因果变量是 browser tree 的继承 DACL。** 在普通用户 `telecaster\qiu`、同一 browser executable 绝对路径、同一 Playwright driver 和相同启动选项下，隔离副本继承工作树的 DACL 时 60 秒内无法建立页面；仅将该副本全树 DACL 重置为普通父目录的继承规则后，5.344 秒建立一个页面。owner 仍为 `qiu`，文件内容不变。重置前根目录/`camoufox.exe` 分别有 21/14 条 ACL 规则，之后为 5/5 条。504 个文件与原失败树逐项 SHA-256 一致。
+## Conclusion and boundary
 
-失败首先出现在 **Gecko sandbox broker 派生 GPU、tab、utility 子进程**：主 `camoufox.exe` 已创建、Juggler pipe 已通信，随后记录 `Failed to launch tab subprocess @SB::LA::SpawnTarget (Error:0)`、GPU 连续三次启动失败及 `gBrowser never populated`。这将 owning layer 收敛到文件系统安全描述符与 Gecko 子进程启动的交界处。日志没有给出具体 Windows API 的拒绝码或某个 DLL 的加载失败；没有把单条 ACE、Defender、loader 或 Chromium sandbox 指认为更深层根因。Camoufox 此处自报 `Firefox/152.0.4-beta.28`，并非 Chromium。
+**The confirmed causal variable is the inherited DACL of the browser tree.** With the normal user `telecaster\qiu`, the same absolute path of the browser executable, the same Playwright driver and the same launch options, an isolated copy that inherited the worktree's DACL could not establish a page within 60 seconds. After only the whole-tree DACL of that copy was reset to the inheritance rules of an ordinary parent directory, it established a page in 5.344 seconds. The owner is still `qiu`, and the file content is unchanged. Before the reset, the root directory and `camoufox.exe` had 21 and 14 ACL rules respectively. Afterward they had 5 and 5. The 504 files match the original failing tree item by item by SHA-256.
 
-失败树由 `CodexSandboxOnline` 拥有，其继承 DACL 含七组 `S-1-15-2-*` package SID 规则及额外 sandbox 用户规则；普通成功副本由 `qiu` 拥有，继承五条普通用户/SYSTEM/Administrators 规则。owner 差异本身不足以解释结果：保留失败 DACL、但 owner 为 `qiu` 的副本仍失败。尚未细分是哪一条 ACE、根目录还是子文件的规则触发 Gecko 子进程失败。
+The failure first appears in the **Gecko sandbox broker spawning the GPU, tab and utility child processes**. The main `camoufox.exe` was already created and the Juggler pipe was already communicating. The logs then record `Failed to launch tab subprocess @SB::LA::SpawnTarget (Error:0)`, three consecutive GPU launch failures and `gBrowser never populated`. This narrows the owning layer to the boundary between filesystem security descriptors and Gecko child-process launch. The logs give no denial code for a specific Windows API and no load failure for a particular DLL. No single ACE, Defender, loader or Chromium sandbox is named as a deeper root cause. Camoufox here reports itself as `Firefox/152.0.4-beta.28`, not Chromium.
 
-## 受控结果
+The failing tree is owned by `CodexSandboxOnline`. Its inherited DACL contains seven groups of `S-1-15-2-*` package SID rules and additional sandbox user rules. The ordinary successful copy is owned by `qiu` and inherits five ordinary user/SYSTEM/Administrators rules. The owner difference alone does not explain the result: a copy that kept the failing DACL but had owner `qiu` still failed. It is not yet determined which ACE, or whether the root directory or a child file rule, triggers the Gecko child-process failure.
 
-以下最小 probe 均复用失败 package 的 Playwright driver，去除 `CAMOU_CONFIG_*`/`VERISILO_*`，使用新的临时 Profile、`about:blank`、headful、60 秒超时；不经过 Host、supervisor、Vault 或产品 Job。实际 executable 由 Playwright `<launching>` 日志确认。`W` 是原失败树 `C:\Users\qiu\src\VeriSilo\.verisilo-worktrees\integration-performance-completion-37abe4\apps\desktop\src-tauri\target\debug\managed-browser\engine-package\browser`；`U` 是普通用户目录 `C:\Users\qiu\src\VeriSiloEngineProbe`。完整原始日志位于本 QA 工作树的忽略目录 `artifacts/managed-directory/`。
+## Controlled results
 
-| 父进程账户 | browser executable | 文件/目录条件 | 结果 |
-| --- | --- | --- | --- |
-| 历史探针未记录账户 | `W/camoufox.exe` | 原工作树 ACL | 失败；Juggler 正常，GPU 三次失败 |
-| `CodexSandboxOnline` | 工作树内指向 `W` 的短 junction | 同一原文件对象 | 失败；路径别名本身无效 |
-| `CodexSandboxOnline` | `U/browser/camoufox.exe` | `W` 的 504 个硬链接，原文件 DACL/owner | 失败 |
-| `CodexSandboxOnline` | `U/copy-browser/camoufox.exe` | 独立副本，普通继承 DACL/owner `qiu` | 失败 |
-| `qiu` | `W/camoufox.exe` | 原工作树 ACL | 失败；GPU 三次失败 |
-| `qiu` | `U/browser/camoufox.exe` | `W` 的硬链接，原文件 DACL/owner | 失败 |
-| `qiu` | `U/copy-browser/camoufox.exe` | 独立副本，普通继承 DACL/owner `qiu` | **通过：4.894 秒、1 page** |
-| `qiu` | `U/dacl-browser/camoufox.exe` | 通过 `robocopy /COPY:DATS` 保留失败树 DACL，owner `qiu` | **失败：60 秒超时** |
-| `qiu` | **同一** `U/dacl-browser/camoufox.exe` | 仅对这份隔离副本执行 `icacls /reset /T`，owner、路径和文件内容未变 | **通过：5.344 秒、1 page** |
+All of the following minimal probes reuse the Playwright driver of the failing package. They remove `CAMOU_CONFIG_*`/`VERISILO_*`, and use a new temporary Profile, `about:blank`, headful mode and a 60-second timeout. They do not go through Host, the supervisor, the Vault or the product Job. The actual executable is confirmed by the Playwright `<launching>` log. `W` is the original failing tree `C:\Users\qiu\src\VeriSilo\.verisilo-worktrees\integration-performance-completion-37abe4\apps\desktop\src-tauri\target\debug\managed-browser\engine-package\browser`. `U` is the ordinary user directory `C:\Users\qiu\src\VeriSiloEngineProbe`. The full raw logs are in the ignored directory `artifacts/managed-directory/` of this QA worktree.
 
-普通用户目录的独立副本与 DACL 对照副本各有 504 个文件；逐项 SHA-256 与 `W` 比较，失配数均为 0。两次 `dacl-browser` 启动之间唯一有意修改的是该隔离树的 DACL。每次 probe 使用新的空 Profile 路径，不能据此宣称 Profile 字符串逐字相同；既有成功对照的 Profile 也位于工作树内，因此工作树 Profile 本身不是充分失败条件。探针结束后的相关 `camoufox.exe` 残留为 0。临时 `U` 副本和 junction 已清理；原 Engine 树仍在。
+| Parent process account                 | browser executable                                 | File/directory condition                                                                  | Result                                         |
+| -------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Historical probe, account not recorded | `W/camoufox.exe`                                   | Original worktree ACL                                                                     | Failed; Juggler normal, GPU failed three times |
+| `CodexSandboxOnline`                   | Short junction inside the worktree pointing to `W` | Same original file objects                                                                | Failed; the path alias itself has no effect    |
+| `CodexSandboxOnline`                   | `U/browser/camoufox.exe`                           | 504 hard links to `W`, original file DACL/owner                                           | Failed                                         |
+| `CodexSandboxOnline`                   | `U/copy-browser/camoufox.exe`                      | Independent copy, ordinary inherited DACL/owner `qiu`                                     | Failed                                         |
+| `qiu`                                  | `W/camoufox.exe`                                   | Original worktree ACL                                                                     | Failed; GPU failed three times                 |
+| `qiu`                                  | `U/browser/camoufox.exe`                           | Hard links to `W`, original file DACL/owner                                               | Failed                                         |
+| `qiu`                                  | `U/copy-browser/camoufox.exe`                      | Independent copy, ordinary inherited DACL/owner `qiu`                                     | **Passed: 4.894 seconds, 1 page**              |
+| `qiu`                                  | `U/dacl-browser/camoufox.exe`                      | Failing-tree DACL preserved through `robocopy /COPY:DATS`, owner `qiu`                    | **Failed: 60-second timeout**                  |
+| `qiu`                                  | **The same** `U/dacl-browser/camoufox.exe`         | `icacls /reset /T` run only on this isolated copy; owner, path and file content unchanged | **Passed: 5.344 seconds, 1 page**              |
 
-`CodexSandboxOnline` 是另一条开发环境边界：它对普通目录的干净副本及已安装 LocalAppData 浏览器的本次最小 probe 也失败；这些失败不用于否定 `qiu` 的 DACL 对照，也不能推断正常产品路径失败。账户来自 `whoami /user`，不能由继承的 `USERNAME=qiu` 环境变量推断。尚未把该 sandbox 账户的子进程限制进一步归因于某个 Windows 机制。
+The independent copy in the ordinary user directory and the DACL comparison copy each have 504 files. Compared item by item by SHA-256 with `W`, the mismatch count is 0 in both cases. The only intentional change between the two `dacl-browser` launches is the DACL of that isolated tree. Each probe uses a new empty Profile path, so it cannot be claimed that the Profile string is byte-for-byte identical. The Profile of the existing successful comparison is also inside the worktree, so a Profile inside the worktree is not by itself a sufficient failure condition. After the probes, the number of leftover related `camoufox.exe` processes was 0. The temporary `U` copies and the junction have been cleaned up. The original Engine tree is still there.
 
-## 产品处置
+`CodexSandboxOnline` is a separate development-environment boundary. It also failed this round's minimal probe on a clean copy in an ordinary directory and on the installed LocalAppData browser. Those failures are not used to negate the `qiu` DACL comparison, and they do not support inferring that the normal product path fails. The account comes from `whoami /user`. It cannot be inferred from the inherited environment variable `USERNAME=qiu`. The child-process restriction of that sandbox account has not yet been attributed to a specific Windows mechanism.
 
-既有完整产品证据见 [性能与架构任务处置](performance-architecture-2026-09-27.md)：独立 LocalAppData 开发目录、新 Vault `perf-native-37abe4`、日志确认真实 Engine binding 后，Managed 创建、页面 `readyState=complete`、网络、`observed`/`matched`、reobserve、stop/restart 和进程清理均通过。此次未改该 package 或产品源码，该证据仍可继承。正式安装/运行路径没有被本次 ACL 对照证明存在缺陷；目前将其界定为 **当前 Codex sandbox/worktree 的继承 ACL 开发限制**，不修改产品沙箱、Job、Defender、全局 ACL 或安装器。
+## Product disposition
 
-开发时若要复现真实 Managed 路径，应在正常用户上下文使用普通继承 ACL 的独立包目录，并用新 Vault 注册/绑定；以 driver 日志中的 Engine package root 和 browser executable 为准。不要只按桌面 exe 所在目录判断 binding，也不要直接改原工作树 ACL。上述对照证明 DACL 的因果作用，但没有证明清理原工作树 ACL 后 `CodexSandboxOnline` 能运行 Engine。
+For the existing full product evidence, see [Performance and architecture: disposition of the original task](performance-architecture-2026-09-27.md). It used a separate LocalAppData development directory and a new Vault `perf-native-37abe4`. After logs confirmed the real Engine binding, Managed creation, page `readyState=complete`, network, `observed`/`matched`, reobserve, stop/restart and process cleanup all passed. This round changed neither that package nor the product source, so that evidence can still be inherited. This ACL comparison did not prove a defect in the formal install/run path. It is currently scoped as **an inherited-ACL development limit of the current Codex sandbox/worktree**. The product sandbox, Job, Defender, global ACLs and the installer are not modified.
 
-## 最小复现与未取得的证据
+To reproduce the real Managed path during development, use a separate package directory with ordinary inherited ACLs in the normal user context, and register and bind with a new Vault. Treat the Engine package root and browser executable in the driver log as authoritative. Do not judge the binding only by the directory of the desktop exe, and do not change the ACL of the original worktree directly. The comparison above proves the causal role of the DACL. It does not prove that `CodexSandboxOnline` could run the Engine after the original worktree ACL is cleaned.
 
-专用脚本：[managed-engine-directory-probe.cjs](../../tests/windows/managed-engine-directory-probe.cjs)。命令：
+## Minimal reproduction and evidence not obtained
+
+Dedicated script: [managed-engine-directory-probe.cjs](../../tests/windows/managed-engine-directory-probe.cjs). Command:
 
 ```powershell
 whoami /user
@@ -46,4 +48,4 @@ $env:DEBUG = 'pw:browser'
 node tests/windows/managed-engine-directory-probe.cjs <engine-package> <browser-exe> <output-dir>
 ```
 
-脚本输出实际 package root、executable、real path、cwd、Profile、账户及 TEMP/TMP/LocalAppData，随后输出页面结果或 Playwright 错误。它不使用 Vault；产品 binding 的独立证据来自上述完整产品日志。脚本在 DACL 重置后的隔离目录实测通过：6.679 秒、1 page。未取得 GPU 子进程退出码、具体 `CreateProcess`/loader 失败码，也未逐项比对 inherited handles、Job membership 或 MSIX identity；因此不对这些更深层机制作结论。若未来正常产品目录出现同类故障，需在那个确切目录与账户重新采集原生证据，不能套用本次开发限制结论。
+The script prints the actual package root, executable, real path, cwd, Profile, account and TEMP/TMP/LocalAppData, and then the page result or the Playwright error. It does not use a Vault. The independent evidence for the product binding comes from the full product log above. The script passed in the isolated directory after the DACL reset: 6.679 seconds, 1 page. These were not obtained: the GPU child-process exit code, the specific `CreateProcess`/loader failure code, and an item-by-item comparison of inherited handles, Job membership or MSIX identity. No conclusion is drawn about these deeper mechanisms. If a similar failure appears in a normal product directory in the future, native evidence must be collected again in that exact directory and account. This development-limit conclusion must not be applied to it.

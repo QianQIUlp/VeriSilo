@@ -1,6 +1,6 @@
 # VeriSilo M2.0.3 — Standalone Camoufox Host v1 (Linux stdio protocol)
 
-> 历史阶段报告：本文保留 Linux M2.0.3 当时的结论。M2-W 此后已经 Accepted，PR #10 已合入 `main`；Host 仍未接入 Tauri，当前阶段以 [Camoufox 状态页](camoufox-program-status.md)为准。
+> Historical stage report: this document keeps the conclusions of Linux M2.0.3 as they were at that time. M2-W has since been Accepted, and PR #10 has been merged into `main`. The Host is still not wired into Tauri. The current phase is governed by the [Camoufox status page](camoufox-program-status.md).
 
 Status: **Host v1 is a runnable Linux prototype with corrected lifecycle,
 persistence evidence, version contract, strict JSON/RFC3339 boundaries, and
@@ -199,9 +199,9 @@ Quarantined sessions additionally write
 1. **Font masking is NOT solved.** Host-installed families remain visible;
    current artifacts are `inherit` and font widths are excluded from the
    digest. `managed` mode requires all host negative controls unavailable.
-2. 本报告的证据范围只覆盖 Linux。后续 M2-W 已补充并接受 Windows profile
-   locking、Job Object lifecycle 与 Windows-bound Artifact；当前 M3 状态见
-   [program status](camoufox-program-status.md)。
+2. The evidence scope of this report covers Linux only. M2-W later added and accepted Windows profile
+   locking, Job Object lifecycle and a Windows-bound Artifact. For the current M3 status, see the
+   [program status](camoufox-program-status.md).
 3. Raw reports and profiles live under gitignored `artifacts/`; the tracked
    `tests/fixtures/camoufox/evidence-manifest.json` is the sanitized evidence
    index.

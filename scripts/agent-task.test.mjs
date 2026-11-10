@@ -432,7 +432,7 @@ test("start refuses leftover branches and metadata-less worktree paths", (t) => 
     fx.root,
   );
   assert.notEqual(branchClash.status, 0);
-  assert.match(branchClash.stderr, /拒绝复用/);
+  assert.match(branchClash.stderr, /refusing to reuse/);
   fx.git(["branch", "-D", names.branch]);
 
   mkdirSync(join(fx.root, WORKTREE_ROOT_NAME, names.dir), { recursive: true });
@@ -442,7 +442,7 @@ test("start refuses leftover branches and metadata-less worktree paths", (t) => 
     fx.root,
   );
   assert.notEqual(pathClash.status, 0);
-  assert.match(pathClash.stderr, /没有任务元数据/);
+  assert.match(pathClash.stderr, /no task metadata/);
 });
 
 test("check reports WORKSPACE CONTAMINATION for new primary changes, not pre-existing dirty state", (t) => {
@@ -455,7 +455,7 @@ test("check reports WORKSPACE CONTAMINATION for new primary changes, not pre-exi
 
   const before = runScript(["check"], wtDir(fx));
   assert.equal(before.status, 0, before.stdout + before.stderr);
-  assert.match(before.stdout, /无新增修改/);
+  assert.match(before.stdout, /no new changes in the primary checkout/);
 
   // The real incident: write into the primary through a relative path.
   mkdirSync(join(fx.root, "packages", "contracts", "src"), { recursive: true });
@@ -487,7 +487,7 @@ test("task commands refuse to run outside the task worktree root", (t) => {
   );
   const result = runScript(["check"], join(fx.root, "apps", "desktop"));
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /不一致/);
+  assert.match(result.stderr, /does not match/);
 });
 
 test("baseline advance moves the ref explicitly; backward moves need --force", (t) => {
@@ -722,7 +722,7 @@ test("verify --full keeps the complete integration matrix", (t) => {
   // matrix must fail — proving --full did not silently degrade to light.
   const full = runScript(["verify", "--full"], wtDirFor(fx, "integration"));
   assert.notEqual(full.status, 0);
-  assert.match(`${full.stderr}${full.stdout}`, /verify FAILED|找不到 pnpm/);
+  assert.match(`${full.stderr}${full.stdout}`, /verify FAILED|pnpm not found/);
 });
 
 test("promote advances the canonical baseline for an eligible single task", (t) => {
@@ -818,7 +818,7 @@ test("promote rejects restricted and shared-contract changes", (t) => {
 
   const promoted = runScript(["promote"], wtDirFor(fx, "qa"));
   assert.notEqual(promoted.status, 0);
-  assert.match(promoted.stderr, /越界|RESTRICTED/);
+  assert.match(promoted.stderr, /out of scope|RESTRICTED/);
   assert.equal(fx.git(["rev-parse", BASELINE_REF]), fx.c0);
 });
 

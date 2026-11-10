@@ -1,976 +1,976 @@
-# VeriSilo Windows 桌面端人工验收指南（纯点击版）
+# VeriSilo Windows desktop manual acceptance guide (click-only edition)
 
-这份指南只给最后做人工验收的人使用。
+This guide is only for the person who does the final manual acceptance.
 
-你不需要打开命令行，不需要看源码，不需要构建项目，不需要安装依赖，不需要检查注册表，也不需要打开浏览器开发者工具。那些工作由 Codex 完成。
+You do not need to open a command line, read source code, build the project, install dependencies, check the registry, or open the browser developer tools. Codex does that work.
 
-你只需要按顺序点击界面、观察结果，并把每一项记为通过、不通过或被阻断。
+You only need to click through the interface in order, observe the results, and record each item as passed, failed or blocked.
 
-## 1. 开始前先看这里
+## 1. Read this before you start
 
-### 1.1 Codex 应当已经替你准备好的东西
+### 1.1 What Codex should already have prepared for you
 
-开始前应当已经有：
+Before you start, you should already have:
 
-- 一个可以双击打开的 VeriSilo Windows 测试版。
+- A VeriSilo Windows test build that you can double-click to open.
 
-- 这台电脑上至少安装 Chrome Stable 或 Edge Stable 之一。最短 Standard Silo 旅程只要求一个可用浏览器；完整双浏览器矩阵中缺少的浏览器记为“被阻断”。
+- At least one of Chrome Stable or Edge Stable installed on this computer. The shortest Standard Silo journey needs only one usable browser. In the full two-browser matrix, record a missing browser as "blocked".
 
-- 如果要验收 Companion 扩展：测试浏览器里已经装好 VeriSilo Companion，并且工具栏或“扩展”菜单中可以看到它。
+- If you are accepting the Companion extension: VeriSilo Companion is already installed in the test browser, and you can see it in the toolbar or the "Extensions" menu.
 
-- 如果要验收固定代理、PAC 或 Mihomo：Codex 已经准备好专用的测试 Silo 或明确给出测试配置。没有准备好时不要自己购买、寻找或配置代理，直接记为“被阻断”。
+- If you are accepting a fixed proxy, PAC or Mihomo: Codex has already prepared a dedicated test Silo or given an explicit test configuration. If it is not ready, do not buy, look for or configure a proxy yourself. Record it directly as "blocked".
 
-- 如果要验收安装、升级和卸载：Codex 已经交付两个可双击运行的安装包。没有安装包时不要做这一节。
+- If you are accepting install, upgrade and uninstall: Codex has already delivered two installers that you can double-click to run. Without the installers, do not do this section.
 
-如果上面任何准备项缺失，不要自己修环境。记录缺少什么，然后继续做不受影响的其他项目。
+If any of the preparation items above is missing, do not fix the environment yourself. Record what is missing, then continue with the other items that are not affected.
 
-### 1.2 本次只使用这些假数据
+### 1.2 Use only this fake data in this run
 
-不要输入真实账号、真实密码、真实代理凭据或私人资料。
+Do not enter a real account, real password, real proxy credential or private data.
 
-如果解锁后看见任何需要长期保留的真实 Silo 或真实业务数据，立即停止本指南，并把当前环境记为“被阻断”。归档、删除、改口令和恢复备份只能在 Codex 准备的测试保险库里做。
+If, after unlocking, you see any real Silo or real business data that must be kept long term, stop this guide immediately and record the current environment as "blocked". Archive, delete, passphrase change and backup restore may be done only in the test Vault that Codex prepared.
 
-建议使用：
+Recommended values:
 
-| 用途             | 测试内容                  |
-| ---------------- | ------------------------- |
-| 初始保险库口令   | VeriSilo-Manual-2026!     |
-| 新保险库口令     | VeriSilo-Manual-2026-New! |
-| Chrome 测试 Silo | Chrome-A、Chrome-B        |
-| Edge 测试 Silo   | Edge-A、Edge-B            |
-| 可删除的 Silo    | Delete-Me                 |
-| A 中的收藏名称   | VS-A-ONLY                 |
-| B 中的收藏名称   | VS-B-ONLY                 |
-| 备份文件名       | verisilo-manual.backup    |
+| Purpose                  | Test content              |
+| ------------------------ | ------------------------- |
+| Initial Vault passphrase | VeriSilo-Manual-2026!     |
+| New Vault passphrase     | VeriSilo-Manual-2026-New! |
+| Chrome test Silos        | Chrome-A, Chrome-B        |
+| Edge test Silos          | Edge-A, Edge-B            |
+| Deletable Silo           | Delete-Me                 |
+| Bookmark name in A       | VS-A-ONLY                 |
+| Bookmark name in B       | VS-B-ONLY                 |
+| Backup file name         | verisilo-manual.backup    |
 
-如果当前测试保险库已经由 Codex 初始化，请使用 Codex交付的测试口令，不要重建或删除现有数据。
+If Codex has already initialized the current test Vault, use the test passphrase Codex delivered. Do not recreate or delete the existing data.
 
-### 1.3 怎么记录结果
+### 1.3 How to record results
 
-每完成一小节，只记一种结果：
+After each small section, record only one result:
 
-- **通过**：看到的结果与“正常”一致，而且没有出现“异常”中的情况。
+- **Passed**: What you see matches "Normal", and none of the cases under "Abnormal" appear.
 
-- **不通过**：功能可以操作，但结果错误、界面卡死、数据串到另一个 Silo，或出现安全红线。
+- **Failed**: The feature can be operated, but the result is wrong, the interface freezes, data leaks into another Silo, or a safety red line appears.
 
-- **被阻断**：缺少浏览器、扩展、安装包、测试代理或网络等外部条件，导致无法开始。
+- **Blocked**: An external condition is missing, such as the browser, extension, installer, test proxy or network, so you cannot start.
 
-发现异常时，截一张包含整个应用窗口的图，记下所在章节和你刚点的按钮。不要自己清缓存、删目录或改系统设置。
+When you find an abnormality, take one screenshot that includes the whole application window, and note the section and the button you just clicked. Do not clear caches, delete directories or change system settings yourself.
 
-## 2. 最短验收路线
+## 2. Shortest acceptance route
 
-如果你只想先判断当前版本是否值得继续测试，依次做下面六件事：
+If you only want to first judge whether the current version is worth further testing, do these six things in order:
 
-1. 双击打开 VeriSilo，确认只出现一个桌面端窗口。
+1. Double-click to open VeriSilo, and confirm that only one desktop window appears.
 
-2. 创建或解锁保险库，再点击 **立即锁定**，确认错误口令不能解锁、正确口令可以解锁。
+2. Create or unlock the Vault, then click **立即锁定** ("Lock now"), and confirm that a wrong passphrase cannot unlock and the correct passphrase can.
 
-3. 创建两个使用同一种浏览器且网络方式为 **直连** 的 Silo。
+3. Create two Silos that use the same browser and whose network mode is **直连** ("Direct").
 
-4. 在 A 中保存收藏 **VS-A-ONLY**，在 B 中确认看不到它；再回到 A，确认 A 的收藏仍在。
+4. In A, save the bookmark **VS-A-ONLY**, and in B confirm you cannot see it. Then go back to A and confirm A's bookmark is still there.
 
-5. 关闭 Silo 浏览器，确认桌面端最终从 **运行中** 回到 **空闲**。
+5. Close the Silo browser, and confirm that the desktop finally goes from **运行中** ("Running") back to **空闲** ("Idle").
 
-6. 编辑、归档并恢复一个 Silo，确认资料和收藏没有丢失。
+6. Edit, archive and restore a Silo, and confirm that its data and bookmarks are not lost.
 
-这六项全部通过，才继续后面的完整验收。
+Only when all six items pass do you continue with the rest of the full acceptance.
 
-## 3. 启动与单窗口检查
+## 3. Startup and single-window check
 
-### 3.1 第一次打开
+### 3.1 First launch
 
-1. 在文件资源管理器中找到 Codex 准备好的 VeriSilo 测试版。
+1. In File Explorer, find the VeriSilo test build that Codex prepared.
 
-2. 双击 **verisilo.exe**，最多等待 30 秒。
+2. Double-click **verisilo.exe** and wait at most 30 seconds.
 
-3. 查看窗口顶部和页面主体。
+3. Look at the top of the window and the page body.
 
-**正常：**
+**Normal:**
 
-- 只出现一个 VeriSilo 窗口。
+- Only one VeriSilo window appears.
 
-- 窗口顶部能看到 **仅本机**。
+- You can see **仅本机** ("Local only") at the top of the window.
 
-- 首次使用时看到 **创建保险库**；已有保险库时看到 **解锁保险库**。
+- On first use you see **创建保险库** ("Create Vault"). If a Vault already exists, you see **解锁保险库** ("Unlock Vault").
 
-- 页面文字清楚，没有白屏、黑屏、错位到无法点击或不停闪烁。
+- The page text is clear, with no white screen, black screen, layout so misplaced that it cannot be clicked, or constant flicker.
 
-**异常：**
+**Abnormal:**
 
-- 双击后没有任何窗口，或窗口出现后立即退出。
+- No window appears after the double-click, or the window exits immediately after appearing.
 
-- 超过 30 秒仍是空白页或一直加载。
+- After more than 30 seconds the page is still blank or keeps loading.
 
-- 启动时同时打开日常使用的 Chrome 或 Edge Profile。
+- The Chrome or Edge Profile you use every day is opened at startup at the same time.
 
-- Windows 弹出反复崩溃提示。
+- Windows shows repeated crash prompts.
 
-### 3.2 重复打开只应激活现有窗口
+### 3.2 Opening it again should only activate the existing window
 
-1. 保持 VeriSilo 窗口打开。
+1. Keep the VeriSilo window open.
 
-2. 回到文件资源管理器，再双击一次同一个 **verisilo.exe**。
+2. Go back to File Explorer and double-click the same **verisilo.exe** once more.
 
-3. 查看任务栏和桌面。
+3. Look at the taskbar and the desktop.
 
-**正常：**原来的 VeriSilo 窗口被带到前面，没有出现第二个可独立操作的桌面端窗口。
+**Normal:** The original VeriSilo window is brought to the front, and no second independently operable desktop window appears.
 
-**异常：**出现两个独立的 VeriSilo 窗口，两个窗口都能各自启动 Silo，或第二次打开后第一个窗口卡死。
+**Abnormal:** Two independent VeriSilo windows appear, both windows can each start a Silo, or the first window freezes after the second launch.
 
-## 4. 保险库
+## 4. Vault
 
-### 4.1 首次创建保险库
+### 4.1 Create the Vault for the first time
 
-如果页面显示 **创建保险库**：
+If the page shows **创建保险库** ("Create Vault"):
 
-1. 在 **保险库口令** 中输入测试口令 **VeriSilo-Manual-2026!**。
+1. In **保险库口令** ("Vault passphrase"), enter the test passphrase **VeriSilo-Manual-2026!**.
 
-2. 点击 **创建本地保险库**。
+2. Click **创建本地保险库** ("Create local Vault").
 
-3. 等待进入 **环境概览**。
+3. Wait until you reach **环境概览** ("Environment overview").
 
-**正常：**
+**Normal:**
 
-- 顶部显示 **保险库已解锁**。
+- The top shows **保险库已解锁** ("Vault unlocked").
 
-- 页面能看到 **环境概览**、**创建 Silo**、**保险库与数据** 和 **运行位置设置**。
+- The page shows **环境概览** ("Environment overview"), **创建 Silo** ("Create Silo"), **保险库与数据** ("Vault and data") and **运行位置设置** ("Run location settings").
 
-- 状态卡显示本地保险库已解锁，浏览器进程为空闲。
+- The status card shows that the local Vault is unlocked and the browser process is idle.
 
-**异常：**
+**Abnormal:**
 
-- 少于 12 个字符时按钮仍允许创建。
+- With fewer than 12 characters, the button still allows creation.
 
-- 创建后又回到首次创建页，或页面没有任何错误却一直不进入概览。
+- After creation it returns to the first-time creation page, or the page shows no error but never enters the overview.
 
-- 口令直接以明文长期显示在页面上。
+- The passphrase stays displayed on the page in plain text for a long time.
 
-如果页面显示 **解锁保险库**，直接使用当前测试保险库的口令继续。
+If the page shows **解锁保险库** ("Unlock Vault"), continue directly with the passphrase of the current test Vault.
 
-### 4.2 锁定、错误口令和正确口令
+### 4.2 Lock, wrong passphrase and correct passphrase
 
-1. 在 **环境概览** 点击 **立即锁定**。
+1. In **环境概览** ("Environment overview"), click **立即锁定** ("Lock now").
 
-2. 查看顶部状态和页面内容。
+2. Look at the top status and the page content.
 
-3. 输入一个肯定错误的口令，点击 **解锁**。
+3. Enter a passphrase that is certainly wrong, and click **解锁** ("Unlock").
 
-4. 再输入正确口令，点击 **解锁**。
+4. Then enter the correct passphrase and click **解锁** ("Unlock").
 
-**正常：**
+**Normal:**
 
-- 锁定后顶部显示 **保险库已锁定**。
+- After locking, the top shows **保险库已锁定** ("Vault locked").
 
-- Silo 列表、网络结果、报告选择等敏感内容不再可操作。
+- Sensitive content such as the Silo list, network results and report selection can no longer be operated.
 
-- 错误口令明确失败，仍停留在锁定状态。
+- The wrong passphrase clearly fails and the Vault stays locked.
 
-- 正确口令成功进入概览，原有 Silo 列表恢复。
+- The correct passphrase enters the overview successfully, and the original Silo list is restored.
 
-**异常：**
+**Abnormal:**
 
-- 错误口令能够解锁。
+- The wrong passphrase can unlock.
 
-- 锁定后仍能启动、编辑、归档或删除 Silo。
+- After locking, you can still start, edit, archive or delete a Silo.
 
-- 解锁后原有 Silo 无故消失。
+- After unlocking, the original Silos disappear for no reason.
 
-### 4.3 更换口令
+### 4.3 Change the passphrase
 
-这一步做完后，后续都使用新口令。
+After this step, use the new passphrase from here on.
 
-1. 打开 **保险库与数据**。
+1. Open **保险库与数据** ("Vault and data").
 
-2. 找到 **更换保护本地配置的口令**。
+2. Find **更换保护本地配置的口令** ("Change the passphrase that protects local configuration").
 
-3. 在 **当前口令** 中先输入错误口令。
+3. In **当前口令** ("Current passphrase"), first enter a wrong passphrase.
 
-4. 在 **新口令** 和 **再输一次** 中输入 **VeriSilo-Manual-2026-New!**。
+4. In **新口令** ("New passphrase") and **再输一次** ("Re-enter"), enter **VeriSilo-Manual-2026-New!**.
 
-5. 点击 **更新保险库口令**。
+5. Click **更新保险库口令** ("Update Vault passphrase").
 
-6. 确认失败后，改为输入正确的当前口令，再点击一次 **更新保险库口令**。
+6. After confirming the failure, enter the correct current passphrase instead and click **更新保险库口令** ("Update Vault passphrase") again.
 
-7. 回到 **环境概览**，点击 **立即锁定**。
+7. Go back to **环境概览** ("Environment overview") and click **立即锁定** ("Lock now").
 
-8. 先用旧口令解锁，再用新口令解锁。
+8. First unlock with the old passphrase, then unlock with the new passphrase.
 
-**正常：**
+**Normal:**
 
-- 当前口令错误时不会更新，页面给出明确错误。
+- When the current passphrase is wrong, nothing is updated and the page gives a clear error.
 
-- 当前口令正确且两次新口令一致时更新成功。
+- When the current passphrase is correct and the two new passphrases match, the update succeeds.
 
-- 更新后旧口令失败，新口令成功。
+- After the update, the old passphrase fails and the new passphrase succeeds.
 
-- Silo 列表和资料没有因为换口令丢失。
+- The Silo list and data are not lost because of the passphrase change.
 
-**异常：**旧口令仍能解锁、错误当前口令也能改口令、两次新口令不一致仍能提交，或更换后数据丢失。
+**Abnormal:** The old passphrase can still unlock, a wrong current passphrase can still change the passphrase, the two new passphrases do not match but can still be submitted, or data is lost after the change.
 
-### 4.4 15 分钟自动锁定
+### 4.4 15-minute auto-lock
 
-这项可以最后再做。
+You can do this item last.
 
-1. 解锁保险库后，不操作 VeriSilo 15 分钟。
+1. After unlocking the Vault, do not operate VeriSilo for 15 minutes.
 
-2. 回到窗口并尝试点击任意需要保险库的页面。
+2. Go back to the window and try to click any page that needs the Vault.
 
-**正常：**页面要求重新解锁，不能继续使用过期会话。
+**Normal:** The page requires you to unlock again, and the expired session cannot continue to be used.
 
-**异常：**超过 15 分钟仍能直接启动、编辑或删除 Silo。
+**Abnormal:** After more than 15 minutes you can still start, edit or delete a Silo directly.
 
-## 5. 创建直连 Silo
+## 5. Create a Direct Silo
 
-先用页面自动发现的浏览器创建同一家族的 A 和 B。下面以 Chrome-A/Chrome-B 为例；如果这台电脑只安装 Edge，就把名称和步骤中的 Chrome 换成 Edge。另一个浏览器家族属于完整矩阵，缺失不阻断最短 Standard Silo 旅程。
+First, use the browser that the page discovers automatically to create A and B of the same family. The steps below use Chrome-A/Chrome-B as the example. If this computer has only Edge installed, replace Chrome with Edge in the names and steps. The other browser family belongs to the full matrix, and its absence does not block the shortest Standard Silo journey.
 
-### 5.1 用推荐默认值创建第一个 Silo
+### 5.1 Create the first Silo with the recommended defaults
 
-1. 点击顶部 **创建 Silo**。
+1. Click **创建 Silo** ("Create Silo") at the top.
 
-2. 确认页面显示 **推荐设置已就绪**，并列出自动发现的 Google Chrome 或 Microsoft Edge、**Windows 本机**、**直连**和**独立 Profile**。
+2. Confirm that the page shows **推荐设置已就绪** ("Recommended settings ready") and lists the automatically discovered Google Chrome or Microsoft Edge, **Windows 本机** ("Windows (this machine)"), **直连** ("Direct") and **独立 Profile** ("Separate Profile").
 
-3. 在 **Silo 名称** 输入与自动发现浏览器对应的 **Chrome-A** 或 **Edge-A**，再选择一个容易辨认的颜色。
+3. In **Silo 名称** ("Silo name"), enter **Chrome-A** or **Edge-A**, matching the automatically discovered browser, and then choose an easily recognizable color.
 
-4. 不展开 **高级设置**。如果页面没有自动发现浏览器，或默认显示 Linux、代理、PAC 或 Mihomo，记为“不通过”；不要手工寻找浏览器路径来掩盖默认路径问题。
+4. Do not expand **高级设置** ("Advanced settings"). If the page does not discover a browser automatically, or by default shows Linux, a proxy, PAC or Mihomo, record "Failed". Do not look for the browser path by hand to cover up a default-path problem.
 
-5. 阅读 **Profile 隔离**、**设备与浏览器指纹**和**受控指纹**三项：应分别显示 `native`、`inherit`、`unavailable`，并用普通语言说明登录状态独立、指纹跟随本机、Standard Silo 不提供受控指纹。
+5. Read the three items **Profile 隔离** ("Profile isolation"), **设备与浏览器指纹** ("Device and browser fingerprint") and **受控指纹** ("Controlled fingerprint"). They should show `native`, `inherit` and `unavailable` respectively, and explain in plain language that the login state is separate, the fingerprint follows this machine, and Standard Silo provides no controlled fingerprint.
 
-6. 勾选 **我已核对以上边界**，点击 **创建 Silo**。
+6. Check **我已核对以上边界** ("I have reviewed the boundaries above") and click **创建 Silo** ("Create Silo").
 
-**正常：**自动回到概览，出现对应名称的卡片；浏览器与自动发现结果一致，网络显示直连，并继续显示 `native / inherit / unavailable` 的诚实边界。
+**Normal:** It returns to the overview automatically, and a card with the matching name appears. The browser matches the automatic discovery result, the network shows Direct, and the honest boundary `native / inherit / unavailable` continues to be shown.
 
-**异常：**高级设置默认展开、要求手填浏览器路径、默认选择 Linux/代理、创建后浏览器家族改变，或把独立 Profile 写成指纹隔离/已验证。
+**Abnormal:** Advanced settings are expanded by default, you are asked to type the browser path by hand, Linux/proxy is selected by default, the browser family changes after creation, or a separate Profile is written as fingerprint isolation/verified.
 
-### 5.2 创建同一家族的第二个 Silo
+### 5.2 Create the second Silo of the same family
 
-完全重复推荐默认路径，创建 **Chrome-B** 或 **Edge-B**，使用不同颜色。两个 Silo 必须绑定不同的独立 Profile。
+Repeat the recommended default path exactly, and create **Chrome-B** or **Edge-B** with a different color. The two Silos must be bound to different separate Profiles.
 
-### 5.3 可选：切换到另一个已安装浏览器
+### 5.3 Optional: switch to the other installed browser
 
-只有完整双浏览器矩阵需要这一项：展开 **高级设置**，在已检测到的浏览器中选择另一个浏览器，再创建对应的 A/B。手工浏览器路径、Linux 运行位置和非直连网络也只应出现在这里；展开和收起不得丢失已填写的设置。
+Only the full two-browser matrix needs this item. Expand **高级设置** ("Advanced settings"), choose the other browser among the detected browsers, and then create the matching A/B. A manual browser path, the Linux run location and a non-Direct network should also appear only here. Expanding and collapsing must not lose the settings already filled in.
 
-另一个浏览器没有安装时，把这一小节记为“被阻断”，但继续最短 Standard Silo 旅程。
+If the other browser is not installed, record this subsection as "blocked", but continue with the shortest Standard Silo journey.
 
-## 6. 启动、关闭与运行状态
+## 6. Start, close and running state
 
-### 6.1 启动一个 Silo
+### 6.1 Start one Silo
 
-1. 在 **环境概览** 找到 **Chrome-A**。
+1. In **环境概览** ("Environment overview"), find **Chrome-A**.
 
-2. 点击 **启动 Silo**。
+2. Click **启动 Silo** ("Start Silo").
 
-3. 等待测试浏览器窗口出现。
+3. Wait for the test browser window to appear.
 
-4. 回到 VeriSilo 看 Chrome-A 卡片和顶部状态。
+4. Go back to VeriSilo and look at the Chrome-A card and the top status.
 
-**正常：**
+**Normal:**
 
-- 打开一个新的 Chrome 测试窗口。
+- A new Chrome test window opens.
 
-- Chrome-A 卡片显示 **运行中**。
+- The Chrome-A card shows **运行中** ("Running").
 
-- 卡片明确提示关闭这个 Silo 的浏览器窗口即可停止，不提供会强制关闭日常 Chrome/Edge 的按钮。
+- The card clearly says that closing this Silo's browser window stops it, and there is no button that force-closes your everyday Chrome/Edge.
 
-- 其他 Silo 的 **启动 Silo** 按钮暂时不可点击。
+- The **启动 Silo** ("Start Silo") buttons of the other Silos are temporarily not clickable.
 
-- 新窗口不应自动带入你日常 Chrome 的登录账号、收藏、历史或扩展状态。
+- The new window should not automatically carry over the signed-in accounts, bookmarks, history or extension state of your everyday Chrome.
 
-**异常：**
+**Abnormal:**
 
-- 打开的正是日常 Chrome 窗口，能看到真实账号或真实收藏。
+- The window that opens is your everyday Chrome window, and you can see real accounts or real bookmarks.
 
-- 一次点击打开多个测试窗口。
+- One click opens several test windows.
 
-- Chrome-A 已运行时还能启动 Chrome-B 或 Edge-A。
+- While Chrome-A is running, Chrome-B or Edge-A can still be started.
 
-- 浏览器已经打开，但桌面端仍长期显示空闲。
+- The browser is already open, but the desktop still shows idle for a long time.
 
-如果看到日常 Profile 内容，立即停止本节并记为“不通过”。不要在该窗口继续输入任何内容。
+If you see the content of the everyday Profile, stop this section immediately and record "Failed". Do not keep entering anything in that window.
 
-### 6.2 正常关闭
+### 6.2 Normal close
 
-1. 关闭刚才由 Chrome-A 打开的所有测试浏览器窗口。
+1. Close all the test browser windows that Chrome-A just opened.
 
-2. 等待几秒，不点击停止或进程清理按钮。
+2. Wait a few seconds. Do not click any stop or process-cleanup button.
 
-**正常：**Chrome-A 不再显示运行中，顶部“浏览器进程”回到 **空闲**，其他 Silo 的启动按钮重新可用。
+**Normal:** Chrome-A no longer shows running, the "Browser process" at the top (**浏览器进程**, "Browser process") returns to **空闲** ("Idle"), and the start buttons of the other Silos become available again.
 
-**异常：**测试浏览器已经全部关闭但仍长期显示运行中；需要手工点击复查才能回到空闲；或者为了恢复状态，应用要求你关闭日常 Chrome。
+**Abnormal:** All the test browsers are closed but it still shows running for a long time; you have to click a recheck by hand to return to idle; or, to recover the state, the application asks you to close your everyday Chrome.
 
-### 6.3 四个 Silo 都启动一次
+### 6.3 Start all four Silos once
 
-按照“启动一个—观察—关闭全部测试窗口—复查”的顺序，依次启动 Chrome-B、Edge-A 和 Edge-B。
+In the order "start one — observe — close all test windows — recheck", start Chrome-B, Edge-A and Edge-B in turn.
 
-不要同时启动两个 Silo，也不要为了测试而关闭你日常使用的浏览器。
+Do not start two Silos at the same time, and do not close the browser you use every day for the sake of the test.
 
-## 7. 最重要的 A/B 隔离检查
+## 7. The most important A/B isolation check
 
-这一步只检查普通用户看得见的结果。底层存储、锁文件和默认 Profile 完整性由自动测试负责。
+This step checks only results that an ordinary user can see. The underlying storage, lock files and default-Profile integrity are the job of the automated tests.
 
-### 7.1 Chrome-A 写入专属收藏
+### 7.1 Write a dedicated bookmark in Chrome-A
 
-1. 启动 **Chrome-A**。
+1. Start **Chrome-A**.
 
-2. 在地址栏输入 **https://example.com** 并打开。
+2. Enter **https://example.com** in the address bar and open it.
 
-3. 点击地址栏右侧的收藏星标。
+3. Click the bookmark star on the right of the address bar.
 
-4. 把名称改成 **VS-A-ONLY**，保存。
+4. Change the name to **VS-A-ONLY** and save.
 
-5. 再打开浏览器右上角的三点菜单，进入 **历史记录**，确认刚访问的 example.com 可见。
+5. Then open the three-dot menu at the top right of the browser, go to **历史记录** ("History"), and confirm that the example.com you just visited is visible.
 
-6. 关闭所有 Chrome-A 窗口，并在 VeriSilo 中确认状态回到空闲。
+6. Close all Chrome-A windows, and confirm in VeriSilo that the state returns to idle.
 
-**正常：**收藏保存成功，历史记录中能看到本次访问。
+**Normal:** The bookmark saves successfully, and this visit can be seen in the history.
 
-**异常：**无法保存收藏、保存后立即消失，或收藏出现在日常 Chrome 中。
+**Abnormal:** The bookmark cannot be saved, disappears right after saving, or appears in your everyday Chrome.
 
-### 7.2 Chrome-B 必须看不到 A 的内容
+### 7.2 Chrome-B must not see A's content
 
-1. 启动 **Chrome-B**。
+1. Start **Chrome-B**.
 
-2. 打开右上角三点菜单，再打开 **书签和清单** 或 **收藏夹**。
+2. Open the three-dot menu at the top right, and then open **书签和清单** ("Bookmarks and lists") or **收藏夹** ("Favorites").
 
-3. 查找 **VS-A-ONLY**。
+3. Look for **VS-A-ONLY**.
 
-4. 打开历史记录，查找刚才 A 中的 example.com 访问。
+4. Open the history and look for the example.com visit made earlier in A.
 
-5. 确认都看不到后，打开 https://example.com，保存一个名为 **VS-B-ONLY** 的收藏。
+5. After confirming you cannot see either, open https://example.com and save a bookmark named **VS-B-ONLY**.
 
-6. 关闭所有 Chrome-B 窗口，确认 VeriSilo 回到空闲。
+6. Close all Chrome-B windows, and confirm VeriSilo returns to idle.
 
-**正常：**B 看不到 A 的收藏和刚才 A 的历史；B 能保存自己的 **VS-B-ONLY**。
+**Normal:** B cannot see A's bookmark or the history A just made. B can save its own **VS-B-ONLY**.
 
-**异常：**B 中出现 **VS-A-ONLY**，或出现只在 A 中产生的浏览记录。出现任意一项都属于严重隔离失败。
+**Abnormal:** **VS-A-ONLY** appears in B, or browsing records that were made only in A appear. Either one is a severe isolation failure.
 
-### 7.3 回到 Chrome-A 检查持久化
+### 7.3 Go back to Chrome-A and check persistence
 
-1. 再次启动 **Chrome-A**。
+1. Start **Chrome-A** again.
 
-2. 打开收藏列表。
+2. Open the bookmark list.
 
-3. 确认 **VS-A-ONLY** 仍在，并确认没有 **VS-B-ONLY**。
+3. Confirm that **VS-A-ONLY** is still there, and confirm that **VS-B-ONLY** is not.
 
-4. 关闭所有 Chrome-A 窗口。
+4. Close all Chrome-A windows.
 
-**正常：**A 自己的数据跨重启保留，B 的数据没有混入。
+**Normal:** A's own data is kept across restarts, and B's data has not been mixed in.
 
-**异常：**A 的收藏丢失，或者 A 中出现 B 的收藏。
+**Abnormal:** A's bookmark is lost, or B's bookmark appears in A.
 
-### 7.4 Edge 重复同一套检查
+### 7.4 Repeat the same checks in Edge
 
-在 **Edge-A** 中保存 **VS-A-ONLY**，在 **Edge-B** 中确认看不到并保存 **VS-B-ONLY**，最后回到 Edge-A 复查。
+In **Edge-A**, save **VS-A-ONLY**. In **Edge-B**, confirm you cannot see it and save **VS-B-ONLY**. Finally go back to Edge-A and check again.
 
-Edge 中收藏按钮通常叫 **收藏夹**，位于地址栏右侧的星标或右上角三点菜单内。
+In Edge, the bookmark button is usually called **收藏夹** ("Favorites"), and it is in the star on the right of the address bar or in the three-dot menu at the top right.
 
-**正常：**Edge-A 与 Edge-B 互不看见对方的收藏和历史，各自数据重启后保留。
+**Normal:** Edge-A and Edge-B cannot see each other's bookmarks or history, and each keeps its own data after a restart.
 
-**异常：**任何一边看见另一边专属内容，或测试数据进入日常 Edge Profile。
+**Abnormal:** Either side sees content that is dedicated to the other side, or test data enters your everyday Edge Profile.
 
-## 8. 编辑、归档、恢复和永久删除
+## 8. Edit, archive, restore and permanently delete
 
-### 8.1 编辑名称和颜色
+### 8.1 Edit the name and color
 
-1. 确认没有 Silo 正在运行。
+1. Confirm that no Silo is running.
 
-2. 在 Chrome-A 卡片点击 **编辑**。
+2. On the Chrome-A card, click **编辑** ("Edit").
 
-3. 把名称改为 **Chrome-A-Renamed**，再换一个颜色。
+3. Change the name to **Chrome-A-Renamed**, and pick another color.
 
-4. 不要勾选“替换网络配置”或“替换引擎配置”。
+4. Do not check "替换网络配置" ("Replace network configuration") or "替换引擎配置" ("Replace engine configuration").
 
-5. 点击 **保存更改**。
+5. Click **保存更改** ("Save changes").
 
-6. 启动改名后的 Silo，确认 **VS-A-ONLY** 仍在，然后关闭浏览器。
+6. Start the renamed Silo, confirm that **VS-A-ONLY** is still there, and then close the browser.
 
-**正常：**名称和颜色更新，原收藏仍在，网络仍为直连。
+**Normal:** The name and color are updated, the original bookmark is still there, and the network is still Direct.
 
-**异常：**普通改名导致收藏丢失、浏览器改变、网络被替换或创建出第二份 Silo。
+**Abnormal:** An ordinary rename loses the bookmark, changes the browser, replaces the network, or creates a second copy of the Silo.
 
-### 8.2 归档和恢复
+### 8.2 Archive and restore
 
-1. 在改名后的 Silo 卡片点击 **归档**。
+1. On the renamed Silo's card, click **归档** ("Archive").
 
-2. 向下找到 **已归档** 区域。
+2. Scroll down to the **已归档** ("Archived") area.
 
-3. 确认该 Silo 出现在这里，并从可启动列表消失。
+3. Confirm that this Silo appears here and has disappeared from the startable list.
 
-4. 点击 **恢复**。
+4. Click **恢复** ("Restore").
 
-5. 确认它重新出现在可启动列表。
+5. Confirm that it appears in the startable list again.
 
-6. 再启动一次，确认 **VS-A-ONLY** 仍在，然后关闭浏览器。
+6. Start it once more, confirm that **VS-A-ONLY** is still there, and then close the browser.
 
-**正常：**归档只隐藏启动入口，不删除浏览器数据；恢复后原资料和收藏还在。
+**Normal:** Archiving only hides the start entry and does not delete browser data. After restoring, the original data and bookmark are still there.
 
-**异常：**归档直接删除数据、恢复后变成空白 Profile，或归档项仍能直接启动。
+**Abnormal:** Archiving deletes the data directly, a restored Silo becomes a blank Profile, or an archived item can still be started directly.
 
-### 8.3 运行中必须拒绝危险操作
+### 8.3 Dangerous operations must be refused while running
 
-1. 启动 **Chrome-A-Renamed**。
+1. Start **Chrome-A-Renamed**.
 
-2. 回到 VeriSilo，查看该卡片上的 **编辑** 和 **归档**。
+2. Go back to VeriSilo and look at **编辑** ("Edit") and **归档** ("Archive") on that card.
 
-3. 查看其他 Silo 的 **启动 Silo**。
+3. Look at **启动 Silo** ("Start Silo") of the other Silos.
 
-**正常：**运行中的 Silo 不能编辑或归档；其他 Silo 不能同时启动。
+**Normal:** A running Silo cannot be edited or archived, and the other Silos cannot start at the same time.
 
-**异常：**运行中仍能编辑、归档、永久删除，或能再启动第二个 Silo。
+**Abnormal:** A running Silo can still be edited, archived or permanently deleted, or a second Silo can be started.
 
-检查后关闭测试浏览器，并确认状态回到空闲。
+After the check, close the test browser and confirm that the state returns to idle.
 
-### 8.4 永久删除只测试可丢弃的 Silo
+### 8.4 Test permanent delete only on a disposable Silo
 
-1. 创建一个名为 **Delete-Me** 的直连 Silo。
+1. Create a Direct Silo named **Delete-Me**.
 
-2. 不要在里面放任何需要保留的数据。
+2. Do not put any data in it that needs to be kept.
 
-3. 回到概览，点击 **归档**。
+3. Go back to the overview and click **归档** ("Archive").
 
-4. 在 **已归档** 区域点击 **永久删除**。
+4. In the **已归档** ("Archived") area, click **永久删除** ("Delete permanently").
 
-5. 第一次在确认框中点击 **取消**，确认 Delete-Me 仍在。
+5. The first time, click **取消** ("Cancel") in the confirmation box, and confirm that Delete-Me is still there.
 
-6. 再点一次 **永久删除**，认真阅读提示后点击 **确定**。
+6. Click **永久删除** ("Delete permanently") again, read the prompt carefully, and click **确定** ("OK").
 
-**正常：**取消时什么都不删除；确认后只有 Delete-Me 消失，其他 Silo 不受影响。
+**Normal:** Cancel deletes nothing. After confirming, only Delete-Me disappears, and the other Silos are not affected.
 
-**异常：**没有确认就删除、取消后仍删除、删除了错误的 Silo，或影响日常 Chrome/Edge。
+**Abnormal:** It deletes without confirmation, deletes anyway after cancel, deletes the wrong Silo, or affects your everyday Chrome/Edge.
 
-## 9. 桌面端网络检查
+## 9. Desktop network check
 
-### 9.1 用户主动检查
+### 9.1 User-initiated check
 
-1. 回到 **环境概览**。
+1. Go back to **环境概览** ("Environment overview").
 
-2. 找到 **检查桌面端实际看到的网络出口**。
+2. Find **检查桌面端实际看到的网络出口** ("Check the network exit the desktop actually sees").
 
-3. 点击 **同意并检查**。
+3. Click **同意并检查** ("Agree and check").
 
-4. 等待结果出现。
+4. Wait for the result to appear.
 
-**正常：**
+**Normal:**
 
-- 在网络可用时，页面显示公网 IP、网络归属、出口时区、公共 DNS 和 DNSSEC 状态。
+- When the network is available, the page shows the public IP, network ownership, exit time zone, public DNS and DNSSEC status.
 
-- 页面明确说明这只是桌面控制器看到的出口，不冒充某个 Silo 浏览器的出口。
+- The page clearly says this is only the exit that the desktop controller sees, and does not pass itself off as the exit of any Silo browser.
 
-- 点击 **清除** 后，结果从当前界面消失。
+- After you click **清除** ("Clear"), the result disappears from the current interface.
 
-**异常：**
+**Abnormal:**
 
-- 没有点击同意就自动向检测服务发请求。
+- A request is sent to the detection service automatically without you clicking agree.
 
-- 一直显示正在检查且无法恢复。
+- It keeps showing that it is checking and cannot recover.
 
-- 网络失败时仍显示一份旧结果并声称是本次成功结果。
+- When the network fails, it still shows an old result and claims it is this run's successful result.
 
-如果电脑当前离线，把这项记为“被阻断”，不要改系统网络设置。
+If the computer is currently offline, record this item as "blocked". Do not change the system network settings.
 
-### 9.2 直连 Silo
+### 9.2 Direct Silo
 
-1. 启动任意一个网络为 **直连** 的 Silo。
+1. Start any Silo whose network is **直连** ("Direct").
 
-2. 打开 https://example.com。
+2. Open https://example.com.
 
-**正常：**当前网络可用时页面能正常打开；桌面卡片仍显示直连，没有无故变成代理。
+**Normal:** When the network is currently available, the page opens normally. The desktop card still shows Direct and has not become a proxy for no reason.
 
-**异常：**创建时选择直连，运行时却显示使用未知代理；或启动失败后桌面端仍声称运行正常。
+**Abnormal:** You chose Direct at creation, but at runtime it shows that an unknown proxy is in use. Or after a failed start, the desktop still claims it is running normally.
 
-### 9.3 固定代理和 fail-closed
+### 9.3 Fixed proxy and fail-closed
 
-只有当 Codex 已经准备好名为 **Proxy-Working** 和 **Proxy-Broken** 的测试 Silo 时才做本节。没有这两个卡片就记为“被阻断”。
+Do this section only when Codex has already prepared test Silos named **Proxy-Working** and **Proxy-Broken**. Without these two cards, record "blocked".
 
-1. 启动 **Proxy-Working**。
+1. Start **Proxy-Working**.
 
-2. 确认浏览器能够打开 Codex 指定的测试网页，然后关闭浏览器。
+2. Confirm that the browser can open the test web page that Codex specified, and then close the browser.
 
-3. 启动 **Proxy-Broken**。
+3. Start **Proxy-Broken**.
 
-4. 观察桌面端状态和浏览器是否出现。
+4. Observe the desktop state and whether the browser appears.
 
-**正常：**可用代理能够启动；故意不可用且标记为“必须代理”的配置拒绝启动，或明确显示 **网络已阻断**，绝不悄悄改为直连。
+**Normal:** The working proxy can start. A configuration that is deliberately unusable and marked "必须代理" ("required proxy") refuses to start, or clearly shows **网络已阻断** ("Network blocked"), and never quietly switches to Direct.
 
-**异常：**Proxy-Broken 仍能像普通直连一样访问网页，或失败后页面声称代理已验证。
+**Abnormal:** Proxy-Broken can still visit web pages like an ordinary Direct connection, or after a failure the page claims the proxy has been verified.
 
-PAC、Mihomo、远程环境和虚拟环境也遵循同一原则：只有 Codex 已准备好可点击的测试卡片时才验收；不要自己搭建外部服务。
+PAC, Mihomo, remote environments and virtual environments follow the same principle. Accept them only when Codex has already prepared a clickable test card, and do not set up external services yourself.
 
-## 10. 加密备份与恢复
+## 10. Encrypted backup and restore
 
-这一步只备份 Silo 配置，不备份收藏、Cookie、历史或整个浏览器 Profile。界面必须明确说明这一点。
+This step backs up only the Silo configuration. It does not back up bookmarks, Cookies, history or the whole browser Profile. The interface must state this clearly.
 
-### 10.1 用文件资源管理器准备一个空文件夹
+### 10.1 Prepare an empty folder with File Explorer
 
-1. 打开 Windows **文件资源管理器**。
+1. Open Windows **文件资源管理器** ("File Explorer").
 
-2. 打开 **文档**。
+2. Open **文档** ("Documents").
 
-3. 点击 **新建**，选择 **文件夹**。
+3. Click **新建** ("New") and choose **文件夹** ("Folder").
 
-4. 把文件夹命名为 **VeriSilo 人工验收**。
+4. Name the folder **VeriSilo 人工验收** ("VeriSilo manual acceptance").
 
-5. 打开该文件夹，点击地址栏并复制显示的位置。
+5. Open that folder, click the address bar and copy the displayed location.
 
-### 10.2 创建备份
+### 10.2 Create the backup
 
-1. 回到 VeriSilo，打开 **保险库与数据**。
+1. Go back to VeriSilo and open **保险库与数据** ("Vault and data").
 
-2. 找到 **备份 Silo 配置，不冒充浏览器数据备份**。
+2. Find **备份 Silo 配置，不冒充浏览器数据备份** ("Back up Silo configuration, not a browser data backup").
 
-3. 在 **目标文件绝对路径** 中粘贴刚才复制的位置，并在末尾填写文件名 **verisilo-manual.backup**。
+3. In **目标文件绝对路径** ("Absolute path of target file"), paste the location you just copied, and add the file name **verisilo-manual.backup** at the end.
 
-4. 点击 **创建加密备份**。
+4. Click **创建加密备份** ("Create encrypted backup").
 
-5. 回到文件资源管理器，确认文件出现。
+5. Go back to File Explorer and confirm that the file appears.
 
-6. 回到 VeriSilo，再次对同一目标点击 **创建加密备份**。
+6. Go back to VeriSilo and click **创建加密备份** ("Create encrypted backup") again for the same target.
 
-**正常：**第一次显示成功且文件存在；第二次拒绝覆盖已有文件，不会静默替换。
+**Normal:** The first time shows success and the file exists. The second time refuses to overwrite the existing file and does not replace it silently.
 
-**异常：**成功提示出现但文件不存在、文件大小始终为零，或第二次直接覆盖而没有明确拒绝。
+**Abnormal:** A success prompt appears but the file does not exist, the file size is always zero, or the second time overwrites directly without a clear refusal.
 
-### 10.3 错误口令不能恢复
+### 10.3 A wrong passphrase cannot restore
 
-1. 在 **恢复保险库** 区域，把同一个备份文件位置填入 **备份文件绝对路径**。
+1. In the **恢复保险库** ("Restore Vault") area, enter the same backup file location in **备份文件绝对路径** ("Absolute path of backup file").
 
-2. 在 **该备份的口令** 输入一个错误口令。
+2. In **该备份的口令** ("Passphrase of this backup"), enter a wrong passphrase.
 
-3. 勾选 **我确认覆盖当前保险库记录，并理解 Profile 文件不在此备份中**。
+3. Check **我确认覆盖当前保险库记录，并理解 Profile 文件不在此备份中** ("I confirm overwriting the current Vault records and understand that Profile files are not in this backup").
 
-4. 点击 **验证并恢复保险库**。
+4. Click **验证并恢复保险库** ("Verify and restore Vault").
 
-**正常：**恢复被拒绝，当前 Silo 列表、名称和运行状态不变。
+**Normal:** The restore is refused, and the current Silo list, names and running state do not change.
 
-**异常：**错误口令也能恢复，或失败后当前保险库内容被清空、改名或锁死。
+**Abnormal:** A wrong passphrase can also restore, or after the failure the current Vault content is emptied, renamed or locked up.
 
-### 10.4 Silo 运行时不能恢复
+### 10.4 No restore while a Silo is running
 
-1. 启动任意测试 Silo。
+1. Start any test Silo.
 
-2. 回到 **保险库与数据**，填入正确的备份文件位置和备份创建时使用的口令。
+2. Go back to **保险库与数据** ("Vault and data"), and enter the correct backup file location and the passphrase used when the backup was created.
 
-3. 勾选覆盖确认，点击 **验证并恢复保险库**。
+3. Check the overwrite confirmation and click **验证并恢复保险库** ("Verify and restore Vault").
 
-**正常：**应用在修改保险库前明确拒绝，正在运行的 Silo 和当前资料不变。
+**Normal:** The application clearly refuses before modifying the Vault, and the running Silo and the current data do not change.
 
-**异常：**浏览器仍运行时就替换了保险库，或恢复后桌面端把旧浏览器误认成新的运行状态。
+**Abnormal:** The Vault is replaced while the browser is still running, or after the restore the desktop mistakes the old browser for the new running state.
 
-完成后关闭测试浏览器，回到空闲状态。
+When finished, close the test browser and return to the idle state.
 
-### 10.5 正确恢复
+### 10.5 Correct restore
 
-1. 确认没有 Silo 正在运行。
+1. Confirm that no Silo is running.
 
-2. 填入正确的备份文件位置和备份创建时使用的口令。
+2. Enter the correct backup file location and the passphrase used when the backup was created.
 
-3. 勾选覆盖确认。
+3. Check the overwrite confirmation.
 
-4. 点击 **验证并恢复保险库**。
+4. Click **验证并恢复保险库** ("Verify and restore Vault").
 
-5. 等待恢复后的状态重新载入。
+5. Wait for the restored state to reload.
 
-**正常：**恢复成功；备份中已有的 Silo 元数据重新出现；页面不保留恢复前尚未提交的敏感输入；界面继续明确说明 Profile 文件不在备份中。
+**Normal:** The restore succeeds. The Silo metadata already in the backup reappears. The page does not keep sensitive input that was not committed before the restore. The interface continues to state clearly that Profile files are not in the backup.
 
-**异常：**恢复后混入恢复前的临时表单、声称浏览器 Profile 也已备份，或长时间停在 **恢复后的状态仍处于隔离** 而无法重新载入。
+**Abnormal:** A temporary form from before the restore is mixed in after the restore, it claims the browser Profile was also backed up, or it stays for a long time at **恢复后的状态仍处于隔离** ("The restored state is still isolated") and cannot reload.
 
-## 11. 本地报告导出
+## 11. Local report export
 
-### 11.1 按钮启用条件
+### 11.1 Conditions that enable the buttons
 
-1. 在 **环境概览** 找到 **只导出你明确选中的一个 Silo**。
+1. In **环境概览** ("Environment overview"), find **只导出你明确选中的一个 Silo** ("Export only the one Silo you explicitly select").
 
-2. 先不要选择 Silo，查看 **下载 JSON** 和 **下载 HTML**。
+2. First do not select a Silo, and look at **下载 JSON** ("Download JSON") and **下载 HTML** ("Download HTML").
 
-3. 选择一个测试 Silo，但先不要勾选确认框。
+3. Select a test Silo, but do not check the confirmation box yet.
 
-4. 再勾选 **我确认只导出所选 Silo 的脱敏本地报告**。
+4. Then check **我确认只导出所选 Silo 的脱敏本地报告** ("I confirm exporting only the redacted local report of the selected Silo").
 
-**正常：**未选择时两个按钮不可点击；只选择但未确认时仍不可点击；完成选择和确认后才可点击。
+**Normal:** When nothing is selected, both buttons cannot be clicked. When only a selection is made without confirmation, they still cannot be clicked. Only after the selection and the confirmation can they be clicked.
 
-**异常：**应用默认替你选择某个 Silo，或未经确认就允许下载。
+**Abnormal:** The application selects a Silo for you by default, or allows a download without confirmation.
 
-### 11.2 下载并目视检查
+### 11.2 Download and check by eye
 
-1. 点击 **下载 HTML**。
+1. Click **下载 HTML** ("Download HTML").
 
-2. 打开 Windows **文件资源管理器**，进入 **下载**，找到刚生成的 HTML 文件并双击打开。
+2. Open Windows **文件资源管理器** ("File Explorer"), go to **下载** ("Downloads"), find the HTML file just generated, and double-click to open it.
 
-3. 确认页面能离线阅读，标题、Silo 名称和边界说明清楚。
+3. Confirm that the page can be read offline, and that the title, Silo name and boundary statement are clear.
 
-4. 回到 VeriSilo，点击 **下载 JSON**，再到 **下载** 文件夹确认文件确实出现；不要求你打开或阅读技术内容。
+4. Go back to VeriSilo, click **下载 JSON** ("Download JSON"), and then go to the **下载** ("Downloads") folder to confirm that the file really appears. You are not required to open or read the technical content.
 
-**正常：**
+**Normal:**
 
-- 两种文件都真实出现在下载列表中。
+- Both kinds of files really appear in the downloads list.
 
-- HTML 是可读的静态报告，不是空白页或乱码。
+- The HTML is a readable static report, not a blank page or garbled text.
 
-- 目视看不到保险库口令、代理密码、完整本机文件位置或明显的完整秘密值。
+- By eye, you cannot see the Vault passphrase, a proxy password, a full local file location, or any obvious complete secret value.
 
-**异常：**
+**Abnormal:**
 
-- 点击后没有文件却提示成功。
+- No file exists after the click, but a success prompt appears.
 
-- HTML 打开后会继续加载外部网页、执行跳转或显示脚本错误。
+- After the HTML is opened, it keeps loading external web pages, performs a redirect, or shows a script error.
 
-- 报告直接展示保险库口令、代理凭据或完整的用户目录位置。
+- The report directly shows the Vault passphrase, proxy credentials or the full user directory location.
 
-更深的脱敏、转义和格式检查由自动测试负责，不要求人工阅读 JSON。
+Deeper checks of redaction, escaping and format are the job of the automated tests. You are not required to read the JSON.
 
-## 12. Companion 扩展基本功能
+## 12. Companion extension basic functions
 
-只有在测试 Silo 浏览器中已经能看到 **VeriSilo Companion** 时才做本章。看不到就记为“被阻断”，不要自己打开扩展管理页安装或调试。
+Do this chapter only when **VeriSilo Companion** can already be seen in the test Silo browser. If you cannot see it, record "blocked". Do not open the extension management page yourself to install or debug it.
 
-### 12.1 打开侧边栏
+### 12.1 Open the side panel
 
-1. 启动一个测试 Silo。
+1. Start a test Silo.
 
-2. 打开 https://example.com。
+2. Open https://example.com.
 
-3. 点击浏览器工具栏的 VeriSilo 图标；如果图标未固定，先点击拼图形状的 **扩展** 按钮，再点击 **VeriSilo**。
+3. Click the VeriSilo icon on the browser toolbar. If the icon is not pinned, first click the puzzle-shaped **扩展** ("Extensions") button, and then click **VeriSilo**.
 
-**正常：**右侧打开 VeriSilo 侧边栏，顶部能看到 **身份概览**、**轻量隔离**、**实验室** 和 **技术数据**；每次只显示一个页面。
+**Normal:** The VeriSilo side panel opens on the right. At the top you can see **身份概览** ("Identity overview"), **轻量隔离** ("Light isolation"), **实验室** ("Labs") and **技术数据** ("Technical data"). Only one page is shown at a time.
 
-**异常：**打开空白页、侧边栏一闪而过、四个页面同时叠在一起，或浏览器崩溃。
+**Abnormal:** A blank page opens, the side panel flashes by, the four pages are stacked together at the same time, or the browser crashes.
 
-### 12.2 站点权限和扫描
+### 12.2 Site permission and scan
 
-1. 在 **身份概览** 点击 **扫描当前页面**。
+1. In **身份概览** ("Identity overview"), click **扫描当前页面** ("Scan current page").
 
-2. 如果浏览器询问是否允许访问当前站点，第一次点击拒绝。
+2. If the browser asks whether to allow access to the current site, click deny the first time.
 
-3. 观察侧边栏，再展开 **扫描提示“无法访问”？**。
+3. Observe the side panel, and then expand **扫描提示“无法访问”？** ("Scan says 'cannot access'?").
 
-4. 点击 **请求当前站点权限**，这次允许。
+4. Click **请求当前站点权限** ("Request current-site permission"), and allow it this time.
 
-5. 再点击 **扫描当前页面**。
+5. Click **扫描当前页面** ("Scan current page") again.
 
-**正常：**拒绝时明确说明未授权，不显示伪造的成功结果；允许后出现当前页面的新报告，等待状态会结束。
+**Normal:** On deny, it clearly says the site is not authorized and does not show a forged success result. After allowing, a new report for the current page appears and the waiting state ends.
 
-**异常：**拒绝权限后仍显示成功；允许后一直转圈；扫描 example.com 却显示之前另一个网站的报告。
+**Abnormal:** It still shows success after the permission is denied; it keeps spinning after allowing; scanning example.com shows the report of another site from earlier.
 
-如果第一次扫描没有出现权限提示并直接成功，说明权限已经由测试环境准备好，可以继续，不必刻意重置。
+If the first scan shows no permission prompt and succeeds directly, the permission was already prepared by the test environment. You can continue, and there is no need to reset it on purpose.
 
-### 12.3 报告必须跟随标签页
+### 12.3 The report must follow the tab
 
-1. 保留已扫描的 example.com 标签页。
+1. Keep the example.com tab that has been scanned.
 
-2. 新建一个标签页，打开 https://example.org。
+2. Open a new tab and go to https://example.org.
 
-3. 在新标签页打开 VeriSilo 侧边栏，但不要扫描。
+3. In the new tab, open the VeriSilo side panel, but do not scan.
 
-4. 再切回 example.com 标签页。
+4. Switch back to the example.com tab.
 
-**正常：**example.org 显示 **还没有扫描结果**；切回 example.com 后，原报告重新出现。
+**Normal:** example.org shows **还没有扫描结果** ("No scan result yet"). After switching back to example.com, the original report reappears.
 
-**异常：**新标签页直接显示旧标签页报告，或切回后报告归属混乱。
+**Abnormal:** The new tab directly shows the old tab's report, or report ownership becomes confused after switching back.
 
-### 12.4 报告历史和可读导出
+### 12.4 Report history and readable export
 
-1. 在已扫描的标签页点击 **技术数据**。
+1. On the scanned tab, click **技术数据** ("Technical data").
 
-2. 点击 **导出可读 HTML**。
+2. Click **导出可读 HTML** ("Export readable HTML").
 
-3. 在确认框中点击确定。
+3. Click OK in the confirmation box.
 
-4. 从浏览器下载列表打开导出的 HTML。
+4. Open the exported HTML from the browser's download list.
 
-5. 回到侧边栏，点击 **清除本地报告历史**。
+5. Go back to the side panel and click **清除本地报告历史** ("Clear local report history").
 
-6. 第一次在确认框点击取消，确认历史还在。
+6. The first time, click cancel in the confirmation box, and confirm that the history is still there.
 
-7. 再点一次并确认，确认历史清空。
+7. Click it again and confirm, and confirm that the history is cleared.
 
-**正常：**导出文件可读；取消清除时历史保留；确认后历史清空；当前页面不会因为清历史而突然显示别的网站报告。
+**Normal:** The exported file is readable. Canceling the clear keeps the history. After confirming, the history is cleared. The current page does not suddenly show another site's report because the history was cleared.
 
-**异常：**取消也删除、下载为空、报告乱码，或导出中直接出现明显的完整高敏感值。
+**Abnormal:** Cancel also deletes, the download is empty, the report is garbled, or the export directly contains an obvious complete high-sensitivity value.
 
-### 12.5 网络检查
+### 12.5 Network check
 
-1. 回到 **身份概览**，找到网络出口卡片。
+1. Go back to **身份概览** ("Identity overview") and find the network exit card.
 
-2. 点击 **同意并检查当前环境出口**。
+2. Click **同意并检查当前环境出口** ("Agree and check the current environment's network exit").
 
-3. 如果浏览器询问是否允许访问检测服务，点击允许。
+3. If the browser asks whether to allow access to the detection service, click allow.
 
-4. 等待结果。
+4. Wait for the result.
 
-5. 检查完成后点击 **清除结果并撤销权限**，确认结果从侧边栏消失。
+5. After the check completes, click **清除结果并撤销权限** ("Clear result and revoke permission"), and confirm that the result disappears from the side panel.
 
-**正常：**显示 IP、地区、网络归属和 DNS 结果；桌面联动未就绪时明确显示 **仅本地**，不会假装已绑定某个 Silo；清除后结果消失。
+**Normal:** It shows the IP, region, network ownership and DNS result. When the desktop integration is not ready, it clearly shows **仅本地** ("Local only") and does not pretend to be bound to a Silo. After clearing, the result disappears.
 
-**异常：**用户没有同意就联网；失败时沿用旧结果；桌面 Silo 已停止却仍显示为已绑定。
+**Abnormal:** It goes online without the user's consent; on failure it reuses an old result; the desktop Silo has stopped but it is still shown as bound.
 
-## 13. 轻量隔离
+## 13. Light isolation
 
-### 13.1 推荐保护的启用与恢复
+### 13.1 Enable and restore the recommended protection
 
-1. 在侧边栏点击 **轻量隔离**。
+1. In the side panel, click **轻量隔离** ("Light isolation").
 
-2. 找到 **减少网络旁路信号**。
+2. Find **减少网络旁路信号** ("Reduce network side-channel signals").
 
-3. 点击 **启用推荐保护**。
+3. Click **启用推荐保护** ("Enable recommended protection").
 
-4. 如果浏览器询问隐私控制权限，点击允许。
+4. If the browser asks for the privacy-control permission, click allow.
 
-5. 观察 WebRTC 和网络预测的状态。
+5. Observe the state of WebRTC and network prediction.
 
-6. 点击 **恢复原设置**。
+6. Click **恢复原设置** ("Restore original settings").
 
-**正常：**启用后显示已应用，或明确说明被浏览器策略控制；恢复后显示已恢复或没有需要恢复的设置，按钮结束忙碌状态。
+**Normal:** After enabling, it shows applied, or clearly says it is controlled by browser policy. After restoring, it shows restored or that there is no setting to restore, and the button leaves the busy state.
 
-**异常：**拒绝权限后仍声称已应用；点击恢复后一直卡住；恢复失败却显示成功。
+**Abnormal:** It still claims applied after the permission is denied; it hangs forever after you click restore; the restore fails but shows success.
 
-### 13.2 打开隐私窗口
+### 13.2 Open a privacy window
 
-1. 保持一个普通网页打开。
+1. Keep an ordinary web page open.
 
-2. 点击 **用当前网站打开隐私窗口**。
+2. Click **用当前网站打开隐私窗口** ("Open a privacy window with the current site").
 
-**正常：**Chrome 打开无痕窗口或 Edge 打开 InPrivate 窗口，并打开当前网站。
+**Normal:** Chrome opens an incognito window or Edge opens an InPrivate window, and opens the current site.
 
-**异常：**打开普通窗口、打开日常浏览器 Profile、连续打开多个窗口，或侧边栏无提示地失败。
+**Abnormal:** An ordinary window opens, the everyday browser Profile opens, several windows open in a row, or the side panel fails without any prompt.
 
-如果 Codex 另外准备了带“保存”和“读取”按钮的隔离测试网页，再按页面文字检查普通窗口与隐私窗口的数据互不可见；没有这个测试网页时，把“隐私窗口数据隔离”记为“被阻断”，不要自己搭建网页。
+If Codex has also prepared an isolation test page with "保存" ("Save") and "读取" ("Read") buttons, check by the page text that the data in an ordinary window and a privacy window cannot be seen by each other. Without this test page, record "privacy-window data isolation" as "blocked", and do not build a page yourself.
 
-## 14. 桌面端与 Companion 联动
+## 14. Desktop and Companion integration
 
-本章要求：桌面端已经打开、保险库已解锁、一个测试 Silo 正在运行，而且该 Silo 中已装好 Companion。缺少任一条件就记为“被阻断”。
+This chapter requires that the desktop is already open, the Vault is unlocked, a test Silo is running, and Companion is already installed in that Silo. If any condition is missing, record "blocked".
 
-### 14.1 从扩展激活桌面端
+### 14.1 Activate the desktop from the extension
 
-1. 在 Silo 浏览器中打开 Companion。
+1. Open Companion in the Silo browser.
 
-2. 点击 **轻量隔离**。
+2. Click **轻量隔离** ("Light isolation").
 
-3. 点击 **打开 VeriSilo 桌面端**。
+3. Click **打开 VeriSilo 桌面端** ("Open VeriSilo desktop").
 
-**正常：**已经打开的 VeriSilo 窗口被带到前面，没有出现第二个桌面控制器。
+**Normal:** The already-open VeriSilo window is brought to the front, and no second desktop controller appears.
 
-**异常：**提示找不到桌面端、重复打开第二个桌面窗口，或原桌面端失去响应。
+**Abnormal:** It says the desktop cannot be found, a second desktop window opens as a duplicate, or the original desktop stops responding.
 
-### 14.2 网络结果归属当前 Silo
+### 14.2 The network result belongs to the current Silo
 
-1. 回到正在运行的 Silo 浏览器。
+1. Go back to the running Silo browser.
 
-2. 在 Companion 的 **身份概览** 点击 **同意并检查当前环境出口**。
+2. In **身份概览** ("Identity overview") of Companion, click **同意并检查当前环境出口** ("Agree and check the current environment's network exit").
 
-3. 回到桌面端，在 **环境概览** 找到 **Silo 内证据**，查看当前 Silo 的记录。
+3. Go back to the desktop, find **Silo 内证据** ("Evidence inside Silo") in **环境概览** ("Environment overview"), and look at the current Silo's records.
 
-**正常：**扩展明确显示 **桌面 Silo 已接收**；桌面端出现同一个 Silo、对应时间的新记录。
+**Normal:** The extension clearly shows **桌面 Silo 已接收** ("Desktop Silo received"). The desktop shows a new record for the same Silo at the matching time.
 
-**异常：**结果记到另一个 Silo、记到已经停止的旧运行，或扩展显示已提交但桌面完全没有对应记录。
+**Abnormal:** The result is recorded under another Silo or under an old run that has already stopped, or the extension shows submitted but the desktop has no matching record at all.
 
-### 14.3 Silo 停止后不能沿用旧绑定
+### 14.3 After a Silo stops, the old binding cannot be reused
 
-1. 关闭当前 Silo 的所有浏览器窗口。
+1. Close all browser windows of the current Silo.
 
-2. 回到桌面端，必要时点击 **复查运行与网络**，直到状态为空闲。
+2. Go back to the desktop, and if needed click **复查运行与网络** ("Recheck run and network") until the state is idle.
 
-3. 再从另一个已准备好的测试浏览器环境打开 Companion 并做一次网络检查。
+3. Then open Companion from another prepared test browser environment and run a network check.
 
-**正常：**结果明确降级为 **仅本地** 或提示桌面 Silo 未就绪，绝不继续显示绑定到刚才已经停止的 Silo。
+**Normal:** The result is clearly degraded to **仅本地** ("Local only") or shows that the desktop Silo is not ready. It never keeps showing a binding to the Silo that just stopped.
 
-**异常：**停止后仍长时间显示旧 Silo 正在接收结果，或把新请求记到旧运行。
+**Abnormal:** After the stop, it still shows for a long time that the old Silo is receiving results, or it records a new request under the old run.
 
-## 15. Labs 人工检查
+## 15. Labs manual check
 
-Labs 可能让当前网页短暂异常。只在 example.com 这类没有登录、没有表单内容的测试网页上操作。
+Labs may make the current web page briefly abnormal. Operate only on test pages like example.com that have no login and no form content.
 
-### 15.1 能力边界必须如实显示
+### 15.1 The capability boundary must be shown truthfully
 
-1. 在 Companion 点击 **实验室**。
+1. In Companion, click **实验室** ("Labs").
 
-2. 查看三个能力卡片。
+2. Look at the three capability cards.
 
-**正常：**
+**Normal:**
 
-- “网页后台任务一致性”显示 **有限覆盖**，默认关闭。
+- "网页后台任务一致性" ("Web background task consistency") shows **有限覆盖** ("Limited coverage"), and is off by default.
 
-- “Cookie 仓库虚拟化”显示 **当前扩展不支持**。
+- "Cookie 仓库虚拟化" ("Cookie store virtualization") shows **当前扩展不支持** ("Not supported by the current extension").
 
-- “Set-Cookie 全面截获”显示 **当前扩展不支持**。
+- "Set-Cookie 全面截获" ("Full Set-Cookie interception") shows **当前扩展不支持** ("Not supported by the current extension").
 
-**异常：**把有限覆盖写成完整保护，或把两个不支持的能力显示为可启用。
+**Abnormal:** Limited coverage is written as full protection, or the two unsupported capabilities are shown as enableable.
 
-### 15.2 取消、启用和手动停止
+### 15.2 Cancel, enable and manual stop
 
-1. 点击 **为当前站点开启 2 分钟**。
+1. Click **为当前站点开启 2 分钟** ("Enable for the current site for 2 minutes").
 
-2. 第一次在确认框点击取消。
+2. The first time, click cancel in the confirmation box.
 
-3. 确认状态仍为默认关闭。
+3. Confirm that the state is still off by default.
 
-4. 再次点击 **为当前站点开启 2 分钟**，这次确认。
+4. Click **为当前站点开启 2 分钟** ("Enable for the current site for 2 minutes") again, and confirm this time.
 
-5. 如果出现站点权限提示，点击允许。
+5. If a site permission prompt appears, click allow.
 
-6. 等待状态变为正在运行。
+6. Wait for the state to become running.
 
-7. 点击 **立即恢复并停用**。
+7. Click **立即恢复并停用** ("Restore now and disable").
 
-**正常：**取消不会开启；确认后显示有限覆盖且停止按钮可用；手动停止后显示已恢复，并新增一份能看懂的本机脱敏收据。
+**Normal:** Cancel does not enable it. After confirming, it shows limited coverage and the stop button is available. After a manual stop, it shows restored, and a new, understandable, redacted local receipt is added.
 
-**异常：**取消也开启、状态永远停在开启中、停止后仍显示运行，或收据声称恢复但界面仍不能再次操作。
+**Abnormal:** Cancel also enables it, the state stays at enabling forever, it still shows running after the stop, or the receipt claims restored but the interface still cannot be operated again.
 
-### 15.3 到期自动停止
+### 15.3 Automatic stop at expiry
 
-1. 再次启用 2 分钟实验。
+1. Enable the 2-minute experiment again.
 
-2. 不操作网页，等待 2 分 10 秒。
+2. Do not operate the web page. Wait 2 minutes 10 seconds.
 
-3. 查看状态和最新收据。
+3. Look at the state and the latest receipt.
 
-**正常：**实验自动停止，状态不再运行，最新收据说明因到期或超时停止并完成恢复。
+**Normal:** The experiment stops automatically, the state is no longer running, and the latest receipt says it stopped because of expiry or timeout and completed the restore.
 
-**异常：**超过时间仍运行，或停止后没有任何可解释结果。
+**Abnormal:** It is still running after the time has passed, or after the stop there is no explainable result.
 
-### 15.4 导航或撤销权限时自动停止
+### 15.4 Automatic stop on navigation or permission revocation
 
-1. 在 example.com 再次启用实验。
+1. Enable the experiment again on example.com.
 
-2. 在同一标签页打开 https://example.org。
+2. In the same tab, open https://example.org.
 
-3. 重新打开侧边栏并查看 Labs 状态。
+3. Reopen the side panel and look at the Labs state.
 
-4. 回到 example.com，再次启用实验。
+4. Go back to example.com and enable the experiment again.
 
-5. 切到 **身份概览**，展开权限帮助，点击 **撤销当前站点长期权限**。
+5. Switch to **身份概览** ("Identity overview"), expand the permission help, and click **撤销当前站点长期权限** ("Revoke long-term permission for the current site").
 
-**正常：**导航后实验自动停止；撤销权限后实验也自动停止；两次都有清楚的停止原因和恢复结果。
+**Normal:** The experiment stops automatically after navigation, and also stops automatically after the permission is revoked. Both times there is a clear stop reason and restore result.
 
-**异常：**离开网站或撤销权限后仍显示运行，或者继续允许旧站点使用实验状态。
+**Abnormal:** It still shows running after you leave the site or revoke the permission, or it keeps allowing the old site to use the experiment state.
 
-### 15.5 清除收据
+### 15.5 Clear receipts
 
-1. 点击 **清除收据**。
+1. Click **清除收据** ("Clear receipts").
 
-2. 第一次在确认框点击取消。
+2. The first time, click cancel in the confirmation box.
 
-3. 再点一次并确认。
+3. Click it again and confirm.
 
-**正常：**取消后收据保留，确认后清空。
+**Normal:** After cancel the receipts are kept, and after confirming they are cleared.
 
-**异常：**取消也清空，或确认后旧收据仍反复出现。
+**Abnormal:** Cancel also clears them, or old receipts keep reappearing after confirming.
 
-## 16. 安装、升级和卸载（只有拿到安装包才做）
+## 16. Install, upgrade and uninstall (only if you have the installers)
 
-没有 Codex 准备好的旧版和新版安装包时，整章记为“被阻断”。不要拿当前调试程序冒充安装包。
+Without the old-version and new-version installers prepared by Codex, record the whole chapter as "blocked". Do not pass off the current debug build as an installer.
 
-### 16.1 安装旧版
+### 16.1 Install the old version
 
-1. 双击旧版安装包。
+1. Double-click the old-version installer.
 
-2. 按安装向导使用默认选项完成安装。
+2. Complete the installation with the default options in the installation wizard.
 
-3. 从 Windows 开始菜单打开 VeriSilo。
+3. Open VeriSilo from the Windows Start menu.
 
-4. 创建测试保险库和一个名为 **Upgrade-Keep** 的直连 Silo。
+4. Create a test Vault and a Direct Silo named **Upgrade-Keep**.
 
-5. 正常关闭应用。
+5. Close the application normally.
 
-**正常：**标准用户可以完成安装；开始菜单有入口；应用能正常启动并保存测试 Silo。
+**Normal:** A standard user can complete the installation. The Start menu has an entry. The application starts normally and can save the test Silo.
 
-**异常：**要求关闭日常 Chrome/Edge 才能安装、安装后找不到入口，或首次启动白屏。
+**Abnormal:** It requires closing your everyday Chrome/Edge before it can install, no entry can be found after installation, or the first launch shows a white screen.
 
-### 16.2 升级到新版
+### 16.2 Upgrade to the new version
 
-1. 双击新版安装包。
+1. Double-click the new-version installer.
 
-2. 按向导完成升级。
+2. Complete the upgrade with the wizard.
 
-3. 从开始菜单打开 VeriSilo。
+3. Open VeriSilo from the Start menu.
 
-4. 解锁保险库，查找 **Upgrade-Keep**。
+4. Unlock the Vault and look for **Upgrade-Keep**.
 
-**正常：**升级只保留一个应用入口；原保险库可以解锁；Upgrade-Keep 仍在。
+**Normal:** The upgrade keeps only one application entry. The original Vault can be unlocked. Upgrade-Keep is still there.
 
-**异常：**同时出现两个版本、原数据丢失、旧口令无故失效，或升级要求手工删除旧版。
+**Abnormal:** Two versions appear at the same time, the original data is lost, the old passphrase stops working for no reason, or the upgrade requires you to delete the old version by hand.
 
-### 16.3 卸载
+### 16.3 Uninstall
 
-这一步会移除应用本体，只在你确定本轮其他人工测试已经完成后执行。
+This step removes the application itself. Run it only when you are sure the other manual tests of this round are finished.
 
-1. 打开 Windows **设置**。
+1. Open Windows **设置** ("Settings").
 
-2. 点击 **应用**，再进入 **已安装的应用**。
+2. Click **应用** ("Apps"), then go to **已安装的应用** ("Installed apps").
 
-3. 找到 VeriSilo，点击右侧菜单中的 **卸载**。
+3. Find VeriSilo and click **卸载** ("Uninstall") in the menu on the right.
 
-4. 按提示完成卸载。
+4. Follow the prompts to complete the uninstall.
 
-**正常：**应用入口被移除；卸载界面清楚说明用户数据是否保留；不会删除或破坏日常 Chrome/Edge Profile。
+**Normal:** The application entry is removed. The uninstall interface clearly says whether user data is kept. The everyday Chrome/Edge Profile is not deleted or damaged.
 
-**异常：**卸载误删日常浏览器数据、残留两个应用入口，或没有任何提示就删除用户数据。
+**Abnormal:** The uninstall deletes everyday browser data by mistake, two application entries are left behind, or it deletes user data without any prompt.
 
-## 17. 看到这些情况立即判定不通过
+## 17. If you see any of these, judge it failed immediately
 
-以下任何一条都不是“小问题”，不需要继续反复尝试：
+None of the following is a "small problem", and you do not need to keep trying repeatedly:
 
-- 测试 Silo 打开了日常 Chrome/Edge Profile，或日常收藏、账号、历史出现在测试窗口。
+- A test Silo opened the everyday Chrome/Edge Profile, or everyday bookmarks, accounts or history appear in the test window.
 
-- A 能看到只在 B 中保存的收藏、历史或网站状态，反之亦然。
+- A can see bookmarks, history or site state saved only in B, or the reverse.
 
-- 错误保险库口令可以解锁、改口令或恢复备份。
+- A wrong Vault passphrase can unlock, change the passphrase or restore a backup.
 
-- 运行中的 Silo 可以被编辑、归档或永久删除。
+- A running Silo can be edited, archived or permanently deleted.
 
-- “必须代理”的测试配置失败后悄悄改成直连。
+- A test configuration that is "必须代理" ("required proxy") quietly switches to Direct after a failure.
 
-- 浏览器已经关闭，桌面端却长期把旧运行当作当前运行；或者新结果被记到旧 Silo。
+- The browser is already closed, but the desktop keeps treating the old run as the current run for a long time. Or a new result is recorded under an old Silo.
 
-- 重复打开 VeriSilo 后出现两个可独立控制 Silo 的桌面窗口。
+- After opening VeriSilo repeatedly, two desktop windows appear that can each control a Silo.
 
-- 报告直接出现保险库口令、代理密码、完整本机用户目录或其他明显秘密。
+- A report directly shows the Vault passphrase, a proxy password, the full local user directory or another obvious secret.
 
-- 任一按钮超过 30 秒没有结果、没有错误、也无法取消，且重复打开页面仍不能恢复。
+- Any button has no result, no error and cannot be canceled for more than 30 seconds, and reopening the page still does not recover it.
 
-遇到这些情况时：截取整个窗口，记下章节号、Silo 名称、浏览器和刚点的按钮，然后关闭当前测试窗口。不要删除任何文件，让 Codex 根据现场继续处理。
+When this happens: capture the whole window, note the section number, Silo name, browser and the button you just clicked, and then close the current test window. Do not delete any file. Let Codex continue from the environment as it was left.
 
-## 18. 最终勾选表
+## 18. Final checklist
 
-| 验收项         | 通过标准                              | 你的结果 |
-| -------------- | ------------------------------------- | -------- |
-| 桌面端启动     | 30 秒内出现可操作窗口                 |          |
-| 单窗口         | 重复打开只激活现有窗口                |          |
-| 保险库         | 错误口令失败，正确口令成功            |          |
-| 更换口令       | 旧口令失效，新口令生效                |          |
-| Chrome Silo    | A/B 均能创建、启动和关闭              |          |
-| Edge Silo      | A/B 均能创建、启动和关闭              |          |
-| Chrome 隔离    | A/B 收藏和历史互不可见                |          |
-| Edge 隔离      | A/B 收藏和历史互不可见                |          |
-| 默认 Profile   | 日常浏览器内容完全未被带入或改动      |          |
-| 生命周期       | 编辑、归档、恢复、确认删除均符合预期  |          |
-| 单活运行       | 一个 Silo 运行时其他 Silo 不能启动    |          |
-| 网络检查       | 只在同意后检查，结果可清除            |          |
-| 必须代理       | 不可用时拒绝启动，不回退直连          |          |
-| 备份           | 创建成功且拒绝静默覆盖                |          |
-| 恢复           | 错误口令和运行中恢复均被拒绝          |          |
-| 桌面报告       | 明确选择并确认后才能下载              |          |
-| Companion 扫描 | 权限、扫描和标签页归属正确            |          |
-| 桌面联动       | 结果归属当前 Silo，停止后不沿用旧绑定 |          |
-| 轻量隔离       | 推荐保护可应用并恢复                  |          |
-| Labs           | 有限覆盖如实显示，停止与收据正确      |          |
-| 安装升级卸载   | 仅在安装包齐备时执行                  |          |
+| Acceptance item           | Pass criterion                                                                         | Your result |
+| ------------------------- | -------------------------------------------------------------------------------------- | ----------- |
+| Desktop startup           | An operable window appears within 30 seconds                                           |             |
+| Single window             | Opening again only activates the existing window                                       |             |
+| Vault                     | Wrong passphrase fails, correct passphrase succeeds                                    |             |
+| Change passphrase         | Old passphrase stops working, new passphrase takes effect                              |             |
+| Chrome Silo               | A/B can both be created, started and closed                                            |             |
+| Edge Silo                 | A/B can both be created, started and closed                                            |             |
+| Chrome isolation          | A/B bookmarks and history are not visible to each other                                |             |
+| Edge isolation            | A/B bookmarks and history are not visible to each other                                |             |
+| Default Profile           | No everyday browser content was brought in or changed                                  |             |
+| Lifecycle                 | Edit, archive, restore and confirmed delete all meet expectations                      |             |
+| Single active run         | While one Silo runs, the other Silos cannot start                                      |             |
+| Network check             | Checks only after consent, and the result can be cleared                               |             |
+| Required proxy            | Refuses to start when unavailable, does not fall back to Direct                        |             |
+| Backup                    | Created successfully and refuses a silent overwrite                                    |             |
+| Restore                   | A wrong passphrase and a restore while running are both refused                        |             |
+| Desktop report            | Can be downloaded only after an explicit selection and confirmation                    |             |
+| Companion scan            | Permission, scan and tab ownership are correct                                         |             |
+| Desktop integration       | The result belongs to the current Silo, and the old binding is not reused after a stop |             |
+| Light isolation           | The recommended protection can be applied and restored                                 |             |
+| Labs                      | Limited coverage is shown truthfully, and the stop and receipts are correct            |             |
+| Install/upgrade/uninstall | Run only when the installers are complete                                              |             |
 
-## 19. 人工验收不需要做的事情
+## 19. What manual acceptance does not require you to do
 
-下面这些不是你的人工步骤：
+The following are not your manual steps:
 
-- 构建桌面端或扩展。
+- Build the desktop or the extension.
 
-- 下载、安装或审计依赖。
+- Download, install or audit dependencies.
 
-- 运行自动测试、安全扫描或覆盖率检查。
+- Run automated tests, security scans or coverage checks.
 
-- 检查签名、散列、注册表、锁文件、进程编号或内部日志。
+- Check signatures, hashes, the registry, lock files, process IDs or internal logs.
 
-- 打开开发者工具、扩展后台检查器或任何调试控制台。
+- Open the developer tools, the extension background inspector or any debug console.
 
-- 手工启动测试服务、Native Host、代理服务、虚拟机或远程 Agent。
+- Start test services, the Native Host, proxy services, virtual machines or the remote Agent by hand.
 
-- 清理构建目录、依赖缓存、浏览器测试 Profile 或系统临时目录。
+- Clean build directories, dependency caches, browser test Profiles or the system temp directory.
 
-- 用任务管理器结束所有 Chrome、Edge 或 VeriSilo 进程。
+- Use Task Manager to end all Chrome, Edge or VeriSilo processes.
 
-如果某项只有做这些事情才能继续，就把它记为“被阻断”并交回 Codex。你的任务到此为止。
+If an item can continue only by doing these things, record it as "blocked" and hand it back to Codex. Your task ends there.

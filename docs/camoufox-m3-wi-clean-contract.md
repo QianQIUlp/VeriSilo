@@ -1,97 +1,123 @@
-# Clean M3-WI 原生 Windows Desktop / Real Host 合同
+# Clean M3-WI native Windows Desktop / Real Host contract
 
-> **Historical contract/evidence record.** Attempt 4 的 test-only qualification 已完成；本文不是
-> 当前 RC、当前产品验收或当前下一任务。当前路由见 [Camoufox 状态页](camoufox-program-status.md)。
+> Translated from the original Chinese on 2026-11-10. The original text is in Git history at commit 1cf0f29. For historical evidence, the original wording governs if the two differ.
 
-- 状态：**Attempts 1–3 immutable Failed；Attempt 4 corrected input frozen**
-- 冻结日期：2026-08-28
-- 执行分支：`codex/camoufox-m3-engine-adapter`
-- definition 基线：`02e5bad7962aabcf44839e3a69c7c5d21d7b7927`
-- 历史边界：[旧 M3-WI 合同与调查](camoufox-m3-wi-windows-task.md)保持 Failed / Inconclusive，
-  不复活其 1–16 矩阵、R1/R2/R2H runner、freezer、schema 或 evidence manifest。
+> **Historical contract/evidence record.** The test-only qualification of Attempt 4 is
+> complete. This document is not the current RC, the current product acceptance, or the
+> current next task. For current routing, see the [Camoufox status page](camoufox-program-status.md).
 
-本文只冻结 clean M3-WI 的一个新增问题、输入、直接判据和停止条件。产品方向与既有事实分别以
-[身份平台北极星](identity-platform-north-star.md)、
-[Camoufox-first 决策](camoufox-managed-engine-decision.md)和
-[当前状态页](camoufox-program-status.md)为准。
+- Status: **Attempts 1–3 immutable Failed; Attempt 4 corrected input frozen**
+- Freeze date: 2026-08-28
+- Execution branch: `codex/camoufox-m3-engine-adapter`
+- Definition baseline: `02e5bad7962aabcf44839e3a69c7c5d21d7b7927`
+- Historical boundary: the [old M3-WI contract and investigation](camoufox-m3-wi-windows-task.md)
+  stays Failed / Inconclusive. Its 1–16 matrix, its R1/R2/R2H runners, freezer, schema, and
+  evidence manifest are not revived.
 
-## 唯一产品问题
+This document freezes only one new question, its inputs, its direct criteria, and its stop
+conditions for the clean M3-WI. The product direction and the existing facts are governed by the
+[identity platform north star](identity-platform-north-star.md), the
+[Camoufox-first decision](camoufox-managed-engine-decision.md), and the
+[current status page](camoufox-program-status.md) respectively.
 
-在原生 Windows 上，桌面后端现有 `RuntimeManager` 能否通过 test-only exact
-`EngineAdapter` plan、现有 `camoufox-host-jsonl-v1` transport 和真实 `host_v1.py` 实现，驱动已经
-通过 FP2/FP3/FP4 的 Formal-v3 Engine 与 Artifact v6，在同一 Silo / Persistent Profile 上完成
-两个顺序的 `launch → running → clean stop` 周期，并保持 Artifact、Engine、Network Policy 与
-Runtime Evidence 的绑定和层级诚实，且不把独立 `IdentityTemplate` 声明冒充 Artifact 已应用事实？
+## The only product question
 
-这是 desktop backend integration Gate，不是 UI、production package、签名、installer 或 release
-Gate。即使 Passed，也必须保持：
+On native Windows, can the existing desktop-backend `RuntimeManager`, through a test-only exact
+`EngineAdapter` plan, the existing `camoufox-host-jsonl-v1` transport, and the real
+`host_v1.py` implementation, drive the Formal-v3 Engine and Artifact v6 that already passed
+FP2/FP3/FP4 through two sequential `launch → running → clean stop` cycles on the same Silo /
+Persistent Profile? While doing so, can it keep the bindings and the layering of the Artifact,
+Engine, Network Policy, and Runtime Evidence honest, and avoid passing off a standalone
+`IdentityTemplate` declaration as a fact that the Artifact applied?
 
-- `productionPackageVerified=false`、`shipped=false`、`verified=false`；
-- `packageVerification=not_requested`、`hostLaunch=observed`、`verifiedAdapter=null`；
-- Host 自报最多支持对应 `applied/observed`，不能提升为 `verified`。
+This is a desktop backend integration Gate. It is not a UI, production package, signing,
+installer, or release Gate. Even if Passed, it must keep:
 
-FP4 是 fingerprint qualification 的最后一个 Gate，只回答冻结候选能否完成代表性 ordinary-site
-核心任务。它不证明“不可检测”、universal compatibility、commercial product readiness 或 desktop
-integration。FP4 Passed 因此支持继续 Camoufox-first，但不替代本 Gate；这里不创建 FP5，也不重跑
-live-site matrix。
+- `productionPackageVerified=false`, `shipped=false`, `verified=false`;
+- `packageVerification=not_requested`, `hostLaunch=observed`, `verifiedAdapter=null`;
+- Host self-reports support at most the corresponding `applied/observed` and cannot be
+  promoted to `verified`.
 
-## Identity authority 与执行前置条件
+FP4 is the last Gate of the fingerprint qualification. It answers only whether the frozen
+candidate can complete the core tasks of representative ordinary sites. It does not prove
+"undetectable", universal compatibility, commercial product readiness, or desktop integration.
+An FP4 Passed therefore supports continuing Camoufox-first, but does not replace this Gate. No
+FP5 is created here, and the live-site matrix is not rerun.
 
-Camoufox 的唯一运行时身份权威是 **Resolved Identity Artifact**。BrowserForge/桌面模板最多产生候选
-或策略输入，Host 实际接收并应用的是 exact Artifact ID、raw SHA 与 schema；`IdentityTemplate` 不是
-第二份可独立生效的身份。
+## Identity authority and preconditions for execution
 
-当前 owning seam 尚未守住这条边界：`SiloEngineConfig::Camoufox` 分别校验 Template 与 Artifact
-binding，未建立二者的语义绑定；Host launch plan 又从 Template 配置 identity capabilities，却只把
-Artifact binding 交给 Host。Host 进入 running 后，`apply_camoufox_host_capability_evidence` 目前会用
-一条通用 running 证据把全部 Template-derived capability 从 `configured` 提升为 `applied`。冻结的
-FP3 Template 甚至声明 `1920×1080` screen，而 exact Artifact 声明 `4300×1800`，因此这不是理论风险。
+The only runtime identity authority of Camoufox is the **Resolved Identity Artifact**.
+BrowserForge and desktop templates can at most produce candidates or policy input. What the
+Host actually receives and applies is the exact Artifact ID, raw SHA, and schema. The
+`IdentityTemplate` is not a second identity that can take effect independently.
 
-native attempt 开始前必须先做一个最小本地修正并通过 focused test：
+The current owning seam does not yet guard this boundary. `SiloEngineConfig::Camoufox`
+validates the Template and the Artifact binding separately and establishes no semantic binding
+between the two. The Host launch plan also configures identity capabilities from the Template
+but hands only the Artifact binding to the Host. After the Host enters running,
+`apply_camoufox_host_capability_evidence` currently uses one generic running piece of evidence
+to promote all Template-derived capabilities from `configured` to `applied`. The frozen FP3
+Template even declares a `1920×1080` screen while the exact Artifact declares `4300×1800`, so
+this is not a theoretical risk.
 
-- generic Host running evidence 只能把直接绑定的 `ProfileIsolation` 从 `configured` 提升为
-  `applied`；
-- `IdentityTemplate`、UA/UA-CH、language/timezone、screen、Canvas、WebGL、fonts、media 与 realm
-  capabilities 保持 `configured`，除非以后有逐项 Artifact-aware direct evidence；
-- required proxy 的 `configured/reachable/applied` 仍由独立 Network Evidence seam 给出，不能混入
-  identity capability；
-- `hostLaunch=observed`、`verifiedAdapter=null` 与 `verified=false` 保持不变；Stock 与 Controlled
-  Chromium 路径不变。
+Before a native attempt begins, a minimal local fix must be made and pass a focused test:
 
-focused test 只需证明 Profile binding 可升格、Template-derived identity claims 不随 Host running
-升格。这里不新增 Artifact parser、Template→Artifact projection/schema 或通用 evidence framework；
-若未来产品仍需要 Template 成为可见身份输入，应另行删除双重权威或建立显式可验证 projection。
+- The generic Host running evidence may promote only the directly bound `ProfileIsolation`
+  from `configured` to `applied`.
+- The capabilities for `IdentityTemplate`, UA/UA-CH, language/timezone, screen, Canvas, WebGL,
+  fonts, media, and realm stay `configured`, unless per-item Artifact-aware direct evidence
+  exists in the future.
+- The `configured/reachable/applied` state of the required proxy is still given by the
+  separate Network Evidence seam and must not be mixed into identity capabilities.
+- `hostLaunch=observed`, `verifiedAdapter=null`, and `verified=false` stay unchanged. The Stock
+  and Controlled Chromium paths are unchanged.
 
-## 已接受并直接复用的证据
+The focused test only needs to prove that the Profile binding can be promoted and that
+Template-derived identity claims are not promoted when the Host is running. No new Artifact
+parser, Template→Artifact projection/schema, or generic evidence framework is added here. If the
+product in the future still needs the Template to be a visible identity input, it should
+separately remove the dual authority or build an explicit, verifiable projection.
 
-- M3-0 Accepted checkpoint `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd` 已关闭 fake Host 的
-  package/transport/fail-closed/evidence 合同，不证明真实浏览器。
-- FP3 authoritative result
-  `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`
-  SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`
-  已直接证明一次 native Windows `RuntimeManager → required FixedProxy → real Host → Formal-v3`
-  周期、外部出口/Geo/ICE 观测与 clean stop，`verified:false`。
-- FP4 authoritative result
-  `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp4-result.json`
-  SHA-256 `14c7de3a8a14b8037cf0e16ec7b5dc213294b68050665a57513dea79efd8f2de`
-  已直接证明当前 Host/Engine 的两个顺序生命周期、Profile replay 与冻结 V5 ordinary-site matrix，
-  `verified:false`。
-- FP3 terminal code revision 到 definition 基线之间，`engine.rs`、`launcher.rs`、
-  `launcher_m3_wi_windows_tests.rs`、`domain.rs`、`lib.rs` 与 `host_v1.py` 无代码差异；FP4 后的
-  `run_spike.py` 行为由上述 FP4 result 覆盖。
+## Evidence already accepted and reused directly
 
-因此 clean M3-WI 不重跑 FP2 cross-realm、FP3 外部出口/Geo/ICE 或 FP4 live-site matrix。新增且仍
-未被同一条证据直接覆盖的只有：**桌面 evidence 不再错误升格 Template claims，以及当前最终输入
-经过桌面组合后，第二个全新 RuntimeManager / Host 周期能否继续成功并干净释放。**
+- The M3-0 Accepted checkpoint `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd` already closed the
+  package/transport/fail-closed/evidence contract of the fake Host. It does not prove a real
+  browser.
+- The FP3 authoritative result
+  `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp3-result.json`,
+  SHA-256 `8a821eca7b9e11716668d6742ac356743b7438ab2b9a7ca8b0d604264be86e62`,
+  has directly proven one native Windows
+  `RuntimeManager → required FixedProxy → real Host → Formal-v3` cycle, the observations of
+  the external network exit/Geo/ICE, and a clean stop, with `verified:false`.
+- The FP4 authoritative result
+  `apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp4-result.json`,
+  SHA-256 `14c7de3a8a14b8037cf0e16ec7b5dc213294b68050665a57513dea79efd8f2de`,
+  has directly proven the two sequential lifecycles of the current Host/Engine, the Profile
+  replay, and the frozen V5 ordinary-site matrix, with `verified:false`.
+- Between the FP3 terminal code revision and the definition baseline, `engine.rs`,
+  `launcher.rs`, `launcher_m3_wi_windows_tests.rs`, `domain.rs`, `lib.rs`, and `host_v1.py`
+  have no code difference. The `run_spike.py` behavior after FP4 is covered by the FP4 result
+  above.
 
-## 冻结输入
+The clean M3-WI therefore does not rerun the FP2 cross-realm, the FP3 external network
+exit/Geo/ICE, or the FP4 live-site matrix. What is newly added and not yet directly covered
+by the same piece of evidence is only this: **the desktop evidence no longer wrongly promotes
+Template claims, and, after the current final inputs go through the desktop composition,
+whether the second brand-new RuntimeManager / Host cycle can continue to succeed and release
+cleanly.**
 
-- 平台：原生 Windows interactive desktop；Linux、WSL、Wine、容器结果不能替代。
-- Silo：ID `74444444-4444-4444-8444-444444444444`，seed reference
-  `75555555-5555-4555-8555-555555555555`，同一 `SiloEngineConfig::Camoufox` 与同一 run-owned
-  Profile；Phase B 必须新建 `RuntimeManager` 与 Host child，不能复用 Phase A 进程。
-- Compatibility Template：精确复用 FP3 的下列 `IdentityTemplate`。它只满足现有 adapter validation
-  并产生 `configured` policy/capability input，不是运行时身份权威；整个值由本合同 SHA 冻结：
+## Frozen inputs
+
+- Platform: native Windows interactive desktop. Linux, WSL, Wine, and container results cannot
+  stand in for it.
+- Silo: ID `74444444-4444-4444-8444-444444444444`, seed reference
+  `75555555-5555-4555-8555-555555555555`, the same `SiloEngineConfig::Camoufox` and the same
+  run-owned Profile. Phase B must create a new `RuntimeManager` and Host child and must not
+  reuse the Phase A process.
+- Compatibility Template: reuse the following `IdentityTemplate` of FP3 exactly. It only
+  satisfies the existing adapter validation and produces `configured` policy/capability input.
+  It is not the runtime identity authority. The whole value is frozen by the SHA of this
+  contract:
 
 ```json
 {
@@ -116,7 +142,12 @@ focused test 只需证明 Profile binding 可升格、Template-derived identity 
   },
   "render": { "canvas": "native", "webGlVendor": null, "webGlRenderer": null },
   "fonts": { "families": ["Segoe UI"] },
-  "media": { "microphones": 1, "cameras": 1, "speakers": 1, "labelsExposed": true },
+  "media": {
+    "microphones": 1,
+    "cameras": 1,
+    "speakers": 1,
+    "labelsExposed": true
+  },
   "network": {
     "proxyRequired": true,
     "countryCode": "HK",
@@ -127,61 +158,77 @@ focused test 只需证明 Profile binding 可升格、Template-derived identity 
 }
 ```
 
-- Resolved Artifact：
-  `artifacts/camoufox-fp3-1b-attempt-7/identity-fp3-1b-formal-v3-a.json`，SHA-256
-  `8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722`；sidecar file SHA-256
-  `e027eb101fa2783adbc697fa8b47a339e7d66bf00170eacdca7b71a8983f8b86`，内容也必须精确匹配。
-- Engine：`verisilo-camoufox-152.0.4-beta.28-r1-formal-v3`；runtime asset lock
-  `artifacts/camoufox-fp2-formal-r1-attempt-8/formal-v3-runtime-asset-lock.json`，SHA-256
-  `81e73a69347272d0b770bfa3c9b3eb07449bb165efb0c16948eece2e5a0678ce`；browser-tree manifest
-  raw / canonical SHA-256 分别为
+- Resolved Artifact:
+  `artifacts/camoufox-fp3-1b-attempt-7/identity-fp3-1b-formal-v3-a.json`, SHA-256
+  `8a4cd0d10a0a456678d1f3b4beb1515195d5d171742c4695c2d909132a26e722`; the sidecar file SHA-256
+  is `e027eb101fa2783adbc697fa8b47a339e7d66bf00170eacdca7b71a8983f8b86`, and its content must
+  also match exactly.
+- Engine: `verisilo-camoufox-152.0.4-beta.28-r1-formal-v3`; runtime asset lock
+  `artifacts/camoufox-fp2-formal-r1-attempt-8/formal-v3-runtime-asset-lock.json`, SHA-256
+  `81e73a69347272d0b770bfa3c9b3eb07449bb165efb0c16948eece2e5a0678ce`; the browser-tree
+  manifest raw / canonical SHA-256 are respectively
   `8434ab9925bf0f7d95cc4ff06fe94b7dcf9963a0691f37638469d68cda58ace2` /
-  `68d78d0f414d90545691560858b46ed179ee163b7258306c44f0d850bcde6204`；`camoufox.exe`
-  SHA-256 `b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f142a6`。
-- Host source：`apps/camoufox-host/host_v1.py`，SHA-256
-  `b3b313d4cf6d2eaadceaff4320e5a6bb8afb5d39212652b2c51474eb6809aad0`。Attempt 4 通过
-  `apps/camoufox-host/run_m3_wi_clean_host.py`（SHA-256
-  `2015e91bf0902cc6b7276aadb6e8589ca728eb0dc11791a457d0b9744bae5ee8`）进入；该薄入口只复用已存在的
-  `apps/camoufox-host/run_fp3_1b_windows.py` Formal-v3 exact lock/tree 校验 hooks（SHA-256
-  `73a4fe9b20a95588d8bd03335aeffddf2a93b53cd0ddf9c24301ea99d6437785`），然后恢复基础
-  `host_v1.CamoufoxHost`，不使用 FP3 的 `FP3ManagedHost`，因此不执行出口、Geo、Geolocation 或
-  ICE/STUN 观察。Python dependency lock
-  `apps/camoufox-host/uv.lock`，SHA-256
-  `41f63b2c12c3102573266b4d9ac002fbd29f7f95cc3d291b8a41d09e411f8f6f`。
-- Network Policy：required unauthenticated SOCKS5 `127.0.0.1:7897`。执行前只做一次
-  `Test-NetConnection 127.0.0.1 -Port 7897`；失败则不创建 attempt、不启动浏览器。
-- 尝试：`clean-m3-wi-attempt-1`、`clean-m3-wi-attempt-2` 与 `clean-m3-wi-attempt-3` 保持
-  immutable Failed；修正后的新 code/input 使用 `clean-m3-wi-attempt-4`。这不是 retry/recovery Gate，不引入 delay、sample
-  rotation、cache workaround 或 site fallback。
+  `68d78d0f414d90545691560858b46ed179ee163b7258306c44f0d850bcde6204`; `camoufox.exe`
+  SHA-256 `b147602826db5bf852e5777f56cd56036dc04e8ea8868a8e55f8b08744f142a6`.
+- Host source: `apps/camoufox-host/host_v1.py`, SHA-256
+  `b3b313d4cf6d2eaadceaff4320e5a6bb8afb5d39212652b2c51474eb6809aad0`. Attempt 4 enters
+  through `apps/camoufox-host/run_m3_wi_clean_host.py` (SHA-256
+  `2015e91bf0902cc6b7276aadb6e8589ca728eb0dc11791a457d0b9744bae5ee8`). This thin entry point
+  only reuses the Formal-v3 exact lock/tree verification hooks of the existing
+  `apps/camoufox-host/run_fp3_1b_windows.py` (SHA-256
+  `73a4fe9b20a95588d8bd03335aeffddf2a93b53cd0ddf9c24301ea99d6437785`), and then restores the
+  base `host_v1.CamoufoxHost`. It does not use the `FP3ManagedHost` of FP3, so it does not run
+  the network exit, Geo, Geolocation, or ICE/STUN observation. Python dependency lock
+  `apps/camoufox-host/uv.lock`, SHA-256
+  `41f63b2c12c3102573266b4d9ac002fbd29f7f95cc3d291b8a41d09e411f8f6f`.
+- Network Policy: required unauthenticated SOCKS5 `127.0.0.1:7897`. Before execution, run
+  `Test-NetConnection 127.0.0.1 -Port 7897` exactly once. If it fails, do not create an
+  attempt and do not launch the browser.
+- Attempts: `clean-m3-wi-attempt-1`, `clean-m3-wi-attempt-2`, and `clean-m3-wi-attempt-3` stay
+  immutable Failed. The corrected new code/input uses `clean-m3-wi-attempt-4`. This is not a
+  retry/recovery Gate, and it introduces no delay, sample rotation, cache workaround, or site
+  fallback.
 
-Attempt 4 沿用本 Gate 已取得的 native Windows browser authorization；本 Gate 不需要也不访问出口 IP、Geo、
-Geolocation、ICE/STUN 或 ordinary-site 外部检查服务。
+Attempt 4 continues to use the native Windows browser authorization that this Gate already
+obtained. This Gate neither needs nor visits the exit IP, Geo, Geolocation, ICE/STUN, or
+ordinary-site external check services.
 
-## Attempts 1–3 直接结论与修正边界
+## Direct conclusions of Attempts 1–3 and the correction boundary
 
-Attempt 1 的 `run-report.json` 与 `native-evidence.json` 保持不可变 Failed。它在 Phase A 的 Host hello
-前直接失败，浏览器没有启动。独立 hello-only 诊断证明基础 Host 的 `run_spike` asset allowlist 只接受
-official/旧 canvas-v1 lock，因而拒绝本合同冻结的 Formal-v3 runtime lock；该 `SystemExit` 写入已被
-launcher 丢弃的 OS stderr，最终只表现为 stdout EOF。工程 Gate 仍 open。
+The `run-report.json` and `native-evidence.json` of Attempt 1 stay immutable Failed. It failed
+directly before the Host hello of Phase A, and the browser did not launch. A separate
+hello-only diagnostic proved that the `run_spike` asset allowlist of the base Host accepts
+only the official/old canvas-v1 lock, and therefore rejects the Formal-v3 runtime lock frozen
+by this contract. The resulting `SystemExit` was written to the OS stderr that the launcher
+had discarded, so it surfaced finally only as stdout EOF. The engineering Gate stays open.
 
-Attempt 2 通过了上述 Formal-v3 Host 准备并返回了可解析 hello，但在发送 `launch` 前被严格 root binding
-拒绝，浏览器仍未启动。直接探针证明 clean test 的 Rust `join("runtime/app")` 保留 `/`，而 Python
-`Path.absolute()` 将同一路径正规化为 `\`；validator 对三个 typed roots 做精确字符串比较，因此必然
-不相等。
+Attempt 2 passed the Formal-v3 Host preparation above and returned a parseable hello, but was
+rejected by the strict root binding before `launch` was sent. The browser still did not
+launch. A direct probe proved that the Rust `join("runtime/app")` of the clean test keeps the
+`/`, while Python `Path.absolute()` normalizes the same path to `\`. The validator makes an
+exact string comparison of the three typed roots, so they are necessarily unequal.
 
-Attempt 3 只把该 test-owned root 改为逐组件 `join("runtime").join("app")`。clean-only entrypoint 仍只
-复用 FP3 已有的 Formal-v3 严格 lock/tree 验证并恢复基础 `CamoufoxHost`；它不扩大共享 `run_spike`
-trust allowlist，不改变 Profile、Artifact、Engine 或 Network 生命周期，也不复用 FP3 外部网络采集。
+Attempt 3 changed only that test-owned root to a component-by-component
+`join("runtime").join("app")`. The clean-only entry point still only reuses the existing
+Formal-v3 strict lock/tree verification of FP3 and restores the base `CamoufoxHost`. It does
+not widen the trust allowlist of the shared `run_spike`, does not change the Profile,
+Artifact, Engine, or Network lifecycle, and does not reuse the FP3 external network
+collection.
 
-Attempt 3 随后完成了 cycle 1 的 Host `hello → launch → status` 和 browser observation，但共享
-`assert_running_evidence` 把基础实现源 `host_v1.py` 硬编码为 expected argv，而 launch receipt 正确记录了
-合同冻结的 `run_m3_wi_clean_host.py` 薄入口，因而在记录 failure context 前 panic。`RuntimeGuard` drop
-仍关闭了精确 runtime；残留 session 直接记录 `state=exited`、`exitStatus=0`、process tree
-`remaining=[]` 与 Job active count `0`。Attempt 3 仍按原生 evidence 保持 Failed。
+Attempt 3 then completed the Host `hello → launch → status` and the browser observation of
+cycle 1. But the shared `assert_running_evidence` hardcoded the base implementation source
+`host_v1.py` as the expected argv, while the launch receipt correctly recorded the thin entry
+point `run_m3_wi_clean_host.py` frozen by the contract, so it panicked before the failure
+context was recorded. The `RuntimeGuard` drop still closed the exact runtime. The leftover
+session directly recorded `state=exited`, `exitStatus=0`, process tree `remaining=[]`, and
+Job active count `0`. Attempt 3 stays Failed according to the native evidence.
 
-Attempt 4 只让共享 assertion 接收 test adapter 的实际 `host_script` typed input，并对 receipt 做原始
-字符串精确比较；不再把实现源当作执行入口，也不做单侧 Windows `\\?\` canonicalization。runner 仍分别
-冻结薄入口、Formal input binder 与基础 Host source 的 SHA-256，不弱化执行或来源绑定。
+Attempt 4 only lets the shared assertion accept the actual `host_script` typed input of the
+test adapter and makes an exact raw-string comparison on the receipt. It no longer treats the
+implementation source as the execution entry point, and it does not do one-sided Windows
+`\\?\` canonicalization. The runner still freezes the SHA-256 of the thin entry point, the
+Formal input binder, and the base Host source separately, so the execution and origin
+bindings are not weakened.
 
 ## Owning seam
 
@@ -200,62 +247,76 @@ RuntimeManager::stop_managed_camoufox
 → relay + Profile lease release
 ```
 
-Test-only adapter 只替代尚不存在的受信 Host package / signer 输入。它必须生成 shell-free、严格 typed
-plan，`package_verification=None`，且不得进入 non-test build。plan 形成后必须走现有 production
-`RuntimeManager`、relay、transport、binding validation 与 stop path；direct Python driver 不能冒充
-本 Gate。
+The test-only adapter replaces only the trusted Host package / signer inputs that do not yet
+exist. It must generate a shell-free, strictly typed plan with `package_verification=None`,
+and it must not enter a non-test build. After the plan is formed, it must go through the
+existing production `RuntimeManager`, relay, transport, binding validation, and stop path. A
+direct Python driver cannot stand in for this Gate.
 
-## 唯一执行序列
+## The only execution sequence
 
-1. 从 clean synced Attempt 4 implementation commit 创建一个 run-owned root，复制精确 Artifact 与 sidecar；
-   记录 code revision/tree/origin、合同 SHA、Python path/version 和全部冻结输入 hash。
-2. Phase A：新 `RuntimeManager` 启动同一 Silo；要求 `Running`、exact Artifact/Profile/Engine binding、
-   Host status 中唯一 relay URI、`ProfileIsolation=applied`，Template-derived identity capabilities
-   仍为 `configured`；desktop network evidence 为 `configured/reachable/applied`，而 exit/DNS/WebRTC
-   保持 `not_requested`；Vault identity deriver 未调用。
-3. Phase A clean stop：Host `close/shutdown` 成功、exit code 0、`processTreeExit.exited=true`、Job
-   active count 0、无 quarantine/forced cleanup、exact child 退出、relay 关闭、Profile lease 释放。
-4. Phase B：从同一 app root 新建另一个 `RuntimeManager` 与不同 Host PID，使用同一 Silo、Artifact、
-   Profile 和 Network Policy；要求 boot count `1 → 2`、managed cookie 与
-   `observedWebsiteDigest` continuity 成立。
-5. Phase B 同样 clean stop；两个周期的全部 owned PID 归零，没有操作无关进程，没有 secret/token
-   进入 argv、wire、runtime activation、Host state 或 evidence。
+1. From the clean synced Attempt 4 implementation commit, create one run-owned root and copy the
+   exact Artifact and sidecar. Record the code revision/tree/origin, the contract SHA, the
+   Python path/version, and all the frozen input hashes.
+2. Phase A: a new `RuntimeManager` starts the same Silo. Require `Running`, the exact
+   Artifact/Profile/Engine binding, the single relay URI in the Host status,
+   `ProfileIsolation=applied`, and the Template-derived identity capabilities still
+   `configured`. The desktop network evidence is `configured/reachable/applied`, while
+   exit/DNS/WebRTC stay `not_requested`. The Vault identity deriver is not called.
+3. Phase A clean stop: Host `close/shutdown` succeeds, exit code 0,
+   `processTreeExit.exited=true`, Job active count 0, no quarantine/forced cleanup, the exact
+   child exits, the relay closes, and the Profile lease is released.
+4. Phase B: from the same app root, create another `RuntimeManager` and a different Host PID,
+   using the same Silo, Artifact, Profile, and Network Policy. Require the boot count `1 → 2`
+   and that the managed cookie and `observedWebsiteDigest` continuity hold.
+5. Phase B also clean-stops. All owned PIDs of both cycles go to zero, no unrelated process is
+   operated on, and no secret/token enters argv, the wire, the runtime activation, the Host
+   state, or the evidence.
 
-只新增一个 Windows-only ignored focused test（可放在现有私有测试模块或相邻 clean 模块）和保存上述
-直接 evidence 所需的最少代码。不得执行旧 soak、failure matrix、desktop-drop、crash、EOF、concurrent
-或十周期场景；这些不是当前新增不确定性。
+Add only one Windows-only ignored focused test (it may live in the existing private test
+module or an adjacent clean module) and the minimum code needed to save the direct evidence
+above. Do not run the old soak, the failure matrix, desktop-drop, crash, EOF, concurrent, or
+ten-cycle scenarios. These are not the current new uncertainty.
 
-## 裁决
+## Adjudication
 
 ### Passed
 
-执行前 focused evidence-semantics test 与上述五步全部直接成立，输入/hash/evidence receipts 完整，
-两个生命周期 clean，且所有诚实边界保持 `verified:false`。结论只能是 **clean M3-WI integration
-slice Passed on this native Windows host**。
+The focused evidence-semantics test before execution and all five steps above hold directly,
+the inputs/hashes/evidence receipts are complete, the two lifecycles are clean, and all the
+honesty boundaries stay `verified:false`. The conclusion can only be **the clean M3-WI
+integration slice Passed on this native Windows host**.
 
 ### Failed
 
-focused test 未通过表示实现前置条件尚未满足：不创建 attempt、不生成 Failed result，工程 Gate 继续
-保持 open。冻结输入可用且 attempt 已开始后，任一 RuntimeManager/adapter/relay/JSONL Host binding、
-第二周期、Profile continuity 或 clean-stop 必需判据直接失败，才裁决该 attempt 为 Failed。Failed
-attempt 保持不可变；找到新且有证据的根因后，任何修复都构成新 code/input 与新 attempt，不重写
-任何 Failed attempt，也不创建 recovery Gate。
+If the focused test does not pass, the implementation precondition is not met: do not create
+an attempt, do not generate a Failed result, and the engineering Gate stays open. Only after
+the frozen inputs are available and an attempt has begun, and any required criterion
+(RuntimeManager/adapter/relay/JSONL Host binding, the second cycle, Profile continuity, or
+clean stop) directly fails, is that attempt adjudicated Failed. A Failed attempt stays
+immutable. After a new, evidence-backed root cause is found, any fix constitutes new
+code/input and a new attempt. No Failed attempt is rewritten, and no recovery Gate is created.
 
 ### Inconclusive
 
-attempt 已开始但 code/input binding、原始 evidence 或环境归因不足以裁决；不能把缺失证据当作 Passed。
-执行前 SOCKS5 端口不可达属于未满足输入，此时不创建 attempt。
+The attempt has begun, but the code/input binding, the raw evidence, or the environmental
+attribution is insufficient to adjudicate. Missing evidence cannot be treated as Passed. An
+unreachable SOCKS5 port before execution is an unmet input, and in that case no attempt is
+created.
 
-## 最小 evidence 与停止条件
+## Minimal evidence and stop conditions
 
-一个 attempt 只保存：
+An attempt saves only:
 
-- `native-evidence.json`：两阶段直接 observations、bindings、lifecycle、PID/Job/relay/lease 与诚实 evidence
-  state；
-- `run-report.json`：输入/hash、执行命令/exit、native evidence SHA、adjudication 与 limitations；
-- 两个 JSON 的 SHA-256 sidecar，以及解释直接失败所必需的 bounded stderr；不创建新 schema/freezer/
-  manifest framework。
+- `native-evidence.json`: the direct observations of the two phases, the bindings, the
+  lifecycle, the PID/Job/relay/lease, and the honest evidence state;
+- `run-report.json`: the inputs/hashes, the execution command/exit, the native evidence SHA,
+  the adjudication, and the limitations;
+- SHA-256 sidecars for the two JSON files, and the bounded stderr necessary to explain a
+  direct failure. No new schema/freezer/manifest framework is created.
 
-Definition/refreeze 在本合同与状态页通过 focused 文档/hash/diff 检查、形成 clean commit 并推送后即
-闭合。随后停止；下一任务是实现这一个 focused test 并在新的显式授权下执行 native attempt，不提前
-声称 M3-WI Passed、production package verified、Managed Identity shipped 或 `verified:true`。
+The definition/refreeze closes once this contract and the status page pass the focused
+document/hash/diff checks, form a clean commit, and are pushed. Then stop. The next task is to
+implement this one focused test and, under a new explicit authorization, run the native
+attempt. Do not claim in advance that M3-WI Passed, that the production package is verified,
+that Managed Identity is shipped, or `verified:true`.

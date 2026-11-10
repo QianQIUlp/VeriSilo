@@ -1,8 +1,8 @@
 # Store listing copy
 
-- 状态：**粘贴用草稿**，English + 简体中文，两个商店共用
-- 原则：单一目的统一为“检查并理解当前浏览环境的可观察暴露面”；Network Check 与临时 privacy controls 是服务该目的的能力，不是并列的独立功能
-- manifest 内嵌 description 不变（`apps/extension/_locales/*/messages.json`），商店页文案与 manifest 是两个东西
+- Status: **draft for pasting**, English + Simplified Chinese (简体中文), shared by both stores
+- Principle: the single purpose is uniformly stated as "inspect and understand the observable exposure of the current browsing environment". Network Check and the temporary privacy controls are capabilities that serve this purpose. They are not separate parallel features.
+- The description embedded in the manifest is unchanged (`apps/extension/_locales/*/messages.json`). The store page copy and the manifest are two different things.
 
 ## English
 
@@ -52,24 +52,23 @@
 >
 > 没有桌面端时扩展功能完全可用。
 
-## 素材清单（Chrome / Edge 各自表单）
+## Asset checklist (separate Chrome / Edge forms)
 
-| 素材                     | Chrome                                | Edge                        |
-| ------------------------ | ------------------------------------- | --------------------------- |
-| 128×128 icon             | 已有（包内 `icons/verisilo-128.png`） | 最低 128×128 满足           |
-| 300×300 logo             | —                                     | 推荐，见素材目录            |
-| 440×280 small promo tile | 必需                                  | 可选                        |
-| 截图 1280×800 / 640×400  | 必需（至少一张）                      | 可选（1280×800 或 640×480） |
-| 类别                     | Privacy & Security                    | —                           |
-| 语言                     | English + 简体中文                    | English + 简体中文          |
+| Asset                          | Chrome                                                    | Edge                                    |
+| ------------------------------ | --------------------------------------------------------- | --------------------------------------- |
+| 128×128 icon                   | Already present (`icons/verisilo-128.png` in the package) | Minimum 128×128 is met                  |
+| 300×300 logo                   | —                                                         | Recommended, see the asset directory    |
+| 440×280 small promo tile       | Required                                                  | Optional                                |
+| Screenshots 1280×800 / 640×400 | Required (at least one)                                   | Optional (1280×800 or 640×480)          |
+| Category                       | Privacy & Security                                        | —                                       |
+| Language                       | English + Simplified Chinese (简体中文)                   | English + Simplified Chinese (简体中文) |
 
-主图素材位于 `assets/store/`：`store-screenshot-1280x800-en-scan.png`、
-`store-screenshot-1280x800-zh-report.png`、
-`store-screenshot-1280x800-en-private-space.png`，以及对应的 `640×400` 文件。
-这些是明确标注 `example.test` 的商店展示构图，右侧面板来自冻结 RC 的实际构建；不要把
-示例报告中的合成值描述为真实网络或设备证据。
+The main image assets are in `assets/store/`: `store-screenshot-1280x800-en-scan.png`,
+`store-screenshot-1280x800-zh-report.png`,
+`store-screenshot-1280x800-en-private-space.png`, and the corresponding `640×400` files.
+These are store display compositions that are explicitly labeled `example.test`. The side panel on the right comes from the actual build of the frozen RC. Do not describe the synthetic values in the example report as real network or device evidence.
 
-## 提交前人工复核项
+## Manual review items before submission
 
-- [ ] 检查 Chrome 政策要求的所有数据披露点是否与 `docs/store-privacy-forms.md` 一致。
-- [ ] 确认文案不含 "anti-detect"、"fingerprint spoofing"、"isolation guarantee" 等未实现能力表述（仓库 evidence 术语：observed/configured/applied/verified 不得混用）。
+- [ ] Check that every data disclosure point required by the Chrome policy is consistent with `docs/store-privacy-forms.md`.
+- [ ] Confirm that the copy contains no statements about unimplemented capabilities such as "anti-detect", "fingerprint spoofing" or "isolation guarantee" (repository evidence terms: observed/configured/applied/verified must not be mixed).

@@ -1,105 +1,106 @@
-# Windows 桌面端与插件集成验收矩阵
+# Windows desktop and extension integration acceptance matrix
 
-> **Historical scope/evidence matrix.** 本文保留 2026-07-30 的验收范围、证据等级和发布门槛，
-> 不决定当前产品阶段、当前候选或下一任务；当前路由见 [Camoufox 状态页](../camoufox-program-status.md)。
+> **Historical scope/evidence matrix.** This document keeps the acceptance scope, evidence levels and
+> release thresholds as of 2026-07-30. It does not decide the current product stage, the current candidate or the next
+> task. For current routing, see the [Camoufox status page](../camoufox-program-status.md).
 
-## 使用方法
+## How to use
 
-这份矩阵接在[插件端验收](extension-functional-acceptance-2026-07-30.md)之后。它区分三类状态：
+This matrix follows the [extension acceptance](extension-functional-acceptance-2026-07-30.md). It separates three kinds of status:
 
-- **仓库证据**：代码、schema、单元测试或静态门禁存在。
-- **现有自动化边界**：自动化实际覆盖到哪里，以及刻意不覆盖什么。
-- **真实验收**：必须在 Windows 10/11、Chrome/Edge 或指定环境上执行并保存原始证据。
+- **Repository evidence**: code, schemas, unit tests or static gates exist.
+- **Existing automation boundary**: what the automation actually covers, and what it deliberately does not cover.
+- **Real acceptance**: must run on Windows 10/11, Chrome/Edge or the specified environment, and the raw evidence must be saved.
 
-“仓库证据存在”不等于功能验收通过；本文件中的真实验收项在产生机器可读结果前一律视为待执行。
+"Repository evidence exists" does not mean the feature passed acceptance. Every real-acceptance item in this file counts as pending until it produces a machine-readable result.
 
-实际执行时使用[逐步手工验收操作手册](manual-windows-acceptance-runbook.md)；本文件保留范围、证据等级和发布门槛，不重复每个点击步骤。
+For actual execution, use the [step-by-step manual acceptance runbook](manual-windows-acceptance-runbook.md). This file keeps the scope, evidence levels and release thresholds, and does not repeat each click step.
 
-## 2026-07-30 本地 Rust 工具链检查
+## 2026-07-30 local Rust toolchain check
 
-当前 Linux 开发环境已通过官方 rustup 安装仓库锁定的 Rust/Cargo `1.88.0`，并安装 `x86_64-unknown-linux-gnu`、`x86_64-pc-windows-msvc`、`x86_64-pc-windows-gnu` 标准库 target。结果只证明下列范围，不是 Windows 桌面验收：
+The current Linux development environment installed the repository-pinned Rust/Cargo `1.88.0` through the official rustup, together with the standard-library targets `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc` and `x86_64-pc-windows-gnu`. The results prove only the scope below. They are not Windows desktop acceptance:
 
-| 检查                                                   | 结果                                                               | 证据边界                                                                                                           |
-| ------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| desktop core harness：fmt/check/test/Clippy            | PASS；150 tests、0 failed，Clippy `-D warnings`                    | 编译真实 production Rust 模块，但不含 Tauri/WebView2/Windows 运行时                                                |
-| Remote Agent：fmt/check/test/Clippy                    | PASS；7 个 test target 共 72 tests、0 failed，Clippy `-D warnings` | Linux target 控制面验证；没有真实 Provider/WAN/媒体输入                                                            |
-| Tauri desktop Cargo metadata/fmt                       | PASS                                                               | manifest、锁文件和 Rust 格式可解析                                                                                 |
-| Linux → `x86_64-pc-windows-msvc` desktop `cargo check` | BLOCKED 于 `aws-lc-sys` 的 MSVC C/NASM 工具链                      | Linux 的 GNU `cc` 不能替代 MSVC；必须在第 5 节所述真实 Windows Build Tools + NASM 环境重跑，不能记成源码通过或失败 |
+| Check                                                  | Result                                                               | Evidence boundary                                                                                                                                                                        |
+| ------------------------------------------------------ | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Desktop core harness: fmt/check/test/Clippy            | PASS; 150 tests, 0 failed, Clippy `-D warnings`                      | Compiles the real production Rust modules, but does not include the Tauri/WebView2/Windows runtime                                                                                       |
+| Remote Agent: fmt/check/test/Clippy                    | PASS; 72 tests across 7 test targets, 0 failed, Clippy `-D warnings` | Control-plane validation on the Linux target; no real Provider/WAN/media input                                                                                                           |
+| Tauri desktop Cargo metadata/fmt                       | PASS                                                                 | The manifest, lock file and Rust formatting parse                                                                                                                                        |
+| Linux → `x86_64-pc-windows-msvc` desktop `cargo check` | BLOCKED on the MSVC C/NASM toolchain of `aws-lc-sys`                 | The GNU `cc` on Linux cannot replace MSVC. It must be rerun in the real Windows Build Tools + NASM environment described in section 5. Do not record it as a source-code pass or failure |
 
-因此，Rust/Cargo 缺失已收口；Windows native 编译、链接、Tauri 启动、WebView2 和 NSIS 仍是待执行的 Windows 证据。
+Therefore the missing Rust/Cargo problem is closed out. Windows native compilation, linking, Tauri startup, WebView2 and NSIS remain pending Windows evidence.
 
-## V0.1–V0.6 桌面核心
+## V0.1–V0.6 desktop core
 
-| 范围                          | 仓库证据与当前可达 UI                                                  | 现有自动化边界                                                                          | 真实 Windows 验收                                                                                               |
-| ----------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Vault 初始化/解锁/锁定        | Tauri command、Argon2id + AES-GCM envelope、锁定时 UI 敏感状态清理     | Rust/TS 单元与 acceptance-only driver 覆盖状态机；本地 Linux 未启动 Tauri               | 初始化、错密码、锁定后所有敏感入口拒绝、重启后解锁；Win10/11 各执行                                             |
-| 自动锁                        | UI 有自动锁计时与 session generation 防旧请求回填                      | TS 单元覆盖 deadline/刷新/锁定 UI                                                       | 前后台、系统睡眠/唤醒、长操作、时钟变化和 30 秒轮询边界                                                         |
-| Vault 备份/恢复/口令轮换      | command/UI 和加密 envelope 路径存在                                    | Rust 模型/迁移测试；不证明磁盘故障或 Windows ACL                                        | 正常备份恢复、错文件/截断/旧 schema、目标已存在、磁盘满、权限拒绝、原子性                                       |
-| Silo 创建/编辑/归档/恢复/删除 | overview/create/edit/settings UI 与 active/archived 列表存在           | TS API/format/parser 测试；Rust model tests                                             | 每个操作逐项点击；运行中拒绝；永久删除失败回滚；Profile 路径不越界                                              |
-| Profile 隔离                  | 每个 Silo 独立 `--user-data-dir`，拒绝默认 Profile                     | Windows harness 可测 A/B 浏览器存储和默认 Profile 指纹；它不加载插件                    | Chrome/Edge A/B Cookie、local/session storage、IndexedDB、缓存、Service Worker、权限、历史；默认 Profile 零改动 |
-| 浏览器发现/启动/退出          | Chrome/Edge discovery、argument-array launch、单 active runtime        | acceptance-only driver 可启动真实浏览器并检查 Profile lock；普通 TS 测试不启动浏览器    | 常规退出、崩溃、孤儿进程、重复启动、浏览器自身 SingletonLock、未知/移动后的 exe                                 |
-| 恢复与锁文件                  | RuntimeManager、精确 PID tree、运行状态恢复与拒绝强杀语义存在          | driver 覆盖部分真实 lock/refusal；不覆盖所有 Windows 崩溃模式                           | 桌面崩溃、浏览器崩溃、Windows 重启、残留 Singleton 文件、无关进程存活                                           |
-| Direct                        | direct profile 与 UI 可选                                              | schema/model 通过                                                                       | Chrome/Edge 实际直连，记录基线出口/DNS/WebRTC/QUIC，仅作对照不称安全模式                                        |
-| Fixed HTTP/SOCKS5             | required proxy、加密凭据、随机 loopback relay                          | Rust relay/proxy 测试；Windows harness 仅测不可达 proxy fail-closed，不证明真实桌面参数 | 有/无认证、407/SOCKS method、代理中断、DNS/WebRTC/QUIC 抓取、无宿主直连回退                                     |
-| PAC                           | UI 与 NetworkProfile 支持 optional PAC；required PAC 被明确拒绝        | schema/launcher 参数测试；acceptance driver 不走 PAC                                    | Chrome/Edge PAC URL/脚本失败、缓存、代理切换、认证和错误文案；不得把 optional PAC 计入 required-proxy 通过      |
-| External Mihomo               | loopback Controller、Secret、selector/node/readback、端口/config drift | adapter/relay 单元与源码门禁；不运行用户 Mihomo core                                    | 正常绑定、Secret 错误、非 GLOBAL、DIRECT/REJECT/未知 node、进程退出、配置漂移、旧 relay 不重开                  |
-| required-proxy fail-closed    | launcher/runtime/relay 有拒绝直连与终态 blocked 语义                   | loopback 测试和不可达代理浏览器 case；不证明 Windows 全路径                             | 每种故障都确认页面失败且宿主 fixture 零请求；用真实 Chrome/Edge 抓 DNS/WebRTC/QUIC                              |
-| 本地报告                      | 桌面可生成/导出 Silo 本地报告与网络证据历史                            | TS report 测试；插件完整扫描报告不进入桌面                                              | UI 到达、导出脱敏、锁定后清理；明确区分 desktop controller 与 managed browser 证据                              |
+| Scope                                    | Repository evidence and currently reachable UI                                                  | Existing automation boundary                                                                                                       | Real Windows acceptance                                                                                                                             |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Vault initialize/unlock/lock             | Tauri commands, Argon2id + AES-GCM envelope, UI sensitive-state cleanup when locked             | Rust/TS unit tests and the acceptance-only driver cover the state machine; local Linux did not start Tauri                         | Initialize, wrong passphrase, all sensitive entry points rejected after lock, unlock after restart; run on each of Win10 and Win11                  |
+| Auto-lock                                | The UI has an auto-lock timer and a session generation that stops old requests from backfilling | TS unit tests cover deadline/refresh/lock UI                                                                                       | Foreground/background, system sleep/wake, long operations, clock changes and the 30-second polling boundary                                         |
+| Vault backup/restore/passphrase rotation | Command/UI and encrypted envelope paths exist                                                   | Rust model/migration tests; they do not prove disk faults or Windows ACLs                                                          | Normal backup and restore, wrong file/truncated file/old schema, target already exists, disk full, permission denied, atomicity                     |
+| Silo create/edit/archive/restore/delete  | overview/create/edit/settings UI and active/archived lists exist                                | TS API/format/parser tests; Rust model tests                                                                                       | Click through each operation; rejection while running; rollback when permanent delete fails; Profile path stays in bounds                           |
+| Profile isolation                        | Each Silo has its own `--user-data-dir`; the default Profile is rejected                        | The Windows harness can test A/B browser storage and the default-Profile fingerprint; it does not load the extension               | Chrome/Edge A/B Cookie, local/session storage, IndexedDB, cache, Service Worker, permissions, history; zero changes to the default Profile          |
+| Browser discovery/launch/exit            | Chrome/Edge discovery, argument-array launch, single active runtime                             | The acceptance-only driver can launch a real browser and check the Profile lock; ordinary TS tests do not launch a browser         | Normal exit, crash, orphan processes, repeated launch, the browser's own SingletonLock, unknown/moved exe                                           |
+| Recovery and lock files                  | RuntimeManager, exact PID tree, runtime-state recovery and refuse-to-force-kill semantics exist | The driver covers some real lock/refusal cases; it does not cover every Windows crash mode                                         | Desktop crash, browser crash, Windows restart, leftover Singleton files, unrelated process still alive                                              |
+| Direct                                   | The direct profile exists and is selectable in the UI                                           | schema/model pass                                                                                                                  | Real direct connection in Chrome/Edge; record the baseline network exit/DNS/WebRTC/QUIC; use only as a control and do not call it a secure mode     |
+| Fixed HTTP/SOCKS5                        | required proxy, encrypted credentials, random loopback relay                                    | Rust relay/proxy tests; the Windows harness tests only an unreachable proxy fail-closed and does not prove real desktop parameters | With/without authentication, 407/SOCKS method, proxy interruption, DNS/WebRTC/QUIC capture, no host direct fallback                                 |
+| PAC                                      | The UI and NetworkProfile support optional PAC; required PAC is explicitly rejected             | schema/launcher argument tests; the acceptance driver does not go through PAC                                                      | Chrome/Edge PAC URL/script failure, caching, proxy switching, authentication and error text; do not count optional PAC toward a required-proxy pass |
+| External Mihomo                          | loopback Controller, Secret, selector/node/readback, port/config drift                          | adapter/relay unit tests and source-code gates; the user's Mihomo core is not run                                                  | Normal binding, wrong Secret, non-GLOBAL, DIRECT/REJECT/unknown node, process exit, config drift, old relay not reopened                            |
+| required-proxy fail-closed               | The launcher/runtime/relay have deny-direct and terminal blocked semantics                      | loopback tests and an unreachable-proxy browser case; they do not prove the full Windows path                                      | For each fault, confirm the page fails and the host fixture receives zero requests; capture DNS/WebRTC/QUIC with real Chrome/Edge                   |
+| Local report                             | The desktop can generate/export a Silo local report and network-evidence history                | TS report tests; the extension's full scan report does not enter the desktop                                                       | UI reachable, export redacted, cleared after lock; clearly distinguish desktop controller evidence from managed browser evidence                    |
 
-## 插件、Native Host 与桌面联动
+## Extension, Native Host and desktop integration
 
-| 场景              | 当前仓库状态                                                                     | 真实验收与通过条件                                                                                  |
-| ----------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Native Host 注册  | Chrome/Edge manifest 模板、HKCU 注册/验证/注销脚本与 NSIS hooks 存在             | 用正式双商店 ID 安装；两个浏览器分别 handshake；未知 origin/message 拒绝；标准用户无需提权          |
-| Host 协议         | schema、origin allowlist、length-prefixed framing、消息大小与路径边界存在        | 浏览器真实 Native Messaging 调用；不能只把 frame 直接喂给 exe                                       |
-| 插件网络证据提交  | 只提交用户触发、脱敏、有界的网络证据；Native Host 校验新鲜度、Vault、active Silo | 在真实 Silo 中提交；错 Silo、过期、锁定、停止/重启、重放全部拒绝；成功后 Vault 历史可见             |
-| 完整扫描报告      | **当前未联动**；插件报告留在插件本地，桌面只接网络证据                           | 产品若需要完整跨端报告，必须先明确 schema/隐私/保留语义并实现；发布文案不得暗示已存在               |
-| Vault 锁定同步    | 桌面 UI 会清敏感状态；Host 在请求时重新校验                                      | 插件已打开时锁 Vault，后续提交必须拒绝并清除过期 badge；当前缺少主动推送，需记录 UI 延迟            |
-| Silo 归属与恢复   | runtime snapshot、activeSiloId、运行 UUID 与 freshness 校验存在                  | 浏览器/桌面分别崩溃与恢复；旧 receipt、旧 runtime、另一 Silo、另一个 Profile 均不得串用             |
-| Labs desktop_silo | schema 支持 Silo 绑定授权；无桌面时退化为 local_temporary                        | 解锁并运行真实 Silo 后启用；锁定/停止/权限撤销/页面变化必须恢复；receipt 的 Silo ID 与 runtime 一致 |
-| 插件缺失          | 桌面把 Companion 证据标为空/未请求，不阻止独立 Profile 基线                      | acceptance driver 已覆盖窄路径；还需真实 UI 文案与重装插件后的恢复                                  |
+| Scenario                          | Current repository state                                                                                                       | Real acceptance and pass conditions                                                                                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native Host registration          | Chrome/Edge manifest templates, HKCU register/verify/unregister scripts and NSIS hooks exist                                   | Install with the official two-store IDs; handshake in each browser separately; unknown origin/message rejected; no elevation needed for a standard user              |
+| Host protocol                     | schema, origin allowlist, length-prefixed framing, message size and path boundaries exist                                      | Real browser Native Messaging calls; do not just feed frames straight to the exe                                                                                     |
+| Extension network-evidence submit | Submits only user-triggered, redacted, bounded network evidence; the Native Host checks freshness, Vault and active Silo       | Submit in a real Silo; wrong Silo, expired, locked, stopped/restarted and replayed submissions are all rejected; after success the Vault history is visible          |
+| Full scan report                  | **Not currently integrated**; the extension report stays local to the extension, and the desktop accepts only network evidence | If the product needs a full cross-device report, first define the schema/privacy/retention semantics and implement it; release copy must not imply it already exists |
+| Vault lock sync                   | The desktop UI clears sensitive state; the Host revalidates on request                                                         | Lock the Vault while the extension is open; later submissions must be rejected and the stale badge cleared; active push is currently missing, so record the UI delay |
+| Silo ownership and recovery       | runtime snapshot, activeSiloId, run UUID and freshness checks exist                                                            | Crash and recover the browser and the desktop separately; an old receipt, old runtime, another Silo or another Profile must never be mixed in                        |
+| Labs desktop_silo                 | The schema supports Silo-bound authorization; without the desktop it degrades to local_temporary                               | Enable after unlocking and running a real Silo; lock/stop/permission revocation/page change must restore; the receipt's Silo ID matches the runtime                  |
+| Extension missing                 | The desktop marks Companion evidence as empty/not requested and does not block the independent Profile baseline                | The acceptance driver covers the narrow path; still need real UI copy and recovery after reinstalling the extension                                                  |
 
-## V0.7 引擎层
+## V0.7 engine layer
 
-| 范围                 | 仓库证据                                                                                   | 真实验收门槛                                                                                                  |
-| -------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| EngineAdapter 控制面 | 版本化 adapter、per-Silo 配置、包签名/更新/回滚/禁用状态机、UI capability/receipt 路径存在 | 必须提供固定、合法、签名并可复现的真实 engine artifact；当前没有可发布 engine 包                              |
-| stock Chrome/Edge    | 仍是支持基线，不因 V0.7 存在而改变声明                                                     | 与 V0.1–V0.6 四单元矩阵一起验收                                                                               |
-| 受控字段证据         | schema 可表达 apply/verify/restore 与能力状态                                              | Canvas/WebGL/字体/UA/UA-CH/语言/时区/iframe/Worker/请求头/TLS/QUIC 必须逐字段记录直接证据，不能由插件扫描推断 |
+| Scope                       | Repository evidence                                                                                                                | Real acceptance threshold                                                                                                                                                           |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| EngineAdapter control plane | Versioned adapter, per-Silo configuration, package signing/update/rollback/disable state machine, UI capability/receipt path exist | Must provide a pinned, legitimate, signed and reproducible real engine artifact; there is currently no releasable engine package                                                    |
+| stock Chrome/Edge           | Remains the supported baseline; the claim does not change because V0.7 exists                                                      | Accept together with the V0.1–V0.6 four-cell matrix                                                                                                                                 |
+| Controlled-field evidence   | The schema can express apply/verify/restore and capability state                                                                   | Canvas/WebGL/fonts/UA/UA-CH/language/time zone/iframe/Worker/request headers/TLS/QUIC must each record direct evidence field by field and cannot be inferred from an extension scan |
 
-## V0.8 本地环境后端
+## V0.8 local environment backends
 
-| 后端            | 仓库证据                                                                     | 明确限制与真实验收                                                                                     |
-| --------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| WSL Chromium    | controller、固定 guest-agent、Profile/PID 绑定、SOCKS5H 和 proxy-DNS receipt | 需真实 WSLg/Chromium；guest OS resolver 仍 unavailable；代理崩溃、错误答案、直连诱饵、Profile 隔离实测 |
-| Windows Sandbox | 默认拒绝 `.wsb`、只读 bootstrap、进程/descriptor/hash lifecycle receipt      | 无可靠 guest return channel；required proxy、DNS、browser-ready 保持 unavailable；按 Windows SKU 实测  |
-| Hyper-V         | 受限 PowerShell、镜像清单、VM/image hash、lifecycle/drift receipt            | 需合法固定 VHDX 与 reviewed guest agent；vSwitch、磁盘、失败恢复、签名生命周期实测                     |
-| 共通环境边界    | contracts 对九项 operation 逐项 available/unavailable                        | Home/Pro/Enterprise、虚拟化开关、重启、宿主映射/剪贴板/设备/vGPU 负测；静态脚本不能代替                |
+| Backend                     | Repository evidence                                                                    | Explicit limits and real acceptance                                                                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WSL Chromium                | controller, pinned guest-agent, Profile/PID binding, SOCKS5H and proxy-DNS receipt     | Needs real WSLg/Chromium; the guest OS resolver is still unavailable; test proxy crash, wrong answers, direct-connection decoys and Profile isolation |
+| Windows Sandbox             | Deny `.wsb` by default, read-only bootstrap, process/descriptor/hash lifecycle receipt | No reliable guest return channel; required proxy, DNS and browser-ready stay unavailable; test per Windows SKU                                        |
+| Hyper-V                     | Restricted PowerShell, image manifest, VM/image hash, lifecycle/drift receipt          | Needs a legitimate pinned VHDX and a reviewed guest agent; test vSwitch, disk, failure recovery and signing lifecycle                                 |
+| Shared environment boundary | contracts mark each of the nine operations available/unavailable                       | Negative tests for Home/Pro/Enterprise, virtualization switches, restart, host mappings/clipboard/devices/vGPU; static scripts cannot replace them    |
 
-## V0.9 自托管 Remote Agent、Screen/Input
+## V0.9 self-hosted Remote Agent, Screen/Input
 
-| 范围                 | 仓库证据                                                                         | 明确限制与真实验收                                                                                       |
-| -------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Remote control plane | pinned PKI/SPKI、短期凭据、typed operations、桌面状态/UI、Linux/Unix Agent crate | 默认示例九项能力均 `unavailable`；必须安装固定真实 Provider，做 WAN、失联、重放、TTL、幂等销毁与密钥轮换 |
-| Screen               | `openScreen` 只返回授权 channel metadata，桌面可展示/刷新/关闭                   | 当前不解码或渲染视频/音频；不能称远程画面可用                                                            |
-| Input                | typed input schema/命令与人工/自动化 principal 边界存在                          | 当前无随附真实加密媒体/输入 transport；需撤销、并发、越权、剪贴板/文件默认拒绝实测                       |
-| Provider/guest       | bridge 与能力协商存在                                                            | 仓库未随附真实 VM/容器/浏览器 Provider；没有 Provider 时 V0.9 只能称“控制面”                             |
+| Scope                | Repository evidence                                                                                  | Explicit limits and real acceptance                                                                                                                                                |
+| -------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Remote control plane | pinned PKI/SPKI, short-lived credentials, typed operations, desktop state/UI, Linux/Unix Agent crate | All nine capabilities in the default example are `unavailable`; must install a pinned real Provider and test WAN, disconnection, replay, TTL, idempotent teardown and key rotation |
+| Screen               | `openScreen` returns only authorized channel metadata; the desktop can show/refresh/close it         | Currently does not decode or render video/audio; do not claim remote screen is available                                                                                           |
+| Input                | typed input schema/commands and the human/automation principal boundary exist                        | Currently no bundled real encrypted media/input transport; need real tests for revocation, concurrency, privilege escalation, and clipboard/file default-deny                      |
+| Provider/guest       | bridge and capability negotiation exist                                                              | The repository does not bundle a real VM/container/browser Provider; without a Provider, V0.9 can only be called a "control plane"                                                 |
 
-## 安装、升级、卸载与发布
+## Install, upgrade, uninstall and release
 
-| 范围              | 仓库证据                                                                                                                                                                         | 真实验收                                                                                                                                           |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| NSIS current-user | signed 配置包含 sidecar、postinstall/preuninstall、HKCU Host scripts；unsigned 配置已明确清空 sidecar/resources/hooks，只产 desktop-only NSIS，避免用 `AllSigned` 执行未签名 PS1 | disposable 标准用户执行 signed V1 安装、同版本修复、V2 升级、失败回滚、卸载；Vault/Profile 指纹保持；全新机器还要确认 Trusted Publisher/非交互行为 |
-| 候选件            | unsigned/signed workflow、SBOM、license report、SHA-256/provenance、promotion attestation 代码存在                                                                               | 必须绑定同一 candidate ID/digest/revision；不能拿本地重建替代上传候选件                                                                            |
-| Authenticode      | DryRun/SignAndVerify/VerifySigned gate 与 secrets-gated workflow 定义存在                                                                                                        | 测试证书负测后，再用正式证书与可信时间戳；验证 desktop、Host、installer、卸载器和 sidecar                                                          |
-| 四单元发布矩阵    | `tests/windows/Invoke-VeriSiloWindowsE2E.ps1` 与 promotion gate 已定义                                                                                                           | Win10/11 × Chrome/Edge 全部 `RequireAll`；`SKIP`、`BLOCKED`、缺 runner、错 OS/浏览器均为失败                                                       |
+| Scope                    | Repository evidence                                                                                                                                                                                                                             | Real acceptance                                                                                                                                                                                                                                  |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| NSIS current-user        | The signed config includes the sidecar, postinstall/preuninstall and HKCU Host scripts; the unsigned config explicitly clears sidecar/resources/hooks and produces only a desktop-only NSIS, to avoid running an unsigned PS1 under `AllSigned` | On a disposable standard user, run signed V1 install, same-version repair, V2 upgrade, failure rollback and uninstall; Vault/Profile fingerprints stay unchanged; on a brand-new machine also confirm Trusted Publisher/non-interactive behavior |
+| Candidate                | unsigned/signed workflow, SBOM, license report, SHA-256/provenance and promotion attestation code exist                                                                                                                                         | Must bind to the same candidate ID/digest/revision; a local rebuild cannot replace the uploaded candidate                                                                                                                                        |
+| Authenticode             | DryRun/SignAndVerify/VerifySigned gates and a secrets-gated workflow are defined                                                                                                                                                                | After negative tests with a test certificate, use the official certificate and a trusted timestamp; verify the desktop, Host, installer, uninstaller and sidecar                                                                                 |
+| Four-cell release matrix | `tests/windows/Invoke-VeriSiloWindowsE2E.ps1` and the promotion gate are defined                                                                                                                                                                | Win10/11 × Chrome/Edge all `RequireAll`; `SKIP`, `BLOCKED`, a missing runner, or the wrong OS/browser all count as failure                                                                                                                       |
 
-## 推荐执行顺序
+## Recommended execution order
 
-1. 在 Windows 11 标准用户机跑桌面 smoke：Vault → Silo → Chrome/Edge → Direct/required proxy → 正常/异常退出。
-2. 接入正式测试 Native Host ID，在真实 Silo 中重复插件验收并验证网络证据、锁定/停止和恢复。
-3. 在 Windows 10 复跑相同矩阵，再做 Mihomo、浏览器崩溃和安装生命周期。
-4. V0.7 只有在真实签名 engine artifact 到位后执行；V0.8 按后端和 SKU 分开；V0.9 只有真实 Provider 到位后执行。
-5. 所有功能问题收口后，才进入正式 Authenticode、商店 ID 和 promotion gate。
+1. On a Windows 11 standard-user machine, run the desktop smoke: Vault → Silo → Chrome/Edge → Direct/required proxy → normal/abnormal exit.
+2. Connect the official test Native Host ID, repeat the extension acceptance in a real Silo, and verify network evidence, lock/stop and recovery.
+3. Rerun the same matrix on Windows 10, then do Mihomo, browser crash and the install lifecycle.
+4. Run V0.7 only after a real signed engine artifact is in place. Treat V0.8 per backend and SKU. Run V0.9 only after a real Provider is in place.
+5. Only after all functional issues are closed out, move on to official Authenticode, store IDs and the promotion gate.
 
-详细 runner 参数与证据格式见 [`tests/windows/README.md`](../../tests/windows/README.md)；发布边界见 [`docs/release.md`](../release.md)。
+For detailed runner parameters and evidence formats, see [`tests/windows/README.md`](../../tests/windows/README.md). For release boundaries, see [`docs/release.md`](../release.md).

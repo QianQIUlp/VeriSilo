@@ -1,128 +1,136 @@
-# Packaged-Host Windows Sandbox Runtime Acceptance — STATUS（2026-09-14）
+# Packaged-Host Windows Sandbox Runtime Acceptance — STATUS (2026-09-14)
 
-## 判定与分类（Verdicts & Classifications）
+> Translated from the original Chinese on 2026-11-10. The original text is in Git history at commit 1cf0f29. For historical evidence, the original wording governs if the two differ.
+
+## Verdicts and classifications
 
 - **Host Runtime Environment**: `CURRENT_HOST_RUNTIME_ENVIRONMENT_BROKEN`
-  - 宿主机（Windows 11 Build 26200）Gecko 子进程遇 MSVC `0xc06d007e` 延迟加载模块缺失异常崩溃，无法原生派生子进程。
+  - On the host (Windows 11 Build 26200), Gecko child processes crash with the MSVC `0xc06d007e` missing delay-load module exception, so they cannot be spawned natively.
 - **Alternate Environment (Windows Sandbox)**: `ALTERNATE_ENVIRONMENT_ACCEPTED`
-  - 原生 Windows Sandbox（Windows 11 Enterprise Build 26100, UBR 9445）环境健康，支持完整多进程树派生与硬件加速。
+  - The native Windows Sandbox (Windows 11 Enterprise Build 26100, UBR 9445) environment is healthy and supports full multi-process tree spawning and hardware acceleration.
 - **Packaged Host Runtime Acceptance**: `CURRENT_SOURCE_PACKAGED_HOST_RUNTIME_ACCEPTED_IN_WINDOWS_SANDBOX`
-  - 基于当前源码构建的自包含 Dev Engine Package 在健康 Windows Sandbox 内通过全部 4 个真实浏览器会话验证与进程树清理。
+  - The self-contained Dev Engine Package built from the current source passed all 4 real-browser session verifications and process-tree cleanup inside the healthy Windows Sandbox.
 - **Overall Verdict**: **`PASS`**
 
 ---
 
-## 一、任务背景与验收目标
+## 1. Task background and acceptance goals
 
-上一阶段（`managed-runtime-proof-repair`）确立了宿主机环境阻断判定（`CURRENT_HOST_RUNTIME_ENVIRONMENT_BROKEN`），并在纯净 Windows Sandbox 镜像中确认了冻结浏览器二进制完好具备多进程派生能力，但由于沙箱缺少受控测试工具链而处于 `ALTERNATE_ENVIRONMENT_TEST_TOOLCHAIN_BLOCKED`。
+The previous phase (`managed-runtime-proof-repair`) established the host environment blocked verdict (`CURRENT_HOST_RUNTIME_ENVIRONMENT_BROKEN`). It also confirmed in a pristine Windows Sandbox image that the frozen browser binaries are intact and can spawn multiple processes. But the sandbox lacked a controlled test toolchain, so it stayed at `ALTERNATE_ENVIRONMENT_TEST_TOOLCHAIN_BLOCKED`.
 
-本任务在 `integration` 工作线完成运行时证明链的最小闭环：
-1. 基于当前 canonical baseline（`521ae2496a90fd45d001e6b2864f20e67ea4586e`）现编 Supervisor，生成 source-bound 唯一的独立 Dev Engine Package（不覆盖历史 `rc2`/`rc3`，禁止代码签名）；
-2. 构建自包含 Windows Sandbox 自动化验收驱动（PowerShell 原生命名管道 IPC + 二进制/JSONL 独立通道）；
-3. 在健康 Windows Sandbox 隔离容器中运行 4 阶段真实浏览器验收矩阵，完整采集安全证据并落盘。
+This task, on the `integration` lane, completes the minimal closed loop of the runtime proof chain:
+
+1. Build the Supervisor fresh from the current canonical baseline (`521ae2496a90fd45d001e6b2864f20e67ea4586e`) and produce a unique, source-bound, standalone Dev Engine Package (without overwriting the historical `rc2`/`rc3`, and with code signing forbidden);
+2. Build a self-contained Windows Sandbox automated acceptance driver (PowerShell native named-pipe IPC + independent binary/JSONL channels);
+3. Run the 4-stage real-browser acceptance matrix in the healthy Windows Sandbox isolated container, collect the security evidence in full and write it to disk.
 
 ---
 
-## 二、基线、工件与代码 Provenance
+## 2. Baseline, artifacts and code provenance
 
-- **Canonical Baseline**: `521ae2496a90fd45d001e6b2864f20e67ea4586e`（`origin/baseline/dev`）
+- **Canonical Baseline**: `521ae2496a90fd45d001e6b2864f20e67ea4586e` (`origin/baseline/dev`)
 - **Integration Task Branch**: `agent/integration/packaged-host-windows-6ea6c8`
 - **Worktree**: `C:\Users\qiu\src\VeriSilo\.verisilo-worktrees\integration-packaged-host-windows-6ea6c8`
 - **Dev Engine Package**: `artifacts/qa/dev-engine-package-521ae24`
   - Package Tree SHA: `cf002e2c2c77f87b6b26efe31a8228ac733b0f36dd0c55d7c749fe8c827492ee`
   - Browser Tree Manifest SHA: `d77002d0f872a1ca57675d9b3bc2f9d88769e406d2d082cd94b07d78c9f075e6`
   - Host Executable (`camoufox-host.exe`) SHA: `8a554956e59555e9d6f6b95001830f2a14ae95ed41e755e98245b6b1461c4611`
-  - Windows Supervisor (`verisilo-camoufox-supervisor.exe`) SHA: `d9c2e0c7c1a5efab1bfb4a89210bd37ad59342bc80e54bf2c72394a8602fad87`（现编 Release，构建源自当前工作区）
+  - Windows Supervisor (`verisilo-camoufox-supervisor.exe`) SHA: `d9c2e0c7c1a5efab1bfb4a89210bd37ad59342bc80e54bf2c72394a8602fad87` (fresh Release build, built from the current worktree)
   - Manifest (`engine-package.json`) SHA: `64eb046db3ecd91b7689ad393f15860e4e5a1d8b86ae056e324526b470b1fe3c`
   - Probe HTML (`probe.html`) SHA: `20306c39a9ca3c1c9960547066ca083068fc0d5123c4fd628a7d87c10531a08d`
-  - Classification: `UNSIGNED_DEV_ENGINE_PACKAGE`（严格禁止代码签名，未查询或 mock 签名凭据）
-  - *Provenance 对账说明*：同目录下的 `package-provenance.json` 是输入工件在沙箱映射装载时的权威事实；前期文档草稿中 Package Tree 与 Host SHA 的记录系混入历史 rc2 工件哈希所致，已完全纠正对齐。
+  - Classification: `UNSIGNED_DEV_ENGINE_PACKAGE` (code signing is strictly forbidden; no signing credentials were queried or mocked)
+  - _Provenance reconciliation note_: `package-provenance.json` in the same directory is the authoritative record of the input artifacts as loaded through the sandbox mapping. The Package Tree and Host SHA recorded in an earlier document draft were mixed up with historical rc2 artifact hashes. They have been fully corrected and aligned.
 - **Acceptance Driver & Fixtures**: `docs/qa/packaged-host-sandbox-runtime-acceptance/tools/`
-  - 已将实际通过验收测试的完整驱动套件版本化追踪（包含 `bootstrap.ps1`、`sandbox-acceptance.ps1`、`package-provenance.json` 与 `legacy/` fixture 及其加载逻辑）。
+  - The full driver suite that actually passed the acceptance tests is now version-tracked (including `bootstrap.ps1`, `sandbox-acceptance.ps1`, `package-provenance.json`, the `legacy/` fixture and its loading logic).
 
 ---
 
-## 三、Windows Sandbox 验收矩阵执行结果
+## 3. Windows Sandbox acceptance matrix results
 
-沙箱验收脚本 `scripts/run-sandbox-acceptance.ps1` 驱动原生 Windows Sandbox 自动映射输入并执行，全过程耗时 157.3 秒，输出结果汇总于 `results.json`：
+The sandbox acceptance script `scripts/run-sandbox-acceptance.ps1` drove the native Windows Sandbox to map the inputs automatically and execute. The whole run took 157.3 seconds, and the results are summarized in `results.json`:
 
-### 1. Session 1: 主功能验收与 Evidence Coverage Closure II（1280x800）
-- **Artifact Provision**: `identity-86e45f432062e595dc257f24`（preset: `balanced-en-us`，window: 1280×800，fontMode: `managed`）
-- **Spawn Time**: 31.8s（含 supervisor、Gecko 主进程与 7 个子进程）
+### 1. Session 1: main functional acceptance and Evidence Coverage Closure II (1280x800)
+
+- **Artifact Provision**: `identity-86e45f432062e595dc257f24` (preset: `balanced-en-us`, window: 1280×800, fontMode: `managed`)
+- **Spawn Time**: 31.8s (including the supervisor, the Gecko main process and 7 child processes)
 - **Signals**:
-  - `webgl2Vendor`: `Google Inc. (Intel)`（`state: matched`，与 Artifact 声明一致，**PASS**）
-  - `webgl2Renderer`: `state: unavailable`（`unavailableCorrect: true`，严格符合 contract，**PASS**）
-  - `acceptEncoding`: `gzip, deflate, br, zstd`（`state: matched`，与 Host 契约一致，**PASS**）
+  - `webgl2Vendor`: `Google Inc. (Intel)` (`state: matched`, consistent with the Artifact declaration, **PASS**)
+  - `webgl2Renderer`: `state: unavailable` (`unavailableCorrect: true`, strictly conforms to the contract, **PASS**)
+  - `acceptEncoding`: `gzip, deflate, br, zstd` (`state: matched`, consistent with the Host contract, **PASS**)
 - **Window Geometry Invariants**:
-  - `screenX == screenLeft`: True（0 == 0）
-  - `screenY == screenTop`: True（0 == 0）
-  - `screen.availLeft <= screenX`: True（0 <= 0）
-  - `screenX + outerWidth <= availWidth`: True（0 + 1166 <= 1280）
-  - `screen.availTop <= screenY`: True（0 <= 0）
-  - `screenY + outerHeight <= availHeight`: True（0 + 632 <= 800）
-  - 几何不变量判定：**PASS**
-- **Fresh Recheck & Page Sentinel 对账**:
-  - 启动页首屏稳定后注入 Page Sentinel Token：`window.__verisilo_sentinel`
-  - 发送 `reobserve_identity` 命令：重新读取磁盘 Artifact、启动临时 loopback 探针页完成独立对账并关闭临时页
-  - 对账后检验用户当前页面状态：
-    - `timestampAdvanced`: True（`2026-09-14T12:04:51.782551Z` > `2026-09-14T12:04:38.588065Z`）
-    - `sentinelIntact`: **True**（Sentinel Token 保持未损）
-    - `urlIntact`: **True**（用户活跃页面 URL 保持未变）
+  - `screenX == screenLeft`: True (0 == 0)
+  - `screenY == screenTop`: True (0 == 0)
+  - `screen.availLeft <= screenX`: True (0 <= 0)
+  - `screenX + outerWidth <= availWidth`: True (0 + 1166 <= 1280)
+  - `screen.availTop <= screenY`: True (0 <= 0)
+  - `screenY + outerHeight <= availHeight`: True (0 + 632 <= 800)
+  - Geometry invariants verdict: **PASS**
+- **Fresh Recheck & Page Sentinel reconciliation**:
+  - After the start page's first screen stabilized, the Page Sentinel Token was injected: `window.__verisilo_sentinel`
+  - Sent the `reobserve_identity` command: re-read the Artifact from disk, started a temporary loopback probe page to complete an independent reconciliation, and closed the temporary page
+  - After reconciliation, the user's current page state was checked:
+    - `timestampAdvanced`: True (`2026-09-14T12:04:51.782551Z` > `2026-09-14T12:04:38.588065Z`)
+    - `sentinelIntact`: **True** (the Sentinel Token stayed undamaged)
+    - `urlIntact`: **True** (the URL of the user's active page stayed unchanged)
     - `webgl2VendorReobserved`: **True**
     - `webgl2RendererReobserved`: **True**
     - `acceptEncodingReobserved`: **True**
-  - Session 1 综合判定：**PASS**
+  - Session 1 overall verdict: **PASS**
 
-### 2. Session 2: 冷重启与 Profile 复用（1280x800）
-- **Profile Reuse**: 复用 Session 1 的 Profile 目录 `profile-1280-a` 与 Artifact 进行冷重启；
-- **Window Geometry**: 观察到 `outerWidth=1166, outerHeight=632, screenX=0, screenY=0`；全部 6 项几何不变量判定 **PASS**；
-- 优雅关闭并退出，Session 2 综合判定：**PASS**。
+### 2. Session 2: cold restart and Profile reuse (1280x800)
 
-### 3. Session 3: 第二尺寸几何相干性（1024x768）
-- **Artifact Provision**: `identity-01d09cbe572a2405074aaba2`（window: 1024×768）；
-- **Window Geometry**: 观察到 `outerWidth=1024, outerHeight=632, screenX=0, screenY=0`；全部 6 项几何不变量在不同尺寸屏幕下完全满足，无虚假 clamp 失败；
-- Session 3 综合判定：**PASS**。
+- **Profile Reuse**: reused the Profile directory `profile-1280-a` and the Artifact from Session 1 for a cold restart;
+- **Window Geometry**: observed `outerWidth=1166, outerHeight=632, screenX=0, screenY=0`; all 6 geometry invariants **PASS**;
+- Closed gracefully and exited. Session 2 overall verdict: **PASS**.
 
-### 4. Session 4: Legacy Artifact 坐标修正与磁盘文件不可变性
-- **Staged Legacy Artifact**: 预先由宿主 Python `compute_artifact_digest` + `write_artifact_with_sidecar` 生成合规 Legacy Artifact `identity-f49f1202d9ac4d79f991f794`，注入严重越界坐标 `screenX: 2232, screenY: 140`；
+### 3. Session 3: geometry coherence at a second size (1024x768)
+
+- **Artifact Provision**: `identity-01d09cbe572a2405074aaba2` (window: 1024×768);
+- **Window Geometry**: observed `outerWidth=1024, outerHeight=632, screenX=0, screenY=0`; all 6 geometry invariants are fully satisfied on a screen of a different size, with no false clamp failure;
+- Session 3 overall verdict: **PASS**.
+
+### 4. Session 4: Legacy Artifact coordinate correction and immutability of the on-disk file
+
+- **Staged Legacy Artifact**: a conforming Legacy Artifact `identity-f49f1202d9ac4d79f991f794` was generated in advance by the host Python `compute_artifact_digest` + `write_artifact_with_sidecar`, with severely out-of-bounds coordinates `screenX: 2232, screenY: 140` injected;
 - **Launch & Clamping**:
-  - 启动前磁盘文件 SHA-256：`2edabe511a057dc165a5c469df697b4ecaaf2cdbc134700f2d6cf1a0c653e103`；
-  - 浏览器启动并在交互模式（`VERISILO_INTERACTIVE=1`）下自动修正窗口坐标：
-    - 实际观察到：`screenX = 114, screenY = 140`
-    - 计算虚拟屏幕可用最大边界：`maxX = 1280 - 1166 = 114`
-    - `screenX` 成功从越界的 `2232` 动态裁剪收敛至虚拟屏幕边界内 `114`；
-    - 6 项几何不变量判定 **PASS**；
-  - 进程优雅退出后重新读取磁盘文件 SHA-256：`2edabe511a057dc165a5c469df697b4ecaaf2cdbc134700f2d6cf1a0c653e103`；
-  - `artifactFileUnchanged: True`（磁盘 Artifact 字节分毫不变，修正仅在运行时内存生效，且证明未触碰磁盘 Artifact）；
-- Session 4 综合判定：**PASS**。
+  - SHA-256 of the on-disk file before launch: `2edabe511a057dc165a5c469df697b4ecaaf2cdbc134700f2d6cf1a0c653e103`;
+  - The browser started and, in interactive mode (`VERISILO_INTERACTIVE=1`), automatically corrected the window coordinates:
+    - Actually observed: `screenX = 114, screenY = 140`
+    - Computed maximum usable boundary of the virtual screen: `maxX = 1280 - 1166 = 114`
+    - `screenX` was successfully clamped dynamically from the out-of-bounds `2232` to `114`, inside the virtual screen boundary;
+    - All 6 geometry invariants **PASS**;
+  - After the process exited gracefully, the SHA-256 of the on-disk file was read again: `2edabe511a057dc165a5c469df697b4ecaaf2cdbc134700f2d6cf1a0c653e103`;
+  - `artifactFileUnchanged: True` (the on-disk Artifact bytes did not change at all. The correction took effect only in runtime memory, which also proves the on-disk Artifact was not touched);
+- Session 4 overall verdict: **PASS**.
 
-### 5. Cleanup: 进程与锁清理校验
-- 4 轮会话结束后等待 2 秒进行沙箱内残余进程排查：
-  - `camoufox.exe` 残留数：**0**
-  - `camoufox-host.exe` 残留数：**0**
-  - `verisilo-camoufox-supervisor.exe` 残留数：**0**
-- Profile 锁与 Job Object 正常释放，Cleanup 判定：**PASS**。
+### 5. Cleanup: process and lock cleanup check
 
----
-
-## 四、安全与数据隔离保证
-
-1. **零机密外泄**：
-   - 临时 Profile、Cookie、Sqlite 缓存、临时 Artifact 均存放于沙箱本地临时目录（`C:\Users\WDAGUtilityAccount\AppData\Local\Temp\verisilo-acceptance-*`），并在测试结束前完全清除；
-   - 映射回宿主目录（`docs/qa/packaged-host-sandbox-runtime-acceptance/`）的文件仅包含安全摘要与结构化观测结果（`results.json`、`geometry-observation.json`、`identity-evidence-summary.json`、`environment.json`、`package-provenance.json`、`driver.log`、`host-stderr.log` 以及各阶段 sentinel），无 seed、无 raw cookie、无个人数据。
-2. **零宿主环境破坏**：
-   - 未在宿主系统安装全局包、未修改宿主系统字体或注册表。
-3. **未开 RC / Release Gate**：
-   - 本次产物仅用于 QA / Integration Acceptance，不修改 UI、不触碰生产打包、不开 release gate。
+- After the 4 sessions ended, it waited 2 seconds and then checked the sandbox for leftover processes:
+  - `camoufox.exe` leftover count: **0**
+  - `camoufox-host.exe` leftover count: **0**
+  - `verisilo-camoufox-supervisor.exe` leftover count: **0**
+- The Profile locks and Job Objects were released normally. Cleanup verdict: **PASS**.
 
 ---
 
-## 五、最终结论与证明链状态
+## 4. Security and data isolation guarantees
 
-| 门禁 / 证明项 | 状态 | 证明事实 |
-|---|---|---|
-| Window Geometry Coherence | **`ACCEPTED_IN_WINDOWS_SANDBOX`** | 1280x800、1024x768、冷重启与越界 Legacy Artifact 四重场景在真实浏览器中通过全部不变量与动态裁剪检验 |
-| Evidence Coverage Closure II | **`ACCEPTED_IN_WINDOWS_SANDBOX`** | WebGL2 Vendor/Renderer 与 Accept-Encoding 信号、Managed 字体屏蔽、Page Sentinel 与 URL 保持性在真实浏览器运行与重观测中完全验证 |
-| Current Host Environment | `CURRENT_HOST_RUNTIME_ENVIRONMENT_BROKEN` | Windows 11 Build 26200 宿主环境已知故障保留记录 |
-| Windows Sandbox Environment | **`ALTERNATE_ENVIRONMENT_ACCEPTED`** | 原生 Windows Sandbox Build 26100 成功通过全套运行时验收 |
-| Packaged-Host Runtime Proof | **`CURRENT_SOURCE_PACKAGED_HOST_RUNTIME_ACCEPTED_IN_WINDOWS_SANDBOX`** | 当前源码打包之 Host 在健康 Windows 环境中完整闭环 |
+1. **Zero secret exfiltration**:
+   - The temporary Profile, Cookies, Sqlite cache and temporary Artifact were all stored in the sandbox's local temporary directory (`C:\Users\WDAGUtilityAccount\AppData\Local\Temp\verisilo-acceptance-*`) and were fully removed before the test ended;
+   - The files mapped back to the host directory (`docs/qa/packaged-host-sandbox-runtime-acceptance/`) contain only safe summaries and structured observation results (`results.json`, `geometry-observation.json`, `identity-evidence-summary.json`, `environment.json`, `package-provenance.json`, `driver.log`, `host-stderr.log` and the sentinel of each stage). They contain no seed, no raw cookie and no personal data.
+2. **Zero damage to the host environment**:
+   - No global package was installed on the host system, and no host system font or registry was modified.
+3. **No RC / Release Gate opened**:
+   - The outputs of this run are used only for QA / Integration Acceptance. They do not modify the UI, do not touch production packaging and do not open a release gate.
+
+---
+
+## 5. Final conclusion and proof chain status
+
+| Gate / proof item            | Status                                                                 | Proven fact                                                                                                                                                                                 |
+| ---------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Window Geometry Coherence    | **`ACCEPTED_IN_WINDOWS_SANDBOX`**                                      | The four scenarios 1280x800, 1024x768, cold restart and out-of-bounds Legacy Artifact passed all invariants and the dynamic clamping check in a real browser                                |
+| Evidence Coverage Closure II | **`ACCEPTED_IN_WINDOWS_SANDBOX`**                                      | The WebGL2 Vendor/Renderer and Accept-Encoding signals, Managed font masking, and the preservation of the Page Sentinel and URL were fully verified in real-browser runs and re-observation |
+| Current Host Environment     | `CURRENT_HOST_RUNTIME_ENVIRONMENT_BROKEN`                              | The known fault of the Windows 11 Build 26200 host environment is kept on record                                                                                                            |
+| Windows Sandbox Environment  | **`ALTERNATE_ENVIRONMENT_ACCEPTED`**                                   | The native Windows Sandbox Build 26100 passed the full runtime acceptance                                                                                                                   |
+| Packaged-Host Runtime Proof  | **`CURRENT_SOURCE_PACKAGED_HOST_RUNTIME_ACCEPTED_IN_WINDOWS_SANDBOX`** | The Host packaged from the current source completed the full closed loop in a healthy Windows environment                                                                                   |

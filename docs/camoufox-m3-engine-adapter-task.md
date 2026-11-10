@@ -1,208 +1,303 @@
-# M3-0 Camoufox Host / EngineAdapter 集成任务合同
+# M3-0 Camoufox Host / EngineAdapter integration task contract
 
-> **历史 Accepted 合同**：M3-0 已关闭，本文的必读清单和验收矩阵不适用于当前任务。
-> 只有调查 `e96ef3f` contract evidence 时才读取，当前 Gate 见
-> [状态页](camoufox-program-status.md)。
+> Translated from the original Chinese on 2026-11-10. The original text is in Git history at commit 1cf0f29. For historical evidence, the original wording governs if the two differ.
 
-- 状态：**Main-brain Gate Accepted on 2026-08-09**
-- 冻结日期：2026-08-09
-- `main` 起始基线：`8de389db366d1d9ff510b1e885fab7f49a89aad0`（PR #10 merge commit）
-- 执行分支：`codex/camoufox-m3-engine-adapter`
-- 冻结实现起点：`b3d094cb0a7f3b7f9c113c53e4c4575d16babb67`
-- Accepted checkpoint：`e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`
-- 上一 Gate：M2-W **Accepted**；Linux 与 Windows standalone 证据保持 `verified: false`
+> **Historical Accepted contract**: M3-0 is closed. The required-reading list and the
+> acceptance matrix in this document do not apply to the current task. Read it only when
+> investigating the `e96ef3f` contract evidence. For the current Gate, see the
+> [status page](camoufox-program-status.md).
 
-本文既是 M3-0 的仓库任务卡，也是交给执行 Agent 的提示词。执行前必须依次阅读：
+- Status: **Main-brain Gate Accepted on 2026-08-09**
+- Freeze date: 2026-08-09
+- `main` starting baseline: `8de389db366d1d9ff510b1e885fab7f49a89aad0` (PR #10 merge commit)
+- Execution branch: `codex/camoufox-m3-engine-adapter`
+- Frozen implementation starting point: `b3d094cb0a7f3b7f9c113c53e4c4575d16babb67`
+- Accepted checkpoint: `e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`
+- Previous Gate: M2-W **Accepted**. The Linux and Windows standalone evidence stays `verified: false`.
 
-1. [身份平台北极星](identity-platform-north-star.md)；
-2. [Camoufox-first 决策](camoufox-managed-engine-decision.md)；
-3. [Agent 协作协议](agent-operating-model.md)；
-4. [Camoufox 当前状态](camoufox-program-status.md)；
-5. 本文；
-6. [EngineAdapter 现状](engine-adapters.md)、[Host v1](camoufox-host-v1.md)和 [M2-W Gate](camoufox-m2w-windows.md)。
+This document is both the repository task card for M3-0 and the prompt handed to the
+execution agent. Before execution, read the following in order:
 
-## Gate 结果
+1. [Identity platform north star](identity-platform-north-star.md);
+2. [Camoufox-first decision](camoufox-managed-engine-decision.md);
+3. [Agent operating model](agent-operating-model.md);
+4. [Camoufox current status](camoufox-program-status.md);
+5. This document;
+6. [EngineAdapter current state](engine-adapters.md), [Host v1](camoufox-host-v1.md), and the [M2-W Gate](camoufox-m2w-windows.md).
 
-原始候选 `bc65e07fbc21ee8581b3ac60c91afd15d0effa20` 未通过主脑审阅，不能作为
-accepted checkpoint。执行 Agent 以追加提交 `fc67418b946c2f82f69e13ec5751cff24f3f1e7f`、
-`b50765986c7da0bf081ff0a9057dc38073813311` 和最终
-`e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd` 关闭了 package/browser tree 分离、
-secret 持久化扫描和真实 `RuntimeManager` fake Host 垂直切片等缺口。主脑逐项对照
-冻结合同并做了小型只读接缝核对，接受最终 checkpoint；没有重跑完整测试矩阵。
+## Gate result
 
-Accepted evidence 是 contract-level fake Host 测试与提交绑定，不包含真实浏览器 run-id：
+The original candidate `bc65e07fbc21ee8581b3ac60c91afd15d0effa20` did not pass the lead
+agent's review and cannot be used as the accepted checkpoint. The execution agent closed the
+gaps (the package/browser tree separation, the secret persistence scan, and the real
+`RuntimeManager` fake Host vertical slice) with the follow-up commits
+`fc67418b946c2f82f69e13ec5751cff24f3f1e7f`,
+`b50765986c7da0bf081ff0a9057dc38073813311`, and the final
+`e96ef3ff3d2a43a46fd39b5e90029aad3e1faccd`. The lead agent checked each item against the
+frozen contract and did a small read-only seam check, and accepted the final checkpoint. The
+full test matrix was not rerun.
 
-- `pnpm check`、`pnpm build`、`pnpm engine:verify` 通过；`pnpm test` 为 `150` tests；
-- Desktop `cargo test --locked` 为 `184 passed / 0 failed`，fmt 与 clippy 通过；
-- Artifact 锁定环境测试为 `25/25`；
-- production signer pin 仍未配置并保持 fail-closed；
-- Host evidence 仍为 `observed-on-this-host`、`verified: false`，`verifiedAdapter = null`。
+The accepted evidence is contract-level fake Host tests and commit binding. It contains no
+real-browser run ID:
 
-本 Gate 只接受 package/transport/lifecycle/evidence 合同。它没有启动真实 Camoufox，
-没有证明签名 Host package、发布 runtime、installer 或 shipped Managed Identity。
-后继任务是 [M3-WI 原生 Windows 真实 Host 集成](camoufox-m3-wi-windows-task.md)。
+- `pnpm check`, `pnpm build`, and `pnpm engine:verify` passed; `pnpm test` ran `150` tests.
+- Desktop `cargo test --locked` gave `184 passed / 0 failed`, and fmt and clippy passed.
+- Artifact-locked environment tests: `25/25`.
+- The production signer pin is still not configured and stays fail-closed.
+- Host evidence is still `observed-on-this-host`, `verified: false`, and `verifiedAdapter = null`.
 
-## 角色与任务边界
+This Gate accepts only the package/transport/lifecycle/evidence contract. It did not launch
+a real Camoufox. It did not prove a signed Host package, a published runtime, an installer,
+or a shipped Managed Identity. The follow-up task is
+[M3-WI native Windows real Host integration](camoufox-m3-wi-windows-task.md).
 
-你是本阶段的**执行 Agent**，不是重新决定项目方向的主脑。你的职责是在冻结范围内检查真实代码、实现、测试、提交并返回证据包；不得把 M3-0 扩张为 UI、安装器、网络身份、发布签名或另一个浏览器内核项目。
+## Role and task boundary
 
-基线不匹配、任务要求彼此冲突，或必须修改禁止范围才能继续时，停止并向主脑报告。不要为了“看起来完成”而降低 Gate、伪造 receipt，或把 `configured`、`applied`、`observed` 和 `verified` 合并。
+You are the **execution agent** for this phase, not the lead agent who re-decides the project
+direction. Your job is to inspect the real code within the frozen scope, implement, test,
+commit, and return an evidence package. Do not expand M3-0 into UI, an installer, network
+identity, release signing, or another browser-engine project.
 
-## 当前真实差距
+If the baseline does not match, the task requirements conflict with each other, or you would
+have to change the forbidden scope to continue, stop and report to the lead agent. Do not lower
+the Gate, forge a receipt, or merge `configured`, `applied`, `observed`, and `verified` just to
+"look finished".
 
-仓库现有两套协议不能直接视为已经兼容：
+## Current real gap
 
-- 桌面 external-engine 路径把新启动的子进程视为受控引擎，向 stdin 写一次 length-prefixed bootstrap，随后从 stdout 读取 ACK 和有序 phase receipt。
-- standalone Camoufox Host v1 是长期存活的双向 JSON Lines 控制进程，支持 `hello/launch/status/close/shutdown`；`launch` 只接受 `artifactId/profileId/expectedArtifactFileSha256`。
-- external package schema v2 把 `bin/camoufox.exe` 当成浏览器原始可执行文件，只绑定该文件；它没有定义 Host entrypoint、Host/runtime 树或浏览器树的包级绑定。
-- 当前 Camoufox Silo 配置保存通用 `IdentityTemplate`，尚未保存 Artifact 文件的明确 ID + raw SHA 绑定。真实重放权威却是 v3 Resolved Identity Artifact。
+The two existing protocols in the repository cannot be assumed to be compatible:
 
-M3-0 的目的不是用命名或适配器包装掩盖这些差距，而是形成一个窄、严格、可测试的桌面集成接缝。
+- The desktop external-engine path treats a newly started child process as a controlled
+  engine. It writes one length-prefixed bootstrap to stdin and then reads an ACK and ordered
+  phase receipts from stdout.
+- The standalone Camoufox Host v1 is a long-lived bidirectional JSON Lines control process
+  that supports `hello/launch/status/close/shutdown`. `launch` accepts only
+  `artifactId/profileId/expectedArtifactFileSha256`.
+- External package schema v2 treats `bin/camoufox.exe` as the raw browser executable and
+  binds only that file. It defines no Host entrypoint, no Host/runtime tree, and no
+  package-level binding for the browser tree.
+- The current Camoufox Silo configuration stores a generic `IdentityTemplate`. It does not
+  yet store an explicit ID + raw SHA binding for an Artifact file. The real replay authority
+  is the v3 Resolved Identity Artifact.
 
-## 核心目标
+The purpose of M3-0 is not to hide these gaps behind naming or an adapter wrapper. It is to
+form a narrow, strict, testable desktop integration seam.
 
-交付一个**不启动真实 Camoufox 的 contract-level 垂直切片**：现有 Tauri `RuntimeManager` 能通过专用、受界定的 transport 驱动一个 fake Camoufox Host v1，完成包重新验证、严格 `hello`、Artifact-bound `launch`、`status`、精确 `close/shutdown`、失败映射和诚实 capability/evidence 状态。
+## Core goal
 
-M3-0 通过只开放后续原生 Windows M3-WI 集成 Gate；它本身不证明真实桌面 Camoufox 已接入，更不构成可发布 Managed Identity Silo。
+Deliver a **contract-level vertical slice that does not launch a real Camoufox**: the existing
+Tauri `RuntimeManager` can drive a fake Camoufox Host v1 over a dedicated, bounded transport. It
+completes package re-verification, a strict `hello`, an Artifact-bound `launch`, `status`,
+exact `close/shutdown`, failure mapping, and honest capability/evidence status.
 
-## 已冻结的架构选择
+Passing M3-0 only opens the later native Windows M3-WI integration Gate. It does not prove
+that a real desktop Camoufox is connected, and it is not a releasable Managed Identity Silo.
 
-### 1. Host 是 Camoufox package entrypoint
+## Frozen architecture choices
 
-- Camoufox package entrypoint 是 VeriSilo 管理的 Host，不是浏览器树中的 `camoufox.exe`。
-- 一个活动 Camoufox Silo 对应一个由桌面精确启动和持有的 Host 子进程；Host 再拥有浏览器 Job/process tree。
-- 不增加常驻全局 daemon，不共享不同 Silo 的 Host，不通过端口发现或进程名猜测接管旧进程。
-- Controlled Chromium 的现有 native bootstrap/receipt v1 路径保持原样。
+### 1. The Host is the Camoufox package entrypoint
 
-### 2. 为 Host 使用独立 transport，不伪造 generic receipt
+- The Camoufox package entrypoint is the Host managed by VeriSilo, not the `camoufox.exe` in
+  the browser tree.
+- One active Camoufox Silo corresponds to one Host child process that the desktop starts and
+  holds exactly. The Host in turn owns the browser Job/process tree.
+- Do not add a resident global daemon. Do not share a Host across different Silos. Do not take
+  over an old process by port discovery or by guessing from the process name.
+- The existing native bootstrap/receipt v1 path of Controlled Chromium stays unchanged.
 
-在 Rust launch plan / runtime 中增加显式 transport discriminant，至少区分：
+### 2. Use a separate transport for the Host, and do not forge a generic receipt
 
-- stock / 无受控协议；
-- 既有 `native-bootstrap-v1`；
-- `camoufox-host-jsonl-v1`。
+Add an explicit transport discriminant to the Rust launch plan / runtime. It must at least
+distinguish:
 
-Camoufox transport 必须直接实现 Host v1 的 bounded JSON Lines 请求/响应、严格 request ID 关联、单一 stdout reader、超时和 EOF 处理。禁止把 Host `launch` 结果伪造成它没有发送的 `observe → apply → verify` receipt，也禁止让两种 framing 共用同一模糊解析器。
+- stock / no controlled protocol;
+- the existing `native-bootstrap-v1`;
+- `camoufox-host-jsonl-v1`.
 
-### 3. Artifact 是 Camoufox 身份权威
+The Camoufox transport must directly implement the Host v1 bounded JSON Lines
+request/response, strict request ID correlation, a single stdout reader, timeouts, and EOF
+handling. It is forbidden to forge a Host `launch` result into an
+`observe → apply → verify` receipt that the Host did not send. It is also forbidden to let the
+two framings share one ambiguous parser.
 
-引入严格的 `CamoufoxArtifactBindingV1`（命名可按仓库惯例调整，但语义不可改变），至少包含：
+### 3. The Artifact is the Camoufox identity authority
 
-- `artifactId`；
-- 64-hex `artifactFileSha256`；
-- 固定 Artifact schema `verisilo-camoufox-resolved-identity/v3`。
+Introduce a strict `CamoufoxArtifactBindingV1` (the name may follow repository convention, but
+the semantics must not change). It must contain at least:
 
-该绑定必须持久化在 Camoufox Silo 的 engine 配置中；旧的无绑定 Camoufox 配置可以继续反序列化，但启动必须以明确的 `identity_artifact_unavailable` 类错误 fail closed，不能在启动时临时生成、猜测或选择 Artifact。
+- `artifactId`;
+- a 64-hex `artifactFileSha256`;
+- the fixed Artifact schema `verisilo-camoufox-resolved-identity/v3`.
 
-过渡期保留的 `IdentityTemplate` 只能作为旧控制面声明，不能成为 Host 重放权威，不能发送给浏览器，也不能单独把 capability 提升为 `applied` 或 `verified`。不得修改 Artifact v3、Policy v3、Projection v3 或 ObservedWebsiteDigest v2 的 schema、canonicalization 和 digest 规则。
+This binding must be persisted in the engine configuration of the Camoufox Silo. An old
+Camoufox configuration without the binding may still deserialize, but launching must fail
+closed with an explicit `identity_artifact_unavailable`-class error. It must not generate,
+guess, or select an Artifact on the fly at launch time.
 
-Desktop 从应用拥有的固定根目录解析 artifact/profile/state/tree 路径；Silo/API/页面不得提供任意路径。`profileId` 必须由 Silo ID 确定性派生。Host `launch` 仍只接收 ID 与 expected SHA。
+The `IdentityTemplate` kept for the transition period may only serve as a declaration of the
+old control plane. It cannot become the Host replay authority, cannot be sent to the browser,
+and cannot by itself raise a capability to `applied` or `verified`. Do not modify the schema,
+canonicalization, or digest rules of Artifact v3, Policy v3, Projection v3, or
+ObservedWebsiteDigest v2.
 
-### 4. 不把 Silo seed 或代理秘密送入 Host
+The desktop resolves artifact/profile/state/tree paths from fixed roots that the application
+owns. The Silo, the API, and the page must not supply arbitrary paths. `profileId` must be
+derived deterministically from the Silo ID. Host `launch` still receives only the ID and the
+expected SHA.
 
-Camoufox Host transport 不使用现有 Vault seed 派生 token 作为身份输入。Silo seed、Artifact 内部 seed、代理密码、Controller secret 和 bearer token 均不得出现在 Host/browser argv、日志或 protocol evidence 中。
+### 4. Do not send the Silo seed or proxy secrets into the Host
 
-现有短 token bootstrap 继续服务于 `native-bootstrap-v1`，不得为了复用代码而把它塞入 Camoufox Artifact 重放链路。
+The Camoufox Host transport does not use the existing Vault-seed-derived token as an identity
+input. The Silo seed, the Artifact's internal seed, proxy passwords, the Controller secret,
+and bearer tokens must not appear in Host/browser argv, logs, or protocol evidence.
 
-### 5. 版本化 Host package contract
+The existing short-token bootstrap continues to serve `native-bootstrap-v1`. Do not push it
+into the Camoufox Artifact replay chain for the sake of code reuse.
 
-为 Camoufox Host 定义新的严格 package manifest 版本；不能静默重解释 schema v2 的 `bin/camoufox.exe`。新 manifest 至少要绑定：
+### 5. Versioned Host package contract
 
-- `entrypoint.kind = camoufox-host-v1`；
-- 固定 Host entrypoint 相对路径；
-- Host protocol `verisilo-camoufox-host/v1`；
-- entrypoint SHA-256；
-- package tree manifest 的相对路径和 SHA-256；
-- engine/version/platform/channel、capability 声明和现有 CMS signer policy。
+Define a new, strict package manifest version for the Camoufox Host. Do not silently
+reinterpret the `bin/camoufox.exe` of schema v2. The new manifest must bind at least:
 
-CMS canonical payload 必须覆盖新增绑定。loader 必须逐层拒绝 traversal、未知/重复字段、symlink/reparse point、缺失/多余/变更的 tree member，以及 schema/engine/entrypoint 组合错误。
+- `entrypoint.kind = camoufox-host-v1`;
+- a fixed relative path for the Host entrypoint;
+- Host protocol `verisilo-camoufox-host/v1`;
+- the entrypoint SHA-256;
+- the relative path and SHA-256 of the package tree manifest;
+- engine/version/platform/channel, the capability declarations, and the existing CMS signer
+  policy.
 
-schema v2 的 Controlled Chromium 行为保持兼容；schema v2 Camoufox package 必须以明确的 unsupported entrypoint/schema 错误拒绝。M3-0 只使用 fake/test package，不加入发布 signer pin，不绕过 production verifier，也不提交真实浏览器 archive、Python runtime 或私钥。
+The CMS canonical payload must cover the new bindings. The loader must reject, layer by layer:
+traversal, unknown/duplicate fields, symlinks/reparse points, missing/extra/changed tree
+members, and wrong schema/engine/entrypoint combinations.
 
-### 6. 诚实映射运行证据
+The Controlled Chromium behavior of schema v2 stays compatible. A schema v2 Camoufox package
+must be rejected with an explicit unsupported entrypoint/schema error. M3-0 uses only
+fake/test packages. It adds no release signer pin, does not bypass the production verifier,
+and commits no real browser archive, Python runtime, or private key.
 
-固定启动顺序：
+### 6. Map runtime evidence honestly
+
+Fixed launch order:
 
 ```text
 reverify signed package contract
 → spawn exact Host child with typed argv
-→ hello（校验 protocol/host version/platform/asset/tree binding）
-→ launch（artifactId/profileId/raw SHA）
-→ 校验 response binding 与 state=running
-→ RuntimeManager 进入 Running
+→ hello (validate protocol/host version/platform/asset/tree binding)
+→ launch (artifactId/profileId/raw SHA)
+→ validate response binding and state=running
+→ RuntimeManager enters Running
 ```
 
-Host 当前返回 `verified: false` / `observed-on-this-host`。因此：
+The Host currently returns `verified: false` / `observed-on-this-host`. Therefore:
 
-- 可以记录 exact child、package verification、Artifact raw SHA 和 Host launch response；
-- `launchedAdapter` 可以是 Camoufox；
-- `verifiedAdapter` 必须保持空；
-- Host launch evidence 最多映射为 `applied` / `observed`，不能映射为 `verified`；
-- `runtimeReceipts` 不得标记为 generic phase receipt 已验证；
-- TLS ClientHello、QUIC、Canvas 稳定身份、managed fonts、跨主机复现保持 `unavailable` 或未验证；
-- `site_fallback` 在 Host v1 没有真实实现，Camoufox fallback rules 必须为空并显式 unavailable；
-- M3-0 不接代理，Camoufox 只允许 Direct network policy；required proxy 在 spawn 前失败，`launch_network` 保持 unavailable。
+- The exact child, the package verification, the Artifact raw SHA, and the Host launch
+  response may be recorded.
+- `launchedAdapter` may be Camoufox.
+- `verifiedAdapter` must stay empty.
+- Host launch evidence maps to `applied` / `observed` at most. It cannot map to `verified`.
+- `runtimeReceipts` must not be marked as a verified generic phase receipt.
+- TLS ClientHello, QUIC, Canvas stable identity, managed fonts, and cross-host reproduction
+  stay `unavailable` or unverified.
+- `site_fallback` has no real implementation in Host v1. The Camoufox fallback rules must be
+  empty and explicitly unavailable.
+- M3-0 does not connect a proxy. Camoufox allows only a Direct network policy. A required
+  proxy fails before spawn, and `launch_network` stays unavailable.
 
-若现有 capability model 无法表达 `observed`，优先把能力保守留在 `applied` 并把来源写入 bounded evidence；不要为了本任务扩大整个公共 capability enum。任何公共 contract version bump 都必须有兼容测试和明确迁移，不能顺手发生。
+If the existing capability model cannot express `observed`, prefer keeping the capability
+conservatively at `applied` and writing the source into bounded evidence. Do not widen the
+whole public capability enum for this task. Any public contract version bump must have
+compatibility tests and an explicit migration. It must not happen as a side effect.
 
-### 7. 生命周期必须使用 Host 所有权
+### 7. Lifecycle must use Host ownership
 
-- Desktop 持有 Host stdin/stdout 与 exact child handle；不得通过 PID 枚举或名称匹配关闭进程。
-- watchdog/status 通过有界 `status` 请求更新状态；错误 ID、超时、malformed response、Host EOF/exit 都 fail closed，不能回退 stock。
-- 对活动 Camoufox Silo，现有 `stop_silo` 可以发送 `close`，等待 `state=exited`、`processTreeExit.exited=true`，再发送 `shutdown` 并等待 exact Host child；Stock Chrome/Edge 的“用户自行关闭窗口”语义不变。
-- `quarantined`、`profile_quarantined` 或未确认全树退出必须进入 `VerificationFailed` / `RecoveryRequired`，保留边界信息，不能标记 `Stopped` 或释放为可安全重用。
-- Host 崩溃、桌面关闭和 stdin EOF 的清理语义必须由 fake-host 反例覆盖；M2-W 已验证的 Job Object/锁逻辑不得弱化。
+- The desktop holds the Host stdin/stdout and the exact child handle. It must not close a
+  process by PID enumeration or name matching.
+- The watchdog/status updates state through bounded `status` requests. A wrong ID, a timeout,
+  a malformed response, and Host EOF/exit all fail closed and cannot fall back to stock.
+- For an active Camoufox Silo, the existing `stop_silo` may send `close`, wait for
+  `state=exited` and `processTreeExit.exited=true`, then send `shutdown` and wait for the exact
+  Host child. The Stock Chrome/Edge semantics "the user closes the window themselves" are
+  unchanged.
+- `quarantined`, `profile_quarantined`, or an unconfirmed full-tree exit must enter
+  `VerificationFailed` / `RecoveryRequired`. Keep the boundary information. Do not mark it
+  `Stopped` or release it as safe to reuse.
+- The cleanup semantics for a Host crash, desktop shutdown, and stdin EOF must be covered by
+  fake-host counterexamples. The Job Object/lock logic already verified in M2-W must not be
+  weakened.
 
-## 允许修改
+## Allowed modifications
 
-- `packages/contracts/src/engine.ts` 及其测试、由仓库脚本生成的对应 dist；
-- `apps/desktop/src-tauri/src/engine.rs`、`launcher.rs`、`domain.rs`、`lib.rs` 及定向测试；
-- `apps/desktop/src-tauri/resources/engine-package*.json` 与 source verifier；
-- 新的测试专用 fake Host / package fixture；
-- `apps/camoufox-host/host_v1.py` 的最小、向后兼容协议字段或测试修正，仅在 Desktop 无法从现有 response 建立必需绑定时；
-- 与真实实现一致的 `docs/engine-adapters.md`、本任务卡和状态页。
+- `packages/contracts/src/engine.ts` and its tests, plus the corresponding dist generated by
+  repository scripts;
+- `apps/desktop/src-tauri/src/engine.rs`, `launcher.rs`, `domain.rs`, `lib.rs`, and targeted
+  tests;
+- `apps/desktop/src-tauri/resources/engine-package*.json` and the source verifier;
+- a new test-only fake Host / package fixture;
+- `apps/camoufox-host/host_v1.py`: minimal, backward-compatible protocol fields or test
+  fixes, only when the desktop cannot establish a required binding from the existing response;
+- `docs/engine-adapters.md`, this task card, and the status page, consistent with the real
+  implementation.
 
-TypeScript UI 只允许为既有模型编译所需的中性适配；不得新增界面、入口、营销文案或让用户选择尚不可运行的 Camoufox package。
+TypeScript UI is allowed only the neutral adaptation needed to compile the existing model. Do
+not add an interface, an entry point, marketing copy, or a way for users to choose a Camoufox
+package that cannot yet run.
 
-## 禁止修改或提前实现
+## Forbidden to modify or implement early
 
-- Artifact/Policy/Projection/ObservedWebsiteDigest schema 与 accepted fixture/evidence manifest；
-- M2-W 的 Job Object、文件锁、reparse point 和 tree-verification 保证；
-- Managed Identity 生成 UI、安装器、自动下载、更新服务、发布签名基础设施；
-- 代理注入、网络地区联动、site fallback、扩展生态、TLS/QUIC；
-- Controlled Chromium、WSL、Hyper-V、VMware、Remote；
-- 真实 Camoufox/Python archive、私钥、Token、seed 或代理秘密；
-- 把 `verified: false` 改成 `true`，或把 fake-host 测试写成真实浏览器证据。
+- The Artifact/Policy/Projection/ObservedWebsiteDigest schemas and the accepted
+  fixtures/evidence manifests;
+- The M2-W Job Object, file lock, reparse point, and tree-verification guarantees;
+- Managed Identity generation UI, the installer, automatic download, the update service, and
+  release-signing infrastructure;
+- Proxy injection, network-region linkage, site fallback, the extension ecosystem, TLS/QUIC;
+- Controlled Chromium, WSL, Hyper-V, VMware, Remote;
+- Real Camoufox/Python archives, private keys, tokens, seeds, or proxy secrets;
+- Changing `verified: false` to `true`, or writing fake-host tests up as real browser evidence.
 
-## 验收矩阵
+## Acceptance matrix
 
 ### Contract / package
 
-1. Camoufox Artifact binding 严格拒绝空 ID、错误 schema、bool/非字符串 SHA、非 64-hex、未知字段和缺失字段。
-2. package 新版本严格拒绝错误 entrypoint/protocol、tree manifest digest、路径穿越、link/reparse、缺失/多余/篡改 member、重复/未知字段。
-3. schema v2 Controlled Chromium 继续通过；schema v2 Camoufox 明确拒绝。
-4. 生产 verifier 无 signer pin 时仍 fail closed；测试不得新增隐藏 bypass。
+1. The Camoufox Artifact binding strictly rejects an empty ID, a wrong schema, a bool/non-string
+   SHA, a non-64-hex value, unknown fields, and missing fields.
+2. The new package version strictly rejects a wrong entrypoint/protocol, a tree manifest
+   digest mismatch, path traversal, link/reparse, missing/extra/tampered members, and
+   duplicate/unknown fields.
+3. Schema v2 Controlled Chromium keeps passing. Schema v2 Camoufox is explicitly rejected.
+4. The production verifier still fails closed without a signer pin. Tests must not add a hidden
+   bypass.
 
 ### Fake Host integration
 
-5. 正常 `hello → launch → status → close → shutdown` 完成，request ID、Artifact ID/raw SHA、profile ID 和 Host child 全程一致。
-6. `launch` 成功后 Runtime 为 Running，但 `verifiedAdapter` 为空，capability 不出现虚假的 `verified`。
-7. Artifact/SHA/profile response mismatch、错误 Host protocol/version/asset binding 在 Running 前拒绝。
-8. duplicate key、未知字段、无效 UTF-8、超长 frame、错序 response、重复/错误 ID、EOF、early exit 和 timeout 均有界失败。
-9. `profile_in_use`、`profile_quarantined`、`quarantined`、`processTreeExit.exited=false` 映射为不能接管/不能安全停止。
-10. 正常 close 只有在 Host 确认全树退出后才释放桌面 runtime/profile ownership；失败路径不误杀无关进程。
-11. Direct Camoufox 可形成 plan；required proxy、非空 fallback rules 在 Host spawn 前拒绝。
-12. argv/log/protocol snapshot 扫描不含 Vault seed、Artifact seed、token value 或代理秘密。
+5. The normal `hello → launch → status → close → shutdown` completes, and the request ID,
+   Artifact ID/raw SHA, profile ID, and Host child are consistent throughout.
+6. After a successful `launch` the Runtime is Running, but `verifiedAdapter` is empty and the
+   capability shows no false `verified`.
+7. An Artifact/SHA/profile response mismatch and a wrong Host protocol/version/asset binding
+   are rejected before Running.
+8. Duplicate keys, unknown fields, invalid UTF-8, an oversized frame, an out-of-order response,
+   a duplicate/wrong ID, EOF, early exit, and timeout all fail within bounds.
+9. `profile_in_use`, `profile_quarantined`, `quarantined`, and `processTreeExit.exited=false`
+   map to cannot take over / cannot stop safely.
+10. A normal close releases the desktop runtime/profile ownership only after the Host confirms
+    that the whole tree has exited. Failure paths do not kill unrelated processes.
+11. A Direct Camoufox can form a plan. A required proxy and non-empty fallback rules are
+    rejected before the Host spawn.
+12. The argv/log/protocol snapshot scan contains no Vault seed, Artifact seed, token value, or
+    proxy secret.
 
-### 回归
+### Regression
 
-13. Stock Chrome/Edge launch/stop 语义不变。
-14. Controlled Chromium native bootstrap、ACK、ordered receipt、site fallback 和 package schema v2 测试继续通过。
-15. Host v1 既有 standalone 单元/集成测试不因 M3-0 回退；无需重跑真实浏览器长测试。
+13. The Stock Chrome/Edge launch/stop semantics are unchanged.
+14. The Controlled Chromium native bootstrap, ACK, ordered receipt, site fallback, and package
+    schema v2 tests keep passing.
+15. The existing Host v1 standalone unit/integration tests do not regress because of M3-0. The
+    long real-browser tests need not be rerun.
 
-## 必跑验证
+## Required verification
 
-至少执行并报告：
+Run and report at least:
 
 ```bash
 pnpm check
@@ -214,30 +309,43 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-如当前 Linux 无法完成 Windows-only verifier 路径，必须由既有 GitHub Windows CI 覆盖并给出 check URL；不得用 Linux/WSL 冒充原生 Windows M3-WI。
+If the current Linux cannot complete the Windows-only verifier path, the existing GitHub
+Windows CI must cover it and you must give the check URL. Do not use Linux/WSL to stand in for
+native Windows M3-WI.
 
-## 停止条件
+## Stop conditions
 
-出现任一情况即停止并退回主脑，不得自行扩大：
+Stop and return to the lead agent on any of the following. Do not expand on your own:
 
-- 必须改变 Artifact v3 或 M2-W accepted evidence 才能集成；
-- 无法在不弱化 Controlled Chromium v1 或 production verifier 的前提下加入 Host transport；
-- 需要真实 signer、发布 runtime、浏览器 archive、UI/安装器或代理才能让 contract tests 成立；
-- 发现 generic receipt 与 Host evidence 无法诚实映射，且需要新的跨产品 evidence schema 决策；
-- 需要删除、重写或重生成 M0–M2-W accepted 历史。
+- Integration would require changing Artifact v3 or the M2-W accepted evidence.
+- The Host transport cannot be added without weakening Controlled Chromium v1 or the
+  production verifier.
+- A real signer, a published runtime, a browser archive, UI/installer, or a proxy would be
+  needed for the contract tests to hold.
+- The generic receipt and the Host evidence cannot be mapped honestly, and a new cross-product
+  evidence schema decision would be needed.
+- It would be necessary to delete, rewrite, or regenerate the accepted M0–M2-W history.
 
-## 交付与结果包
+## Delivery and result package
 
-执行 Agent 最终必须返回：
+The execution agent must finally return:
 
-1. 起始 commit、平台、分支与结束 commit；
-2. 逐项 1–15 验收结果；
-3. transport、Artifact binding、package v3、生命周期和 evidence 映射的关键实现说明；
-4. 修改文件清单和明确的禁止范围 diff 结论；
-5. 实际测试命令、计数、GitHub checks 与失败后修复记录；
-6. fake Host 证据位置，以及 malformed/timeout/quarantine/secret-scan 反例；
-7. 工作树、残留进程、外部副作用与是否 push/开 PR；
-8. 未验证边界和 M3-WI 所需真实 Windows 任务输入；
-9. 执行结论只能是 `passed`、`failed` 或 `blocked`，不得自行宣布 M3 或产品 Gate 通过。
+1. The starting commit, platform, branch, and ending commit;
+2. The acceptance result for each of items 1–15;
+3. Key implementation notes on the transport, Artifact binding, package v3, lifecycle, and
+   evidence mapping;
+4. The list of modified files and an explicit conclusion on the diff against the forbidden
+   scope;
+5. The test commands actually run, the counts, the GitHub checks, and the repair record after
+   failures;
+6. The location of the fake Host evidence, and the malformed/timeout/quarantine/secret-scan
+   counterexamples;
+7. The worktree, leftover processes, external side effects, and whether anything was pushed
+   or a PR opened;
+8. The unverified boundaries and the real Windows task inputs that M3-WI needs;
+9. The execution conclusion may only be `passed`, `failed`, or `blocked`. Do not declare on
+   your own that M3 or a product Gate has passed.
 
-主脑收到结果后按[成本受控审阅协议](agent-operating-model.md)作 Gate 判断，不会默认重做整个执行任务。
+After receiving the result, the lead agent makes the Gate decision under the
+[cost-controlled review protocol](agent-operating-model.md) and does not redo the whole
+execution task by default.

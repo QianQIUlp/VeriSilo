@@ -1,117 +1,120 @@
-# Standard Silo Windows 可运行垂直切片
+# Standard Silo Windows runnable vertical slice
 
-> **Historical task record.** 本文冻结 Standard Silo Profile Isolation 的专项 preview 结果，
-> 不代表当前全局阶段或下一任务；当前产品路由见 [Camoufox 状态页](camoufox-program-status.md)。
+> Translated from the original Chinese on 2026-11-10. The original text is in Git history at commit 1cf0f29. For historical evidence, the original wording governs if the two differ.
 
-状态：**已完成并冻结**。Profile Isolation Windows local Preview 在
+> **Historical task record.** This document freezes the dedicated preview result for Standard Silo
+> Profile Isolation. It does not represent the current global phase or the next task. For current
+> product routing, see the [Camoufox status page](camoufox-program-status.md).
+
+Status: **completed and frozen**. The Profile Isolation Windows local Preview passed at
 `aa72eadaf8300d1cd33a2c32173c06e3e677ca89` / tree
-`cd126770be02a33c6bb698853813512748b894c8` 通过。
+`cd126770be02a33c6bb698853813512748b894c8`.
 
-## 收口状态
+## Closure status
 
-- 当前交付是 unsigned local Preview，不是签名 installer 或 shipped release。
-- 已在原生 Windows Server 验证；正常 Windows 10/11 client release matrix 尚待补充。
-- 能力边界停在独立 Profile、网站状态持久化、单活 ownership 与本机 Chrome/Edge
-  生命周期；不包含 Managed Identity、指纹虚拟化、代理隔离或整机虚拟化。
-- Camoufox 继续在独立 Managed Engine 工作树调查，不属于本产品线集成。
-- Profile 隔离层现已冻结；除真实回归缺陷外不继续扩张。
+- The current deliverable is an unsigned local Preview. It is not a signed installer or a shipped release.
+- It has been verified on native Windows Server. The normal Windows 10/11 client release matrix is still to be added.
+- The capability boundary stops at separate Profile, website-state persistence, single-active ownership and the local Chrome/Edge
+  lifecycle. It does not include Managed Identity, fingerprint virtualization, proxy isolation or whole-machine virtualization.
+- Camoufox continues to be investigated in the separate Managed Engine worktree. It is not part of this product line's integration.
+- The Profile isolation layer is now frozen. It is not expanded further except for real regression defects.
 
-## 目标
+## Goal
 
-让普通用户在原生 Windows 上不理解 EngineAdapter、WSL、代理或 Profile 目录，也能
-完成一条最短 Standard Silo 旅程：
+Let an ordinary user on native Windows, without understanding EngineAdapter, WSL, proxies or Profile directories,
+complete the shortest Standard Silo journey:
 
 ```text
-初始化 Vault
-→ 使用自动发现的 Chrome 或 Edge
-→ 创建 Local + Direct Standard Silo
-→ 启动独立 Profile
-→ 用户关闭浏览器
-→ 桌面端回到空闲
-→ 再次启动同一 Silo，并保留该 Profile 的状态
+Initialize Vault
+→ Use the auto-discovered Chrome or Edge
+→ Create a Local + Direct Standard Silo
+→ Start the separate Profile
+→ User closes the browser
+→ Desktop returns to idle
+→ Start the same Silo again, and the state of that Profile is kept
 ```
 
-本任务优化现有产品路径，不创建新的浏览器后端。Standard 只声明独立 Profile、登录
-状态和本地生命周期；硬件与浏览器指纹继续写成 `native`、`inherit` 或
-`unavailable`。
+This task optimizes the existing product path. It does not create a new browser backend. Standard declares only separate Profile, login
+state and local lifecycle. Hardware and browser fingerprints continue to be written as `native`, `inherit` or
+`unavailable`.
 
-## 产品结果
+## Product results
 
-1. “创建 Silo”的默认主路径是 Windows 本机、Direct 和一个已自动发现的系统浏览器；
-   用户只需命名并确认即可创建。
-2. WSL、代理、手工浏览器路径和其他高级配置不占据默认主路径；现有能力可以放在
-   明确的高级入口中，但后端语义不得改变。
-3. 主路径和 Silo 卡片明确说明：网站数据与登录状态独立，设备/浏览器指纹仍跟随
-   本机；不得使用“受控身份”“指纹隔离”或 `verified` 误导 Standard 用户。
-4. 启动后清楚提示用户关闭该 Silo 的浏览器窗口即可停止；桌面端核对真实进程与
-   Profile lock 后回到空闲，不提供会误杀日常浏览器的“强制停止”按钮。
-5. 产出一个可本机运行的 unsigned desktop-only Windows preview。它不是签名发布包，
-   不得称为正式 installer 或 shipped 产品。
+1. The default main path of “创建 Silo” ("Create Silo") is native Windows, Direct and one auto-discovered system browser.
+   The user only needs to name the Silo and confirm to create it.
+2. WSL, proxy, manual browser path and other advanced configuration do not take the default main path. Existing capabilities can sit behind
+   an explicit advanced entry, but the backend semantics must not change.
+3. The main path and the Silo card state clearly that website data and login state are independent, and that device and browser fingerprints still follow
+   the local machine. Do not use “受控身份” ("controlled identity"), “指纹隔离” ("fingerprint isolation") or `verified` in a way that misleads Standard users.
+4. After launch, clearly tell the user that closing that Silo's browser window stops it. The desktop checks the real process and
+   Profile lock and then returns to idle. It does not offer a “强制停止” ("Force stop") button that could kill the everyday browser by mistake.
+5. Produce a locally runnable unsigned desktop-only Windows preview. It is not a signed release package
+   and must not be called an official installer or a shipped product.
 
-## 允许范围
+## Allowed scope
 
-- `apps/desktop/src/**` 的 Standard Silo 首次创建、概览、状态和诚实文案；
-- `apps/desktop/src-tauri/src/**` 中仅与 stock Chrome/Edge、Vault、独立 Profile 和本地
-  生命周期直接相关的最小修复；
-- 既有 desktop tests、`windows_acceptance_driver.rs`、
-  `tests/windows/Invoke-VeriSiloWindowsE2E.ps1` 和 session-site fixture 的必要复用；
-- 本任务文档、现有人工验收指南的同步。
+- The Standard Silo first-time creation, overview, status and honest copy in `apps/desktop/src/**`;
+- Minimal fixes in `apps/desktop/src-tauri/src/**` that relate directly to stock Chrome/Edge, Vault, separate Profile and local
+  lifecycle only;
+- Necessary reuse of existing desktop tests, `windows_acceptance_driver.rs`,
+  `tests/windows/Invoke-VeriSiloWindowsE2E.ps1` and the session-site fixture;
+- Synchronizing this task document and the existing manual acceptance guide.
 
-先运行和理解现有路径，只修复实际阻断或完成上述明确产品结果；不得为了“有改动”而
-重写已成立的代码。
+First run and understand the existing path. Fix only what actually blocks, or what completes the explicit product results above. Do not
+rewrite working code just to show there were changes.
 
-## 禁止范围
+## Forbidden scope
 
-- 不修改 `apps/camoufox-host/**`、Camoufox/Controlled Chromium adapter、Managed
-  Artifact 或任何 M0–M3 evidence；
-- 不实现或扩张代理、Mihomo、PAC、WSL、Remote、Sandbox、Hyper-V 或安装签名；
-- 不增加 production dependency，不修改公开协议或数据语义；
-- 不新建 runner、freezer、finalizer、evidence schema 或多层 manifest；
-- 不接触、删除或迁移用户现有 VeriSilo、Chrome、Edge 数据；不关闭用户日常浏览器。
+- Do not modify `apps/camoufox-host/**`, the Camoufox/Controlled Chromium adapter, a Managed
+  Artifact or any M0–M3 evidence;
+- Do not implement or expand proxy, Mihomo, PAC, WSL, Remote, Sandbox, Hyper-V or installer signing;
+- Do not add a production dependency, and do not change the public protocol or data semantics;
+- Do not create a new runner, freezer, finalizer, evidence schema or multi-layer manifest;
+- Do not touch, delete or migrate the user's existing VeriSilo, Chrome or Edge data. Do not close the user's everyday browser.
 
-## 环境与安全
+## Environment and safety
 
-- 原生交互式 Windows；使用当前原始 checkout，不创建 worktree；
-- 起点必须是主脑派发的 clean checkpoint；发现任何非本任务改动立即停止；
-- 所有自动化 app data、Profile、报告和 session fixture 都位于唯一的临时/任务目录；
-- 启动 preview 时用 run-owned `LOCALAPPDATA` 隔离真实 `%LOCALAPPDATA%\VeriSilo`；
-- 只使用已安装且自动发现的 Chrome 或 Edge；至少一个可用即可，不安装新浏览器；
-- 不使用真实账号、口令、Cookie、代理秘密或真实业务网站。
+- Native interactive Windows. Use the current original checkout and do not create a worktree.
+- The starting point must be a clean checkpoint dispatched by the lead agent. Stop immediately if any change not belonging to this task is found.
+- All automation app data, Profiles, reports and session fixtures live in a single temporary or task directory.
+- When starting the preview, use a run-owned `LOCALAPPDATA` to isolate the real `%LOCALAPPDATA%\VeriSilo`.
+- Use only an installed and auto-discovered Chrome or Edge. At least one available is enough. Do not install a new browser.
+- Do not use real accounts, passphrases, Cookies, proxy secrets or real business websites.
 
-## 验收
+## Acceptance
 
-执行 Agent 只运行一次最终候选验收，不为单项失败挑选历史绿色结果：
+The execution agent runs the final candidate acceptance only once. It does not pick historical green results to cover a single failure:
 
-1. UI/contract tests 证明默认主路径为 Local + Direct + 自动发现浏览器，高级配置需
-   显式展开，Standard 边界文案存在。
-2. 复用现有 Windows desktop-core acceptance driver，在 run-owned root 上通过真实
-   Vault、Silo 创建、独立 `user-data-dir`、stock launch、Profile lock、单活拒绝和
-   精确进程恢复。
-3. 复用现有 Windows browser E2E 的一个已安装浏览器单元，确认 A/B Profile 隔离，
-   Cookie/localStorage/IndexedDB 跨冷启动保留，默认 Profile 未改动。缺少第二种浏览器
-   不阻断本切片。
-4. 构建 unsigned desktop-only Tauri preview；用 run-owned `LOCALAPPDATA` 启动真实
-   executable，确认窗口进程可启动且无立即崩溃。完整点击旅程若没有可靠桌面自动化，
-   必须明确交回人工 smoke，不得伪造成自动通过。
-5. 最终只运行一次常规 `pnpm check`、`pnpm test`、`pnpm build`，以及 desktop Rust
-   fmt/test/clippy；复用仓库锁定依赖，不更新 lockfile。
-6. 结束时工作树 clean，无测试 Chrome/Edge、fixture、Tauri 或编译进程残留；用户日常
-   浏览器和默认 Profile 未被操作。
+1. UI/contract tests prove that the default main path is Local + Direct + auto-discovered browser, that advanced configuration needs
+   explicit expansion, and that the Standard boundary copy exists.
+2. Reuse the existing Windows desktop-core acceptance driver. On a run-owned root, pass through a real
+   Vault, Silo creation, separate `user-data-dir`, stock launch, Profile lock, single-active rejection and
+   exact process recovery.
+3. Reuse one installed-browser unit of the existing Windows browser E2E to confirm A/B Profile isolation,
+   Cookie/localStorage/IndexedDB retention across cold starts, and an unchanged default Profile. A missing second browser
+   does not block this slice.
+4. Build an unsigned desktop-only Tauri preview. Start the real executable with a run-owned `LOCALAPPDATA`
+   and confirm the window process can start with no immediate crash. If there is no reliable desktop automation for the full click journey,
+   hand it back explicitly for a manual smoke test. Do not fake it as an automatic pass.
+5. At the end, run the regular `pnpm check`, `pnpm test`, `pnpm build` only once, and the desktop Rust
+   fmt/test/clippy. Reuse the repository's locked dependencies and do not update the lockfile.
+6. At the end the worktree is clean, and no test Chrome/Edge, fixture, Tauri or build process remains. The user's everyday
+   browser and default Profile were not operated.
 
-机器可读结果复用现有 acceptance receipt/summary；本任务只返回一个简短执行摘要和
-preview 路径，不创建新的证据供应链。
+The machine-readable result reuses the existing acceptance receipt/summary. This task returns only a short execution summary and the
+preview path. It does not create a new evidence supply chain.
 
-## 停止条件
+## Stop conditions
 
-- 需要修改 Managed Engine、网络后端、发布签名、公共协议或新增 production dependency；
-- 只能通过关闭用户日常浏览器、读取真实 Vault/Profile 或放宽安全边界才能继续；
-- 真实 stock browser 或桌面 core 暴露 Profile 串用、默认 Profile 修改、误杀无关进程；
-- 同一最终候选的核心旅程失败。失败时保留现场并返回主脑，不拆分新的子 Gate。
+- Changing the Managed Engine, network backend, release signing or public protocol, or adding a production dependency, becomes necessary;
+- The only way to continue is to close the user's everyday browser, read a real Vault/Profile, or relax a security boundary;
+- A real stock browser or the desktop core exposes Profile cross-use, a default Profile modification, or a wrongly killed unrelated process;
+- The core journey of the same final candidate fails. On failure, keep the environment as it was left and return to the lead agent. Do not split a new sub-Gate.
 
-## 交付
+## Delivery
 
-- `passed`、`failed` 或 `blocked`，不得自行宣布产品 Accepted；
-- 起点、最终 commit/tree、修改文件和工作树；
-- 用户路径的实际变化与边界文案；
-- desktop-core receipt、Windows browser summary、preview executable/NSIS 路径；
-- 常规验证计数、未完成的人工 smoke、残留进程与禁止范围核对。
+- `passed`, `failed` or `blocked`. Do not declare the product Accepted yourself;
+- The starting point, the final commit/tree, the modified files and the worktree;
+- The actual change to the user path and the boundary copy;
+- The desktop-core receipt, the Windows browser summary, and the preview executable / NSIS path;
+- Regular validation counts, the manual smoke test not completed, and a check of residual processes and the forbidden scope.

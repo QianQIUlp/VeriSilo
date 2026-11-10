@@ -1,94 +1,94 @@
 # VeriSilo Companion data-flow inventory
 
-- 状态：**商店披露的机械事实基线**
-- 生成：2026-08-15，基于 `main@45bfea1` 的 extension 源码逐项核对
-- 用途：Chrome Web Store / Edge Add-ons 隐私表单与隐私政策的唯一事实来源。任何 "local only"、"no data collected" 表述必须能被下表覆盖。
+- Status: **mechanical fact baseline for store disclosure**
+- Generated: 2026-08-15, checked item by item against the extension source at `main@45bfea1`
+- Purpose: the only source of truth for the Chrome Web Store / Edge Add-ons privacy form and the privacy policy. Any "local only" or "no data collected" statement must be covered by the tables below.
 
-## 1. 触发模型
+## 1. Trigger model
 
-没有任何自动运行的数据收集。全部动作由用户在 side panel 中显式触发：
+No data collection runs automatically. The user triggers every action explicitly in the side panel:
 
-| 动作                                          | 触发方式                                            | 是否默认发生 |
-| --------------------------------------------- | --------------------------------------------------- | ------------ |
-| 页面扫描（observation）                       | 用户在目标网页点击工具栏图标打开侧栏 → 点 Scan      | 否           |
-| MAIN-world 观察                               | 扫描的一部分（`executeScript`，best-effort）        | 否，随扫描   |
-| Network Check                                 | 用户点击 → 授权 optional host permission → 点击确认 | 否           |
-| Labs 网页泄漏实验                             | 用户显式开启                                        | 否           |
-| Privacy controls（WebRTC/network prediction） | 用户显式开启，可恢复                                | 否           |
-| 报告导出（JSON/HTML）                         | 用户点击导出并确认                                  | 否           |
-| 打开项目页                                    | 用户点击 desktop project 按钮                       | 否           |
+| Action                                       | How it is triggered                                                                          | Happens by default |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------ |
+| Page scan (observation)                      | The user clicks the toolbar icon on the target web page to open the side panel → clicks Scan | No                 |
+| MAIN-world observation                       | Part of the scan (`executeScript`, best-effort)                                              | No, runs with scan |
+| Network Check                                | The user clicks → grants an optional host permission → clicks to confirm                     | No                 |
+| Labs web leak experiment                     | The user turns it on explicitly                                                              | No                 |
+| Privacy controls (WebRTC/network prediction) | The user turns it on explicitly; restorable                                                  | No                 |
+| Report export (JSON/HTML)                    | The user clicks export and confirms                                                          | No                 |
+| Open project page                            | The user clicks the desktop project button                                                   | No                 |
 
-## 2. 页面扫描读取的信号（`content.ts` 的 `collect` 清单）
+## 2. Signals read by the page scan (the `collect` list in `content.ts`)
 
-全部读取发生在当前用户主动扫描的那一个标签页，且只读不改：
+All reads happen in the single tab the user actively scans, and are read-only:
 
-| 信号组                           | 内容                                                                                        | 敏感级 | 稳定级  |
-| -------------------------------- | ------------------------------------------------------------------------------------------- | ------ | ------- |
-| `navigator`                      | userAgent、platform、language、languages、hardwareConcurrency、deviceMemory、maxTouchPoints | medium | stable  |
-| `ua_ch`                          | User-Agent Client Hints                                                                     | medium | stable  |
-| `timezone`                       | `Intl` 解析的时区                                                                           | medium | stable  |
-| `screen`                         | 屏幕尺寸、avail 尺寸、色深                                                                  | medium | session |
-| `canvas_hash`                    | Canvas 指纹摘要                                                                             | high   | session |
-| `webgl`                          | WebGL renderer/vendor 摘要                                                                  | high   | session |
-| `webgpu`                         | WebGPU 摘要                                                                                 | high   | session |
-| `audio`                          | AudioContext 指纹摘要                                                                       | high   | session |
-| `fonts`                          | 字体枚举摘要                                                                                | high   | session |
-| `media_devices`                  | 设备枚举摘要                                                                                | high   | session |
-| `permissions`                    | 站点权限状态摘要                                                                            | medium | session |
-| `storage`                        | `cookiesEnabled` 等存储状态                                                                 | medium | session |
-| `webrtc`                         | WebRTC 摘要                                                                                 | high   | session |
-| `window_iframe`                  | iframe 上下文观察                                                                           | medium | session |
-| `dedicated_worker`               | Dedicated Worker 自测                                                                       | medium | session |
-| `main_world_navigator_untrusted` | 页面可见的 navigator（显式标注 `page_observable_untrusted`）                                | medium | stable  |
+| Signal group                     | Content                                                                                     | Sensitivity | Stability |
+| -------------------------------- | ------------------------------------------------------------------------------------------- | ----------- | --------- |
+| `navigator`                      | userAgent, platform, language, languages, hardwareConcurrency, deviceMemory, maxTouchPoints | medium      | stable    |
+| `ua_ch`                          | User-Agent Client Hints                                                                     | medium      | stable    |
+| `timezone`                       | Time zone resolved by `Intl`                                                                | medium      | stable    |
+| `screen`                         | Screen size, avail size, color depth                                                        | medium      | session   |
+| `canvas_hash`                    | Canvas fingerprint digest                                                                   | high        | session   |
+| `webgl`                          | WebGL renderer/vendor digest                                                                | high        | session   |
+| `webgpu`                         | WebGPU digest                                                                               | high        | session   |
+| `audio`                          | AudioContext fingerprint digest                                                             | high        | session   |
+| `fonts`                          | Font enumeration digest                                                                     | high        | session   |
+| `media_devices`                  | Device enumeration digest                                                                   | high        | session   |
+| `permissions`                    | Site permission state digest                                                                | medium      | session   |
+| `storage`                        | Storage state such as `cookiesEnabled`                                                      | medium      | session   |
+| `webrtc`                         | WebRTC digest                                                                               | high        | session   |
+| `window_iframe`                  | iframe context observation                                                                  | medium      | session   |
+| `dedicated_worker`               | Dedicated Worker self-test                                                                  | medium      | session   |
+| `main_world_navigator_untrusted` | Page-visible navigator (explicitly labeled `page_observable_untrusted`)                     | medium      | stable    |
 
-**不读取**：Cookie 值、LocalStorage/IndexedDB 内容、网页正文、表单输入、密码、浏览历史。
+**Not read**: Cookie values, LocalStorage/IndexedDB contents, page body text, form input, passwords, browsing history.
 
-## 3. 数据存放位置（全部本机）
+## 3. Where data is stored (all local)
 
-| 存储                     | 内容                                                            | 保留策略                               | 访问限制                                     |
-| ------------------------ | --------------------------------------------------------------- | -------------------------------------- | -------------------------------------------- |
-| 内存（content script）   | 当前扫描中的信号                                                | 页面导航/关闭即失                      | 页面隔离世界                                 |
-| `chrome.storage.session` | 当前报告（`report:<tabId>`）、Network Check 结果与 handoff 状态 | session 生命周期；UI 有清除按钮        | `setAccessLevel("TRUSTED_CONTEXTS")`         |
-| `chrome.storage.local`   | 最多 20 份脱敏历史报告（`saved-report:*`，无痕模式不保存）      | 30 天 TTL，写入前裁剪                  | `setAccessLevel("TRUSTED_CONTEXTS")`，不同步 |
-| 扩展外（桌面端 Vault）   | 用户提交的 Network Check 结果                                   | 见 `docs/store-disclosure.md` 第 10 条 | 仅当 Vault 解锁且 Silo 匹配                  |
+| Storage                               | Content                                                                              | Retention policy                            | Access restriction                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------- | ---------------------------------------------------- |
+| Memory (content script)               | Signals of the scan in progress                                                      | Lost on page navigation or close            | Page isolated world                                  |
+| `chrome.storage.session`              | Current report (`report:<tabId>`), Network Check result and handoff state            | Session lifetime; the UI has a clear button | `setAccessLevel("TRUSTED_CONTEXTS")`                 |
+| `chrome.storage.local`                | Up to 20 redacted historical reports (`saved-report:*`, not saved in incognito mode) | 30-day TTL, trimmed before writing          | `setAccessLevel("TRUSTED_CONTEXTS")`, not synced     |
+| Outside the extension (desktop Vault) | Network Check results submitted by the user                                          | See item 10 of `docs/store-disclosure.md`   | Only when the Vault is unlocked and the Silo matches |
 
-## 4. 网络请求（仅 Network Check，用户触发）
+## 4. Network requests (Network Check only, user-triggered)
 
-| Endpoint                                                                                    | 请求                                              | 发送内容                        | 收到的内容                | 保留                           |
-| ------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------- | ------------------------- | ------------------------------ |
-| `https://ipwho.is/`                                                                         | GET，`credentials: omit`，`no-referrer`，10s 超时 | 无请求体；第三方看到请求来源 IP | 出口 IP/地理位置/ASN JSON | 存入 `storage.session`，可清除 |
-| `https://api.ipify.org?format=json`                                                         | GET，仅主服务不可用时作为出口 IP fallback         | 同上                            | 出口 IP JSON              | 同上                           |
-| `https://api.ip.sb/geoip`                                                                   | GET，仅主服务不可用时作为出口 IP fallback         | 同上                            | 出口 IP/地理位置 JSON     | 同上                           |
-| `https://cloudflare-dns.com/dns-query?name=example.com&type=A&do=true`                      | GET，`Accept: application/dns-json`               | 同上                            | 固定域名 A 记录           | 同上                           |
-| `https://dns.google/resolve?name=example.com&type=A&do=true&edns_client_subnet=0.0.0.0%2F0` | GET                                               | 同上                            | 固定域名 A 记录           | 同上                           |
+| Endpoint                                                                                    | Request                                                              | What is sent                                        | What is received                 | Retention                                   |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------- | -------------------------------- | ------------------------------------------- |
+| `https://ipwho.is/`                                                                         | GET, `credentials: omit`, `no-referrer`, 10s timeout                 | No request body; the third party sees the source IP | Exit IP / geolocation / ASN JSON | Stored in `storage.session`, can be cleared |
+| `https://api.ipify.org?format=json`                                                         | GET, exit IP fallback used only when the main service is unavailable | Same as above                                       | Exit IP JSON                     | Same as above                               |
+| `https://api.ip.sb/geoip`                                                                   | GET, exit IP fallback used only when the main service is unavailable | Same as above                                       | Exit IP / geolocation JSON       | Same as above                               |
+| `https://cloudflare-dns.com/dns-query?name=example.com&type=A&do=true`                      | GET, `Accept: application/dns-json`                                  | Same as above                                       | A record of a fixed domain       | Same as above                               |
+| `https://dns.google/resolve?name=example.com&type=A&do=true&edns_client_subnet=0.0.0.0%2F0` | GET                                                                  | Same as above                                       | A record of a fixed domain       | Same as above                               |
 
-- 请求绝不自动发出；授权 optional host permission 之后仍需用户确认才发。
-- 响应限制 64 KiB，JSON 解析后构建结果。
-- 五个域名（ipwho.is / api.ipify.org / api.ip.sb / cloudflare-dns.com / dns.google）之外无任何网络调用（bundle gate 逐 URL 校验）。
-- 打开项目页导航到 `https://github.com/QianQIUlp/VeriSilo`（`packages/contracts/src/product.ts`）。
+- A request is never sent automatically. After the optional host permission is granted, the user must still confirm before it is sent.
+- Responses are limited to 64 KiB, and the result is built after JSON parsing.
+- There are no network calls outside the five domains (ipwho.is / api.ipify.org / api.ip.sb / cloudflare-dns.com / dns.google). The bundle gate checks each URL.
+- Opening the project page navigates to `https://github.com/QianQIUlp/VeriSilo` (`packages/contracts/src/product.ts`).
 
-## 5. Native Messaging（`io.verisilo.host`）
+## 5. Native Messaging (`io.verisilo.host`)
 
-仅当本机装有 VeriSilo 桌面端且 Host 已注册时可用；失败一律降级为 `local_only`，不影响扩展使用。
+Available only when the VeriSilo desktop is installed on this machine and the Host is registered. Any failure degrades to `local_only` and does not affect use of the extension.
 
-| 消息                      | 载荷                                                                       | 方向                                            |
-| ------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
-| `get_runtime_status`      | `protocolVersion`、`requestId`（UUID）                                     | 扩展 → Host → 返回脱敏快照（45s 过期）          |
-| `submit_network_evidence` | `siloId`、`runtimeId`、`networkCheck`（刚产生的本地结果）、`coverage` 声明 | 扩展 → Host（临时 inbox，16 KiB/32 条/10 分钟） |
-| `open_desktop`            | 无参数                                                                     | 扩展 → Host → 唤醒 `verisilo.exe`               |
+| Message                   | Payload                                                                                        | Direction                                                            |
+| ------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `get_runtime_status`      | `protocolVersion`, `requestId` (UUID)                                                          | Extension → Host → returns a redacted snapshot (expires in 45s)      |
+| `submit_network_evidence` | `siloId`, `runtimeId`, `networkCheck` (the local result just produced), `coverage` declaration | Extension → Host (temporary inbox, 16 KiB / 32 entries / 10 minutes) |
+| `open_desktop`            | No parameters                                                                                  | Extension → Host → wakes `verisilo.exe`                              |
 
-**永不发送**：Cookie、LocalStorage/IndexedDB、凭据、浏览历史、完整 observation report、Vault 密钥。快照不含消息、代理标签、Silo 元数据和浏览器自有数据（见 `docs/architecture.md` 第 58 行）。
+**Never sent**: Cookies, LocalStorage/IndexedDB, credentials, browsing history, the full observation report, Vault keys. The snapshot contains no messages, proxy labels, Silo metadata or browser-owned data (see line 58 of `docs/architecture.md`).
 
-## 6. 导出（用户触发）
+## 6. Export (user-triggered)
 
-JSON/HTML 导出默认脱敏高敏感信号值（`report-export.ts` 的 `redactObservationReport`）；文件名含 reportId。
+JSON/HTML export redacts high-sensitivity signal values by default (`redactObservationReport` in `report-export.ts`). The file name contains the reportId.
 
-## 7. 商店问题映射
+## 7. Mapping to store questions
 
-| 商店问题         | 答案依据                                                                                  |
-| ---------------- | ----------------------------------------------------------------------------------------- |
-| 收集什么数据     | 第 2 节信号清单；全部经用户触发的扫描                                                     |
-| 数据是否离开本机 | 仅 Network Check 的三个请求（第 4 节）与可选的原生桥接（第 5 节）；observation 数据不上传 |
-| 远程代码         | 无。bundle gate 校验无 `eval`/`new Function`/动态 `import`                                |
-| 是否出售/共享    | 否。无任何 VeriSilo 服务器                                                                |
-| 保留与删除       | 第 3 节；用户可随时清除 session 结果与本地历史                                            |
+| Store question              | Basis for the answer                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| What data is collected      | The signal list in section 2; all through a user-triggered scan                                                                |
+| Does data leave the machine | Only the three Network Check requests (section 4) and the optional native bridge (section 5). Observation data is not uploaded |
+| Remote code                 | None. The bundle gate verifies there is no `eval`, `new Function` or dynamic `import`                                          |
+| Sold or shared              | No. There is no VeriSilo server                                                                                                |
+| Retention and deletion      | Section 3. The user can clear session results and local history at any time                                                    |

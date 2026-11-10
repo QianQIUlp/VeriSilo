@@ -518,7 +518,8 @@ function deriveAttributionRow(
 /** Derives the compact "current session" summary for an active Managed
  * Identity Silo from existing runtime evidence. This is a structured
  * summary, not a verification score: every row restates what the current
- * evidence contract already records, and "当前未发现异常" is not "全部已验证". */
+ * evidence contract already records, and "当前未发现异常" ("no problem found so far")
+ * is not "全部已验证" ("all verified"). */
 export function deriveCurrentSessionSummary(input: {
   silo: Silo;
   activation: RuntimeActivation;

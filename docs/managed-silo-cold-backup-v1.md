@@ -1,42 +1,42 @@
-# Managed Silo 冷备份与原身份恢复 v1
+# Managed Silo cold backup and original-identity restore v1
 
-本轮目标：补齐长期身份资产的恢复链，让一个已停止的本地 Managed Silo 连同浏览器持久数据、原始身份制品、引擎绑定和必要网络配置一起恢复，且不影响另一个 Silo。起点为 `7b0a65dfd444582d6f9459f695f0417ab209480b`；实现与验收状态以本轮 QA 记录为准。
+Goal of this round: complete the recovery chain for long-lived identity assets. A stopped local Managed Silo is restored together with its persistent browser data, original identity artifact, engine binding and required network configuration, without affecting another Silo. The starting point is `7b0a65dfd444582d6f9459f695f0417ab209480b`. The QA record of this round governs implementation and acceptance status.
 
-## 范围与决策
+## Scope and decisions
 
-- 同一台 Windows、同一系统用户、同一 Vault 路径，恢复现有同 UUID/种子的原身份。Profile 丢失可以恢复；Silo 元数据也被删除时，先恢复已有 Vault 配置备份。
-- 冷备份要求浏览器停止且 Profile 占用解除。独立备份密码保护归档，Windows 用户保护和身份绑定限制恢复范围；Vault 口令轮换不应使冷备份失效。
-- 完整范围是 Profile 持久文件、原始 Artifact、身份/引擎绑定和必要配置/网络秘密；不打包引擎可执行文件，也不保存可复用的当前运行证据。
-- 恢复前检查备份并显示覆盖范围；确认绑定到检查所得归档摘要。后端重新校验，安全暂存后替换，普通失败和进程中断都必须保住原数据或留下可恢复的明确状态。
-- 缺失网络秘密、不兼容引擎、错误密码、损坏输入、活动 Profile、路径越界和身份冲突必须在破坏原数据之前拒绝。不能偷偷直连。
-- 历史运行记录仍为历史；恢复后必须重新启动取得当前证据。服务器撤销的登录状态不在恢复保证之内。
+- Restore the existing original identity with the same UUID and seed on the same Windows machine, the same system user and the same Vault path. A lost Profile can be restored. If the Silo metadata is also deleted, first restore the existing Vault configuration backup.
+- A cold backup requires the browser to be stopped and the Profile lock released. A separate backup password protects the archive. Windows user protection and the identity binding limit the restore scope. Rotating the Vault passphrase should not invalidate a cold backup.
+- The full scope is the Profile persistent files, the original Artifact, the identity/engine binding and the required configuration and network secrets. It does not package the engine executable and does not save reusable current-run evidence.
+- Before restore, inspect the backup and show its coverage. The confirmation is bound to the archive digest obtained by the inspection. The backend validates again, stages safely, then replaces. An ordinary failure or a process interruption must keep the original data or leave a clear recoverable state.
+- Missing network secrets, an incompatible engine, a wrong password, corrupt input, an active Profile, a path escape and an identity conflict must be rejected before the original data is damaged. It must not quietly connect directly.
+- Historical run records remain historical. After restore, the Silo must be started again to obtain current evidence. Login state revoked by a server is outside the restore guarantee.
 
-现有 Vault 备份仍只备份配置。新功能增强 Identity Integrity、Execution Integrity、Network Integrity 与 Attribution，不扩大指纹声明或声称更强反检测效果。
+The existing Vault backup still backs up only configuration. The new feature strengthens Identity Integrity, Execution Integrity, Network Integrity and Attribution. It does not widen any fingerprint claim or claim stronger anti-detection.
 
-Managed 运行实际使用 `silos/<UUID>/profiles/`，不能仅复制 Silo 元数据中的 `browser-data` 占位路径。运行态 `engine-state` 与可重新物化的 `identity` 缓存不应恢复为当前状态；原始 Artifact 来自加密 Vault 记录。
+A Managed run actually uses `silos/<UUID>/profiles/`. It is not enough to copy the `browser-data` placeholder path in the Silo metadata. The run-time `engine-state` and the re-materializable `identity` cache should not be restored as current state. The original Artifact comes from the encrypted Vault record.
 
-Windows 用户与机器限制必须同时成立。[Microsoft DPAPI 文档](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)指出漫游用户配置可能跨机器解密 CurrentUser 数据，因此归档密钥使用用户保护与机器保护两层包装；单独使用机器保护也不能替代用户限制。
+The Windows user and machine restrictions must both hold. The [Microsoft DPAPI documentation](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata) notes that a roaming user profile may decrypt CurrentUser data across machines. The archive key is therefore wrapped in two layers, user protection and machine protection. Machine protection alone also cannot replace the user restriction.
 
-## 验收与停止条件
+## Acceptance and stop conditions
 
-在独立开发 Vault 中创建 A/B，向本地测试站写入不同 Cookie、LocalStorage 和 IndexedDB。停止 A 后备份，改变其数据，再恢复并真实启动读回备份时的状态；确认 UUID、原始 Artifact 和绑定保持，B 不受影响。用现有 focused tests 覆盖错误密码、损坏备份、活动占用、不兼容输入及失败回滚。UI Preview 检查选择、检查摘要、确认覆盖、错误和秘密清理，不代替 runtime evidence。
+In a separate development Vault, create A and B and write different Cookies, LocalStorage and IndexedDB to a local test site. Stop A and back it up, change its data, then restore and actually start it, reading back the state at backup time. Confirm that the UUID, original Artifact and bindings are kept and that B is unaffected. Use the existing focused tests to cover a wrong password, a corrupt backup, an active lock, incompatible input and failure rollback. The UI Preview checks selection, the inspection summary, overwrite confirmation, errors and secret cleanup. It does not replace Runtime Evidence.
 
-共享 DTO 变化按 integration 工作流执行完整自动化矩阵。真实运行使用现有固定引擎和 CLI/真实 backend；不重建内核、不做 RC、installer、生产打包或发布验收。开发 branch/baseline 发布与产品 release 分开。
+A change to a shared DTO runs the full automated matrix under the integration workflow. The real run uses the existing pinned engine and the CLI with the real backend. It does not rebuild the core, and does not do RC, installer, production packaging or release acceptance. Publishing the development branch/baseline is separate from a product release.
 
-完成以恢复用户动作和必要失败保护得到直接证据为准，不能仅凭提交、测试通过或构建完成关闭目标。遇到缺少必要访问/授权时保留未完成项；工具故障不无限接管任务。
+Completion is judged by direct evidence of the user's restore action and the required failure protection. A commit, passing tests or a finished build cannot close the goal alone. If required access or authorization is missing, keep the item open. A tool failure does not make the task take over indefinitely.
 
-## 使用入口
+## Entry points
 
-停止目标 Managed Silo 后，在「保险库与数据」的 Managed Silo 冷备份区域选择身份、备份文件路径和独立备份口令。恢复时先检查文件，核对原身份、引擎和数据范围，再明确确认覆盖；恢复完成后重新启动取得当前运行证据。
+After stopping the target Managed Silo, go to the Managed Silo cold backup area in 「保险库与数据」 ("Vault and Data") and choose the identity, the backup file path and a separate backup passphrase. To restore, first inspect the file and check the original identity, engine and data scope, then explicitly confirm the overwrite. After the restore completes, start it again to obtain current Runtime Evidence.
 
-CLI 同样提供 `backup <名称或id> <路径>`、`backup-inspect <名称或id> <路径>` 和 `backup-restore <名称或id> <路径> --sha256 <检查所得摘要> --yes`。口令通过隐藏输入或标准输入传入，不放入命令参数。备份文件必须是新路径；已有文件不会被静默覆盖。
+The CLI also provides `backup <name-or-id> <path>`, `backup-inspect <name-or-id> <path>` and `backup-restore <name-or-id> <path> --sha256 <inspected-digest> --yes`. The passphrase is passed through hidden input or standard input and is not put in command arguments. The backup file must be a new path. An existing file is not silently overwritten.
 
-本轮自动化、UI Preview 与原生浏览器恢复结果及各自边界见[验收记录](qa/managed-cold-backup-2026-09-28.md)。
+For the results of automation, UI Preview and native browser restore in this round, and the boundary of each, see the [acceptance record](qa/managed-cold-backup-2026-09-28.md).
 
-## 本轮执行约束
+## Execution constraints for this round
 
-1. 每项工作对应具体产品问题或必要不确定性，直接继承有效成果与证据。
-2. 每轮修复跟随最低充分验证，优先现有工具。
-3. 没有新证据或新假设，不重复昂贵构建、安装和验收。
-4. 历史 Sandbox 不是默认续接点，不自动开启 RC 或生产发布流程。
-5. 必要产品工作未完成时保持目标开放；有限并发与后续维护阶段不自动纳入本轮。
+1. Each piece of work maps to a concrete product problem or a necessary uncertainty, and directly inherits valid results and evidence.
+2. Each repair is followed by the lowest sufficient validation, preferring existing tools.
+3. Without new evidence or a new hypothesis, do not repeat expensive builds, installs and acceptance.
+4. A historical Sandbox is not the default point to resume from, and RC or production release flows are not opened automatically.
+5. While necessary product work is incomplete, keep the goal open. Limited concurrency and later maintenance phases are not automatically included in this round.

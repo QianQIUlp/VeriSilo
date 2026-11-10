@@ -55,7 +55,7 @@ so ordinary site state remains available. A second Silo uses a different
 Profile and identity seed.
 
 Closing the VeriSilo window keeps it available in the Windows notification
-area. To end the Desktop process, choose **退出 VeriSilo** from the tray menu.
+area. To end the Desktop process, choose **退出 VeriSilo** ("Quit VeriSilo") from the tray menu.
 If a Managed Silo is active, VeriSilo first confirms the Host and browser tree
 closed cleanly; a failed or timed-out cleanup cancels exit and reopens the main
 window with the retained failure state.

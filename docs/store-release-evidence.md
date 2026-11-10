@@ -1,49 +1,51 @@
 # VeriSilo Companion Store RC 0.2.11 evidence
 
-- 状态：**冻结证据页**
-- 冻结日期：2026-08-15
-- 用途：记录 Store Release Preparation 的唯一 RC 包、验证结果和已知边界。两个商店（Chrome Web Store、Edge Add-ons）只上传本页记录的同一份 ZIP。
+> Translated from the original Chinese on 2026-11-10. The original text is in Git history at commit 1cf0f29. For historical evidence, the original wording governs if the two differ.
 
-## 冻结对象
+- Status: **frozen evidence page**
+- Freeze date: 2026-08-15
+- Purpose: records the single RC package of Store Release Preparation, the verification results and the known boundaries. Both stores (Chrome Web Store, Edge Add-ons) upload only the one ZIP recorded on this page.
 
-| 项目                | 值                                                                                                      |
-| ------------------- | ------------------------------------------------------------------------------------------------------- |
-| 源码基线            | `main` @ `2f62e815700273f24e8cce429f251219e821efeb`（0.2.11 locale 修复）                               |
-| 构建环境            | fresh git worktree + `pnpm install --frozen-lockfile`；pnpm 11.17.0，Node 24.19.0                       |
-| `SOURCE_DATE_EPOCH` | `1786781541`（= `2f62e81` 的提交时间 2026-08-15T08:12:21Z）                                             |
-| 归档文件名          | `VeriSilo-Companion-0.2.11-chrome-edge.zip`                                                             |
-| 归档 SHA-256        | `3ab22f31eb5f37bcef9a37eb512ed273df90f4778ecc18b5c6d1c7e54408c76e`                                      |
-| 归档字节数          | `1018149`                                                                                               |
-| 文件数              | 21                                                                                                      |
-| 格式                | ZIP32 stored，字节排序，DOS 时间戳来自 `SOURCE_DATE_EPOCH`                                              |
-| Content manifest    | `artifacts/store-rc/extension-zip-manifest.json`（schema `urn:verisilo:deterministic-extension-zip:1`） |
-| 制品位置            | `artifacts/store-rc/`（gitignored，与仓库其他证据制品同样不在 git 内）                                  |
+## Frozen object
 
-0.2.11 相对 0.2.10 的唯一改动：把 background 硬编码中文错误文案加入双语词典（`ENGLISH_TEXT` 8 条 + `IP 出口` 动态模式），EN UI 不再出现中文错误 notice；版本号、bundle gate 版本与逐条配对检查同步更新。
+| Item                | Value                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| Source baseline     | `main` @ `2f62e815700273f24e8cce429f251219e821efeb` (0.2.11 locale fix)                                |
+| Build environment   | fresh git worktree + `pnpm install --frozen-lockfile`; pnpm 11.17.0, Node 24.19.0                      |
+| `SOURCE_DATE_EPOCH` | `1786781541` (= commit time of `2f62e81`, 2026-08-15T08:12:21Z)                                        |
+| Archive file name   | `VeriSilo-Companion-0.2.11-chrome-edge.zip`                                                            |
+| Archive SHA-256     | `3ab22f31eb5f37bcef9a37eb512ed273df90f4778ecc18b5c6d1c7e54408c76e`                                     |
+| Archive size, bytes | `1018149`                                                                                              |
+| File count          | 21                                                                                                     |
+| Format              | ZIP32 stored, byte-sorted, DOS timestamps taken from `SOURCE_DATE_EPOCH`                               |
+| Content manifest    | `artifacts/store-rc/extension-zip-manifest.json` (schema `urn:verisilo:deterministic-extension-zip:1`) |
+| Artifact location   | `artifacts/store-rc/` (gitignored, like the repository's other evidence artifacts, not in git)         |
 
-## 已作废的旧哈希
+The only change in 0.2.11 relative to 0.2.10: the hard-coded Chinese error texts in the background script were added to the bilingual dictionary (8 `ENGLISH_TEXT` entries + the dynamic pattern `IP 出口` ("IP exit")), so the EN UI no longer shows Chinese error notices. The version number, the bundle gate version and the item-by-item pairing check were updated in step.
 
-| 来源           | 值                                                                 | 处理                     |
-| -------------- | ------------------------------------------------------------------ | ------------------------ |
-| 0.2.10 冻结 RC | `29e5485d9c7abb2c3da92b03a7ce97771d87f653a1354c269a1eb80ef6c5471b` | **作废**，被 0.2.11 取代 |
-| PR #14 正文    | `01e18a35f641c928d92a98e46e94d643074ad54f128719e034021cabf2cbab7a` | **作废**，输入不可追溯   |
-| 用户记录       | `74eeae8f72b80bc85fb91f4e43c163419d1b0a21653d8dae9f17b9f87805fbd3` | **作废**，输入不可追溯   |
+## Superseded old hashes
 
-发布与 Native Host 配置只认 0.2.11 的 SHA-256。
+| Source           | Value                                                              | Disposition                         |
+| ---------------- | ------------------------------------------------------------------ | ----------------------------------- |
+| 0.2.10 frozen RC | `29e5485d9c7abb2c3da92b03a7ce97771d87f653a1354c269a1eb80ef6c5471b` | **Superseded**, replaced by 0.2.11  |
+| PR #14 body      | `01e18a35f641c928d92a98e46e94d643074ad54f128719e034021cabf2cbab7a` | **Superseded**, input not traceable |
+| User record      | `74eeae8f72b80bc85fb91f4e43c163419d1b0a21653d8dae9f17b9f87805fbd3` | **Superseded**, input not traceable |
 
-## 重建与验证记录
+Release and the Native Host configuration recognize only the SHA-256 of 0.2.11.
 
-在 fresh worktree（`main@2f62e81`，冻结 lockfile）执行：
+## Rebuild and verification record
+
+Run in a fresh worktree (`main@2f62e81`, frozen lockfile):
 
 ```text
-pnpm check                                    -> 通过（extension / desktop / site，0 errors）
-pnpm test                                     -> extension 12 files / 54 tests 通过；
-                                                 desktop 12 files / 53 tests 通过；
-                                                 session-fixture self-test 通过
-pnpm extension:build                          -> 通过（icons 校验 + esbuild bundle）
+pnpm check                                    -> passed (extension / desktop / site, 0 errors)
+pnpm test                                     -> extension 12 files / 54 tests passed;
+                                                 desktop 12 files / 53 tests passed;
+                                                 session-fixture self-test passed
+pnpm extension:build                          -> passed (icons check + esbuild bundle)
 pnpm extension:verify                         -> manifest / remote-code / disclosure /
-                                                 双语错误文案配对 gate 通过
-pnpm extension:package:self-test              -> 确定性 ZIP 自检通过
+                                                 bilingual error text pairing gate passed
+pnpm extension:package:self-test              -> deterministic ZIP self-check passed
 
 $env:SOURCE_DATE_EPOCH='1786781541'
 node scripts/package-extension-zip.mjs --input apps/extension/dist \
@@ -54,42 +56,42 @@ node scripts/package-extension-zip.mjs --input apps/extension/dist \
   --manifest artifacts/store-rc/extension-zip-manifest.json --check
 ```
 
-`--check` 重新打包后与写入字节逐字节一致，证明同输入同 epoch 可重现同一归档。
+After repackaging, `--check` matches the written bytes byte for byte. This shows that the same input and the same epoch reproduce the same archive.
 
-## 旁加载冒烟（解压归档后加载，直接验证商店 ZIP 内容）
+## Sideload smoke test (load after unpacking the archive, directly verifying the store ZIP content)
 
-- 浏览器与版本：Edge Stable `151.0.4129.86`（`--load-extension`）；Chrome Stable `151.0.7922.139`（品牌版已移除 `--load-extension`，改用 CDP `Extensions.loadUnpacked`）。
-- 方式：把归档解压到临时目录后加载，CDP 自动化驱动，独立临时 Profile（未触碰默认 Profile）。
-- 结果：**两个浏览器各 27/27 checks passed**。
+- Browsers and versions: Edge Stable `151.0.4129.86` (`--load-extension`); Chrome Stable `151.0.7922.139` (the branded build removed `--load-extension`, so CDP `Extensions.loadUnpacked` was used instead).
+- Method: unpack the archive into a temporary directory and load it, driven by CDP automation, with a separate temporary Profile (the default Profile was not touched).
+- Result: **27/27 checks passed in each of the two browsers**.
 
-| 检查类别                   | 结果                                                                                                                                                                                                                                         |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| manifest                   | MV3、version 0.2.11、permissions 精确集合 `storage/sidePanel/activeTab/nativeMessaging/scripting`、optional `privacy`、optional host `http(s)://*/*`、无永久 host permissions、`side_panel.default_path=sidepanel.html`、`default_locale=en` |
-| side panel UI              | EN 文案渲染；语言选择含 `en`+`zh-CN`；切到 `zh-CN` 渲染中文；tabs overview/isolation/labs/raw；scan 按钮存在；隔离面板存在                                                                                                                   |
-| dismiss 行为               | notice 初始隐藏；local pill 初始可见（Local only）；两者均可关闭；重开 side panel 后 pill 恢复                                                                                                                                               |
-| 无 activeTab 手势时的 scan | 优雅降级：显示可关闭的权限提示 notice，无崩溃                                                                                                                                                                                                |
-| **EN 错误文案修复**        | scan 权限 notice 在 EN 语言下显示 "The browser has not granted one-time access to the current page…"，不再出现中文                                                                                                                           |
-| service worker             | 存活；manifest 一致；`storage.local.setAccessLevel` API 可用（Chrome 的 SW 调试目标不暴露时改用消息往返验证）                                                                                                                                |
-| console                    | side panel 页面无 error/warning                                                                                                                                                                                                              |
+| Check category                    | Result                                                                                                                                                                                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| manifest                          | MV3, version 0.2.11, exact permissions set `storage/sidePanel/activeTab/nativeMessaging/scripting`, optional `privacy`, optional host `http(s)://*/*`, no permanent host permissions, `side_panel.default_path=sidepanel.html`, `default_locale=en` |
+| side panel UI                     | EN copy renders; the language selector contains `en`+`zh-CN`; switching to `zh-CN` renders Chinese; tabs overview/isolation/labs/raw; the scan button exists; the isolation panel exists                                                            |
+| dismiss behavior                  | The notice is initially hidden; the local pill is initially visible (Local only); both can be dismissed; the pill is restored after the side panel is reopened                                                                                      |
+| scan without an activeTab gesture | Graceful degradation: a dismissible permission notice is shown, no crash                                                                                                                                                                            |
+| **EN error text fix**             | With the EN language, the scan permission notice shows "The browser has not granted one-time access to the current page…", and Chinese no longer appears                                                                                            |
+| service worker                    | Alive; manifest consistent; the `storage.local.setAccessLevel` API is available (when Chrome does not expose the SW debug target, verification used a message round trip instead)                                                                   |
+| console                           | No error/warning on the side panel page                                                                                                                                                                                                             |
 
-冒烟用临时 ID `egnejcalcdjkfhdcjfdpohdjanpcjibh`（unpacked 路径派生，**不是**任何商店 ID）。冒烟脚本与运行日志保存在 `artifacts/store-rc/`（`chrome-smoke.log` / `edge-smoke.log`）。
+The smoke test used the temporary ID `egnejcalcdjkfhdcjfdpohdjanpcjibh` (derived from the unpacked path, **not** any store ID). The smoke scripts and run logs are kept in `artifacts/store-rc/` (`chrome-smoke.log` / `edge-smoke.log`).
 
-## 商店截图（已由账号持有人验收）
+## Store screenshots (accepted by the account holder)
 
-商店截图由 `scripts/capture-store-screenshots.mjs` 从解压后的 RC 重新捕获：左侧是明确标注的 `example.test` 示例网页构图，右侧是 RC 中实际加载的 Companion 面板；报告图使用合成的 `example.test` 脱敏夹具，不含真实用户数据。
+The store screenshots were recaptured from the unpacked RC by `scripts/capture-store-screenshots.mjs`. The left side is an explicitly labeled `example.test` example web page composition, and the right side is the Companion panel actually loaded in the RC. The report images use a synthetic, redacted `example.test` fixture and contain no real user data.
 
-最终素材为：
+The final assets are:
 
-- `assets/store/store-screenshot-1280x800-en-scan.png`：英文扫描入口；
-- `assets/store/store-screenshot-1280x800-zh-report.png`：简体中文扫描报告；
-- `assets/store/store-screenshot-1280x800-en-private-space.png`：英文临时隐私空间；
-- 对应的 `assets/store/store-screenshot-640x400-*.png`：同构图的 Chrome 兼容尺寸。
+- `assets/store/store-screenshot-1280x800-en-scan.png`: English scan entry;
+- `assets/store/store-screenshot-1280x800-zh-report.png`: Simplified Chinese scan report;
+- `assets/store/store-screenshot-1280x800-en-private-space.png`: English temporary private space;
+- the corresponding `assets/store/store-screenshot-640x400-*.png`: the same compositions at the size compatible with Chrome.
 
-截图验收：六张文件分别为精确的 `1280×800` / `640×400`；已目检确认示例网页、面板标题、按钮、语言和报告内容可读，没有滚动条、空白错误态或被截断的卡片作为主视觉；隐私空间图只保留完整的首屏能力边界。素材不宣称反检测、受控指纹或网络隔离能力。
+Screenshot acceptance: the six files are exactly `1280×800` / `640×400`. A visual check confirmed that the example web page, panel title, buttons, language and report content are readable, and that no scrollbar, blank error state or truncated card is used as the main visual. The private space image keeps only the complete first-screen capability boundary. The assets do not claim anti-detection, controlled fingerprint or network isolation capability.
 
-截图字节验收（SHA-256）：
+Screenshot byte acceptance (SHA-256):
 
-| 文件                                             | 字节数 | SHA-256                                                            |
+| File                                             |  Bytes | SHA-256                                                            |
 | ------------------------------------------------ | -----: | ------------------------------------------------------------------ |
 | `store-screenshot-1280x800-en-scan.png`          | 296577 | `08a95877e3af143df35c9bd59268197d22de2fa405ef98346dae9b03c9176000` |
 | `store-screenshot-1280x800-zh-report.png`        | 315382 | `52b12b595afb36087bbe68bd35c73d4047888b9ede75782c715a5179c40a9c2a` |
@@ -98,22 +100,22 @@ node scripts/package-extension-zip.mjs --input apps/extension/dist \
 | `store-screenshot-640x400-zh-report.png`         | 114054 | `0d7e22b5a50540be1b221bb5634909aeb36d89df729d409821c99bfead004685` |
 | `store-screenshot-640x400-en-private-space.png`  | 120914 | `8befc804810e09c4a0f98bfbaf76302351be7d9bb44894af1af3030ffdb77b18` |
 
-## 本机不可用项（不冒充已验证）
+## Items unavailable on this machine (not passed off as verified)
 
-| 项                    | 状态与替代                                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------------ |
-| Native Messaging 冒烟 | 本机无已构建的 `verisilo-native-host.exe` / 桌面端；`unavailable`。待 P6 拿到商店 ID 后按 runbook 验证 |
+| Item                   | Status and substitute                                                                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native Messaging smoke | This machine has no built `verisilo-native-host.exe` / desktop app: `unavailable`. To be verified per the runbook once P6 obtains the store IDs |
 
-## 已知缺陷
+## Known defects
 
-0.2.10 记录的硬编码中文错误文案缺陷已在 0.2.11 修复并冒烟验证。当前无已知阻断缺陷。
+The hard-coded Chinese error text defect recorded for 0.2.10 was fixed in 0.2.11 and verified by the smoke test. There is currently no known blocking defect.
 
-## 你的人工补验清单（有桌面端的机器或 P6 阶段）
+## Your manual follow-up verification checklist (on a machine with the desktop app, or in the P6 stage)
 
-1. 在真实网页点击工具栏图标打开侧栏 → 执行扫描 → 确认报告生成（本机自动化无法模拟工具栏手势）。
-2. 授权 optional host permission 后运行 Network Check，确认 ipwho.is / DoH 结果与本地降级路径（ipwho.is 不可用时 fallback 到 api.ipify.org / api.ip.sb）。
-3. 安装桌面端 + Native Host 后，确认 `Local only` 状态变为 Silo 绑定状态（P6 runbook）。
+1. On a real web page, click the toolbar icon to open the side panel → run a scan → confirm that a report is generated (automation on this machine cannot simulate the toolbar gesture).
+2. After granting the optional host permission, run the Network Check, and confirm the ipwho.is / DoH results and the local degradation path (when ipwho.is is unavailable, fall back to api.ipify.org / api.ip.sb).
+3. After installing the desktop app + Native Host, confirm that the `Local only` state changes to the Silo-bound state (P6 runbook).
 
-## 更新规则
+## Update rules
 
-任何代码、manifest、locale 或打包输入变化都产生新 SHA，必须重新走冻结流程并替换本页哈希；已作废哈希保留在表中供追溯。
+Any change to code, manifest, locale or packaging inputs produces a new SHA. The freeze process must be run again and the hashes on this page replaced. Superseded hashes stay in the table for traceability.
