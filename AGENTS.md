@@ -1,103 +1,71 @@
-# VeriSilo Agent routing
+# VeriSilo agent guide
 
-接到一个开发/QA/集成任务时，不要向用户索要 worktree、Vault、端口或 baseline：
-按 [Agent 任务路由工作流](docs/agent-task-routing.md) 自主完成 ——
-判定 lane（`ui` / `core` / `host` / `qa` / `integration`）→
-`node scripts/agent-task.mjs start --lane <lane> --task "<任务>"` 创建隔离任务工作区
-（脚本先 fetch/prune `origin`，并要求本地 `baseline/dev` 与 canonical
-`origin/baseline/dev` 精确相等）→ 在边界内修改 → `verify` + `check` 通过 → 提交并发布自己的 task branch。
-`check` 报两类不同问题：scope violation（worktree 内越界修改，exit 2）与
-WORKSPACE CONTAMINATION（主检出被污染，exit 3）。
-`origin/baseline/dev` 是 canonical development source；本地 `baseline/dev` 是其工作引用，
-正常状态必须精确相等。task/integration branch 完成 verify + check + commit 后按 exact refspec
-推送到 `origin`，fetch 后核对远端 SHA；禁止 force push、`git push --all` 和 `git push --mirror`。
-单 lane task 在「仍从当前 canonical baseline 分叉、baseline 未被推进、verify 已在当前 HEAD 通过、
-无 RESTRICTED/共享契约/越界改动、worktree clean 且 branch 已发布」时，可用
-`node scripts/agent-task.mjs promote` 直接 fast-forward 推进 canonical baseline；baseline 已被
-其他任务推进时返回 `PROMOTION_REQUIRES_INTEGRATION`，把 branch 交给 integration，不要自动
-merge/rebase。integration 合并多个已验证 task branch 时默认轻量验证（remote SHA/ancestry/merge/
-冲突/scope/`git diff --check` + 与本次 composition 直接相关的 focused tests），共享契约、
-lockfile、workflow/config、同 seam 多任务、冲突解决或 QA/RC 候选才用 `verify --full` 跑完整矩阵。
-baseline 只能由 integration `baseline advance`/`baseline publish`，或合格单 task 的 `promote`
-显式推进。
-`codex/camoufox-m3-engine-adapter` 保留为稳定主线，但不再是新 task 的 canonical development source。
-Lane 范围、修改边界与验证命令的唯一事实源是 [scripts/agent-task.mjs](scripts/agent-task.mjs) 顶部配置。
+VeriSilo is being built into a commercial-grade multi-profile fingerprint browser. This file tells an agent what to read, how to run a task, and which boundaries never move.
 
-任务拆分默认原则：
+## Language
 
-- **Implementation-authorized task**：用户已授权的修复按 `diagnose → minimal fix → focused
-  validation` 在 owning lane 单任务完成；不默认拆 `QA reproduction → fix task`。只有用户明确
-  要求独立 QA、ownership 仍未知且调查本身有价值、或需要独立 acceptance 时才用独立 QA task。
-- **Cross-layer feature**：天然横跨 Host/Core/UI/contracts 的 coherent product slice 用一个
-  integration task 实现并在完成后推进 baseline；不拆 `integration implementation → second
-  integration merge task`。
-- **Parallel batch**：并行 tasks 默认积累到一个自然 integration batch，不要求每个 task 完成
-  立刻推进 baseline。
+All agent-facing files are in English: this file, everything under `docs/`, code comments, and the messages printed by `scripts/agent-task.mjs`. Write new documents and comments in English. Product UI text stays as it is (mostly Chinese) until roadmap P2.1 adds the English and Chinese catalogs; when a document quotes a UI string, keep the original and add an English gloss.
 
-并行开发、工作树隔离或桌面结构调整的手工细节先读
-[模块边界与开发入口](docs/development-worktrees.md)，再读取实际 owning code/test。
+## What to read
 
-运行验证实例时用「足以验证当前修改的最低成本运行层级」（三档定义见
-development-worktrees.md「三档开发循环」）：纯 UI/UX 修改用 UI Preview
-（真实组件 + Mock API + Vite HMR）；触到 Tauri command、application、Vault/runtime
-或前后端集成用 Tauri dev（前端 HMR、Rust 增量编译自动重启）；只有 installer/安装行为、
-production 打包行为或发布验收才进入 RC installer 流程。普通 Pre-RC verify 不执行显式
-desktop production build；不要为 Preview 或 Tauri dev 能覆盖的修改构建或安装 release artifact。
-能由 CLI + real backend 诚实验证的 Vault、Silo、生命周期、Managed、Network、持久化和恢复优先
-用 CLI；CLI 无法表达的视觉/交互再用 HMR/Preview，并记录 coverage boundary。Mock/Preview evidence
-不能冒充 runtime evidence。Agent 不得自行打开 RC/release gate；必须有用户明确的新指令。
+1. [docs/program-status.md](docs/program-status.md): the current phase, work package and next task. Always read it first.
+2. The current phase's section of [docs/roadmap.md](docs/roadmap.md), then the owning code and tests of the work package.
+3. Only if the task can change product semantics, architecture or long-term capability boundaries: the [north star](docs/identity-platform-north-star.md) and the accepted decisions ([commercial direction](docs/product-direction-decision-2026-11.md), [Camoufox-first engine](docs/camoufox-managed-engine-decision.md)).
+4. Only for Camoufox engine work: the [Camoufox status and evidence index](docs/camoufox-program-status.md).
+5. Only when delegating complex work, creating a Gate or reviewing an evidence package: the [agent operating model](docs/agent-operating-model.md).
 
-## 默认读取路径
+Historical task contracts, old runs and superseded checkpoints are not default context. Read them only to investigate the matching fact.
 
-Camoufox / Managed Identity 普通任务先读：
+If sources truly conflict, authority runs: north star → accepted decisions → current task contract → program status → implementation and direct evidence. A historical contract's old "current state" never overrides the status page. If the status page contradicts the code or the evidence, stop and report the conflict instead of picking the convenient answer.
 
-1. [Camoufox 当前状态](docs/camoufox-program-status.md)中的“当前下一任务”；
-2. 实际 owning code/test；只有状态页明确要求独立 active contract 时才再读取它。
+## How to run a task
 
-Standard Silo、EngineAdapter 或环境后端任务先读各自 owning 文档/代码；只有它实际依赖
-当前 Camoufox Gate 时才读 Camoufox 状态页。
+Do not ask the user for a worktree, Vault, port or baseline. Follow the [task routing workflow](docs/agent-task-routing.md):
 
-只有任务可能改变产品语义、架构路线或长期能力边界时，才额外读取：
+1. Pick the lane (`ui`, `core`, `host`, `qa`, `integration`) by where the main change lands. Lane scope, restricted paths and verification commands are defined only in the configuration at the top of [scripts/agent-task.mjs](scripts/agent-task.mjs).
+2. `node scripts/agent-task.mjs start --lane <lane> --task "<roadmap WP id and title>" --name <slug>`. The script fetches and prunes `origin` and requires local `baseline/dev` to equal `origin/baseline/dev` exactly.
+3. Work inside the task worktree within the lane's scope.
+4. `verify` and `check` must pass. `check` reports two different problems: a scope violation inside the worktree (exit 2) and WORKSPACE CONTAMINATION of the primary checkout (exit 3).
+5. Commit, re-run `verify` and `check` on the final HEAD, then `publish` the task branch. Push only with exact refspecs and confirm the remote SHA after fetching. Never force push, and never use `git push --all` or `--mirror`.
+6. A single-lane task that still forks from the current baseline, has passed `verify` at HEAD, has no restricted or out-of-scope change, and has a clean, published worktree may `promote`. If the baseline moved, `promote` returns `PROMOTION_REQUIRES_INTEGRATION`; hand the branch to integration and do not merge or rebase on your own.
+7. Integration merges verified task branches with lightweight checks by default (remote SHA, ancestry, conflicts, scope, `git diff --check`, focused tests). Use `verify --full` only for shared contracts, lockfiles, workflows or configuration, several tasks on one seam, conflict resolution, or QA and RC candidates. Only integration (`baseline advance` and `baseline publish`) or a qualifying `promote` moves the baseline.
+8. Update [docs/program-status.md](docs/program-status.md) when a work package changes state.
 
-1. [身份平台北极星](docs/identity-platform-north-star.md)；
-2. [Camoufox-first 决策](docs/camoufox-managed-engine-decision.md)。
+Task splitting:
 
-只有在委派复杂工作、创建新 Gate 或审阅外部 evidence package 时，才读取
-[Agent 协作协议](docs/agent-operating-model.md)。历史任务合同、旧 run 和 superseded
-checkpoint 不属于默认上下文；仅在调查对应事实时按状态页链接读取。
+- An authorized fix is one task in its owning lane: diagnose, minimal fix, focused validation. Do not split it into a QA task and a fix task unless the user asks for independent QA, ownership is unknown, or an independent acceptance is needed.
+- A coherent product slice that crosses Host, core, UI and contracts is one `integration` task.
+- Parallel tasks collect into one natural integration batch; the baseline does not have to advance after each one.
 
-若多个事实源真正冲突，权威顺序是：产品北极星 → 已接受架构决策 → 当前任务合同
-→ 当前状态 → 实现与直接证据。历史合同中的旧“当前状态”不覆盖状态页标明的新状态。
+For worktree isolation and desktop layout details, read [module boundaries and development entry points](docs/development-worktrees.md).
 
-## 成本与验证
+## Verification cost
 
-使用能解决当前不确定性的最低充分流程：
+Use the lowest level that honestly proves the change:
 
-- 文档或局部机械修改：只检查相关引用、格式和 diff；
-- 普通代码修复：检查 owning seam/callers，做最小修复和 focused tests；
-- 浏览器、引擎构建、证据 claim、发布或难回滚操作：使用冻结输入、直接 evidence 和明确停止条件；
-- 产品/架构、安全或数据边界变化：先做显式决策。
+- UI-only changes: UI Preview (real components, mock API, Vite HMR).
+- Tauri commands, application logic, Vault, runtime or front-to-back integration: Tauri dev.
+- Installer behavior, production packaging and release acceptance: an RC installer flow, and only after the user explicitly opens an RC or release Gate.
+- Prefer the CLI with a real backend for Vault, Silo lifecycle, Managed, network, persistence and recovery behavior. Use Preview for what the CLI cannot express, and record the coverage boundary. Mock or Preview evidence never counts as runtime evidence.
+- Ordinary pre-RC verification does not run a desktop production build.
 
-不要因为历史阶段曾使用 one-shot、manifest、全量 hash 或完整回归，就把它们复制到不需要
-这些保证的新任务。稳定且相关状态未变化时复用既有证据；只有矛盾、新失败或关键输入变化
-才扩大检查。详细分级见 Agent 协作协议。
+Match process to risk:
 
-**Evidence remains valid until a relevant input changes**：Host runtime evidence 不因无关
-site change 失效；site build evidence 不因无关 Rust change 失效；core lifecycle test 不因
-无关 Host source change 自动失效。integration 只验证 composition 新增的不确定性，不重新
-证明没有变化的事实。
+- Documentation or mechanical edits: check references, formatting and the diff.
+- Ordinary code fixes: check the owning seam and callers, make the minimal fix, run focused tests.
+- Browser, engine build, evidence claims, releases or hard-to-reverse operations: frozen inputs, direct evidence and explicit stop conditions.
+- Product, architecture, security or data-boundary changes: an explicit decision first.
 
-Immutable/one-shot 只约束已冻结的 attempt 及其 evidence。`failed` 或 `inconclusive`
-必须保留且不得重试未变输入或选样本，但它不自动结束所属工程 Gate，也不自动创建
-recovery Gate。在原授权和风险范围内，修复已确认或证据支持的因果 blocker，完成最低
-充分验证后再生成清晰版本化的新 attempt。
+Evidence stays valid until a relevant input changes. Host runtime evidence does not expire because of an unrelated site change, and so on. Integration verifies only what the composition adds. A `failed` or `inconclusive` attempt is kept and never retried with unchanged inputs or cherry-picked samples, but it does not end its engineering Gate by itself. Fix a confirmed causal blocker within the original authorization, then run a new, clearly versioned attempt.
 
-## 不可弱化的产品边界
+## Boundaries that never move
 
-- Standard Silo 长期保留；当前产品阶段、候选状态和下一任务以 [Camoufox 当前状态](docs/camoufox-program-status.md) 为准，不在本文件硬编码易变化阶段；
-- 新产品/功能提案默认必须说明其是否增强 Identity Integrity、Execution Integrity、Network Integrity、Runtime Evidence 或 Attribution；不因竞品 feature parity 自动进入 roadmap；
-- Profile、Identity Artifact、Engine、Network Policy 与 Evidence 保持不同生命周期；
-- 原生 Windows 专属结论不能由 Linux、WSL 或 Wine 结果替代；
-- 不同时扩张 Controlled Chromium、WSL、VMware、Hyper-V 与 Remote；
-- 不混用 `configured`、`applied`、`observed`、`verified` 与 `unavailable`；
-- 配置声明、测试通过或编译成功都不能冒充尚未取得的 runtime/product Gate。
+- Every roadmap item names the customer job it serves and keeps the integrity invariants (Identity Integrity, Execution Integrity, Network Integrity, Runtime Evidence, Attribution).
+- Profile, Identity Artifact, Engine, Network Policy and Evidence keep separate lifecycles.
+- `configured`, `applied`, `observed`, `verified` and `unavailable` are never mixed. A configuration, a passing test or a successful build never stands in for a runtime or product Gate.
+- A required proxy never falls back to a direct connection.
+- Native Windows conclusions need native Windows evidence. Linux, WSL or Wine results never substitute.
+- Only one controlled engine is in active build-out at a time. WSL, Hyper-V, VMware and remote environments stay frozen until roadmap Phase 7.
+- Standard Silo is permanent.
+- No "undetectable" or anti-fraud-bypass claims, no CAPTCHA solving, no bot-evasion input simulation, no payment or KYC fraud tooling, no automated mass account registration.
+- Agents never open an RC or release Gate, spend money, or change the north star or an accepted decision without the user's explicit instruction.

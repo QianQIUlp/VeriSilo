@@ -1,78 +1,49 @@
 # VeriSilo
 
-VeriSilo is a local-first, open-source platform for managing persistent browser identities, network policy, and privacy evidence. Its current Windows desktop baseline uses stock Chrome and Edge with an independent browser data directory for each Silo.
+VeriSilo is an open-source, local-first, multi-profile fingerprint browser that is being built to commercial grade. It runs many persistent, isolated browser identities called **Silos**. Each Silo has its own browser data, a coherent and stable fingerprint, and its own network exit, and VeriSilo shows evidence of what actually ran.
 
-It creates a new, managed browser data directory for every **Silo**. Browser-owned state—cookies, storage, cache, service workers, permissions, and history—stays in that directory. VeriSilo never imports, clones, or mutates the user's default browser profile.
+- Product intent: [north star](docs/identity-platform-north-star.md)
+- Why this direction: [commercial direction decision](docs/product-direction-decision-2026-11.md)
+- Plan: [roadmap](docs/roadmap.md)
+- Current phase and next task: [program status](docs/program-status.md)
+- For coding agents: [AGENTS.md](AGENTS.md)
 
-Current product state: **v0.1.0-rc3 is a public GitHub prerelease (`PUBLIC_GITHUB_PRERELEASE`, tag `v0.1.0-rc3`, source `407c501741c1be3444bfa607c7e693ecc7324409`); its release gate is closed**. The current engineering phase is post-rc3 product development on the canonical development source `origin/baseline/dev`, following the accepted differentiated roadmap. Strict non-admin install/reinstall/uninstall semantics remain unproven, and the outer Desktop/NSIS Authenticode remains unsigned. The [0.1 Identity Isolation Core milestone](docs/milestones/0.1-identity-isolation-core.md) is a historical source checkpoint, not the current product stage or a signed binary release.
+## Current state
 
-## Architecture and roadmap
+The current public build is the **v0.1.0-rc5 prerelease** ([release](https://github.com/QianQIUlp/VeriSilo/releases/tag/v0.1.0-rc5), source `7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027`). It is a prerelease: the Windows installer is not Authenticode-signed, there is no auto-update, and strict standard-user installation is not proven yet. Engineering is in roadmap Phase 1, the foundation for a signed v0.2 public beta.
+
+| Area          | Today                                                                                           | Planned                                             |
+| ------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Platforms     | Windows x64 (current-user NSIS); Linux x86_64 (Debian, AppImage; validated on Ubuntu 22.04 X11) | Signed builds and auto-update (v0.2); macOS (later) |
+| Standard Silo | System Chrome or Edge with a separate Profile. Fingerprint follows the real machine.            | Stays as the entry layer                            |
+| Managed Silo  | VeriSilo-built Camoufox (Firefox family), 18 locale presets, Artifact-bound stable identity     | Controlled Chromium as the primary engine (v1.0)    |
+| Concurrency   | Up to two Managed Silos at once                                                                 | 20+ at once (v0.3)                                  |
+| Network       | Direct, required HTTP/SOCKS5 proxy with no direct fallback, or a user-run Clash/Mihomo endpoint | Proxy library, bulk import and checks (v0.3)        |
+| Evidence      | Declared versus observed identity (matched, mismatched, unavailable, stale), recent-run records | Correlation report, Chromium qualification          |
+| Data          | Encrypted Vault, Vault backup, same-machine Managed cold backup                                 | Silo packages, cookie import/export (v0.3)          |
+| Automation    | Loopback local API, CLI, Camoufox page actions                                                  | API v2, Playwright/CDP attach, MCP server (v0.4)    |
+| Organization  | Name and color                                                                                  | Groups, tags, notes, search, bulk operations (v0.3) |
+| Teams         | None                                                                                            | End-to-end encrypted sync and roles (v1.x)          |
+| Languages     | Desktop UI in Chinese; extension in English and Chinese                                         | English and Chinese everywhere (v0.2)               |
+
+## What VeriSilo does not claim
+
+VeriSilo does not claim to be undetectable and does not promise to bypass anti-fraud systems. A Standard Silo isolates browser state; it does not change the real device fingerprint, TLS stack or hardware. Managed identities are reported with the evidence vocabulary `configured`, `applied`, `observed`, `verified` and `unavailable`, and observed equality is never presented as verification. VeriSilo never imports or modifies the user's default browser profile. See [non-goals](docs/non-goals.md) and the [threat model](docs/threat-model.md).
+
+## Architecture
 
 ```text
-Desktop core                 Browser and network               Companion & Native Host
-─────────────────────────    ────────────────────────────      ─────────────────────────
-encrypted Vault              dedicated user-data-dir           optional page observations
-Silo lifecycle               direct · fixed proxy · Mihomo    user-triggered exit checks
-runtime binding              fail-closed launch paths          local redacted reports
+Desktop core (Tauri v2, Rust)    Browser engines                    Companion and Native Host
+──────────────────────────────   ────────────────────────────────   ─────────────────────────────
+encrypted Vault                  Chrome / Edge (Standard)           optional MV3 extension
+Silo lifecycle and runtime       Camoufox Host + engine (Managed)   page observations, exit checks
+network relay, Mihomo adapter    signed engine packages             local redacted reports
+local API and CLI                first-party identity probes        Native Messaging bridge
 ```
 
-The desktop app owns the Silo lifecycle and runtime binding; Chrome or Edge owns the browser files; the optional Companion adds observations and local evidence without becoming the isolation mechanism. Every Silo keeps its own browser state and network profile, and the default browser profile is never imported or modified.
+More detail: [architecture](docs/architecture.md), [architecture review (2026-11)](docs/architecture-review-2026-11.md), [engine adapters](docs/engine-adapters.md), [network identity providers](docs/network-identity-providers.md), [capability model](docs/capabilities.md), [compatibility matrix](docs/compatibility-matrix.md).
 
-### Roadmap
-
-| Stage                                                                                                    | Status                                                                                                                                                                             |
-| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Standard Silo Windows Profile Isolation**                                                              | closed                                                                                                                                                                             |
-| **Camoufox M0–M2-W, M3-0, FP1–FP4, and clean M3-WI Attempt 4**                                           | closed at their documented evidence layers                                                                                                                                         |
-| **Managed Engine production adapter, Formal-v3 package/signing, Managed Silo UX, and current-user NSIS** | implemented; release checks closed                                                                                                                                                 |
-| **Current product phase**                                                                                | post-rc3 product development on `origin/baseline/dev`; current direction is the accepted differentiated roadmap                                                                    |
-| **Current public prerelease**                                                                            | [v0.1.0-rc5](https://github.com/QianQIUlp/VeriSilo/releases/tag/v0.1.0-rc5), source `7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027`; Windows release evidence remains platform-specific |
-| **Historical rc2 candidate**                                                                             | v0.1.0-rc2, source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`; current-source installed candidate accepted in an exact Windows Sandbox                                             |
-
-See [the historical 0.1 source milestone](docs/milestones/0.1-identity-isolation-core.md) for that checkpoint and [the environment roadmap](docs/environment-roadmap.md) for the stronger layers.
-
-## What is implemented in this repository
-
-- Tauri v2 desktop foundation with an Argon2id-protected local Silo vault:
-  a password-derived wrapping key protects a random AES-256-GCM data key.
-- Vault passphrase rotation, encrypted envelope backup/restore, schema migration,
-  and explicit Silo edit/archive/restore/permanent-delete lifecycle controls.
-- Safe browser discovery and argument-array launching with a separate `--user-data-dir` per Silo.
-- A single-active-Silo runtime model that refuses to force-kill browser processes.
-- Per-Silo fail-closed HTTP/SOCKS proxy binding with one-line imports, Vault-encrypted credentials, a random loopback authentication relay, and staged runtime evidence.
-- An external Mihomo/Clash-compatible adapter that reads and fixes a node through a loopback-only Controller while leaving subscriptions and the GPL core under user control.
-- A Native Messaging Host with fail-closed origin and schema validation.
-- A bounded Companion-to-desktop evidence bridge: user-initiated Silo exit
-  observations are freshness- and active-Silo-checked, labeled
-  `extension_asserted` / `observed` (not process-authenticated), then persisted
-  in the encrypted Vault with explicit DNS/WebRTC/QUIC coverage limits.
-- A Manifest V3 companion extension with human-readable identity summaries, browser-backed temporary InPrivate separation, local signal observation, user-triggered IP/public-DNS checks, safe page-message validation, local-only redacted report exports, and reversible optional privacy controls.
-- Product boundaries, capability states, threat model, release checks, and automated TypeScript tests.
-- Reproducible lockfile SBOM generation, SHA-256/provenance tooling, Native Host
-  current-user installer hooks, a clearly separated unsigned candidate workflow, and a
-  certificate-secrets-gated signed workflow definition. Candidate builds also emit a
-  lockfile-to-package-metadata license evidence report; every component remains pending
-  explicit human license review.
-- Four control-plane layers represented in code, each with independent runtime and release gates: independent Silos; V0.7 stock plus the production `ExternalPackageEngineAdapter` and signed Formal-v3 package path; V0.8 WSL/Sandbox/Hyper-V providers; and a V0.9 pinned self-hosted Remote Agent control plane.
-
-Network identity design and exact Phase 1/2/3 boundaries are documented in [network identity providers](docs/network-identity-providers.md).
-
-## Important boundary
-
-The stock Chrome/Edge launcher provides browser-state separation and transparent privacy controls; it does not change TLS fingerprints or real hardware. The controlled-engine path is implemented with a pinned Formal-v3 package and production adapter, and the current-source rc2 installed lifecycle passed in a pristine Windows Sandbox. Strict unelevated standard-user semantics, broader Windows compatibility, and outer Authenticode signing remain separate boundaries; the internal engine CMS signature is not outer Authenticode. Local-environment and self-hosted remote paths remain gated by their own artifacts, hosts, guest images, and Providers. VeriSilo does **not** claim device impersonation, fraud bypass, universal Worker/Service Worker modification, or undetectability. See [the environment roadmap](docs/environment-roadmap.md).
-
-## Identity platform direction
-
-The durable product model, current engine choice, Agent workflow, and changing delivery state are recorded separately:
-
-- [Identity platform north star](docs/identity-platform-north-star.md) defines Standard, Managed, and Isolated Silos and separates Profile, Fingerprint, and Environment concerns.
-- [Camoufox-first Managed Engine decision](docs/camoufox-managed-engine-decision.md) records the stable reason for using a pinned Camoufox/BrowserForge execution layer before broader engine work.
-- [Agent operating model](docs/agent-operating-model.md) defines how architecture, execution, evidence, and stage Gates are delegated and reviewed.
-- [Camoufox program status](docs/camoufox-program-status.md) is the only mutable checkpoint page for this workstream.
-
-The current source includes the accepted standalone Camoufox Host and v3 Identity Artifact lineage, the M3-0 contract, FP1–FP4 qualification, clean M3-WI Attempt 4 evidence, a production `ExternalPackageEngineAdapter`, an internally CMS-signed Formal-v3 package path with a public signer pin, Managed Silo product flow, current-user NSIS packaging, the rc2 current-source installed acceptance record, and the published v0.1.0-rc3 prerelease. Those records cover their exact environments and do not prove universal Windows, strict non-admin, broader site-compatibility, or undetectability claims. Current routing, rc2/rc3 provenance, the accepted differentiated product direction, and the remaining unverified boundaries live in the [Camoufox program status](docs/camoufox-program-status.md) and [Simprint source due diligence](docs/simprint-source-due-diligence-2026-09-09.md).
-
-## Quick start
+## Quick start for developers
 
 ```bash
 pnpm install
@@ -84,18 +55,11 @@ pnpm engine:verify
 pnpm release:self-test
 ```
 
-The desktop app additionally needs Rust 1.88+ and the native Tauri prerequisites. Windows keeps its RC5 NSIS build; native Linux x86_64 builds produce Debian and AppImage packages from the same source. See [the development guide](docs/development.md) and [Linux desktop build and verification](docs/linux-desktop.md).
-The historical requirement-by-requirement audit is retained in
-[the desktop completion audit](docs/desktop-completion-audit.md). Current
-product facts, release-readiness status, and the next task are tracked in
-[the Camoufox program status](docs/camoufox-program-status.md). The hands-on
-acceptance records remain evidence for their named runs and environments.
-Use [the step-by-step Windows manual acceptance runbook](docs/acceptance/manual-windows-acceptance-runbook.md)
-for the exact Chrome, Edge, desktop, Native Host, and evidence-capture operations.
+The desktop app also needs Rust 1.88 or newer and the native Tauri prerequisites. See the [development guide](docs/development.md), [Linux desktop build and verification](docs/linux-desktop.md), and the [Windows manual acceptance runbook](docs/acceptance/manual-windows-acceptance-runbook.md).
 
 ## Product site
 
-The static Astro product site lives in [`apps/site`](apps/site) and is live at [verisilo.qiu.works](https://verisilo.qiu.works/) with English and Chinese routes.
+The static Astro site lives in [`apps/site`](apps/site) and is published at [verisilo.qiu.works](https://verisilo.qiu.works/) in English and Chinese.
 
 ```bash
 pnpm site:dev
@@ -103,9 +67,7 @@ pnpm site:check
 pnpm site:build
 ```
 
-The site describes the current public-development state and deliberately does not present an installer or store listing before the public release gates are complete.
-
-See the [Cloudflare Pages deployment runbook](docs/site-deployment.md) for the production build, preview, and custom-domain settings.
+See the [Cloudflare Pages deployment runbook](docs/site-deployment.md).
 
 ## License
 

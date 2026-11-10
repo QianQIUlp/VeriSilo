@@ -1,247 +1,247 @@
-# Agent 任务路由与自动化工作流
+# Agent task routing and automated workflow
 
-用户只用自然语言描述任务（例如"重新设计创建 Silo 的 UX"、"修复 Camoufox 启动异常"、"检查安装流程有没有 bug"）。
-Agent 自己完成：判定 lane → 创建任务工作区 → 按边界修改 → lane 级验证 → scope 检查 → 交给 integration。
-不要求用户指定 worktree、Vault、端口或允许修改的目录。
+Users describe a task in natural language only (for example "redesign the UX of creating a Silo", "fix the Camoufox launch exception", "check whether the install flow has bugs").
+The agent does the rest: decide the lane → create a task worktree → edit within the boundary → lane-level verification → scope check → hand off to integration.
+The user is never asked to specify a worktree, Vault, port, or the directories that may be edited.
 
-事实源是 [scripts/agent-task.mjs](../scripts/agent-task.mjs) 顶部的 `LANES` / `RESTRICTED` / `SHARED` 配置；本文解释工作流，配置变更必须改脚本并同步本文。
+The source of truth is the `LANES` / `RESTRICTED` / `SHARED` configuration at the top of [scripts/agent-task.mjs](../scripts/agent-task.mjs). This document explains the workflow. A configuration change must edit the script and update this document in step.
 
-## 标准流程
+## Standard workflow
 
 ```bash
-# 1) 判定 lane（见下表），在主检出（primary checkout）创建任务工作区；
-#    start 会 fetch/prune origin，并要求本地 baseline/dev 与 origin/baseline/dev 精确相等，
-#    与当前 shell 在哪个分支无关
-node scripts/agent-task.mjs start --lane ui --task "重新设计创建 Silo 的 UX"
-#    输出 JSON：branch / worktree 目录 / vault / port / baseline，以及下一步命令
+# 1) Decide the lane (see the table below) and create the task worktree in the primary checkout.
+#    start runs fetch/prune on origin and requires local baseline/dev to equal origin/baseline/dev exactly.
+#    It does not depend on which branch the current shell is on.
+node scripts/agent-task.mjs start --lane ui --task "Redesign the Create Silo UX" --name create-silo-ux
+#    Prints JSON: branch / worktree directory / vault / port / baseline, plus the next-step commands
 
-# 2) 进入任务工作区并安装依赖
+# 2) Enter the task worktree and install dependencies
 cd .verisilo-worktrees/<dir>
 pnpm install
 
-# 3) 按 lane 需要，用 start 输出的确切命令启动 preview 或真实实例（已含独立 Vault 与端口）
+# 3) As the lane requires, start a preview or a real instance with the exact command start printed (it already includes its own Vault and port)
 
-# 4) 工作、小步提交
+# 4) Work, and commit in small steps
 
-# 5) 结束前，两项都必须通过
-node scripts/agent-task.mjs verify   # lane 最小充分验证（integration 默认轻量档，--full 完整矩阵）；exit 1=失败
-node scripts/agent-task.mjs check    # exit 0=通过 · exit 2=scope violation · exit 3=WORKSPACE CONTAMINATION
+# 5) Before finishing, both of these must pass
+node scripts/agent-task.mjs verify   # minimal sufficient lane verification (integration defaults to the lightweight tier, --full runs the whole matrix); exit 1 = failed
+node scripts/agent-task.mjs check    # exit 0 = passed · exit 2 = scope violation · exit 3 = WORKSPACE CONTAMINATION
 
-# 6) 提交，并在最终 HEAD 上重新 verify + check，然后发布；publish 只允许非强制 fast-forward
+# 6) Commit, run verify + check again on the final HEAD, then publish. publish allows only a non-forced fast-forward.
 git add -A && git commit -m "..."
 node scripts/agent-task.mjs verify
 node scripts/agent-task.mjs check
 node scripts/agent-task.mjs publish
 
-# 7a) 单 lane task 且 canonical baseline 未被推进时，可直接晋升（见「验证三档」）
+# 7a) A single-lane task whose canonical baseline has not advanced can be promoted directly (see "Three verification tiers")
 node scripts/agent-task.mjs promote
 
-# 7b) 否则交给 integration：用 list 发现 task；远端 branch 是可审计输入
+# 7b) Otherwise hand it to integration: find tasks with list; the remote branch is the auditable input
 node scripts/agent-task.mjs list
 ```
 
-`check`/`verify` 必须在任务 worktree 内运行：当前 git toplevel 与任务元数据所在目录不一致时直接报错，
-不会在错误目录静默继续。`start` 是幂等的：同一 lane + 相同任务描述会复用已有分支与工作区
-（端口被占时会自动重分配）；但若 canonical baseline 已被推进，旧任务的 metadata 与新 baseline 不一致，
-start 会拒绝复用并说明差异——继续旧任务直接进 worktree，开新任务换描述或 `--name`。
-任务文本哈希进入分支名（`agent/<lane>/<slug>-<hash6>`）；中文任务请用 `--name <英文短slug>` 得到可读分支名。
+`check` and `verify` must run inside the task worktree. If the current git toplevel does not match the directory that holds the task metadata, they fail immediately
+and never continue silently in the wrong directory. `start` is idempotent: the same lane + the same task description reuses the existing branch and worktree
+(if the port is busy it is reassigned automatically). But if the canonical baseline has advanced, the old task's metadata no longer matches the new baseline, and
+start refuses to reuse it and explains the difference. To continue the old task, enter its worktree. To start a new task, change the description or use `--name`.
+The task text hash goes into the branch name (`agent/<lane>/<slug>-<hash6>`). For a Chinese task, pass `--name <short-English-slug>` to get a readable branch name.
 
-放弃或清理一次性任务：`git worktree remove --force .verisilo-worktrees/<dir> && git branch -D agent/<lane>/<branch>`；
-Windows 上 node_modules 的 junction 可能导致目录残留，再 `rm -rf .verisilo-worktrees/<dir>` 即可
-（pnpm 全局 store 使用硬链接与独立链接计数，删除任务工作区不影响它）。
+To abandon or clean up a one-off task: `git worktree remove --force .verisilo-worktrees/<dir> && git branch -D agent/<lane>/<branch>`.
+On Windows, the node_modules junction can leave the directory behind. In that case run `rm -rf .verisilo-worktrees/<dir>`
+(the global pnpm store uses hard links with independent link counts, so deleting a task worktree does not affect it).
 
-## Lane 判定
+## Choosing a lane
 
-Lane = 责任与修改边界；Task（worktree）= 一次实际工作。**同一 lane 可以同时有任意多个任务 worktree**，互不冲突；不要假设一个 lane 只有一个分支。
+Lane = responsibility and modification boundary. Task (worktree) = one actual piece of work. **One lane can have any number of task worktrees at the same time** without conflict. Do not assume a lane has only one branch.
 
-| Lane          | 主要产物落在哪                                           | 任务示例                                               | 不选它的信号                                      |
-| ------------- | -------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------- |
-| `ui`          | 桌面界面、表单、交互、文案、样式、预览；产品官网 `apps/site/**` | 重新设计创建 Silo 的 UX；新增预览场景；更新官网 release surface | 需要改后端 DTO 或业务行为；site 依赖变化会触及受限的 `pnpm-lock.yaml` |
-| `core`        | 桌面业务层、领域模型、Tauri/CLI 入口、EngineAdapter 接入 | 修复创建 Silo 的 Vault 写入顺序；CLI 输出问题          | 只动前端展示，或缺陷在 Python Host                |
-| `host`        | Python Host、Camoufox 补丁、engine package 构建脚本      | 修复 Camoufox 启动异常（定位在 host_v1）；更新补丁系列 | 缺陷最终落在 Rust launcher/adapter —— 那是 `core` |
-| `qa`          | 复现步骤、验收测试、evidence（不改产品代码）             | 检查安装流程有没有 bug；对某候选回归                   | 已定位修复方案 → 修复任务回 owning lane           |
-| `integration` | 跨层、共享契约、汇总开发状态                             | NetworkProfile 加字段贯通前后端；合并本批任务供 QA     | 单一层内可完成 → 用对应 lane                      |
+| Lane          | Where the main output lands                                                                 | Example tasks                                                                                  | Signal not to choose it                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `ui`          | Desktop UI, forms, interactions, copy, styles, previews; the product website `apps/site/**` | Redesign the UX of creating a Silo; add a preview scenario; update the website release surface | Needs a backend DTO or business behavior change; a site dependency change would touch the restricted `pnpm-lock.yaml` |
+| `core`        | Desktop business layer, domain model, Tauri/CLI entry points, EngineAdapter integration     | Fix the Vault write order when creating a Silo; fix a CLI output problem                       | Only front-end presentation changes, or the defect is in the Python Host                                              |
+| `host`        | Python Host, Camoufox patches, engine package build scripts                                 | Fix a Camoufox launch exception (located in host_v1); update the patch series                  | The defect ends up in the Rust launcher/adapter. That is `core`                                                       |
+| `qa`          | Reproduction steps, acceptance tests, evidence (no product code changes)                    | Check whether the install flow has bugs; regress a candidate                                   | A fix is already identified → the fix task goes back to the owning lane                                               |
+| `integration` | Cross-layer work, shared contracts, merging development state                               | Add a field to NetworkProfile across front end and back end; merge this batch of tasks for QA  | It can be done within a single layer → use that lane                                                                  |
 
-判定规则：
+Rules for choosing:
 
-1. 按**主要修改/产物**归属选 lane，不按"谁报告了问题"。QA 发现的 bug，其修复任务属于 owning lane。
-2. 预期改动会落在哪个 lane 的 allow 范围，就选哪个；明确跨层才选 `integration`。
-3. 不确定时：先做只读调查（不 `start`），定位主修改层后再 `start`；或按当前最佳判断 `start`，结束时 `check` 会告诉你是否越界——回退或升级，不硬塞。
-4. 不要为了"先跑起来"把任务塞进错误的 lane；换 lane = 回主检出重新 `start`，把已完成部分迁移过去。
-5. **任务拆分默认**（避免机械拆分）：
-   - 用户已授权的修复按 `diagnose → minimal fix → focused validation` 在 owning lane 单任务完成（implementation-authorized task）；不默认拆 `QA reproduction → fix task`。只有用户明确要求独立 QA、ownership 仍未知且调查本身有价值、或需要独立 acceptance 时才用独立 QA task。
-   - 天然横跨 Host/Core/UI/contracts 的 coherent product slice 直接用一个 integration task 实现并在完成后推进 baseline；不拆 `integration implementation → second integration merge task`。
-   - 并行 tasks 默认积累到一个自然 integration batch；不要求每个 task 完成立刻推进 baseline。
+1. Pick the lane by the **main change or output**, not by "who reported the problem". For a bug found by QA, the fix task belongs to the owning lane.
+2. Pick the lane whose allow scope the expected change will land in. Choose `integration` only when the work is clearly cross-layer.
+3. When unsure: do read-only investigation first (no `start`), and `start` once you have located the main layer to change. Or `start` on your current best judgment, and `check` at the end will tell you whether you went out of scope. Revert or escalate. Do not force the change in.
+4. Do not put a task in the wrong lane just to "get it running". To change lanes, return to the primary checkout, run `start` again, and move the finished work over.
+5. **Default task splitting** (avoid mechanical splitting):
+   - A fix the user has authorized is done as one task in the owning lane through `diagnose → minimal fix → focused validation` (an implementation-authorized task). Do not split into `QA reproduction → fix task` by default. Use a separate QA task only when the user explicitly asks for independent QA, ownership is still unknown and the investigation itself is valuable, or independent acceptance is needed.
+   - A coherent product slice that naturally spans Host/Core/UI/contracts is implemented directly as one integration task, and the baseline is advanced when it is done. Do not split into `integration implementation → second integration merge task`.
+   - Parallel tasks accumulate into one natural integration batch by default. Each task is not required to advance the baseline as soon as it finishes.
 
-## Canonical baseline（B0 → B1）
+## Canonical baseline (B0 → B1)
 
-所有任务从同步后的 remote canonical baseline 分叉，baseline 绝不隐式等于"某次执行 start 时
-shell 所在分支的 HEAD"：
+All tasks fork from the synchronized remote canonical baseline. The baseline never implicitly equals "the HEAD of the branch the
+shell happened to be on when start ran":
 
 ```text
 origin/baseline/dev = B0
-baseline/dev = B0（本地工作引用，必须与上行精确相等）
-├─ agent/ui/...      （worktree，从 B0 分叉）
-├─ agent/core/...    （worktree，从 B0 分叉）
-├─ agent/qa/...      （worktree，从 B0 分叉）
-└─ integration 汇总并验证通过
-   ↓ 显式推进（唯一的推进方式）
-baseline/dev = origin/baseline/dev = B1   之后的新任务统一从 B1 开始
+baseline/dev = B0 (local work ref; must equal the line above exactly)
+├─ agent/ui/...      (worktree, forked from B0)
+├─ agent/core/...    (worktree, forked from B0)
+├─ agent/qa/...      (worktree, forked from B0)
+└─ integration merges and verifies
+   ↓ explicit advance (the only way to advance)
+baseline/dev = origin/baseline/dev = B1   new tasks afterward all start from B1
 ```
 
-- canonical identity 是 remote ref `origin/baseline/dev`；本地 `baseline/dev` 是工作引用，正常状态必须精确相等。
-- 两者都可由 `git rev-parse` 解析并由 Git reflog/remote history 审计；没有数据库、daemon 或 registry。
-- 新任务只能在 fetch/prune 后从两者 exact-equal 的 baseline 创建；remote 缺失或 local/remote 不一致时 `start` fail closed，不从任意 shell HEAD 启动。
-- **baseline 只能显式推进**：integration 用 `baseline advance <sha|ref>` + `baseline publish`；合格单 lane task 用 `promote`（见「验证三档」）。发布只允许 fast-forward 或首次 bootstrap，禁止 force。
-- 普通 task 完成 verify + check + commit 后运行 `node scripts/agent-task.mjs publish`；脚本 fetch 后核对 `origin/agent/...` 与本地 SHA。远端不能 fast-forward 时报告 `REMOTE_DIVERGENCE`，不覆盖。
-- `codex/camoufox-m3-engine-adapter` 保留为稳定主线，但不再是新 task 的 canonical development source；`stable/checkpoint-*` 与历史 refs 不参与日常路由。不要执行 `git push --all` / `--mirror`。
-- 查看当前指向与同步状态：`node scripts/agent-task.mjs baseline`。
+- The canonical identity is the remote ref `origin/baseline/dev`. The local `baseline/dev` is a work ref and must equal it exactly in the normal state.
+- Both can be resolved with `git rev-parse` and audited through the Git reflog and remote history. There is no database, daemon, or registry.
+- A new task can be created only after fetch/prune, from a baseline where the two are exactly equal. When the remote ref is missing or local and remote differ, `start` fails closed and does not start from an arbitrary shell HEAD.
+- **The baseline advances only explicitly.** Integration uses `baseline advance <sha|ref>` + `baseline publish`. An eligible single-lane task uses `promote` (see "Three verification tiers"). Publishing allows only a fast-forward or the first bootstrap. Force is forbidden.
+- After a normal task finishes verify + check + commit, run `node scripts/agent-task.mjs publish`. After fetch, the script checks that `origin/agent/...` and the local SHA are equal. If the remote cannot fast-forward, it reports `REMOTE_DIVERGENCE` and does not overwrite.
+- `codex/camoufox-m3-engine-adapter` is kept as the stable mainline but is no longer the canonical development source for new tasks. `stable/checkpoint-*` and historical refs do not take part in daily routing. Do not run `git push --all` / `--mirror`.
+- To see the current target and sync state: `node scripts/agent-task.mjs baseline`.
 
-## 修改边界（scope guard 与 contamination guard）
+## Modification boundaries (scope guard and contamination guard)
 
-`check` 报两类不同的问题，不要混淆：
+`check` reports two different kinds of problem. Do not confuse them:
 
-1. **Scope violation（exit 2）**——修改发生在任务 worktree 内，但越过了 lane 边界：
-   - `RESTRICTED`：任何 lane（除 `integration`）都不可改，即使落在自己的 allow 里。包括：`packages/contracts/**`、`apps/desktop/src/desktop-api.ts`、根 `package.json`/`pnpm-lock.yaml`、`AGENTS.md`、顶层 `docs/*.md`、`.github/**`、路由脚本本身。
-   - `SHARED`：默认拒绝，但可被 lane allow 覆盖（host 的构建/验证脚本、qa 的 `docs/qa/**` 与 `docs/acceptance/**`）。
-   - `check` 对 `baseline..HEAD` + 未提交 + 未跟踪文件全量分类；exit 2 时二选一，不静默接受：
-     1. **顺手修改** → `git restore --source=<baseline> --staged --worktree -- <file>`（未跟踪直接删除）；
-     2. **任务天然跨层** → 在主检出 `start --lane integration` 拆显式跨层任务，不在本 lane 分支混入。
-2. **WORKSPACE CONTAMINATION（exit 3）**——任务把修改写到了**主检出**（filesystem 级越界，例如从 worktree 用 `../../` 相对路径写进主检出）。`start` 会对主检出的 dirty 状态做快照，`check` 用 `git status --porcelain -uall` 与快照对比：
-   - 只报**新增**条目；任务启动前已有的 dirty 状态不会被归责给当前任务（已知限制：已存在条目的进一步内容变化无法区分，不误报）。
-   - 发现污染时**不自动删除或覆盖**：属于本任务的越界写入→在主检出回退对应文件；属于用户或其他任务的合法修改→如实上报，不要动它。
+1. **Scope violation (exit 2)**: the change is inside the task worktree but crosses the lane boundary:
+   - `RESTRICTED`: no lane (except `integration`) may change it, even if it falls inside the lane's own allow list. This includes `packages/contracts/**`, `apps/desktop/src/desktop-api.ts`, the root `package.json`/`pnpm-lock.yaml`, `AGENTS.md`, top-level `docs/*.md`, `.github/**`, and the routing script itself.
+   - `SHARED`: rejected by default, but a lane allow entry can override it (the host build/verify scripts, and qa's `docs/qa/**` and `docs/acceptance/**`).
+   - `check` classifies every file in `baseline..HEAD` plus uncommitted and untracked files. On exit 2, pick one of the two options. Do not accept silently:
+     1. **A drive-by change** → `git restore --source=<baseline> --staged --worktree -- <file>` (delete untracked files directly);
+     2. **The task is genuinely cross-layer** → run `start --lane integration` in the primary checkout to split out an explicit cross-layer task. Do not mix it into this lane's branch.
+2. **WORKSPACE CONTAMINATION (exit 3)**: the task wrote changes into the **primary checkout** (a filesystem-level scope violation, for example writing into the primary checkout from the worktree through a relative `../../` path). `start` snapshots the dirty state of the primary checkout, and `check` compares `git status --porcelain -uall` with that snapshot:
+   - Only **new** entries are reported. Dirty state that existed before the task started is not attributed to the current task (known limitation: further content changes to an entry that already existed cannot be told apart, and are not falsely reported).
+   - When contamination is found, **do not delete or overwrite automatically**. If an out-of-scope write belongs to this task, revert the file in the primary checkout. If it is a legitimate change by the user or another task, report it as it is and leave it alone.
 
-**共享契约显式处理**：`packages/contracts`、`desktop-api.ts`、Rust DTO、Host 协议、数据格式的变化，必须先由一个 `integration` 契约任务做小步提交，调用方任务随后跟进适配；任何 lane 不得私自定义同一个字段。
+**Shared contracts are handled explicitly.** A change to `packages/contracts`, `desktop-api.ts`, a Rust DTO, the Host protocol, or a data format must first be committed in small steps by an `integration` contract task. Caller tasks then follow and adapt. No lane may define the same field on its own.
 
-## 最小充分验证（lane 级）
+## Minimum sufficient verification (lane level)
 
-命令以脚本 `LANES[...].verify` 为准（`verify` 子命令自动执行）：
+The commands are those in the script's `LANES[...].verify` (the `verify` subcommand runs them automatically):
 
-| Lane          | 自动化验证                                                                          | Agent 补充义务                                                                                    |
-| ------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `ui`          | desktop check + desktop test                                                        | 用 preview 场景人工核对受影响交互；preview 是 UI 证据，不是 runtime Gate                          |
-| `core`        | desktop cargo check + harness `application::` tests                                 | 触到窗口/托盘/进程路径时补 owning module focused tests                                            |
-| `host`        | package contract + page command 测试                                                | `test_identity_artifact.py` 需 numpy（有条件则跑）；内核/包/指纹结论必须来自真实 runtime evidence |
-| `qa`          | （无自动化命令）                                                                    | 验证=证据：复现步骤 + 实际观察 + 针对的确切候选版本；修复回 owning lane                           |
-| `integration` | 默认轻量档（merge/冲突/ancestry/scope/`git diff --check` + focused tests）；`verify --full` 时为递归 check/test、官网 build、三个 Rust crate 的 fmt check、两个 crate 的 cargo check/test、Host 测试、脚本自测（Pre-RC 不含 desktop production build；排除依赖用户本机 provider inventory 的 live test） | 完整自动化之后，真实安装与用户旅程验收仍按 acceptance 流程在专用环境对确定候选执行 |
+| Lane          | Automated verification                                                                                                                                                                                                                                                                                                                                                              | Agent supplementary duty                                                                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ui`          | desktop check + desktop test                                                                                                                                                                                                                                                                                                                                                        | Manually check the affected interactions with preview scenarios. Preview is UI evidence, not a runtime Gate                                                        |
+| `core`        | desktop cargo check + harness `application::` tests                                                                                                                                                                                                                                                                                                                                 | When the change touches window/tray/process paths, add focused tests in the owning module                                                                          |
+| `host`        | package contract + page command tests                                                                                                                                                                                                                                                                                                                                               | `test_identity_artifact.py` needs numpy (run it when available). Conclusions about the engine, package, or fingerprint must come from real runtime evidence        |
+| `qa`          | (no automated commands)                                                                                                                                                                                                                                                                                                                                                             | Verification = evidence: reproduction steps + actual observation + the exact candidate version targeted. Fixes go back to the owning lane                          |
+| `integration` | Default lightweight tier (merge/conflict/ancestry/scope/`git diff --check` + focused tests). With `verify --full`: recursive check/test, site build, fmt check of three Rust crates, cargo check/test of two crates, Host tests, script self-tests (Pre-RC does not include a desktop production build; live tests that depend on the user's local provider inventory are excluded) | After full automation, real installation and user-journey acceptance still run per the acceptance flow, in a dedicated environment, against a determined candidate |
 
-不要把"配置声明/测试通过/编译成功"冒充尚未取得的 runtime/product Gate；lane 验证只覆盖其名称所指的范围。
+Do not let "a configuration declaration / passing tests / a successful compile" stand in for a runtime/product Gate not yet obtained. Lane verification covers only the scope its name refers to.
 
-## 验证三档：direct promote / 轻量 integration / full integration
+## Three verification tiers: direct promote / lightweight integration / full integration
 
-**Evidence remains valid until a relevant input changes.** Host runtime evidence 不因无关
-site change 失效；site build evidence 不因无关 Rust change 失效；core lifecycle test 不因
-无关 Host source change 自动失效。验证只针对「真正新增的不确定性」，不重新证明没有变化的事实。
+**Evidence remains valid until a relevant input changes.** Host runtime evidence is not invalidated by an unrelated
+site change. Site build evidence is not invalidated by an unrelated Rust change. A core lifecycle test is not invalidated automatically by an
+unrelated Host source change. Verification targets only the "genuinely new uncertainty". It does not re-prove facts that have not changed.
 
-### A. Direct promotion（合格单 task 免 integration）
+### A. Direct promotion (an eligible single task skips integration)
 
-单 lane task 同时满足以下全部条件时，`node scripts/agent-task.mjs promote` 直接推进 canonical
-baseline，无需新建 integration task：
+When a single-lane task meets all of the following, `node scripts/agent-task.mjs promote` advances the canonical
+baseline directly, with no new integration task:
 
-1. task 从当前 canonical baseline 创建，且 fetch 后 local/remote baseline 仍与 task metadata
-   的起始 baseline 精确相等——否则返回 `PROMOTION_REQUIRES_INTEGRATION`，不要自动 merge/rebase；
-2. task branch 是起始 baseline 的严格后代；
-3. 已在当前 HEAD 成功运行该 lane 的 `verify`（记录在 `.agent-task.json` 的 `validated.verify`）；
-4. worktree clean；scope 守卫在 promote 时进程内重跑，RESTRICTED / SHARED / 越界修改一律拒绝；
-5. task branch 已 `publish` 且远端 SHA 与本地一致。
+1. The task was created from the current canonical baseline, and after fetch the local and remote baselines still equal the starting baseline in the task metadata
+   exactly. Otherwise it returns `PROMOTION_REQUIRES_INTEGRATION`. Do not merge/rebase automatically;
+2. The task branch is a strict descendant of the starting baseline;
+3. The lane's `verify` has run successfully at the current HEAD (recorded in `validated.verify` in `.agent-task.json`);
+4. The worktree is clean. The scope guard is re-run in-process at promote time, and RESTRICTED / SHARED / out-of-scope changes are always rejected;
+5. The task branch has been `publish`ed and the remote SHA equals the local one.
 
-顺序：commit → verify → check → publish → promote。promote 会 fast-forward 本地 `baseline/dev`
-（主检出正检出该 ref 时同步 fast-forward 该检出）、非强制发布 `origin/baseline/dev`，并核对
-local / remote / task 三方 SHA。integration lane 的 task 不走 promote——它本身就是集成，用
-`baseline advance` + `baseline publish`。
+Order: commit → verify → check → publish → promote. promote fast-forwards the local `baseline/dev`
+(if the primary checkout has that ref checked out, it fast-forwards that checkout in step), publishes `origin/baseline/dev` without force, and checks that the
+local / remote / task SHAs all agree. A task in the integration lane does not use promote, because it is itself the integration. It uses
+`baseline advance` + `baseline publish`.
 
-### B. 轻量 integration（默认）
+### B. Lightweight integration (default)
 
-多个已验证 task branch 合并时，integration 默认轻量验证：
+When merging several verified task branches, integration verifies lightly by default:
 
-- remote input SHA 核对、ancestry / intended commits 检查、merge 与冲突检测；
-- scope / 最终 diff 检查（`check`）+ `git diff --check`（`verify` 内置）；
-- 与本次 composition 真正新增不确定性直接相关的 focused tests。
+- Check the remote input SHAs, check ancestry / intended commits, and detect merges and conflicts;
+- Check scope / the final diff (`check`) + `git diff --check` (built into `verify`);
+- Run focused tests directly related to the uncertainty this composition genuinely adds.
 
-`node scripts/agent-task.mjs verify` 在 integration lane 默认执行轻量档，**不要默认重跑完整矩阵**。
-merge 无冲突、输入 tasks 已各自 lane verify/check PASS、合并后文件/接口无新交叉影响时，直接
-`baseline advance` + `baseline publish`。已有 task validation 可以复用。
+`node scripts/agent-task.mjs verify` runs the lightweight tier by default in the integration lane. **Do not rerun the full matrix by default.**
+When the merge has no conflicts, the input tasks have each passed lane verify/check, and the merged files and interfaces have no new cross-impact, run
+`baseline advance` + `baseline publish` directly. Existing task validation can be reused.
 
-### C. full integration（显式升级）
+### C. Full integration (explicit escalation)
 
-`node scripts/agent-task.mjs verify --full` 保留完整矩阵（递归 check/test、官网 build、
-三个 Rust crate 的 fmt check、双 crate cargo check/test、Host、workflow tests；
-不执行 desktop production build）。触发条件：
+`node scripts/agent-task.mjs verify --full` keeps the full matrix (recursive check/test, site build,
+fmt check of three Rust crates, cargo check/test of two crates, Host, workflow tests;
+no desktop production build). Triggers:
 
-- shared protocol / DTO / contracts 变化；
-- 依赖或 lockfile 变化；
-- workflow / config 变化；
-- 多个 task 触同一 owning seam；
-- 合并冲突需人工解决；
-- 正确性只在组合后存在的跨层行为；
-- formal QA / RC / release 候选；
-- 矛盾或失败的 evidence；
-- 用户显式要求完整回归。
+- A shared protocol / DTO / contracts change;
+- A dependency or lockfile change;
+- A workflow / config change;
+- Several tasks touch the same owning seam;
+- A merge conflict needs manual resolution;
+- Cross-layer behavior whose correctness exists only after composition;
+- A formal QA / RC / release candidate;
+- Contradictory or failed evidence;
+- The user explicitly asks for a full regression.
 
-## 运行层级（Mode A / B / C）
+## Run levels (Mode A / B / C)
 
-lane 级 verify 之外，运行验证实例时用「足以验证当前修改的最低成本运行层级」
-（三档完整定义见 [development-worktrees.md](development-worktrees.md) 的「三档开发循环」）：
+Beyond lane-level verify, when running a verification instance use "the lowest-cost run level sufficient to verify the current change"
+(the full definition of the three tiers is in the "Three-tier development loop" section of [development-worktrees.md](development-worktrees.md)):
 
-- **Mode A — UI Preview**：`node scripts/dev-desktop.mjs <name> --port <port> --preview`。
-  纯 UI/UX 修改（样式、布局、组件、文案、表单 UX、loading/error/empty/running 状态）。
-  真实组件 + Mock API + Vite HMR；不启动 Rust backend，不读真实 Vault。
-- **Mode B — Desktop Dev**：`node scripts/dev-desktop.mjs core --port <port> --vault <vault>`。
-  触到 Tauri command、application、Vault/runtime 或前后端集成时使用；前端 HMR、
-  Rust 增量编译后自动重启，不构建 installer。
-- **Mode C — RC / Release**：只有 installer/安装行为变化、production 打包行为或发布验收
-  才进入，且必须有用户明确打开 RC/release gate；走专用环境 acceptance 流程，不与开发实例混用。
+- **Mode A: UI Preview**: `node scripts/dev-desktop.mjs <name> --port <port> --preview`.
+  For pure UI/UX changes (styles, layout, components, copy, form UX, loading/error/empty/running states).
+  Real components + mock API + Vite HMR. It does not start the Rust backend and does not read a real Vault.
+- **Mode B: Desktop Dev**: `node scripts/dev-desktop.mjs core --port <port> --vault <vault>`.
+  Use it when the change touches a Tauri command, application, Vault/runtime, or front-end/back-end integration. Front-end HMR, and an automatic restart after
+  incremental Rust compilation. It does not build an installer.
+- **Mode C: RC / Release**: enter only when installer/install behavior changes, production packaging behavior changes, or for release acceptance,
+  and only when the user has explicitly opened the RC/release gate. It follows the dedicated-environment acceptance flow and is not mixed with development instances.
 
-`ui` / `qa` 等纯前端 lane 默认 Mode A；`core` / `host` 及跨层任务默认 Mode B；
-不要为 Preview 或 Tauri dev 能覆盖的修改构建或安装 release artifact。
+Pure front-end lanes such as `ui` / `qa` default to Mode A. `core` / `host` and cross-layer tasks default to Mode B.
+Do not build or install a release artifact for a change that Preview or Tauri dev can cover.
 
-## CLI-first 与 RC 用户 gate
+## CLI-first and the RC user gate
 
-- 能由 CLI + real backend 诚实验证的 Vault、Silo、生命周期、Managed、Network、持久化与恢复，
-  优先用 CLI；这不是第二套 desktop/browser automation。
-- CLI 无法表达某个行为时，记录 coverage boundary，不自动把整轮 QA 判为 BLOCKED，也不为每个
-  UI/browser 场景扩 CLI。需要视觉、交互、文案或状态核对时使用 Vite HMR/Preview；Mock/Preview
-  evidence 不能冒充 runtime evidence。
-- 只有 CLI/HMR 都不能诚实验证且确实需要真实 Tauri/runtime 集成时才进入 Desktop Dev；仍不
-  install、package 或 release build。
-- Agent 不得因“看起来 bug 很少”、代码能 build 或静态检查通过而自行开始 package、RC、installer
-  或 clean Windows acceptance。必须由用户通过新指令明确打开 RC/release gate；Pre-RC 的 QA
-  收敛信号只用于 release-readiness 判断，不是自动触发器。
+- For Vault, Silo, lifecycle, Managed, Network, persistence, and recovery behavior that can be honestly verified with the CLI + a real backend,
+  prefer the CLI. This is not a second desktop/browser automation.
+- When the CLI cannot express a behavior, record the coverage boundary. Do not automatically mark the whole QA round BLOCKED, and do not extend the CLI for every
+  UI/browser scenario. For visual, interaction, copy, or state checks, use Vite HMR/Preview. Mock/Preview
+  evidence cannot stand in for runtime evidence.
+- Enter Desktop Dev only when neither the CLI nor HMR can verify honestly and a real Tauri/runtime integration is truly needed. Even then, do not
+  install, package, or build a release.
+- An agent must not start packaging, RC, installer, or clean Windows acceptance on its own because "there seem to be few bugs", the code builds, or static checks pass.
+  The user must explicitly open the RC/release gate with a new instruction. The Pre-RC QA
+  convergence signal is used only for the release-readiness judgment. It is not an automatic trigger.
 
-## Integration 工作流
+## Integration workflow
 
-0. 合格单 lane task 优先走 direct promote（见「验证三档」），不进入本轮流程；只有多个 task、
-   共享契约或升级条件命中时才需要 integration task。
-1. 各任务 worktree 完成 verify + check 后提交，并用 `node scripts/agent-task.mjs publish` 发布自己的
-   `agent/<lane>/...` branch；输入必须可从 origin fetch 到，不能以本地孤立 commit 代替。
-2. `start --lane integration --task "..."` 创建集成工作区；integration fetch 后只合并已核对的 remote task SHA。
-3. 逐个 `git merge --no-ff origin/agent/<lane>/<branch>`；冲突按任务归属 lane 的 owning code 原则解决，
-   契约冲突退回显式契约任务。
-4. 默认**轻量验证**：remote input SHA / ancestry / 冲突 / scope / `git diff --check` + 与本次
-   composition 直接相关的 focused tests（`verify` 在 integration lane 默认轻量档）。只有命中
-   full integration 升级条件时才 `verify --full`。无论哪档，都不执行显式 desktop production build。
-5. 验证通过后由 integration 执行 `baseline advance <集成结果 SHA>`，再执行 `baseline publish`；fetch 后必须
-   证明 `baseline/dev == origin/baseline/dev`。发布只允许 fast-forward/首次 bootstrap，禁止 force。
-6. 当前产品阶段、候选状态与下一任务以 [Camoufox 状态页](camoufox-program-status.md) 为准；当前
-   阶段是 post-rc5 normal product development，`v0.1.0-rc5` 公开 prerelease 已发布且 release gate 已关闭。
-   只有用户明确打开 RC/release gate 且 release-readiness 条件满足后，才执行新的候选构建或发布验收；
-   安装/覆盖安装/用户旅程验收在专用环境执行，不与开发实例混用。
+0. An eligible single-lane task prefers direct promote (see "Three verification tiers") and does not enter this flow. An integration task is needed only when several tasks,
+   a shared contract, or an escalation condition applies.
+1. After each task worktree finishes verify + check, it commits and publishes its own `agent/<lane>/...` branch with `node scripts/agent-task.mjs publish`.
+   The input must be fetchable from origin. An isolated local commit cannot take its place.
+2. `start --lane integration --task "..."` creates the integration worktree. After fetch, integration merges only remote task SHAs that it has checked.
+3. Run `git merge --no-ff origin/agent/<lane>/<branch>` one by one. Resolve conflicts on the principle of the owning lane's owning code.
+   A contract conflict goes back to an explicit contract task.
+4. **Lightweight verification** is the default: remote input SHA / ancestry / conflicts / scope / `git diff --check` + focused tests directly related to this
+   composition (`verify` runs the lightweight tier by default in the integration lane). Run `verify --full` only when a
+   full integration escalation condition applies. At either tier, no explicit desktop production build is run.
+5. After verification passes, integration runs `baseline advance <integration result SHA>`, then `baseline publish`. After fetch it must
+   show that `baseline/dev == origin/baseline/dev`. Publishing allows only a fast-forward or the first bootstrap. Force is forbidden.
+6. The current product phase, release status and next task follow the [program status page](program-status.md). The `v0.1.0-rc5`
+   public prerelease has been published and the release gate is closed.
+   A new candidate build or release acceptance runs only after the user explicitly opens the RC/release gate and the release-readiness conditions are met.
+   Install / upgrade-install / user-journey acceptance runs in a dedicated environment and is not mixed with development instances.
 
-## 运行隔离与共享资源
+## Run isolation and shared resources
 
-| 资源                                 | 规则                                                                                            |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| Vault                                | 每任务独立（start 自动生成并校验 ≤32 位小写），绝不使用 `default`；通过 `--vault` 传入 dev 实例 |
-| 端口                                 | 每任务独立 Vite 端口（15400 起，start 探测空闲 + 跳过其他任务已声明端口）                       |
-| node_modules / Rust target / staging | 各工作树自有，不跨树链接                                                                        |
-| Mihomo                               | 同一 controller/selector group 会互相切节点：并行网络测试用独立实例或串行                       |
-| engine package                       | 固定包只读复用；新候选写新目录，不覆盖他人正在验收的包                                          |
-| 安装/卸载                            | 由验收任务在专用环境执行，工作树名称不隔离安装目录与系统注册                                    |
+| Resource                             | Rule                                                                                                                                      |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Vault                                | One per task (start generates it and validates ≤32 lowercase characters). Never use `default`. Pass it to the dev instance with `--vault` |
+| Port                                 | One Vite port per task (from 15400; start probes for a free one and skips ports other tasks have claimed)                                 |
+| node_modules / Rust target / staging | Each worktree owns its own. Do not link across worktrees                                                                                  |
+| Mihomo                               | The same controller/selector group switches nodes for everyone: use a separate instance for parallel network tests, or run them serially  |
+| engine package                       | A fixed package is reused read-only. A new candidate writes to a new directory and does not overwrite a package someone else is accepting |
+| Install/uninstall                    | Run by an acceptance task in a dedicated environment. A worktree name does not isolate install directories or system registration         |
 
-## 环境注意
+## Environment notes
 
-- Node ≥22（本机 fnm：`$APPDATA/fnm/node-versions/v22.23.2/installation`）；pnpm 11 可经 `corepack pnpm` 调用。`verify` 会自动在 `pnpm` 与 `corepack pnpm` 间探测；Git Bash 里 pnpm shim 可能因路径改写不可用，属已知情况。
-- Host `test_identity_artifact.py` 依赖本机 python 的 numpy，当前环境缺失（非阻塞，按条件运行）。
-- 已知偶发 flake：desktop Rust 全量 lib 测试中的 fake Host 一秒握手超时；对失败项单独串行重跑确认后再下结论，并如实记录。
+- Node ≥22 (local fnm: `$APPDATA/fnm/node-versions/v22.23.2/installation`). pnpm 11 can be called through `corepack pnpm`. `verify` probes between `pnpm` and `corepack pnpm` automatically. In Git Bash the pnpm shim may not work because of path rewriting. This is a known situation.
+- Host `test_identity_artifact.py` depends on numpy in the local python, which is missing in the current environment (non-blocking, run conditionally).
+- Known occasional flake: in the full desktop Rust lib test run, the fake Host one-second handshake times out. Rerun the failing item alone and serially to confirm before drawing a conclusion, and record it as it is.
 
-底层约定（代码归属表、共同基线原则、合并规则）见 [development-worktrees.md](development-worktrees.md)。
+For the underlying conventions (code ownership table, shared baseline principle, merge rules), see [development-worktrees.md](development-worktrees.md).

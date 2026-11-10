@@ -1,57 +1,59 @@
-# Camoufox-first Managed Engine 架构决策
+# Camoufox-first Managed Engine architecture decision
 
-- 状态：**Accepted**
-- 决策形成：2026-08-03
-- 当前事实与 Gate：[Camoufox 状态页](camoufox-program-status.md)
+> Translated from the original Chinese on 2026-11-10. The original text is in Git history at commit 1cf0f29. For historical evidence, the original wording governs if the two differ.
 
-本文只记录稳定架构决策。阶段 checkpoint、失败 run、patch hash 和实施细节属于状态页、
-当前任务合同、lock/result 与 Git，不追加到本 ADR。
+- Status: **Accepted; superseded in part on 2026-11-10** by the [commercial direction decision](product-direction-decision-2026-11.md). Controlled Chromium is no longer deferred: it is the planned primary commercial engine (roadmap E0 and Phase 5), and the rule against two controlled engines became "only one controlled engine in active build-out at a time". The reasoning below about Camoufox, pinned assets, Artifact replay and evidence remains valid.
+- Decision made: 2026-08-03
+- Current facts and Gates: [Camoufox status page](camoufox-program-status.md)
 
-## 问题
+This document records only stable architecture decisions. Phase checkpoints, failed runs, patch hashes, and implementation details belong to the status page,
+the current task contract, lock/result files, and Git. They are not appended to this ADR.
 
-VeriSilo 已有 Silo、Vault、Profile、网络 Provider 和 EngineAdapter 控制面，当前最大的产品
-未知不是“能否再做一个控制界面”，而是能否把持久、协调的身份真实应用到网站可见信号并
-跨启动重放。个人开发者资源不足以同时维护多个浏览器内核或默认引入整机虚拟化。
+## Problem
 
-## 决策
+VeriSilo already has the Silo, Vault, Profile, network Provider, and EngineAdapter control plane. The biggest product
+unknown now is not "whether another control UI can be built". It is whether a persistent, coherent identity can really be applied to the signals websites can see and
+replayed across launches. An individual developer's resources are not enough to maintain several browser engines at once or to introduce whole-machine virtualization by default.
 
-第一条 Managed Identity Engine 路线采用：
+## Decision
+
+The first Managed Identity Engine route uses:
 
 ```text
 VeriSilo
 → EngineAdapter
 → standalone Host
-→ 固定且受绑定的 Camoufox/Firefox engine
+→ pinned and bound Camoufox/Firefox engine
 → Resolved Identity Artifact
 → Persistent Profile
 → first-party runtime evidence
 ```
 
-Camoufox-first 是稳定的第一条 Managed Engine 路线，不删除 Standard Silo，也不把 Camoufox
-等同于整个产品。其 standalone、资格链和产品化接缝已经按各自证据层完成；当前执行阶段由
-[Camoufox 状态页](camoufox-program-status.md)决定。
+Camoufox-first is the stable first Managed Engine route. It does not remove Standard Silo, and it does not equate Camoufox
+with the whole product. Its standalone, qualification chain, and productization seams have been completed at their respective evidence layers. The current execution phase is decided by the
+[Camoufox status page](camoufox-program-status.md).
 
-## 职责边界
+## Responsibility boundaries
 
-- **BrowserForge** 只生成受约束的候选身份参数，不负责浏览器实际返回值。
-- **Camoufox** 在 Firefox 内核层应用身份，不是管理平台，也不是 Chromium 模拟。
-- **standalone Host** 负责资产绑定、Artifact 重放、Profile 独占和浏览器生命周期。
-- **EngineAdapter** 负责桌面调用、包验证、transport 和能力状态，不重新生成身份。
-- **VeriSilo** 负责 Silo、Vault、用户策略、网络、迁移、UI 和 evidence 语义。
+- **BrowserForge** only generates constrained candidate identity parameters. It is not responsible for what the browser actually returns.
+- **Camoufox** applies the identity at the Firefox engine layer. It is not a management platform and not a Chromium emulation.
+- **The standalone Host** is responsible for asset binding, Artifact replay, Profile exclusivity, and the browser lifecycle.
+- **EngineAdapter** is responsible for desktop invocation, package verification, transport, and capability state. It does not regenerate the identity.
+- **VeriSilo** is responsible for the Silo, Vault, user policy, network, migration, UI, and the semantics of evidence.
 
-Profile、Identity Artifact、Engine Binding、Network Policy 与 Runtime Evidence 保持独立
-生命周期。配置声明不能替代 runtime observation，Host 自报不能自动提升为 verified。
+Profile, Identity Artifact, Engine Binding, Network Policy, and Runtime Evidence keep independent
+lifecycles. A configuration declaration cannot replace a runtime observation, and a Host's self-report cannot be promoted to verified automatically.
 
-## 为什么是 Camoufox
+## Why Camoufox
 
-- 它提供 Firefox 内核层信号控制，避免把 JS getter、扩展或 stealth 脚本当成完整身份层；
-- 可复用预编译资产与窄 downstream patch，符合个人开发者资源；
-- 能先证明“生成 → 存储 → 应用 → 冷启动重放 → 网站观测”的最小垂直链；
-- 比同时自研 Chromium、Camoufox 与虚拟化后端更可维护。
+- It controls signals at the Firefox engine layer, which avoids treating JS getters, extensions, or stealth scripts as a complete identity layer;
+- It can reuse prebuilt assets and a narrow downstream patch, which fits an individual developer's resources;
+- It can first prove the minimal vertical slice "generate → store → apply → cold-launch replay → website observation";
+- It is easier to maintain than building Chromium, Camoufox, and a virtualization backend at the same time.
 
-## FP1–FP4 的稳定产品解释
+## Stable product interpretation of FP1–FP4
 
-FP1–FP4 不是四组可任意扩张的“指纹功能”，而是一条有明确终点的资格链：
+FP1–FP4 are not four groups of "fingerprint features" that may expand without limit. They are one qualification chain with a clear end point:
 
 ```text
 FP1 = Identity determinism
@@ -60,53 +62,53 @@ FP3 = Network-bound coherence
 FP4 = Ordinary-site product compatibility
 ```
 
-FP4 只回答一个有界问题：通过 FP2/FP3 的精确 Engine、Artifact、required Network Policy 与
-Persistent Profile，能否在原生 Windows Host 上完成冻结的代表性普通网站核心任务，同时不发生
-浏览器崩溃、无界挂起、Profile 损坏、身份/网络 binding 回归或 owned lifecycle 脏关闭。
+FP4 answers one bounded question only: with the exact Engine, Artifact, required Network Policy, and
+Persistent Profile that passed FP2/FP3, can the frozen set of representative ordinary-website core tasks be completed on a native Windows Host, without
+a browser crash, unbounded hang, Profile corruption, identity/network binding regression, or dirty close of an owned lifecycle?
 
-因此 FP4 不是反检测评分、“不可检测”证明、universal site compatibility、验证码/账号风控绕过、
-DNS/TLS/QUIC 资格、installer、签名、UI 或 release Gate，也不以继续增加 spoof 字段为目标。
-外部网站宕机、结构漂移、region/consent wall、CAPTCHA、rate limit 或第三方资源故障保持
-`Inconclusive`；只有冻结输入下的直接、可归因产品失败才构成 `Failed`。必要归因只对失败任务运行
-一个 pinned upstream Camoufox 对照，不为通过项建立完整 A/B 矩阵。
+So FP4 is not an anti-detection score, a proof of being "undetectable", universal site compatibility, a bypass of CAPTCHA or account risk controls,
+a DNS/TLS/QUIC qualification, or an installer, signing, UI, or release Gate. Nor is its goal to keep adding spoofed fields.
+An external website outage, structure drift, region/consent wall, CAPTCHA, rate limit, or third-party resource failure stays
+`Inconclusive`. Only a direct, attributable product failure under the frozen inputs counts as `Failed`. For the necessary attribution, run only
+one pinned upstream Camoufox control for the failed task. Do not build a full A/B matrix for passing items.
 
-FP4 是 Camoufox-first 的产品级 go/no-go：通过只支持继续该路线，不等于商业产品或发布就绪；若
-目标用户必需的普通网站能力出现可复现的 Camoufox/Firefox 固有限制，才形成重评 Controlled
-Chromium 的有效证据。FP4 闭合后不创建 FP5；随后完成的 clean M3-WI Attempt 4 只证明其
-冻结 test-only desktop/Host qualification 边界。
+FP4 is the product-level go/no-go for Camoufox-first. A pass only supports continuing this route. It does not mean commercial product or release readiness. Only if a
+capability for ordinary websites that the target users require hits a reproducible limit inherent to Camoufox/Firefox does it form valid evidence for reassessing Controlled
+Chromium. No FP5 is created after FP4 closes. The clean M3-WI Attempt 4 completed afterward proves only its
+frozen test-only desktop/Host qualification boundary.
 
-精确站点、任务、预算、判定与 immutable evidence 仍分别以
-[FP4 冻结合同](camoufox-fp4-ordinary-site-compatibility-contract.md)和
-[FP4 aggregate result](../apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp4-result.json)
-为准；本节只固定其长期产品含义，不重写历史 attempt 或扩大其 claim。
+The exact sites, tasks, budgets, verdicts, and immutable evidence are still governed by
+the [FP4 frozen contract](camoufox-fp4-ordinary-site-compatibility-contract.md) and the
+[FP4 aggregate result](../apps/camoufox-host/lock/camoufox-v152.0.4-beta.28-verisilo-r1-formal-v3-fp4-result.json).
+This section fixes only their long-term product meaning. It does not rewrite any historical attempt or widen its claim.
 
-## 平台分工
+## Platform roles
 
-- **原生 Windows**：Windows 资产、桌面生命周期、文件锁、Job Object 与 Windows 专属结论；
-- **Linux/构建宿主**：开发、静态验证和按需 engine cross-build，不替代 Windows runtime；
-- **Tauri/EngineAdapter**：只消费已通过对应 standalone/runtime Gate 的能力；
-- **临时构建机**：一次性编译工具，不是产品架构或长期事实源。
+- **Native Windows**: Windows assets, desktop lifecycle, file locks, Job Objects, and conclusions specific to Windows;
+- **Linux/build host**: development, static verification, and engine cross-builds on demand. It does not replace the Windows runtime;
+- **Tauri/EngineAdapter**: consume only capabilities that have passed the corresponding standalone/runtime Gate;
+- **Temporary build machine**: a one-off compile tool. It is not product architecture or a long-term source of truth.
 
-## 当前不采用
+## Not adopted now
 
-| 路线 | 决策 |
-| --- | --- |
-| 只继续打磨 Standard | Standard 保留，但不替代 Managed Engine 风险验证 |
-| Controlled Chromium | 延后；出现明确 Chromium 兼容需求和可承担维护资源时重评 |
-| BrowserForge 单独作为执行层 | 拒绝；它不改变浏览器实现 |
-| JS/扩展 stealth 作为主身份层 | 拒绝；只允许有限实验或观测 |
-| WSL/VMware/Hyper-V/Remote 作为默认身份层 | 延后；环境隔离不等于协调身份 |
-| 同时维护多个受控内核 | 拒绝当前并行投入 |
+| Route                                                   | Decision                                                                                                   |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Keep polishing only Standard                            | Standard stays, but does not replace the Managed Engine risk verification                                  |
+| Controlled Chromium                                     | Deferred. Reassess when there is a clear Chromium compatibility need and maintenance resources to carry it |
+| BrowserForge alone as the execution layer               | Rejected. It does not change the browser implementation                                                    |
+| JS/extension stealth as the main identity layer         | Rejected. Only limited experiments or observation are allowed                                              |
+| WSL/VMware/Hyper-V/Remote as the default identity layer | Deferred. Environment isolation is not a coherent identity                                                 |
+| Maintaining several controlled engines at once          | Rejected as a parallel investment for now                                                                  |
 
-## 版本与发布原则
+## Version and release principles
 
-- 固定经过验收的 engine、source revision、patch series、toolchain 与资产；
-- 不在 runtime 跟随 `latest`，不把自动下载当作安装策略；
-- 自建 archive 不冒充上游 release；身份声明版本必须与真实 engine binding 一致；
-- 上游升级只验证受影响能力，不自动重跑所有历史研究；
-- build/provenance、runtime qualification、签名发布与产品 shipped 是不同 Gate。
+- Pin the accepted engine, source revision, patch series, toolchain, and assets;
+- Do not follow `latest` at runtime, and do not treat automatic download as an install policy;
+- A self-built archive does not pose as an upstream release. The version the identity declares must match the real engine binding;
+- An upstream upgrade verifies only the affected capabilities and does not automatically rerun all historical research;
+- Build/provenance, runtime qualification, signed release, and product shipped are different Gates.
 
-## 历史资格链与当前执行路由
+## Historical qualification chain and current execution routing
 
 ```text
 FP1 deterministic Artifact projection
@@ -114,27 +116,27 @@ FP1 deterministic Artifact projection
 → FP3 network/geo/timezone/locale coherence
 → FP4 ordinary-site compatibility
 → clean M3-WI Attempt 4 test-only qualification
-→ production package/signing、Managed Silo UI 与 current-user NSIS implementation
+→ production package/signing, Managed Silo UI, and current-user NSIS implementation
 ```
 
-上面是已经闭合的历史资格链，不是新的执行顺序。当前阶段、候选状态与下一任务由[状态页](camoufox-program-status.md)
-维护；当前 `v0.1.0-rc2` 已在 exact pristine Windows Sandbox 完成安装验收，但不是公开发布。
-Camoufox-first 仍是当前 Managed Engine strategy；已接受的产品方向是 **B — NARROW /
-DIFFERENTIATE**，不切换内核、不删除 Standard Silo，也不把路线扩展成 broad workstation
-feature-parity 竞赛。旧 M3-WI、FP1/FP2 generation、diagnostic build 与 one-shot 执行历史只在
-调查对应 evidence 时读取，不构成新任务的默认流程模板。
+The above is a historical qualification chain that has closed. It is not a new execution order. The current phase, candidate status, and next task are
+maintained by the [status page](camoufox-program-status.md). The current `v0.1.0-rc2` has completed install acceptance in an exact pristine Windows Sandbox, but is not a public release.
+Camoufox-first is still the current Managed Engine strategy. The accepted product direction is **B — NARROW /
+DIFFERENTIATE**: it does not switch engines, does not remove Standard Silo, and does not widen the route into a broad workstation
+feature-parity race. Read the old M3-WI, FP1/FP2 generation, diagnostic build, and one-shot execution history only when
+investigating the corresponding evidence. They are not a default process template for new tasks.
 
-## 重评或变更条件
+## Conditions for reassessment or change
 
-以下情况需要新的显式架构决策：
+The following need a new explicit architecture decision:
 
-- 主要用户或目标站点必须依赖 Chromium API/扩展生态；
-- Camoufox 无法满足明确兼容目标或停止维护；
-- 产品需要直接控制 Chromium TLS/QUIC/V8 特有行为；
-- 团队和收入足以承担另一条固定内核的长期 patch/build/upgrade；
-- 要把 WSL、VM、Remote 设为普通 Silo 默认执行层；
-- 要合并 Profile、Artifact、网络秘密或 evidence 生命周期；
-- 要弱化 `configured/applied/observed/verified/unavailable` 的区别。
+- The main users or target sites must depend on Chromium APIs or the extension ecosystem;
+- Camoufox cannot meet a clear compatibility target or is no longer maintained;
+- The product needs direct control of Chromium-specific TLS/QUIC/V8 behavior;
+- The team and revenue can carry the long-term patch/build/upgrade of another pinned engine;
+- WSL, a VM, or Remote is to become the default execution layer for an ordinary Silo;
+- The lifecycles of Profile, Artifact, network secrets, or evidence are to be merged;
+- The distinction among `configured/applied/observed/verified/unavailable` is to be weakened.
 
-局部 bug、patch、builder 差异或测试失败不自动重开架构；只修复直接 owning seam，并把
-证据能支持的结论限定在对应层。
+A local bug, patch, builder difference, or test failure does not reopen the architecture automatically. Fix only the direct owning seam, and limit the
+conclusion the evidence can support to the corresponding layer.

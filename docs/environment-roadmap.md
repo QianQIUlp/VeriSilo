@@ -1,145 +1,147 @@
-# VeriSilo 环境实现路线：浏览器引擎、虚拟机与远程环境
+# VeriSilo environment implementation roadmap: browser engines, virtual machines and remote environments
 
-## 目标
+> The product-wide plan is the [roadmap](roadmap.md). This document keeps the technical design of the engine and environment layers (V0.7 to V0.9). Its V0.8 and V0.9 environment work is frozen until roadmap Phase 7.
 
-VeriSilo 不把浏览器扩展当作全部产品，也不把独立 `user-data-dir` 当作环境隔离的终点。产品正式采用四层实现：
+## Goal
 
-| 层级           | 版本      | 状态                                         | 主要边界                                                 |
-| -------------- | --------- | -------------------------------------------- | -------------------------------------------------------- |
-| 独立 Silo      | V0.1–V0.6 | 基线部分实现                                 | 独立浏览器 Profile、网站数据、权限、历史和启动级网络配置 |
-| 受控浏览器引擎 | V0.7      | M0–M2-W、M3-0、FP1–FP4 与 clean M3-WI Attempt 4 已在各自证据层闭合；生产 package/adapter/UI/NSIS 已实现，current-source rc2 已在 pristine Windows Sandbox 完成安装后生命周期验收 | 协调浏览器可见信号、引擎网络能力和跨上下文一致性         |
-| 本地虚拟环境   | V0.8      | 已列入路线                                   | 独立操作系统、字体、设备视图和每环境网络出口             |
-| 自托管远程环境 | V0.9      | 已列入路线                                   | 远程浏览器会话、独立网络栈、持久环境和生命周期审计       |
+VeriSilo does not treat a browser extension as the whole product. It also does not treat a separate `user-data-dir` as the end point of environment isolation. The product formally adopts four implementation layers:
 
-这些层级是可选能力。轻量用户可以只用扩展或独立 Silo；需要更强边界的用户可以逐级升级。界面必须始终区分“当前可用”“已列入路线”“已配置”“已应用”和“已验证”。
+| Layer                          | Version   | Status                                                                                                                                                                                                                                                                        | Main boundary                                                                                    |
+| ------------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Separate Silo                  | V0.1–V0.6 | Baseline partially implemented                                                                                                                                                                                                                                                | Separate browser Profile, site data, permissions, history and launch-level network configuration |
+| Controlled browser engine      | V0.7      | M0–M2-W, M3-0, FP1–FP4 and clean M3-WI Attempt 4 are closed at their respective evidence layers. The production package, adapter, UI and NSIS installer are implemented. The current-source rc2 has completed post-install lifecycle acceptance in a pristine Windows Sandbox | Coordinates browser-visible signals, engine network capabilities and cross-context consistency   |
+| Local virtual environment      | V0.8      | On the roadmap                                                                                                                                                                                                                                                                | Separate operating system, fonts, device view and per-environment network exit                   |
+| Self-hosted remote environment | V0.9      | On the roadmap                                                                                                                                                                                                                                                                | Remote browser session, separate network stack, persistent environment and lifecycle audit       |
 
-“基线部分实现”只描述当前已有代码，不表示 V0.1–V0.6 已整体验收。逐项证据和缺口以[桌面端完成度审计](desktop-completion-audit.md)为准。
+These layers are optional capabilities. Lightweight users can use only the extension or a separate Silo. Users who need a stronger boundary can upgrade one level at a time. The UI must always distinguish “当前可用” ("available now"), “已列入路线” ("on the roadmap"), “已配置” ("configured"), “已应用” ("applied") and “已验证” ("verified").
 
-## V0.1–V0.6 冻结定义
+"Baseline partially implemented" describes only the code that exists today. It does not mean V0.1–V0.6 have been accepted as a whole. For item-by-item evidence and gaps, the [desktop completion audit](desktop-completion-audit.md) governs.
 
-为避免把六个版本笼统写成“独立 Silo 已实现”，首发阶段按以下边界验收：
+## V0.1–V0.6 frozen definition
 
-| 版本 | 冻结交付范围                                                                        | 升级为完成所需的直接证据                                                                           |
-| ---- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| V0.1 | Vault 基础、Chrome/Edge 发现、独立 `user-data-dir`、Silo 生命周期、目录锁与单活启动 | Vault/状态机单测，以及 Win10/11 × Chrome/Edge 的 A/B 站点数据隔离、默认 Profile 不变和异常恢复 E2E |
-| V0.2 | 可选 Companion、生产 Native Host、固定代理/PAC/外部 Mihomo 与 fail-closed 网络路径  | 正负协议测试、HKCU 安装测试、扩展缺失降级，以及从实际 Silo 内完成的断线和出口证据                  |
-| V0.3 | 模块化观察、人话解释、桌面证据历史、脱敏 JSON/HTML 报告                             | 采集器失败隔离、覆盖声明、桌面回传/存储/迁移和导出确认测试                                         |
-| V0.4 | 每 Silo 稳定实验控制、`observe → apply → verify → restore`、按站点回退              | 短期派生配置、跨上下文一致性、失败回滚、重启恢复和兼容性矩阵                                       |
-| V0.5 | `VeriSilo Labs` 中的 Cookie/Worker 等高风险实验及泄漏停止条件                       | 独立 feature gate、默认关闭、逐项泄漏/兼容测试；未满足停止条件不得进入默认模式                     |
-| V0.6 | 封顶能力报告、Windows 安装升级卸载、SBOM/许可证/校验和/签名和商店发布门槛           | 可追溯 Windows 产物、E2E 日志、供应链报告、哈希和签名验证；路线文档或示例报告不算完成              |
+Writing the six versions together as "separate Silo implemented" would hide gaps. For the first release, acceptance follows these boundaries:
 
-### V0.5 当前可直接核对的窄实现
+| Version | Frozen delivery scope                                                                                                      | Direct evidence required to upgrade to complete                                                                                                                                 |
+| ------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V0.1    | Vault foundation, Chrome/Edge discovery, separate `user-data-dir`, Silo lifecycle, directory lock and single-active launch | Vault and state-machine unit tests, plus Win10/11 × Chrome/Edge E2E for A/B site-data isolation, unchanged default Profile and abnormal recovery                                |
+| V0.2    | Optional Companion, production Native Host, fixed proxy/PAC/external Mihomo and fail-closed network path                   | Positive and negative protocol tests, HKCU install tests, degradation when the extension is missing, and disconnect and network-exit evidence collected from inside a real Silo |
+| V0.3    | Modular observation, plain-language explanation, desktop evidence history, redacted JSON/HTML report                       | Collector failure isolation, coverage statement, desktop return/storage/migration tests and export confirmation tests                                                           |
+| V0.4    | Stable per-Silo experiment control, `observe → apply → verify → restore`, per-site fallback                                | Short-lived derived configuration, cross-context consistency, failure rollback, restart recovery and compatibility matrix                                                       |
+| V0.5    | High-risk experiments such as Cookie/Worker in `VeriSilo Labs`, with leak stop conditions                                  | Separate feature gate, off by default, item-by-item leak and compatibility tests. An experiment that has not met its stop conditions must not enter the default mode            |
+| V0.6    | Capped capability report, Windows install/upgrade/uninstall, SBOM/license/checksum/signature and store release gates       | Traceable Windows artifact, E2E logs, supply-chain report, hash and signature verification. Roadmap documents or sample reports do not count as complete                        |
 
-V0.5 不再只有路线文字：contracts、Companion 与桌面 UI 共享版本化 `LabsExperiment`/receipt 模型，实验默认关闭，要求当前 Silo＋站点明确授权，并实现 `observe → apply → verify → restore`、到期和泄漏即停状态机。无可用桌面 Silo 时只能建立有界 `local_temporary` 运行，不能伪装成 Silo 证据。
+### V0.5 narrow implementation that can be checked directly today
 
-当前唯一可选实现是 MAIN-world 的新建 Dedicated Worker constructor 包装。它只处理开启后新建的同源/blob classic Worker，用短期随机 canary 做 Worker handshake 与同源 iframe 一致性自检；任一可观察的跨标签页/iframe/Service Worker URL/页面可见 Cookie canary 泄漏、页面或 Worker 异常、超时、权限变化、导航、scope 违规或验证失败，都会恢复原 constructor、停用该站点并写入不含 canary/Cookie/token 的本机脱敏收据。
+V0.5 is no longer only roadmap text. Contracts, the Companion and the desktop UI share a versioned `LabsExperiment`/receipt model. Experiments are off by default and require explicit authorization for the current Silo plus site. They implement the `observe → apply → verify → restore`, expiry and stop-on-leak state machine. When no desktop Silo is available, only a bounded `local_temporary` run can be created. It cannot pose as Silo evidence.
 
-该入口由用户点击后注入，不能证明早于页面脚本，因此成功状态只能是 `best_effort`，不能是 `verified`。既有 Worker、module/cross-origin Worker、SharedWorker、Service Worker 内存均明确不覆盖。Cookie 仓库虚拟化与全面 Set-Cookie 截获在 stock MV3 中保持不可选 `unsupported`；当前可靠替代仍是桌面 Silo 的独立 `user-data-dir`。这解决 feature gate、停止条件和窄真实实现缺口，但不代表 V0.5 全部 Windows/浏览器兼容性验收已经完成。
+The only selectable implementation today is a MAIN-world wrapper around the constructor for newly created Dedicated Workers. It handles only same-origin and blob classic Workers created after it is enabled. It uses short-lived random canaries for a Worker handshake and a same-origin iframe consistency self-check. Any of the following restores the original constructor, disables the site, and writes a local redacted receipt that contains no canary, Cookie or token: an observable leak across tabs, iframes, Service Worker URLs or page-visible Cookie canaries; a page or Worker exception; a timeout; a permission change; navigation; a scope violation; or a verification failure.
 
-后续层级不能替代这些基础验收。例如 V0.8 VM 后端存在，也不能自动证明 stock Chrome/Edge 的 V0.1 默认 Profile 安全。
+This entry point is injected after the user clicks, so it cannot be proven to run before page scripts. The success state can therefore only be `best_effort`, never `verified`. Existing Workers, module and cross-origin Workers, SharedWorkers and Service Worker memory are explicitly not covered. Cookie store virtualization and comprehensive Set-Cookie interception stay unselectable as `unsupported` in stock MV3. The current reliable alternative is still the separate `user-data-dir` of a desktop Silo. This closes the gaps in the feature gate, stop conditions and a narrow real implementation. It does not mean the full Windows and browser compatibility acceptance for V0.5 is complete.
 
-## 从现有产品和项目吸收什么
+Later layers cannot replace these base acceptance requirements. For example, the existence of a V0.8 VM backend does not automatically prove that the V0.1 default-Profile safety of stock Chrome/Edge holds.
 
-以下资料用于学习产品分层、更新机制、配置一致性和环境生命周期；它们的营销描述不自动成为 VeriSilo 的能力证据。
+## What to take from existing products and projects
 
-| 来源                                                                                                              | 可借鉴的思路                                                         | VeriSilo 的约束                                                                            |
-| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [GoLogin Orbita](https://gologin.com/docs/orbita-browser)                                                         | 将修改过的 Chromium 作为可持续更新的浏览器产品，而不是一次性脚本注入 | 每个字段仍需跨上下文验证；不复述“不可检测”等营销结论                                       |
-| [GoLogin Cloud Browser](https://gologin.com/docs/api-reference/cloud-browser/what-is-gologin-cloud-browser)       | 持久远程 Profile、远程会话和自动化连接的生命周期模型                 | V0.9 默认面向用户自托管节点，不建立默认 VeriSilo 公有云                                    |
-| [Multilogin Mimic / Stealthfox](https://multilogin.com/help/cn_CN/how-to-use-mimic-and-stealthfox)                | 多引擎适配、主引擎与遗留引擎的维护分级                               | 每个引擎独立发布兼容矩阵和维护状态                                                         |
-| [Multilogin X 功能说明](https://multilogin.com/help/en_US/introduction-to-multilogin-x/multilogin-x-top-features) | Profile 模板、代理绑定、本地或云端存储的产品结构                     | 默认仍为本地优先；任何远端存储都需要单独威胁模型和明确选择                                 |
-| [Multilogin Cloud Phones](https://multilogin.com/help/en_US/how-to-create-mobile-profiles)                        | 当浏览器字段控制不够时，直接提供完整操作系统环境                     | 移动或真实设备环境不进入 V0.8 首版，待 V0.9 后单独评估                                     |
-| [Donut Browser](https://github.com/zhom/donutbrowser)                                                             | Profile、代理、浏览器引擎与本地自动化入口的产品编排                  | AGPL-3.0 代码不得复制进 MPL-2.0 核心，只能独立实现通用思想                                 |
-| [Camoufox](https://github.com/daijro/camoufox)                                                                    | Firefox 引擎级控制、配置注入和 BrowserForge 分布                     | 当前第一条 Managed Engine 路线；固定资产、逐阶段取证，维护缺口和一致性风险必须在 UI 中可见 |
-| [BrowserForge](https://github.com/daijro/browserforge)                                                            | 按现实分布生成互相约束的请求头与浏览器特征模板                       | 固定版本、记录来源；模板先经过规则约束和验证，不能盲目随机化                               |
-| [FingerprintJS](https://github.com/fingerprintjs/fingerprintjs)                                                   | 模块化采集器、错误容忍和稳定信号提取                                 | 哈希不是绝对身份；采集只用于解释与回归验证                                                 |
-| [CreepJS](https://github.com/abrahamjuliot/creepjs)                                                               | 跨 Window、iframe、Worker 和渲染信号寻找自相矛盾                     | 只借鉴矛盾规则与测试结构，不把单站结果当成“不可检测”证明                                   |
+The sources below are used to learn product layering, update mechanisms, configuration consistency and environment lifecycle. Their marketing claims do not automatically become evidence of VeriSilo capability.
 
-任何第三方兼容代码都要先记录版本、许可证、归属、修改和 SBOM 条目。
+| Source                                                                                                                    | Idea worth borrowing                                                                                           | VeriSilo constraint                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [GoLogin Orbita](https://gologin.com/docs/orbita-browser)                                                                 | Treat a modified Chromium as a browser product with continuous updates, not as a one-off script injection      | Every field still needs cross-context verification. Do not repeat marketing conclusions such as "undetectable"                                         |
+| [GoLogin Cloud Browser](https://gologin.com/docs/api-reference/cloud-browser/what-is-gologin-cloud-browser)               | Lifecycle model for persistent remote Profiles, remote sessions and automation connections                     | V0.9 targets user-hosted nodes by default and does not build a default VeriSilo public cloud                                                           |
+| [Multilogin Mimic / Stealthfox](https://multilogin.com/help/cn_CN/how-to-use-mimic-and-stealthfox)                        | Multi-engine adaptation and maintenance tiers for primary and legacy engines                                   | Each engine publishes its own compatibility matrix and maintenance status                                                                              |
+| [Multilogin X feature overview](https://multilogin.com/help/en_US/introduction-to-multilogin-x/multilogin-x-top-features) | Product structure of Profile templates, proxy binding, and local or cloud storage                              | Stay local-first by default. Any remote storage needs its own threat model and an explicit user choice                                                 |
+| [Multilogin Cloud Phones](https://multilogin.com/help/en_US/how-to-create-mobile-profiles)                                | Provide a full operating-system environment directly when browser field control is not enough                  | Mobile or real-device environments are not in the V0.8 first release. Evaluate them separately after V0.9                                              |
+| [Donut Browser](https://github.com/zhom/donutbrowser)                                                                     | Product orchestration of Profile, proxy, browser engine and local automation entry point                       | AGPL-3.0 code must not be copied into the MPL-2.0 core. Only general ideas may be implemented independently                                            |
+| [Camoufox](https://github.com/daijro/camoufox)                                                                            | Firefox engine-level control, configuration injection and BrowserForge distributions                           | The current first Managed Engine route. Pin assets and collect evidence stage by stage. Maintenance gaps and coherence risks must be visible in the UI |
+| [BrowserForge](https://github.com/daijro/browserforge)                                                                    | Generate mutually constrained request-header and browser-feature templates that follow realistic distributions | Pin the version and record the source. Templates first pass rule constraints and verification. Do not randomize blindly                                |
+| [FingerprintJS](https://github.com/fingerprintjs/fingerprintjs)                                                           | Modular collectors, error tolerance and stable signal extraction                                               | A hash is not an absolute identity. Use collection only for explanation and regression verification                                                    |
+| [CreepJS](https://github.com/abrahamjuliot/creepjs)                                                                       | Look for self-contradiction across Window, iframe, Worker and rendering signals                                | Borrow only the contradiction rules and test structure. Do not treat a single-site result as proof of "undetectable"                                   |
 
-## V0.7：受控浏览器引擎
+Any third-party compatibility code must first record its version, license, attribution, modifications and SBOM entry.
 
-### 当前优先级
+## V0.7: controlled browser engine
 
-Standard Silo 仍是长期产品基础层。V0.7 的 Camoufox 资格链已经完成，生产 package/adapter、Desktop signer pin、Managed Silo 创建与运行路径和 current-user NSIS 已实现；旧 M3-WI 失败调查与 clean Attempt 4 保持历史证据边界。当前-source `v0.1.0-rc2` 已完成 packaged runtime 与 pristine Windows Sandbox 安装后生命周期验收，但 strict unelevated standard-user 语义、更广 Windows 矩阵、外层 Authenticode 和公开发布仍未证明。当前默认方向是 accepted differentiated roadmap，优先增强身份、执行、网络、运行证据与归属完整性；当前证据与未验证边界见[Camoufox Managed Engine 状态](camoufox-program-status.md)，稳定路线原因见[Camoufox-first 决策](camoufox-managed-engine-decision.md)。
+### Current priority
 
-Controlled Chromium 不再与 Camoufox 并行开发。只有 Chromium 专属 API/扩展生态成为明确需求、需要直接控制 Chromium TLS/QUIC 或 V8 行为、Camoufox 无法满足兼容性/维护/分发要求，或项目资源足以承担长期 patch 与多平台构建时，才重新评估。
+Standard Silo remains the long-term base layer of the product. The V0.7 Camoufox qualification chain is complete. The production package and adapter, the Desktop signer pin, the Managed Silo creation and run path, and the current-user NSIS installer are implemented. The old M3-WI failure investigation and the clean Attempt 4 keep their historical evidence boundaries. The current-source `v0.1.0-rc2` has completed packaged runtime and post-install lifecycle acceptance in a pristine Windows Sandbox. Strict unelevated standard-user semantics, a broader Windows matrix, outer Authenticode and public release remain unproven. The product direction since 2026-11-10 is the commercial fingerprint browser described in the [north star](identity-platform-north-star.md) and planned in the [roadmap](roadmap.md); identity, execution, network, Runtime Evidence and attribution integrity remain the differentiator. For the current evidence and unverified boundaries, see [Camoufox Managed Engine status](camoufox-program-status.md). For the reasons behind the stable route, see the [Camoufox-first decision](camoufox-managed-engine-decision.md).
 
-### 交付范围
+Controlled Chromium was not developed in parallel with Camoufox under the 2026-08 decision. **Update 2026-11-10:** the [commercial direction decision](product-direction-decision-2026-11.md) makes Controlled Chromium the planned primary commercial engine. Its evaluation (E0) and build-out (Phase 5) follow the [roadmap](roadmap.md). Only one controlled engine is in active build-out at a time, and V0.8/V0.9 environment work stays frozen until roadmap Phase 7.
 
-1. 冻结 `EngineAdapter` 接口：安装、更新、签名验证、启动参数、身份模板、能力探测、健康检查和回滚。
-2. 继续把 Chrome/Edge Stable 作为 `stock-chromium` 基线适配器；它只承诺独立 Profile 和受支持的启动配置。
-3. 维护已完成的 Camoufox Managed Engine 垂直路径：固定 Firefox 系引擎资产、生成和重放约束型 Artifact、持久化 Profile、严格 Host 生命周期、EngineAdapter 合同与生产 package/signing 接缝。它不是 Chrome 模拟，也不因任何 standalone、contract、build 或静态 release check 通过而自动成为已验收发布。
-4. 冻结约束型身份模板：操作系统、浏览器版本、UA/UA-CH、语言、时区、屏幕、渲染、字体、媒体设备和网络设置必须满足显式规则。
-5. 所有控制采用 `observe → apply → verify → restore`。长期种子不进入页面主世界；页面只接收短期派生令牌或已经约束的配置。
-6. 引擎包必须支持签名校验、锁定版本、可复现元数据、SBOM、许可证清单、增量更新失败回滚和紧急禁用。
+### Delivery scope
 
-### 发布门槛
+1. Freeze the `EngineAdapter` interface: install, update, signature verification, launch arguments, identity template, capability probe, health check and rollback.
+2. Keep Chrome/Edge Stable as the `stock-chromium` baseline adapter. It promises only a separate Profile and supported launch configuration.
+3. Maintain the completed Camoufox Managed Engine vertical path: pinned Firefox-family engine assets, generating and replaying constrained Artifacts, persistent Profile, strict Host lifecycle, the EngineAdapter contract, and the production package/signing seam. It is not a Chrome emulation. It also does not automatically become an accepted release because any standalone, contract, build or static release check passes.
+4. Freeze constrained identity templates: operating system, browser version, UA/UA-CH, language, time zone, screen, rendering, fonts, media devices and network settings must satisfy explicit rules.
+5. Every control follows `observe → apply → verify → restore`. A long-lived seed never enters the page main world. The page receives only a short-lived derived token or an already-constrained configuration.
+6. Engine packages must support signature verification, pinned versions, reproducible metadata, SBOM, a license list, rollback on incremental-update failure, and emergency disable.
 
-- Window、iframe、Dedicated Worker、请求头和引擎网络层的同一字段不存在未解释矛盾。
-- Canvas/WebGL/字体模板在同一 Silo 重启后稳定，在不同 Silo 间按配置可区分。
-- QUIC 只有在启动配置和协议观测都确认后才显示“已验证关闭”；TLS 以真实 ClientHello/协商结果为证据。
-- 自建测试页、FingerprintJS 类采集器和 CreepJS 类矛盾规则均进入兼容矩阵；单一测试站通过不能作为总体验收。
-- 网站兼容性失败可按站点回退，并清楚显示当前已回退的控制。
+### Release gate
 
-## V0.8：本地虚拟环境
+- The same field has no unexplained contradiction across Window, iframe, Dedicated Worker, request headers and the engine network layer.
+- Canvas/WebGL/font templates are stable across restarts of the same Silo and, as configured, distinguishable between different Silos.
+- QUIC shows “已验证关闭” ("verified off") only after both the launch configuration and protocol observation confirm it. TLS uses the real ClientHello and negotiation result as evidence.
+- Self-built test pages, FingerprintJS-style collectors and CreepJS-style contradiction rules all enter the compatibility matrix. Passing a single test site cannot serve as overall acceptance.
+- A website compatibility failure can fall back per site, and the UI clearly shows which controls are currently rolled back.
 
-### 后端选择
+## V0.8: local virtual environment
 
-- [WSL 2](https://learn.microsoft.com/en-us/windows/wsl/about) 作为较轻的 Linux Chromium Provider：它可以提供独立 Linux 用户态、文件系统、字体集合和浏览器 Profile，但默认仍共享或经过 Windows 的网络/GPU/WSLg 集成，不能宣传成完整独立设备。当前仓库已有固定 guest-agent、精确 Profile/PID 生命周期与用户自托管的 loopback SOCKS5H 出口/代理 DNS 证据；来宾 OS resolver 与 OS 级强制仍不可用，且真实 Windows/WSLg 验收仍是发布门槛。网络模式依据[微软 WSL networking](https://learn.microsoft.com/en-us/windows/wsl/networking)验证。
-- [Windows Sandbox](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/) 用作一次性兼容实验室。它适合可重复的干净测试，但环境默认是临时的，当前也不能同时运行多个实例，因此不能作为多 Silo 持久后端；固定控制器只证明精确宿主进程生命周期，因无可靠来宾回传通道，来宾健康、网络、DNS 和浏览器就绪保持不可用。`.wsb` 的可控项以[微软配置文档](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file)为准。
-- [Hyper-V](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/overview) 用作持久 VM 后端，提供独立来宾操作系统、磁盘和网络边界。仓库内控制器会固定 VM GUID/名称、代际、镜像哈希与失败回执；合法 VHDX、固定来宾 Agent 及真实签名生命周期验收仍是外部阻塞条件，不能由控制面回执替代。
+### Backend selection
 
-界面必须在启用前检测 Windows 版本、虚拟化能力、管理员要求和重启要求。Windows Sandbox 与 Hyper-V 的系统要求、并发和可用版本差异不得隐藏；根据[微软 Hyper-V 安装要求](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/get-started/Install-Hyper-V)，Hyper-V 不应在 Windows Home 上显示成可直接启用。
+- [WSL 2](https://learn.microsoft.com/en-us/windows/wsl/about) is a lighter Linux Chromium Provider. It can provide a separate Linux user space, file system, font set and browser Profile. By default it still shares or passes through the Windows network, GPU and WSLg integration, so it cannot be advertised as a fully independent device. The repository already has evidence for a pinned guest agent, exact Profile/PID lifecycle, and a user-hosted loopback SOCKS5H network exit with proxy DNS. The guest OS resolver and OS-level enforcement remain unavailable, and real Windows/WSLg acceptance is still a release gate. Network modes are verified against [Microsoft WSL networking](https://learn.microsoft.com/en-us/windows/wsl/networking).
+- [Windows Sandbox](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/) is a disposable compatibility lab. It suits repeatable clean tests, but its environment is temporary by default and it cannot currently run multiple instances at once, so it cannot be a persistent backend for multiple Silos. The pinned controller proves only the exact host process lifecycle. There is no reliable guest return channel, so guest health, network, DNS and browser readiness stay unavailable. For what a `.wsb` file can control, the [Microsoft configuration documentation](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file) governs.
+- [Hyper-V](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/overview) is the persistent VM backend. It provides a separate guest operating system, disk and network boundary. The controller in the repository pins the VM GUID/name, generation, image hash and failure receipts. A valid VHDX, a pinned guest Agent and real signed lifecycle acceptance remain externally blocking conditions. Control-plane receipts cannot replace them.
 
-### 交付范围
+Before enabling, the UI must detect the Windows version, virtualization capability, administrator requirement and restart requirement. Differences in system requirements, concurrency and available versions between Windows Sandbox and Hyper-V must not be hidden. Per the [Microsoft Hyper-V installation requirements](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/get-started/Install-Hyper-V), Hyper-V should not be shown as directly enableable on Windows Home.
 
-1. 冻结 `EnvironmentBackend` 接口：创建、启动、暂停、快照、销毁、网络配置、健康检查和日志导出。
-2. 提供签名的基础镜像清单和可复现配置，不直接分发来源不明的系统镜像。
-3. 默认关闭宿主可写目录映射、剪贴板、摄像头、麦克风、USB 和不必要的 GPU 透传；用户启用时显示它对隔离边界的影响。
-4. 每个 VM 独立保存浏览器 Profile、字体集合和网络配置；出口验证必须从来宾环境内部发起。
-5. “真实硬件已改变”永远不是默认结论。透传 GPU、虚拟 CPU 和虚拟设备都要按事实展示。
+### Delivery scope
 
-WSL、Sandbox 和 Hyper-V 都通过同一 `EnvironmentBackend` 抽象接入；WSL 不成为 VeriSilo 核心依赖。每个后端的出口和 DNS 必须从其内部验证，不能复用桌面控制器请求。代理与外部 Mihomo 的当前实现边界见[网络身份与出口 Provider](network-identity-providers.md)。
+1. Freeze the `EnvironmentBackend` interface: create, start, pause, snapshot, destroy, network configuration, health check and log export.
+2. Provide a signed base-image manifest and reproducible configuration. Do not distribute system images of unknown origin directly.
+3. By default, turn off host writable-directory mapping, clipboard, camera, microphone, USB and unnecessary GPU passthrough. When the user enables one, show its effect on the isolation boundary.
+4. Each VM stores its own browser Profile, font set and network configuration. Network-exit verification must start from inside the guest environment.
+5. "Real hardware has changed" is never a default conclusion. Passthrough GPU, virtual CPU and virtual devices must all be shown as they are.
 
-### 发布门槛
+WSL, Sandbox and Hyper-V all connect through the same `EnvironmentBackend` abstraction. WSL does not become a core VeriSilo dependency. Each backend's network exit and DNS must be verified from inside that backend and cannot reuse requests from the desktop controller. For the current implementation boundary of proxies and external Mihomo, see [Network identity and exit providers](network-identity-providers.md).
 
-- 来宾与宿主的 Cookie、磁盘、剪贴板、映射目录、端口和设备访问符合默认拒绝策略。
-- 快照恢复不会把两个 Silo 的密钥、种子或浏览器数据合并。
-- 关闭网络或代理验证失败时，“必须代理”环境无法进入正常浏览会话。
-- 卸载 VeriSilo 不会静默删除用户仍在使用的 VM；删除环境需要单独确认并给出数据影响。
+### Release gate
 
-## V0.9：自托管远程环境
+- Guest and host access to Cookies, disks, clipboard, mapped directories, ports and devices follows the default-deny policy.
+- A snapshot restore does not merge the keys, seeds or browser data of two Silos.
+- When the network is off or proxy verification fails, a required-proxy environment cannot enter a normal browsing session.
+- Uninstalling VeriSilo does not silently delete a VM the user is still using. Deleting an environment needs separate confirmation and a statement of the data impact.
 
-V0.9 的首个远程模式是用户自有服务器或组织自托管节点，不是默认 VeriSilo 公有云。远程会话生命周期可以参考 [Browserless 的 session 管理](https://docs.browserless.io/baas/session-management)，但协议、加密卷、浏览器控制和审计由 VeriSilo 自己定义与验证。
+## V0.9: self-hosted remote environment
 
-### 交付范围
+The first remote mode of V0.9 is a user-owned server or an organization-hosted node. It is not a default VeriSilo public cloud. The remote session lifecycle can draw on [Browserless session management](https://docs.browserless.io/baas/session-management), but VeriSilo defines and verifies the protocol, encrypted volumes, browser control and audit itself.
 
-1. 一个最小远程 Agent：相互认证、版本协商、环境创建、会话启动、健康检查、TTL 和销毁。
-2. 每个远程环境使用独立进程或 VM 边界、加密持久卷和单独网络配置；出口 IP、DNS 和协议检查从远端内部运行。
-3. 提供浏览器画面/输入通道与可选 Playwright 类自动化入口；人工会话和自动化权限分开授权。
-4. 桌面端明确显示数据所在地区、节点所有者、密钥归属、在线成本、最后活动时间和删除状态。
-5. 默认不将 Cookie、凭证或报告复制到 VeriSilo 服务；导入导出都需要用户明确操作和审计记录。
+### Delivery scope
 
-### 发布门槛
+1. A minimal remote Agent: mutual authentication, version negotiation, environment creation, session start, health check, TTL and destruction.
+2. Each remote environment uses a separate process or VM boundary, an encrypted persistent volume and its own network configuration. Exit IP, DNS and protocol checks run from inside the remote side.
+3. Provide a browser display/input channel and an optional Playwright-style automation entry point. Authorize human sessions and automation separately.
+4. The desktop explicitly shows data region, node owner, key ownership, online cost, last activity time and deletion status.
+5. By default, do not copy Cookies, credentials or reports to a VeriSilo service. Import and export both require an explicit user action and an audit record.
 
-- 控制面失联后远端会话按用户策略锁定或到期，不无限期暴露。
-- Agent 拒绝降级协议、未知字段、过大消息和未授权环境 ID。
-- 删除操作能证明计算实例、持久卷、快照和临时密钥分别进入预期状态。
-- 桌面端断言与远端证据可对应：配置、应用和实际出口验证不能混为一个状态。
+### Release gate
 
-## V0.9 之后
+- After the control plane is lost, the remote session locks or expires according to user policy and is not exposed indefinitely.
+- The Agent rejects protocol downgrade, unknown fields, oversized messages and unauthorized environment IDs.
+- A delete operation can prove that the compute instance, persistent volume, snapshots and temporary keys each reached the expected state.
+- Desktop assertions and remote evidence correspond to each other. Configuration, application and actual network-exit verification must not be merged into one state.
 
-真实移动设备、设备农场、Linux/macOS 宿主和组织级调度可以在上述接口稳定后评估。它们不会阻塞 Windows 首发，也不会被扩展 UI 伪装成已经存在。
+## After V0.9
 
-## 许可证和供应链规则
+Real mobile devices, device farms, Linux/macOS hosts and organization-level scheduling can be evaluated once the interfaces above are stable. They do not block the Windows first release, and the extension UI will not present them as existing.
 
-- VeriSilo 核心保持 MPL-2.0；文档保持 CC BY 4.0。
-- FingerprintJS/CreepJS 类 MIT 代码、BrowserForge 的 Apache-2.0 代码和 Camoufox 的 MPL-2.0 代码只有在完成版本锁定、NOTICE、归属、修改记录和 SBOM 后才可进入发行物。
-- CreepJS 名称受商标政策约束；VeriSilo 只能描述其测试思想或记录兼容结果，不能把自己的组件、服务或公开测试站命名为 CreepJS。
-- Donut Browser 的 AGPL-3.0 代码不得复制或改写进 MPL 核心；只允许根据公开行为独立实现通用产品思想。
-- 第三方浏览器引擎必须作为可替换适配器；安装、升级、回滚、停止维护和安全公告都要在 UI 中可见。
+## License and supply-chain rules
 
-## 统一声明
+- The VeriSilo core stays MPL-2.0. Documentation stays CC BY 4.0.
+- MIT code of the FingerprintJS/CreepJS kind, BrowserForge's Apache-2.0 code and Camoufox's MPL-2.0 code may enter a distribution only after version pinning, NOTICE, attribution, modification records and SBOM are complete.
+- The CreepJS name is subject to a trademark policy. VeriSilo may describe its test ideas or record compatibility results. It must not name its own components, services or public test sites CreepJS.
+- Donut Browser's AGPL-3.0 code must not be copied or rewritten into the MPL core. Only independent implementation of general product ideas from public behavior is allowed.
+- A third-party browser engine must be a replaceable adapter. Install, upgrade, rollback, end of maintenance and security advisories must all be visible in the UI.
 
-专用引擎、VM 和远程环境提高的是隔离层级与配置一致性，不保证绕过风控，也不消除行为、账号关系、支付信息、服务端历史或人为操作带来的关联。VeriSilo 的发布标准是“边界清楚且有证据”，不是“绝对不可检测”。
+## Overall statement
+
+Dedicated engines, VMs and remote environments raise the isolation level and configuration coherence. They do not guarantee bypassing risk controls, and they do not remove correlation caused by behavior, account relationships, payment information, server-side history or human actions. VeriSilo's release standard is "a clear boundary with evidence", not "absolutely undetectable".

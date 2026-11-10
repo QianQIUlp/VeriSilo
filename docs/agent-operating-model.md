@@ -1,109 +1,111 @@
-# VeriSilo Agent 工作模型
+# VeriSilo agent operating model
 
-状态：**规范性工作协议**。目标是在不降低产品语义、直接证据和 fail-closed 边界的前提下，
-让执行成本与任务风险匹配。默认选择能完成目标的最轻流程，而不是复制历史上最重的流程。
+Status: **normative working protocol**. The goal is to match execution cost to task risk
+without lowering product semantics, direct evidence, or fail-closed boundaries.
+By default, choose the lightest process that reaches the goal. Do not copy the heaviest process used in the past.
 
-## 角色
+## Roles
 
-主脑负责理解产品目标、选择当前最有价值的问题、裁决跨模块语义和证据能支持的结论。
-执行 Agent 负责已明确范围内的实现与验证。主脑应审阅关键结论，但不默认重做执行 Agent
-的全部工作；执行 Agent 遇到会改变方案的未知时应返回主脑，而不是猜测。
+The lead agent understands the product goal, picks the most valuable problem right now, and rules on cross-module semantics and on what the evidence can support.
+An execution agent implements and verifies work within an already defined scope. The lead agent should review key conclusions, but by default does not redo all of
+the execution agent's work. When an execution agent hits an unknown that would change the plan, it should return to the lead agent instead of guessing.
 
-委派只有在并行工作确实节省时间，或需要独立观点降低重大判断风险时才使用。局部修改、
-单文件审阅和可直接完成的机械任务不为“流程完整”而强制委派。
+Delegate only when parallel work really saves time, or when an independent view lowers the risk of a major judgment. Local edits,
+single-file reviews, and mechanical tasks that can be finished directly are not delegated for the sake of "process completeness".
 
-## 四级执行强度
+## Four execution levels
 
-### L0：文档、注释、机械维护
+### L0: docs, comments, mechanical maintenance
 
-适用：不改变行为或合同语义的文档、链接、格式、重命名和显然机械的维护。
+Applies to: docs, links, formatting, renames, and plainly mechanical maintenance that do not change behavior or contract semantics.
 
-- 读取目标文件及直接引用；
-- 检查 diff、链接或格式；
-- 不创建 run-id、claim、manifest、task contract 或全量回归。
+- Read the target file and its direct references;
+- Check the diff, links, or formatting;
+- Do not create a run-id, claim, manifest, task contract, or full regression.
 
-### L1：普通局部实现
+### L1: ordinary local implementation
 
-适用：可回滚、范围明确、没有浏览器/外部状态的 bug fix 或小功能。
+Applies to: a bug fix or small feature that is reversible, has a clear scope, and involves no browser or external state.
 
-- 检查 owning seam、直接 callers 和现有测试；
-- 做根因上的最小改动；
-- 运行能直接失败于该改动的 focused tests；
-- 只有共享 schema/API/核心执行路径改变时才扩大回归。
+- Check the owning seam, direct callers, and existing tests;
+- Make the smallest change at the root cause;
+- Run focused tests that would directly fail on this change;
+- Widen the regression only when a shared schema/API/core execution path changes.
 
-### L2：构建、浏览器与证据任务
+### L2: build, browser, and evidence tasks
 
-适用：浏览器启动、引擎构建、一次性 claim、平台专属验证或会产生正式能力结论的任务。
+Applies to: browser launch, engine builds, one-shot claims, platform-specific verification, or tasks that produce a formal capability conclusion.
 
-- 冻结直接影响结论的输入、环境和停止条件；
-- 使用已有 lock/result/schema，不另建通用 provenance 平台；
-- 保存支持结论所需的原始 result、关键日志和产物 hash；
-- 一次失败只在发现新的、可复现根因后重试；
-- 只对改变的 binding 或证据边界重新资格验证。
+- Freeze the inputs, environment, and stop conditions that directly affect the conclusion;
+- Use the existing lock/result/schema. Do not build a separate general provenance platform;
+- Keep the raw result, key logs, and artifact hashes needed to support the conclusion;
+- After a failure, retry only once a new, reproducible root cause is found;
+- Requalify only the binding or evidence boundary that changed.
 
-### L3：产品、架构与高风险边界
+### L3: product, architecture, and high-risk boundaries
 
-适用：产品方向、公共数据/API 合同、安全边界、秘密、发布、破坏性操作或难回滚迁移。
+Applies to: product direction, public data/API contracts, security boundaries, secrets, releases, destructive operations, or migrations that are hard to roll back.
 
-- 读取北极星和相关 Accepted 决策；
-- 明确用户可见后果与替代方案；
-- 需要时取得显式决策或批准；
-- 验证强度按实际 blast radius 决定，不按“生产”“安全”等词自动升级。
+- Read the north star and the relevant Accepted decisions;
+- State the user-visible consequences and the alternatives;
+- Obtain an explicit decision or approval when needed;
+- Set verification strength by the actual blast radius, not by words such as "production" or "security".
 
-默认从最低级开始。只有直接证据表明风险更高或用户明确要求，才升级；历史任务曾经使用
-L2/L3，不代表相邻任务自动继承该等级。
+Start at the lowest level by default. Raise the level only on direct evidence of higher risk or an explicit user request. That an earlier task used
+L2/L3 does not mean an adjacent task inherits that level.
 
-## 任务合同何时需要
+## When a task contract is needed
 
-L0/L1 默认不写独立任务合同。L2/L3、多人交接或不可重复的一次性执行，只需一个短合同：
+L0/L1 do not get a separate task contract by default. L2/L3, multi-person handoffs, and non-repeatable one-shot executions need only one short contract:
 
-1. 要回答的一个问题；
-2. 允许与禁止范围；
-3. 成功/失败的直接判据；
-4. 必须保存的 evidence；
-5. 停止条件。
+1. The one question to answer;
+2. Allowed and forbidden scope;
+3. Direct criteria for success and failure;
+4. Evidence that must be kept;
+5. Stop conditions.
 
-不要为每个小阶段重复产品历史、全部非目标、完整 Git lineage 或理论失败矩阵。相关内容应
-链接到现有事实源；只有会改变本次裁决的字段才复制到合同。
+Do not repeat the product history, every non-goal, the full Git lineage, or a theoretical failure matrix for each small phase. Link to the existing source of truth for
+that material. Copy a field into the contract only when it changes the ruling for this task.
 
-## 最低充分证据
+## Minimum sufficient evidence
 
-- 对每个关键 claim 选择一个最直接、经济的信号；
-- 相关输入未变时复用既有 hash、build 与 accepted evidence；
-- docs-only 变更不跑浏览器或代码全量回归；
-- 单文件逻辑修复优先 focused test，不默认跑所有历史套件；
-- build success 只证明 build，runtime observation 只证明对应观测，不提升措辞；
-- 只有矛盾证据、失败检查、关键输入变化或高影响未覆盖路径才增加验证。
+- For each key claim, pick the most direct and economical signal;
+- When the relevant inputs have not changed, reuse existing hashes, builds, and accepted evidence;
+- A docs-only change does not run a browser or a full code regression;
+- For a single-file logic fix, prefer a focused test. Do not run every historical suite by default;
+- A successful build proves only the build. A runtime observation proves only the corresponding observation. Do not raise the wording;
+- Add verification only for contradictory evidence, a failed check, a change to a key input, or an uncovered high-impact path.
 
-机器证据放在 lock、result、manifest、测试与 Git 中。状态页只保存当前决策和索引，不复制
-每个历史文件的全部 SHA。Git 历史本身承担文档变更审计，不要求状态页永久追加旧正文。
+Machine evidence lives in locks, results, manifests, tests, and Git. The status page keeps only the current decision and an index. It does not copy
+the full SHA of every historical file. Git history itself audits document changes. The status page is not required to keep appending old text forever.
 
-## 主脑审阅
+## Lead agent review
 
-主脑按成本受控方式确认：
+The lead agent confirms the following in a cost-controlled way:
 
-1. 结果是否回答了正确问题；
-2. 是否越过产品、架构或禁止范围；
-3. 核心结论是否有直接证据；
-4. 失败与未验证项是否被如实限定；
-5. 下一普通使用是否存在已知直接阻断。
+1. Whether the result answers the right question;
+2. Whether it crosses product, architecture, or forbidden scope;
+3. Whether the core conclusion has direct evidence;
+4. Whether failures and unverified items are stated accurately;
+5. Whether any known direct blocker exists for the next ordinary use.
 
-没有矛盾时，不重跑完整矩阵、不重新计算所有稳定材料、不另做第二套 evidence framework。
-阻断只列会推翻当前结论的事项；其他发现进入 backlog 或被明确放弃。
+When nothing contradicts, do not rerun the full matrix, do not recompute all stable material, and do not build a second evidence framework.
+List as blockers only the items that would overturn the current conclusion. Other findings go to the backlog or are explicitly dropped.
 
-## Gate 与停止规则
+## Gates and stop rules
 
-Gate 只用于阶段能力、L2/L3 执行或多人交接，不用于每个 commit。允许的结论是
-`passed`、`failed`、`blocked` 或 `inconclusive`，并严格限定到实际证据层。
+A Gate is used only for phase capabilities, L2/L3 execution, or multi-person handoffs. It is not used for every commit. The allowed conclusions are
+`passed`, `failed`, `blocked`, or `inconclusive`, strictly limited to the evidence layer actually reached.
 
-Immutable evidence attempt 与所属工程 Gate 分层管理：保留每次 `failed` 或
-`inconclusive` 结果，但不因此自动结束原 Gate 或创建 recovery Gate；在原授权和风险
-范围内关闭证据支持的因果 blocker，局部验证后再生成新 attempt，不重试未变输入或选样本。
+An immutable evidence attempt and the engineering Gate it belongs to are managed in separate layers. Keep every `failed` or
+`inconclusive` result, but do not use it to end the original Gate or create a recovery Gate automatically. Within the original authorization and risk
+scope, close out the causal blockers the evidence supports, validate locally, and then produce a new attempt. Do not retry unchanged inputs or pick samples.
 
-满足以下条件即停止：目标完成、关键路径已直接验证、没有证据支持的当前阻断，且继续检查
-的预期收益低于时间、token、复杂度或维护成本。不能因为还能想象更多检查就继续。
+Stop when the goal is complete, the critical path has been directly verified, no evidence-supported blocker remains, and the expected benefit of further checking
+is lower than the cost in time, tokens, complexity, or maintenance. Do not keep going just because more checks can be imagined.
 
-## 当前项目路由
+## Current project routing
 
-具体读取规则以仓库根 [AGENTS.md](../AGENTS.md) 为准；当前 Camoufox Gate 与下一任务只看
-[Camoufox 状态页](camoufox-program-status.md)。历史合同仅在调查对应 run、claim 或决策时读取。
+The specific reading rules are in the repository root [AGENTS.md](../AGENTS.md). The current phase, work package and next task are on the [program status page](program-status.md); the plan for each phase, including a kickoff prompt for a new session, is in the [roadmap](roadmap.md). For Camoufox engine Gates and evidence, read the [Camoufox status and evidence index](camoufox-program-status.md). Read historical contracts only when investigating the corresponding run, claim, or decision.
+
+When the owner starts a new session for a roadmap phase, the session's main agent acts as the lead agent: it freezes the task contract for each work package, delegates or executes it, reviews the result with the checks above, and updates the program status page.

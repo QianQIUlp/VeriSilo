@@ -3,7 +3,7 @@
 ```text
 Tauri desktop UI
   ├─ encrypted vault: Silo metadata + seed material + optional network secrets
-  ├─ launcher: one managed process and one user-data directory
+  ├─ launcher: per-Silo browser processes and user-data directories (up to two concurrent Managed sessions; other modes exclusive)
   │    ├─ stock Chrome/Edge adapter
   │    └─ verified external controlled-engine adapter (Formal-v3 package path)
   │         └─ Camoufox Host/package, Artifact binding, and production launch seam
