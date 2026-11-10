@@ -5,10 +5,10 @@
 - Status: **Camoufox engine Gate history and evidence index**. Since 2026-11-10 it is no longer the product routing page; the current phase and next task are on [program-status.md](program-status.md).
 - Updated: 2026-09-28 (Camoufox facts); header updated 2026-11-10
 - Current stable product branch: `codex/camoufox-m3-engine-adapter`
-- Current canonical development source: `origin/baseline/dev` (the local working ref is `baseline/dev`; when everything is normal the two are exactly equal)
+- Development source: `main` (since 2026-11-10; before that, `origin/baseline/dev`)
 - Current public version: **v0.1.0-rc5** (`PUBLIC_GITHUB_PRERELEASE`; tag `v0.1.0-rc5`, release gate closed)
 - `RC5_SOURCE_SHA`: `7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027`; this is the fixed release source, not the development baseline
-- Current engineering phase: **post-rc5 normal product development**; new tasks branch from the latest `origin/baseline/dev`
+- Current engineering phase: see [program-status.md](program-status.md)
 - Historical rc2 candidate: source `c1688d5a392ffa69ae77c246bcb4bb78b083e26f`, installer SHA-256
   `3e7c9158c7f41520984c6e16e54725d60c7e5d1e6313a3bbaf39384af0415cb3`; document changes do not change its source binding
 
@@ -48,8 +48,8 @@ source stabilization → rc2 build → package verification → packaged runtime
 → rc5 release gate closed
 ```
 
-The current phase is **post-rc5 normal product development**. The canonical development source is
-`origin/baseline/dev`, and `main` is not advanced automatically because it is behind. The recent performance and responsiveness work is closed out, and it obtained bounded lifecycle evidence in a native
+As of 2026-09-28 the phase was **post-rc5 normal product development** (development then ran on
+`origin/baseline/dev`; since 2026-11-10 it runs on `main`). The recent performance and responsiveness work is closed out, and it obtained bounded lifecycle evidence in a native
 Windows Managed development instance. The Camoufox launch difference in the worktree was traced to an inherited-DACL development limit of the current
 Codex sandbox/worktree, and the product path in a separate LocalAppData directory in the normal user context passed.
 See the [performance task disposition](qa/performance-architecture-2026-09-27.md) and the
@@ -300,4 +300,4 @@ When a Gate changes, the status page **replaces** the current Gate, the next tas
 Historical accuracy is carried by Git commits, immutable claims/results, locks/manifests and the historical documents above.
 
 An ordinary status update does not require a full regression or recomputing stable artifacts. Check only the changed references and the directly related facts.
-Browser / build / product claims are still handled under the L2/L3 rules of the [Agent operating model](agent-operating-model.md).
+Browser, build and product claims still need frozen inputs, direct evidence and explicit stop conditions.

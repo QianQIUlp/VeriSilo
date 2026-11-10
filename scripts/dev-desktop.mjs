@@ -19,7 +19,7 @@ if (
   !/^[a-z0-9][a-z0-9_-]{0,23}$/.test(name ?? "")
 ) {
   throw new Error(
-    "Usage: pnpm desktop:worktree <name> --port 1421 [--vault <name>] [--preview]",
+    "Usage: pnpm desktop:dev <name> --port 1421 [--vault <name>] [--preview]",
   );
 }
 const vault = values.vault ?? `dev-${name}`;

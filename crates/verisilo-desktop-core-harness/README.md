@@ -8,8 +8,8 @@ It also compiles `application/`, the shared operations called by Tauri commands
 and the local HTTP API. Run its focused tests with `cargo test --offline --locked
 --manifest-path crates/verisilo-desktop-core-harness/Cargo.toml --lib application::`.
 The two-root test checks independent Vault sessions and reopening without an app
-window. See [parallel development](../../docs/development-worktrees.md) for ownership
-and isolated development commands.
+window. See [development](../../docs/development.md#code-map) for code ownership
+and development commands.
 
 Run all gates with Rust 1.88:
 

@@ -20,7 +20,7 @@ execution agent. Before execution, read the following in order:
 
 1. [Identity platform north star](identity-platform-north-star.md);
 2. [Camoufox-first decision](camoufox-managed-engine-decision.md);
-3. [Agent operating model](agent-operating-model.md);
+3. Agent operating model (removed on 2026-11-10; see Git history);
 4. [Camoufox current status](camoufox-program-status.md);
 5. This document;
 6. [EngineAdapter current state](engine-adapters.md), [Host v1](camoufox-host-v1.md), and the [M2-W Gate](camoufox-m2w-windows.md).
@@ -347,5 +347,5 @@ The execution agent must finally return:
    your own that M3 or a product Gate has passed.
 
 After receiving the result, the lead agent makes the Gate decision under the
-[cost-controlled review protocol](agent-operating-model.md) and does not redo the whole
+cost-controlled review protocol (in the agent operating model, removed on 2026-11-10) and does not redo the whole
 execution task by default.

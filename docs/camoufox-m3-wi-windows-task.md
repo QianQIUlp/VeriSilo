@@ -150,7 +150,7 @@ Before execution, read the following completely and in order:
 1. The root `AGENTS.md`;
 2. [Identity platform north star](identity-platform-north-star.md);
 3. [Camoufox-first decision](camoufox-managed-engine-decision.md);
-4. [Agent operating model](agent-operating-model.md);
+4. Agent operating model (removed on 2026-11-10; see Git history);
 5. [Camoufox current status](camoufox-program-status.md);
 6. [M3-0 task and Gate result](camoufox-m3-engine-adapter-task.md);
 7. This document;

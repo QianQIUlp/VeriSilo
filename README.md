@@ -24,7 +24,7 @@ The current public build is the **v0.1.0-rc5 prerelease** ([release](https://git
 | Automation    | Loopback local API, CLI, Camoufox page actions                                                  | API v2, Playwright/CDP attach, MCP server (v0.4)    |
 | Organization  | Name and color                                                                                  | Groups, tags, notes, search, bulk operations (v0.3) |
 | Teams         | None                                                                                            | End-to-end encrypted sync and roles (v1.x)          |
-| Languages     | Desktop UI in Chinese; extension in English and Chinese                                         | English and Chinese everywhere (v0.2)               |
+| Languages     | English only (since 2026-11)                                                                    | English only                                        |
 
 ## What VeriSilo does not claim
 
@@ -59,7 +59,7 @@ The desktop app also needs Rust 1.88 or newer and the native Tauri prerequisites
 
 ## Product site
 
-The static Astro site lives in [`apps/site`](apps/site) and is published at [verisilo.qiu.works](https://verisilo.qiu.works/) in English and Chinese.
+The static Astro site lives in [`apps/site`](apps/site) and is published at [verisilo.qiu.works](https://verisilo.qiu.works/) in English.
 
 ```bash
 pnpm site:dev

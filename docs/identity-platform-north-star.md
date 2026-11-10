@@ -31,7 +31,7 @@ A feature is not done until it meets these bars on the supported platforms:
 3. **Coherent fingerprints.** Every website-visible surface of one identity agrees with every other: JavaScript in windows, iframes and workers; HTTP headers; TLS and HTTP/2 shape; screen, fonts, GPU, locale, timezone and network location. The identity stays the same across restarts.
 4. **Network integrity.** A Silo that requires a proxy never leaks to a direct connection. DNS and WebRTC follow the declared path or are reported as not covered.
 5. **Secure.** Secrets are encrypted at rest. Builds are signed. Updates are signed and can roll back. Automation access is scoped, revocable and audited.
-6. **Distributable.** Signed installers, automatic updates, upgrades that keep user data, and an English and Chinese user interface. Windows and Linux first, macOS later.
+6. **Distributable.** Signed installers, automatic updates, upgrades that keep user data, and an English user interface. Windows and Linux first, macOS later.
 7. **Operable at work.** Groups, tags, search and bulk operations; a reusable proxy library; import and export; a local API and Playwright/CDP automation; team sharing with roles.
 8. **Honest.** The product says what it controls, what it only observes and what it cannot control. It never inflates a configured value into a verified one.
 

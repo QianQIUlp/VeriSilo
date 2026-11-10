@@ -9,8 +9,7 @@
 
 | Item                         | Value                                                                                                              |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Canonical development source | `origin/baseline/dev`. New tasks fork from it through `node scripts/agent-task.mjs start`.                         |
-| `main`                       | Updated by pull request. It may trail or lead `baseline/dev`; it never advances automatically.                     |
+| Development branch           | `main`. Work happens directly on `main` and is pushed to `origin/main`. There are no other long-lived branches.    |
 | Current public prerelease    | `v0.1.0-rc5` (`PUBLIC_GITHUB_PRERELEASE`), source `7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027`. Release gate closed. |
 | Release Gate                 | Closed. Only the owner opens a new RC or release Gate, by explicit instruction.                                    |
 | Outer Authenticode           | Unsigned on every release so far. The internal engine CMS signature is a separate boundary.                        |
@@ -18,30 +17,28 @@
 
 ## Current phase
 
-**Phase 1: engineering foundation**, with the **E0 Controlled Chromium evaluation** allowed in parallel in the `host` lane. Phase 0 (repository reset) is complete.
+**Phase 1: engineering foundation**, with the **E0 Controlled Chromium evaluation** allowed in parallel. Phase 0 (repository reset) is complete.
 
-| Work package                                  | Lane          | State       | Evidence |
-| --------------------------------------------- | ------------- | ----------- | -------- |
-| P1.1 Startup and lock-poison resilience       | `core`        | not started |          |
-| P1.2 Generated cross-boundary types           | `integration` | not started |          |
-| P1.3 Typed error contract                     | `integration` | not started |          |
-| P1.4 Platform modules and dependency hygiene  | `core`        | not started |          |
-| P1.5 Cargo workspace and CI completeness      | `integration` | not started |          |
-| P1.6 Vault and local-attack-surface hardening | `core`        | not started |          |
-| P1.7 Frontend workspace split                 | `ui`          | not started |          |
-| E0 Controlled Chromium evaluation             | `host`        | not started |          |
+| Work package                                  | State       | Evidence |
+| --------------------------------------------- | ----------- | -------- |
+| P1.1 Startup and lock-poison resilience       | not started |          |
+| P1.2 Generated cross-boundary types           | not started |          |
+| P1.3 Typed error contract                     | not started |          |
+| P1.4 Platform modules and dependency hygiene  | not started |          |
+| P1.5 Cargo workspace and CI completeness      | not started |          |
+| P1.6 Vault and local-attack-surface hardening | not started |          |
+| P1.7 Frontend workspace split                 | not started |          |
+| E0 Controlled Chromium evaluation             | not started |          |
 
 ## Next task
 
-Start **P1.5 Cargo workspace and CI completeness** first. It fixes the failing `pnpm format:check` that every release workflow runs, and it gives every later work package a lint and test safety net. Then P1.1 and P1.4 (both `core`, different seams), then P1.2 followed by P1.3. P1.6 and P1.7 can run whenever their lanes are free. E0 needs the owner's approval before any build machine is rented.
+Start **P1.5 Cargo workspace and CI completeness** first. It fixes the failing `pnpm format:check` that every release workflow runs, and it gives every later work package a lint and test safety net. Then P1.1 and P1.4, then P1.2 followed by P1.3. P1.6 and P1.7 can run at any point. E0 needs the owner's approval before any build machine is rented.
 
 ## Phase 0 record (2026-11-10)
 
-- Integration task `agent/integration/english-docs-commercial-f3a089`, forked from `origin/baseline/dev` at `e3a0ec8` and fast-forwarded to `main` at `1cf0f29`.
-- Every agent-facing document is now in English. Historical records carry a header that points to the original Chinese text in Git at `1cf0f29`. `scripts/agent-task.mjs` prints English; its 40 tests pass.
-- New: [north star](identity-platform-north-star.md) (rewritten), [commercial direction decision](product-direction-decision-2026-11.md), [roadmap](roadmap.md), [architecture review](architecture-review-2026-11.md), this page.
-- Updated: `AGENTS.md`, [product scope](product-scope.md), [non-goals](non-goals.md), `README.md`, the [compatibility matrix](compatibility-matrix.md) row for Controlled Chromium, and a supersession note on the [Camoufox-first decision](camoufox-managed-engine-decision.md).
-- No product code, Gate result or evidence classification changed.
+- Product direction re-anchored: new [north star](identity-platform-north-star.md), [commercial direction decision](product-direction-decision-2026-11.md), [roadmap](roadmap.md), [architecture review](architecture-review-2026-11.md) and this page.
+- The repository's docs and comments are English. Converting the product text (desktop UI, CLI and backend messages, extension, website, Host messages) to English-only is in progress. Historical records carry a header that points to the original Chinese text in Git at `1cf0f29`.
+- The agent task workflow (`scripts/agent-task.mjs`, lanes, task worktrees, `baseline/dev`) was removed. Development now happens directly on `main`; see [AGENTS.md](../AGENTS.md).
 
 ## Product facts that later work must not overstate
 

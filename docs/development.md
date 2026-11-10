@@ -15,15 +15,44 @@ pnpm install
 pnpm check
 pnpm test
 pnpm extension:build
-pnpm desktop:worktree ui --port 1421 --preview # Mode A: real React UI + mock API + Vite HMR, no Tauri or Vault.
-pnpm desktop:worktree core --port 1422 # Mode B: real Tauri desktop dev; frontend HMR, Rust changes rebuild and restart the app.
+pnpm desktop:dev ui --port 1421 --preview # Mode A: real React UI + mock API + Vite HMR, no Tauri or Vault.
+pnpm desktop:dev core --port 1422 # Mode B: real Tauri desktop dev; frontend HMR, Rust changes rebuild and restart the app.
 ```
 
-Use the cheapest execution mode that exercises the changed behavior; see
-[three-tier dev loop](development-worktrees.md#three-tier-development-loop). RC installer builds and
-acceptance follow the release workflow and the
-[Windows acceptance runbook](acceptance/manual-windows-acceptance-runbook.md),
-not the normal development loop.
+## Development loop
+
+Use the cheapest mode that exercises the changed behavior.
+
+| Mode            | Command                                              | Use it for                                                                            | It cannot prove                                                    |
+| --------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| A: UI Preview   | `pnpm desktop:dev ui --port 1421 --preview`          | CSS, layout, components, copy, form UX, loading/error/empty/running states            | that the Vault was written, a command is correct, or an engine ran |
+| B: Desktop Dev  | `pnpm desktop:dev core --port 1422 [--vault <name>]` | Tauri commands, application logic, Vault, runtime, front-to-back behavior             | installer or production packaging behavior                         |
+| C: RC / release | release workflow                                     | installer, upgrade, uninstall, production packaging; only after the owner opens an RC |                                                                    |
+
+- Mode A opens `http://127.0.0.1:1421/preview.html?scenario=overview`. It uses real React components with an in-memory mock API and Vite HMR. It starts no Rust backend, no Vault and no browser engine. Scenarios: overview, empty list, locked, loading, first use, running, launch failure, and the managed creation form. A refresh discards the mock data. The network exit check button still makes a real public network query after explicit consent.
+- Mode B runs real React → Tauri dev → the real application against a named Vault (`dev-<name>`, never the default Vault). Frontend edits hot-reload in the WebView. Rust edits trigger an incremental rebuild and an automatic app restart; no installer is built.
+- Each running instance needs its own name and port. `--dry-run` prints the arguments without starting. The script does not change system environment variables, install the product, copy user Profiles, or build an engine package.
+- Prefer the CLI against a real backend for Vault, Silo lifecycle, Managed, network, persistence and recovery behavior. Use Preview for what the CLI cannot express.
+- A real Managed launch needs an existing, verified development engine package. Preview cannot replace it, and ordinary development does not build a package for it.
+
+RC installer builds and acceptance follow the [release process](release.md) and the
+[Windows acceptance runbook](acceptance/manual-windows-acceptance-runbook.md).
+
+## Code map
+
+| Work                                                | Owning code                                                                 | Minimum check                                       |
+| --------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------- |
+| Pages, forms, interactions                          | `apps/desktop/src/features/{silos,identity,vault,network,environments,cli}` | desktop check/test; Preview of the affected pages   |
+| Page assembly                                       | `apps/desktop/src/App.tsx`                                                  | desktop check/test; Preview                         |
+| Cross-page session, refresh, invalidation, ordering | `apps/desktop/src/workspace/useDesktopWorkspace.ts`                         | Vault UI tests                                      |
+| Shared business operations                          | `apps/desktop/src-tauri/src/application/`                                   | core harness `application::` tests                  |
+| Window, tray, Tauri entry point                     | `apps/desktop/src-tauri/src/lib.rs`, `commands.rs`                          | desktop Rust check                                  |
+| CLI and local HTTP API                              | `local_api.rs`, `bin/verisilo-cli.rs`                                       | desktop Rust check/test                             |
+| Lifecycle, package verification, network, storage   | `launcher.rs`, `engine.rs`, `mihomo.rs`, `proxy_relay.rs`, `vault.rs`       | the owning module's tests                           |
+| Camoufox Host and engine                            | `apps/camoufox-host/`                                                       | Host tests; native runtime evidence when it matters |
+| User acceptance and release                         | `tests/windows/`, `docs/acceptance/`, release scripts                       | the matching acceptance on the exact candidate      |
+
+`application` does not depend on Tauri and does not start an HTTP service. Tauri commands and the local API call the same operations. The frontend reaches the backend only through `desktop-api.ts`. A change to `desktop-api.ts`, `packages/contracts`, a Rust DTO, the Host protocol or a data format lands as one commit that updates both sides.
 
 For a full Windows manual pass, including the exact Rust checks, browser
 profiles, Native Host registration, and evidence files, follow the

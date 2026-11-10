@@ -84,7 +84,7 @@ Roadmap: P1.2, P1.3, P3.1, Phase 6.
 1. No updater plugin; engine packages have their own install, update and rollback commands that must be coordinated with app updates.
 2. Startup panics exit without a message.
 3. Signing runs only on manual dispatch and has never produced a signed public build.
-4. The desktop UI and tray are Chinese only.
+4. The desktop UI and tray were Chinese only (converted to English-only on 2026-11-10).
 5. The Camoufox engine is pinned to Firefox 152.0.4.
 
 Roadmap: P1.1, P1.5, P2.1 to P2.5.

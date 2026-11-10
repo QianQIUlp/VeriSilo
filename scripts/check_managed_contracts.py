@@ -6,7 +6,7 @@ desktop UI. This gate parses each layer and fails the build on the first
 drift, so a layer can no longer be missed silently (the engine.rs allowlist
 and the host timezone whitelist both drifted this way historically).
 
-Runs as part of every `agent-task verify`; exits 1 with a layer-labeled diff.
+Run it after changing any of these tables; exits 1 with a layer-labeled diff.
 """
 
 import ast

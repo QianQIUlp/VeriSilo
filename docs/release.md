@@ -2,8 +2,7 @@
 
 ## Current release status
 
-The current canonical development source is `origin/baseline/dev` (with local
-`baseline/dev` required to match it exactly); fixed revisions are documented
+The development source is `main`; fixed revisions are documented
 checkpoints, not moving source refs. The current public release is
 **v0.1.0-rc5**, `PUBLIC_GITHUB_PRERELEASE`, tagged at
 `7d0f83a04f1d7dc33a0a3c7ec2f93a5e5da99027`; its release gate is closed.

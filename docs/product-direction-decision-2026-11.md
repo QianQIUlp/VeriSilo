@@ -112,15 +112,15 @@ Product copy never promises undetectability or bypassing anti-fraud systems. The
 
 ## D8. Sequencing
 
-1. Phase 1: engineering foundation. E0 engine evaluation runs in parallel in the `host` lane.
-2. Phase 2: commercial single-user release (signed, auto-updating, bilingual).
+1. Phase 1: engineering foundation. E0 engine evaluation runs in parallel.
+2. Phase 2: commercial single-user release (signed, auto-updating, English).
 3. Phase 3: profile management at scale.
 4. Phase 4: automation and integrations.
 5. Phase 5: Controlled Chromium engine.
 6. Phase 6: teams, sync and commerce.
 7. Phase 7: platform and environment expansion (macOS, isolated machines, remote).
 
-Phases 3 and 4 can overlap with Phase 5 when they touch different lanes. WSL, Hyper-V, VMware and remote environment expansion stays frozen until Phase 7. Details are in the [roadmap](roadmap.md).
+Phases 3 and 4 can overlap with Phase 5 when they touch different code. WSL, Hyper-V, VMware and remote environment expansion stays frozen until Phase 7. Details are in the [roadmap](roadmap.md).
 
 ## What stays valid
 
